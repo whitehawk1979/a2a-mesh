@@ -11,6 +11,7 @@ import pytest
 from a2a_mesh.exceptions import NoCapableAgentError, QueueFullError
 from a2a_mesh.models import (
     AgentCard,
+    AgentStatus,
     RegisteredAgent,
     RoutingPolicy,
     RoutingStrategy,
@@ -259,6 +260,72 @@ class TestRouterMulti:
         selected = router.route_multi(task, count=3)
         loads = [a.current_load for a in selected]
         assert loads == sorted(loads)
+
+
+class TestRouteExplainability:
+    """Tests for ranked routing explanations."""
+
+    def test_explain_route_sorts_and_marks_availability(
+        self, populated_registry: AgentRegistry
+    ) -> None:
+        policy = RoutingPolicy(strategy=RoutingStrategy.LEAST_LOAD, max_queue_depth=2)
+        router = Router(populated_registry, policy=policy)
+        populated_registry.agents["research-agent"].current_load = 0
+        populated_registry.agents["analysis-agent"].current_load = 1
+        populated_registry.agents["writing-agent"].current_load = 5
+        task = Task(name="t", required_capabilities=["summarization"])
+
+        explanation = router.explain_route(task)
+
+        assert [row.agent_name for row in explanation] == [
+            "research-agent",
+            "analysis-agent",
+            "writing-agent",
+        ]
+        assert explanation[0].rank == 1
+        assert explanation[0].available is True
+        assert explanation[-1].available is False
+        assert explanation[0].strategy_value == 0.0
+        assert any("least_load=0" in reason for reason in explanation[0].reasons)
+
+    def test_explain_route_includes_custom_hook_reason(
+        self, populated_registry: AgentRegistry
+    ) -> None:
+        def prefer_writing(
+            agents: Sequence[RegisteredAgent],
+            task: Task,
+            policy: RoutingPolicy,
+        ) -> list[RegisteredAgent]:
+            del task, policy
+            return sorted(agents, key=lambda agent: agent.card.name != "writing-agent")
+
+        router = Router(populated_registry, strategy_hook=prefer_writing)
+        task = Task(name="t", required_capabilities=["summarization"])
+
+        explanation = router.explain_route(task, count=2)
+
+        assert len(explanation) == 2
+        assert explanation[0].agent_name == "writing-agent"
+        assert any(
+            "custom strategy hook active" in reason for reason in explanation[0].reasons
+        )
+
+    def test_explain_route_reports_versioned_capability_match(self) -> None:
+        registry = AgentRegistry(health_interval=600.0)
+        registry.register(
+            AgentCard(
+                name="versioned-writer",
+                capabilities=["summarization@v2"],
+            )
+        )
+        registry.agents["versioned-writer"].status = AgentStatus.HEALTHY
+        router = Router(registry)
+        task = Task(name="t", required_capabilities=["summarization"])
+
+        explanation = router.explain_route(task)
+
+        assert explanation[0].agent_name == "versioned-writer"
+        assert "matches capabilities: summarization@v2" in explanation[0].reasons
 
 
 class TestRouterConcurrencyStress:

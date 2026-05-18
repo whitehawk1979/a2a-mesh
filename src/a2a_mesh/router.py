@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
 from typing import TypeAlias
 
 from a2a_mesh._logging import get_logger
@@ -27,6 +28,30 @@ RoutingHook: TypeAlias = Callable[
     [Sequence[RegisteredAgent], Task, RoutingPolicy],
     RoutingHookResult,
 ]
+
+
+@dataclass(frozen=True)
+class RouteCandidate:
+    """Explainable routing candidate returned by :meth:`Router.explain_route`.
+
+    Attributes:
+        agent_name: Human-readable agent name.
+        rank: 1-based ranking after applying the active strategy.
+        available: Whether the agent is within queue/capacity limits.
+        strategy_value: Raw metric used by the current strategy, if any.
+        reasons: Human-readable explanation snippets for the ranking.
+    """
+
+    agent_name: str
+    rank: int
+    available: bool
+    strategy_value: float | None = None
+    reasons: list[str] = field(default_factory=list)
+
+
+def _capability_base(capability: str) -> str:
+    """Return the unversioned capability name used for explanations."""
+    return capability.split("@", 1)[0]
 
 
 class Router:
@@ -135,6 +160,47 @@ class Router:
             agents=[a.card.name for a in selected],
         )
         return selected
+
+    def explain_route(
+        self,
+        task: Task,
+        count: int | None = None,
+    ) -> list[RouteCandidate]:
+        """Explain how the router would rank candidates for *task*.
+
+        This is useful for debugging routing policy choices, building
+        dashboards, and validating custom hooks before dispatching work.
+
+        Args:
+            task: Task to evaluate.
+            count: Optional maximum number of ranked candidates to return.
+
+        Returns:
+            Ranked explainability records. Agents at capacity are included
+            but marked unavailable so callers can diagnose queue pressure.
+
+        Raises:
+            NoCapableAgentError: If no registered agent can satisfy the task.
+        """
+        candidates = self._find_candidates(task)
+        if not candidates:
+            caps = task.required_capabilities or [task.agent]
+            raise NoCapableAgentError(caps)
+
+        ranked = self._sort_by_strategy(candidates, task)
+        if count is not None:
+            ranked = ranked[:count]
+
+        return [
+            RouteCandidate(
+                agent_name=agent.card.name,
+                rank=index,
+                available=self._within_capacity(agent),
+                strategy_value=self._strategy_value(agent),
+                reasons=self._build_route_reasons(agent, task),
+            )
+            for index, agent in enumerate(ranked, start=1)
+        ]
 
     def _find_candidates(self, task: Task) -> list[RegisteredAgent]:
         """Find agents capable of handling the task.
@@ -248,3 +314,53 @@ class Router:
         """Check whether an agent can accept another task."""
         capacity = min(self.policy.max_queue_depth, agent.card.max_concurrent)
         return agent.current_load < max(0, capacity)
+
+    def _strategy_value(self, agent: RegisteredAgent) -> float | None:
+        """Return the raw metric used by the active routing strategy."""
+        strategy = self.policy.strategy
+        if strategy == RoutingStrategy.LEAST_LOAD:
+            return float(agent.current_load)
+        if strategy == RoutingStrategy.LEAST_COST:
+            return float(agent.card.cost_per_task)
+        if strategy == RoutingStrategy.LEAST_LATENCY:
+            return float(agent.avg_latency_ms)
+        if strategy == RoutingStrategy.HEALTH_SCORE:
+            return float(agent.health_score)
+        return None
+
+    def _build_route_reasons(self, agent: RegisteredAgent, task: Task) -> list[str]:
+        """Build human-readable explanation snippets for a ranked agent."""
+        reasons = [
+            f"status={agent.status.value}",
+            f"load={agent.current_load}/{min(self.policy.max_queue_depth, agent.card.max_concurrent)}",
+        ]
+        if task.required_capabilities:
+            required_bases = {
+                _capability_base(cap) for cap in task.required_capabilities
+            }
+            matched = sorted(
+                cap
+                for cap in agent.card.capabilities
+                if _capability_base(cap) in required_bases
+            )
+            if matched:
+                reasons.append(f"matches capabilities: {', '.join(matched)}")
+
+        strategy = self.policy.strategy
+        if strategy == RoutingStrategy.LEAST_LOAD:
+            reasons.append(f"least_load={agent.current_load}")
+        elif strategy == RoutingStrategy.LEAST_COST:
+            reasons.append(f"cost_per_task=${agent.card.cost_per_task:.4f}")
+        elif strategy == RoutingStrategy.LEAST_LATENCY:
+            reasons.append(f"avg_latency_ms={agent.avg_latency_ms:.1f}")
+        elif strategy == RoutingStrategy.HEALTH_SCORE:
+            reasons.append(f"health_score={agent.health_score:.3f}")
+        elif strategy == RoutingStrategy.ROUND_ROBIN:
+            reasons.append("round_robin ordering")
+        elif strategy == RoutingStrategy.RANDOM:
+            reasons.append("random candidate set")
+
+        if self.strategy_hook is not None:
+            reasons.append("custom strategy hook active")
+
+        return reasons
