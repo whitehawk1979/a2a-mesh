@@ -102,8 +102,35 @@ class PGTransport(TransportAdapter):
                     notify = self._conn.notifies.pop(0)
                     try:
                         payload = json.loads(notify.payload)
-                        message = A2AMessage.from_dict(payload)
-                        await self._incoming_queue.put((message, "pg_notify"))
+                        
+                        # Handle different channels
+                        if notify.channel == "mesh_channel":
+                            # Full message from mesh_messages INSERT trigger
+                            msg_id = payload.get("id")
+                            msg_type = payload.get("msg_type", "unknown")
+                            sender = payload.get("sender", "unknown")
+                            recipient = payload.get("recipient")
+                            priority = payload.get("priority", 5)
+                            
+                            # Fetch full message from DB
+                            message = self._fetch_message(msg_id)
+                            if message:
+                                await self._incoming_queue.put((message, "pg_notify"))
+                            else:
+                                # Fallback: create message from NOTIFY payload
+                                message = A2AMessage.create(
+                                    sender=sender,
+                                    recipient=recipient or "broadcast",
+                                    msg_type=msg_type,
+                                    payload=payload,
+                                    priority=priority,
+                                )
+                                await self._incoming_queue.put((message, "pg_notify"))
+                        else:
+                            # Other channels (a2a_channel, a2a_steer_channel, etc.)
+                            message = A2AMessage.from_dict(payload)
+                            await self._incoming_queue.put((message, "pg_notify"))
+
                     except Exception as e:
                         log.error(f"Failed to parse NOTIFY payload: {e}")
 
@@ -113,30 +140,71 @@ class PGTransport(TransportAdapter):
                 log.error(f"PG listen error: {e}")
                 await asyncio.sleep(5)
 
+    def _fetch_message(self, msg_id: str):
+        """Fetch a full message from mesh.mesh_messages by ID."""
+        if not self._conn:
+            return None
+        try:
+            cur = self._conn.cursor()
+            cur.execute("""
+                SELECT id, sender, recipient, msg_type, priority, payload, 
+                       routing_mode, src_addr, dst_addr
+                FROM mesh.mesh_messages WHERE id = %s
+            """, (msg_id,))
+            row = cur.fetchone()
+            cur.close()
+            
+            if row:
+                msg = A2AMessage.create(
+                    sender=row[1],
+                    recipient=row[2],
+                    msg_type=row[3],
+                    payload=row[5] if isinstance(row[5], dict) else {},
+                    priority=row[4],
+                )
+                return msg
+        except Exception as e:
+            log.error(f"Failed to fetch message {msg_id}: {e}")
+        return None
+
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send message via PG NOTIFY."""
+        """Send message via PG — INSERT into mesh_messages (trigger sends NOTIFY)."""
         if not self._available or not self._conn:
             return SendResult(transport="pg_notify", success=False, error="not connected")
 
         try:
             import psycopg2
 
-            # Determine channel based on message type
-            channel = self._get_channel(message)
-            payload = json.dumps(message.to_dict(), default=str)
-
-            # Use NOTIFY with payload (PG 9.0+)
+            # Insert into mesh.mesh_messages — the NOTIFY trigger will fire
             cur = self._conn.cursor()
-            # Escape single quotes in payload
-            escaped_payload = payload.replace("'", "''")
-            cur.execute(f"NOTIFY {channel}, '{escaped_payload}'")
+            payload_json = json.dumps(message.payload, default=str)
+
+            # Use routing mode from message or default
+            routing_mode = getattr(message, 'routing_mode', 'hybrid')
+
+            cur.execute("""
+                INSERT INTO mesh.mesh_messages 
+                    (id, sender, recipient, msg_type, priority, payload, 
+                     routing_mode, src_addr, dst_addr, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'sent')
+            """, (
+                message.id,
+                message.sender,
+                message.recipient,
+                message.type,
+                getattr(message, 'priority', 5),
+                payload_json,
+                routing_mode,
+                getattr(message, 'src_address', None),
+                getattr(message, 'dst_address', None),
+            ))
             self._conn.commit()
             cur.close()
 
-            return SendResult(transport="pg_notify", success=True, latency_ms=0.5)
+            return SendResult(transport="pg_notify", success=True, latency_ms=1.0)
 
         except Exception as e:
-            log.error(f"PG NOTIFY send failed: {e}")
+            log.error(f"PG send failed: {e}")
             self._available = False
             return SendResult(transport="pg_notify", success=False, error=str(e))
 

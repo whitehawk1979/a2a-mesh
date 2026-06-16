@@ -1,9 +1,13 @@
+import logging
 """A2A Mesh Dedup — Message deduplication with TTL-based cache."""
 
 import time
 import threading
 from collections import OrderedDict
 from typing import Optional
+
+log = logging.getLogger("a2a_mesh.dedup")
+
 
 
 class DedupCache:

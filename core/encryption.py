@@ -1,8 +1,12 @@
+import logging
 """A2A Mesh Encryption — Ed25519 signing + NaCl encryption for mesh messages."""
 
 import os
 import hashlib
 from typing import Optional, Tuple
+
+log = logging.getLogger("a2a_mesh.encryption")
+
 
 try:
     from nacl.signing import SigningKey, VerifyKey

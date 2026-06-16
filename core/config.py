@@ -8,11 +8,11 @@ from typing import Optional, List, Dict
 
 @dataclass
 class PGConfig:
-    host: str = "192.168.1.30"
-    port: int = 5432
-    dbname: str = "agent_memory"
-    user: str = "nova"
-    password: str = ""
+    host: str = os.environ.get("A2A_PG_HOST", "192.168.1.30")
+    port: int = int(os.environ.get("A2A_PG_PORT", "5432"))
+    dbname: str = os.environ.get("A2A_PG_DBNAME", "agent_memory")
+    user: str = os.environ.get("A2A_PG_USER", "nova")
+    password: str = os.environ.get("A2A_PG_PASSWORD", "")
     channels: List[str] = field(default_factory=lambda: [
         "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel"
     ])
@@ -29,8 +29,8 @@ class P2PConfig:
 
 @dataclass
 class HTTPConfig:
-    url: str = "http://192.168.1.30:8199"
-    health_url: str = "http://192.168.1.30:8198/health"
+    url: str = os.environ.get("A2A_HTTP_URL", "http://192.168.1.30:8199")
+    health_url: str = os.environ.get("A2A_HEALTH_URL", "http://192.168.1.30:8198/health")
     timeout: int = 5
     retries: int = 3
 

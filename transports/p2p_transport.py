@@ -37,11 +37,16 @@ class P2PTransport(TransportAdapter):
         self._server: Optional[asyncio.Server] = None
         self._peers: Dict[str, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
         self._peer_addresses: Dict[str, str] = {}  # peer_name → host:port
+        self._peer_backoff: Dict[str, float] = {}  # peer_name → next retry timestamp
+        self._peer_retry_count: Dict[str, int] = {}  # peer_name → consecutive failure count
+        self._reconnect_task: Optional[asyncio.Task] = None
         self._incoming_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
         self._listen_host = config.p2p.listen_host
         self._listen_port = config.p2p.listen_port
         self._message_callback = None
+        self._max_retries = config.p2p.max_connections  # reuse as max reconnect attempts
+        self._reconnect_interval = config.p2p.idle_timeout  # base retry interval in seconds
 
     async def start(self) -> bool:
         """Start TCP server and connect to known peers."""
@@ -62,6 +67,9 @@ class P2PTransport(TransportAdapter):
                 name = node.get("name", "")
                 if host and name:
                     asyncio.create_task(self._connect_to_peer(name, host, port))
+
+            # Start reconnection monitor
+            self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
             return True
         except Exception as e:
@@ -125,17 +133,26 @@ class P2PTransport(TransportAdapter):
                 pass
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
-        """Connect to a known peer."""
+        """Connect to a known peer with exponential backoff."""
         try:
             reader, writer = await asyncio.open_connection(host, port)
             self._peers[name] = (reader, writer)
             self._peer_addresses[name] = f"{host}:{port}"
+            # Reset retry count on success
+            self._peer_retry_count[name] = 0
+            self._peer_backoff.pop(name, None)
             log.info(f"Connected to peer {name} at {host}:{port}")
 
             # Start reading from this peer
             asyncio.create_task(self._handle_connection(reader, writer))
         except Exception as e:
-            log.debug(f"Failed to connect to {name} at {host}:{port}: {e}")
+            retry_count = self._peer_retry_count.get(name, 0) + 1
+            self._peer_retry_count[name] = retry_count
+            # Exponential backoff: 5s, 10s, 20s, 40s... max 5min
+            backoff = min(self._reconnect_interval * (2 ** (retry_count - 1)), 300)
+            next_retry = time.time() + backoff
+            self._peer_backoff[name] = next_retry
+            log.debug(f"Failed to connect to {name} at {host}:{port} (retry #{retry_count}, next in {backoff:.0f}s): {e}")
 
     async def send(self, message: A2AMessage) -> SendResult:
         """Send message to peer(s) via TCP."""
@@ -207,3 +224,27 @@ class P2PTransport(TransportAdapter):
     def get_peer_count(self) -> int:
         """Return number of connected peers."""
         return len(self._peers)
+
+    async def _reconnect_loop(self):
+        """Periodically check for disconnected peers and attempt reconnection."""
+        while self._running:
+            try:
+                await asyncio.sleep(30)  # Check every 30 seconds
+                if not self._running:
+                    break
+
+                now = time.time()
+                for name, address in list(self._peer_addresses.items()):
+                    if name not in self._peers:
+                        # Peer is disconnected — check backoff
+                        next_retry = self._peer_backoff.get(name, 0)
+                        if now >= next_retry:
+                            host, port_str = address.rsplit(":", 1)
+                            port = int(port_str)
+                            log.info(f"Reconnecting to peer {name} at {address}")
+                            await self._connect_to_peer(name, host, port)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Reconnect loop error: {e}")

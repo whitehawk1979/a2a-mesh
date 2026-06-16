@@ -111,6 +111,59 @@ def cmd_elect(trigger: bool = False):
             print(f"    0x{addr:04X}  {name}{marker}")
 
 
+def cmd_leave(node_name: str = ""):
+    """Leave mesh network gracefully — deregister from PG."""
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    config = MeshConfig.from_yaml(config_file) if os.path.exists(config_file) else MeshConfig()
+    name = node_name or config.node_name
+
+    import psycopg2
+    conn = psycopg2.connect(
+        host=config.pg.host, port=config.pg.port,
+        dbname=config.pg.dbname, user=config.pg.user,
+        password=config.pg.password,
+    )
+    conn.autocommit = True
+    cur = conn.cursor()
+
+    # Check node exists
+    cur.execute("SELECT node_name, role, short_addr FROM mesh.mesh_nodes WHERE node_name = %s", (name,))
+    row = cur.fetchone()
+
+    if not row:
+        print(f"❌ Node '{name}' not found in mesh")
+        cur.close()
+        conn.close()
+        return
+
+    _, role, addr = row
+
+    # Don't allow coordinator to leave without re-election
+    if role == "coordinator":
+        cur.execute("SELECT COUNT(*) FROM mesh.mesh_nodes WHERE role = 'router' AND status = 'active'")
+        router_count = cur.fetchone()[0]
+        if router_count == 0:
+            print("🔴 Cannot leave — no routers to take over as coordinator!")
+            print("   Add a router first, or force with --force")
+            cur.close()
+            conn.close()
+            return
+        print(f"⚠️  Coordinator leaving — election will be triggered")
+
+    # Mark node as offline and set address to 0xFFFF (left mesh)
+    cur.execute("""
+        UPDATE mesh.mesh_nodes 
+        SET status = 'offline', short_addr = 65535, last_heartbeat = NOW() 
+        WHERE node_name = %s
+    """, (name,))
+
+    print(f"👋 Node '{name}' (0x{addr:04X}, {role}) left the mesh")
+    print(f"   Status set to 'offline', address released")
+
+    cur.close()
+    conn.close()
+
+
 def cmd_keygen():
     """Generate a new Ed25519 keypair for mesh signing."""
     private_hex, public_hex = MeshEncryption.generate_keypair()
@@ -726,6 +779,10 @@ def main():
     elect_parser.add_argument("--trigger", "-t", action="store_true",
                              help="Trigger coordinator election")
 
+    # leave
+    leave_parser = subparsers.add_parser("leave", help="Leave mesh network gracefully")
+    leave_parser.add_argument("--name", "-n", default="", help="Node name (default: config node_name)")
+
     # discover
     subparsers.add_parser("discover", help="Discover mesh nodes")
 
@@ -753,6 +810,8 @@ def main():
         cmd_join(args.role, args.name, args.parent)
     elif args.command == "elect":
         cmd_elect(trigger=args.trigger)
+    elif args.command == "leave":
+        cmd_leave(args.name)
     elif args.command == "keygen":
         cmd_keygen()
     elif args.command == "test":

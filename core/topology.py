@@ -19,8 +19,12 @@ Address scheme (Cskip-based):
 import enum
 import hashlib
 import time
+import logging
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
+
+log = logging.getLogger("a2a_mesh.topology")
+
 
 
 class NodeRole(enum.Enum):

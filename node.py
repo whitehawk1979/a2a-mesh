@@ -4,6 +4,7 @@ MeshNode is the central orchestrator that:
 - Manages all transports (PG, P2P, HTTP)
 - Routes messages via the MeshRouter
 - Handles discovery via mDNS
+- Runs coordinator election & failover
 - Provides CLI interface
 """
 
@@ -22,6 +23,7 @@ from .core.router import MeshRouter
 from .core.encryption import MeshEncryption
 from .core.topology import NodeRole, MeshAddress, AddressManager
 from .core.tree_router import TreeRouter
+from .core.election import CoordinatorElection, ElectionConfig, CoordinatorState
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
@@ -111,6 +113,18 @@ class MeshNode:
             # End device — lightweight, connects via parent
             log.info(f"End device mode: will join network via parent router")
 
+        # Initialize coordinator election
+        self.election = CoordinatorElection(
+            self_name=self.node_name,
+            self_addr=self.mesh_address.short if self.mesh_address else 0xFFFF,
+            self_role=topo.node_role,
+            config=ElectionConfig(
+                heartbeat_interval=self.config.heartbeat.interval,
+                suspect_threshold=self.config.heartbeat.warning_threshold,
+                down_threshold=self.config.heartbeat.critical_threshold,
+            ),
+        )
+
         # Initialize transports
         self._pg_transport = PGTransport(self.config)
         self._p2p_transport = P2PTransport(self.config)
@@ -127,10 +141,14 @@ class MeshNode:
             port=self.config.p2p.listen_port,
         )
 
+        # Message handlers
+        self._handlers: List[Callable] = []
+
         # State
         self._running = False
         self._tasks: List[asyncio.Task] = []
         self._start_time = 0
+        self._pg_conn = None  # Direct PG connection for writes
 
         # Setup logging
         self._setup_logging()
@@ -154,12 +172,29 @@ class MeshNode:
 
     def add_handler(self, handler: Callable):
         """Add a message handler."""
-        self.router.add_handler(handler)
+        self._handlers.append(handler)
+
+    async def _dispatch_to_handlers(self, message: A2AMessage):
+        """Dispatch incoming message to all registered handlers."""
+        for handler in self._handlers:
+            try:
+                result = handler(message)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as e:
+                log.error(f"Handler error: {e}")
 
     async def start(self) -> bool:
         """Start all transports and discovery."""
-        log.info(f"Starting mesh node '{self.node_name}'")
+        log.info(f"Starting mesh node '{self.node_name}' (role={self.role.value})")
         self._start_time = time.time()
+
+        # Initialize direct PG connection for writes
+        if not await self._init_pg_write_conn():
+            log.warning("PG write connection failed — will retry")
+
+        # Register self in mesh.mesh_nodes
+        await self._register_node()
 
         # Start transports in priority order
         results = {}
@@ -194,10 +229,11 @@ class MeshNode:
             else:
                 log.warning("❌ mDNS discovery failed")
 
-        # Start receive loop
+        # Start background loops
         self._running = True
         self._tasks.append(asyncio.create_task(self._receive_loop()))
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
+        self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
 
         # At least one transport must be working
         any_ok = any(results.values())
@@ -209,9 +245,12 @@ class MeshNode:
         return any_ok
 
     async def stop(self):
-        """Stop all transports and discovery."""
+        """Stop all transports and discovery. Deregister from mesh."""
         log.info(f"Stopping mesh node '{self.node_name}'")
         self._running = False
+
+        # Deregister from mesh_nodes
+        await self._deregister_node()
 
         # Cancel tasks
         for task in self._tasks:
@@ -228,6 +267,13 @@ class MeshNode:
         await self._http_transport.stop()
         await self._discovery.stop()
 
+        # Close PG write connection
+        if self._pg_conn:
+            try:
+                self._pg_conn.close()
+            except Exception:
+                pass
+
         log.info("Mesh node stopped")
 
     async def send(self, message: A2AMessage) -> SendResult:
@@ -239,6 +285,9 @@ class MeshNode:
         if self.encryption and not message.signature:
             content = message.sign_content()
             message.signature = self.encryption.sign_message(content)
+
+        # Also persist to PG for reliability
+        await self._persist_message(message)
 
         return await self.router.send(message)
 
@@ -266,6 +315,115 @@ class MeshNode:
         )
         return await self.send(msg)
 
+    # ─── PG Connection & Persistence ───────────────────────────────
+
+    async def _init_pg_write_conn(self) -> bool:
+        """Initialize a direct PG connection for writes (INSERT into mesh_messages)."""
+        try:
+            import psycopg2
+            self._pg_conn = psycopg2.connect(
+                host=self.config.pg.host,
+                port=self.config.pg.port,
+                dbname=self.config.pg.dbname,
+                user=self.config.pg.user,
+                password=self.config.pg.password,
+            )
+            self._pg_conn.autocommit = True
+            log.info("PG write connection established")
+            return True
+        except Exception as e:
+            log.error(f"PG write connection failed: {e}")
+            return False
+
+    async def _persist_message(self, message: A2AMessage):
+        """Persist message to mesh.mesh_messages for reliability and NOTIFY trigger."""
+        if not self._pg_conn:
+            return
+
+        try:
+            cur = self._pg_conn.cursor()
+            cur.execute("""
+                INSERT INTO mesh.mesh_messages 
+                    (id, sender, recipient, msg_type, priority, payload, 
+                     routing_mode, src_addr, dst_addr, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'sent')
+            """, (
+                message.id,
+                message.sender,
+                message.recipient,
+                message.type,
+                getattr(message, 'priority', 5),
+                json.dumps(message.payload, default=str),
+                getattr(message, 'routing_mode', 'hybrid'),
+                self.mesh_address.short if self.mesh_address else None,
+                None,  # dst_addr resolved later
+            ))
+            cur.close()
+        except Exception as e:
+            log.error(f"Failed to persist message {message.id[:8]}: {e}")
+
+    async def _register_node(self):
+        """Register this node in mesh.mesh_nodes."""
+        if not self._pg_conn:
+            return
+
+        try:
+            cur = self._pg_conn.cursor()
+            cur.execute("""
+                INSERT INTO mesh.mesh_nodes 
+                    (node_name, role, short_addr, extended_uuid, parent_addr, depth, status, last_heartbeat)
+                VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW())
+                ON CONFLICT (node_name) DO UPDATE SET
+                    role = EXCLUDED.role,
+                    short_addr = EXCLUDED.short_addr,
+                    status = 'active',
+                    last_heartbeat = NOW()
+            """, (
+                self.node_name,
+                self.role.value,
+                self.mesh_address.short if self.mesh_address else 0,
+                str(self.mesh_address.extended) if self.mesh_address else self.node_name,
+                self.mesh_address.parent_short if self.mesh_address else None,
+                self.mesh_address.depth if self.mesh_address else 0,
+            ))
+            cur.close()
+            log.info(f"Registered node {self.node_name} (0x{(self.mesh_address.short if self.mesh_address else 0):04X}) in mesh")
+        except Exception as e:
+            log.error(f"Failed to register node: {e}")
+
+    async def _deregister_node(self):
+        """Mark this node as offline in mesh.mesh_nodes."""
+        if not self._pg_conn:
+            return
+
+        try:
+            cur = self._pg_conn.cursor()
+            cur.execute("""
+                UPDATE mesh.mesh_nodes SET status = 'offline', last_heartbeat = NOW()
+                WHERE node_name = %s
+            """, (self.node_name,))
+            cur.close()
+            log.info(f"Deregistered node {self.node_name}")
+        except Exception as e:
+            log.error(f"Failed to deregister node: {e}")
+
+    async def _update_heartbeat_pg(self):
+        """Update heartbeat timestamp in PG."""
+        if not self._pg_conn:
+            return
+
+        try:
+            cur = self._pg_conn.cursor()
+            cur.execute("""
+                UPDATE mesh.mesh_nodes SET last_heartbeat = NOW(), status = 'active'
+                WHERE node_name = %s
+            """, (self.node_name,))
+            cur.close()
+        except Exception as e:
+            log.error(f"Heartbeat PG update failed: {e}")
+
+    # ─── Receive & Election Loops ──────────────────────────────────
+
     async def _receive_loop(self):
         """Main receive loop — polls all transports for incoming messages."""
         while self._running:
@@ -277,9 +435,17 @@ class MeshNode:
                     try:
                         messages = await transport.receive()
                         for msg, from_transport in messages:
+                            # Skip own messages (loop prevention)
+                            if msg.sender == self.node_name:
+                                continue
+
                             result = await self.router.receive(msg, from_transport)
                             if result.status == "processed":
                                 log.debug(f"Processed message {msg.id[:8]} from {msg.sender}")
+
+                                # Dispatch to handlers
+                                await self._dispatch_to_handlers(msg)
+
                     except Exception as e:
                         log.debug(f"Receive error on {transport_name}: {e}")
 
@@ -307,6 +473,11 @@ class MeshNode:
                     payload={"uptime": uptime, "transports": list(self.router.transports.keys())},
                     priority=1,
                 )
+
+                # Persist heartbeat to PG
+                await self._update_heartbeat_pg()
+
+                # Also send via transport
                 result = await self.router.send(msg)
                 if not result.success:
                     log.warning(f"Heartbeat send failed: {result.error}")
@@ -315,6 +486,61 @@ class MeshNode:
                 break
             except Exception as e:
                 log.error(f"Heartbeat error: {e}")
+
+    async def _election_monitor_loop(self):
+        """Monitor coordinator health and trigger election if needed."""
+        while self._running:
+            try:
+                # Check every heartbeat interval
+                await asyncio.sleep(self.config.heartbeat.interval)
+
+                if not self._running:
+                    break
+
+                # Get known routers from PG for election
+                routers = await self._get_known_routers()
+
+                # Check coordinator health
+                state = self.election.check_coordinator_health(routers)
+
+                if state == CoordinatorState.DOWN:
+                    if self.election.should_initiate_election(routers):
+                        claim = self.election.initiate_election()
+                        log.warning(f"🏛️ Coordinator DOWN — claiming acting coordinator: {claim}")
+
+                        # Broadcast election claim
+                        await self.broadcast(
+                            msg_type="coordinator_claim",
+                            payload=claim,
+                            priority=10,
+                        )
+
+                elif state == CoordinatorState.SUSPECTED:
+                    log.warning(f"⚠️ Coordinator suspected — age: {time.time() - self.election.coordinator.last_heartbeat:.0f}s")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Election monitor error: {e}")
+
+    async def _get_known_routers(self) -> list:
+        """Get list of known routers from PG for election."""
+        if not self._pg_conn:
+            return []
+
+        try:
+            cur = self._pg_conn.cursor()
+            cur.execute("""
+                SELECT node_name, short_addr FROM mesh.mesh_nodes 
+                WHERE role = 'router' AND status = 'active'
+                ORDER BY short_addr
+            """)
+            rows = cur.fetchall()
+            cur.close()
+            return [(name, addr) for name, addr in rows]
+        except Exception as e:
+            log.error(f"Failed to get routers: {e}")
+            return []
 
     def _get_local_ip(self) -> str:
         """Get local IP address for mDNS registration."""
@@ -330,15 +556,20 @@ class MeshNode:
 
     def get_status(self) -> dict:
         """Return node status."""
-        return {
+        status = {
             "node_name": self.node_name,
+            "role": self.role.value,
             "running": self._running,
             "uptime": int(time.time() - self._start_time) if self._start_time else 0,
             "transports": self.router.get_stats(),
-            "discovery": self._discovery.get_discovered_nodes() if self._discovery._running else {},
             "encryption": "enabled" if self.encryption else "disabled",
             "dedup_cache_size": self.router.dedup.size,
+            "coordinator": self.election.get_status() if self.election else None,
         }
+        if self.mesh_address:
+            status["address"] = f"0x{self.mesh_address.short:04X}"
+            status["depth"] = self.mesh_address.depth
+        return status
 
 
 async def main():
@@ -366,20 +597,30 @@ async def main():
     config.node_name = args.name
     config.p2p.listen_port = args.port
 
+    if args.verbose:
+        logging.getLogger("a2a_mesh").setLevel(logging.DEBUG)
+
     # Create and start node
     node = MeshNode(config)
     node.add_handler(lambda msg: print(f"📨 {msg.sender} → {msg.recipient}: {msg.type}"))
 
+    # Setup signal handlers for graceful shutdown
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(node.stop()))
+
     try:
         if await node.start():
             print(f"🟢 Mesh node '{args.name}' started")
+            print(f"   Role: {node.role.value}")
+            print(f"   Address: 0x{node.mesh_address.short:04X}" if node.mesh_address else "   Address: pending")
             print(f"   PG: {'✅' if node._pg_transport.is_available() else '❌'}")
             print(f"   P2P: {'✅' if node._p2p_transport.is_available() else '❌'}")
             print(f"   HTTP: {'✅' if node._http_transport.is_available() else '❌'}")
 
             # Run forever
             try:
-                while True:
+                while node._running:
                     await asyncio.sleep(1)
             except (KeyboardInterrupt, SystemExit):
                 pass
