@@ -124,6 +124,13 @@ class MeshConfig:
     # Telegram config
     telegram_chat_id: str = ""
 
+    # Auth config
+    auth_mode: str = "open"  # open, whitelist, tofu
+    auth_whitelist: List[str] = field(default_factory=list)
+
+    # Health endpoint
+    health_port: int = 8650
+
     # Log file
     log_file: str = os.path.expanduser("~/.hermes/logs/a2a_mesh.log")
 
@@ -220,5 +227,40 @@ class MeshConfig:
         config.webhook_port = int(os.environ.get('WEBHOOK_PORT', mesh.get('webhook_port', 8644)))
         config.webhook_secret = os.environ.get('WEBHOOK_SECRET', mesh.get('webhook_secret', ''))
         config.telegram_chat_id = os.environ.get('A2A_TELEGRAM_CHAT_ID', mesh.get('telegram_chat_id', ''))
+
+        # Auth mode
+        config.auth_mode = mesh.get('auth_mode', 'open')
+        config.health_port = int(mesh.get('health_port', 8650))
+
+        # Heartbeat config
+        hb_data = mesh.get('heartbeat', {})
+        if hb_data:
+            config.heartbeat = HeartbeatConfig(
+                interval=hb_data.get('interval', 300),
+                warning_threshold=hb_data.get('warning_threshold', 300),
+                critical_threshold=hb_data.get('critical_threshold', 900),
+                silent_on_success=hb_data.get('silent_on_success', True),
+            )
+
+        # Topology config
+        topo_data = mesh.get('topology', {})
+        if topo_data:
+            config.topology = TopologyConfig(
+                node_role=topo_data.get('node_role', 'end_device'),
+                routing_mode=topo_data.get('routing_mode', 'hybrid'),
+                max_children=topo_data.get('max_children', 20),
+                max_routers=topo_data.get('max_routers', 6),
+                max_depth=topo_data.get('max_depth', 5),
+                trust_center_enabled=topo_data.get('trust_center_enabled', True),
+                auto_approve_known_agents=topo_data.get('auto_approve_known_agents', True),
+                allowed_public_keys=topo_data.get('allowed_public_keys', []),
+                enable_sleepy_end_devices=topo_data.get('enable_sleepy_end_devices', True),
+                message_buffer_max_size=topo_data.get('message_buffer_max_size', 1000),
+                message_buffer_ttl_seconds=topo_data.get('message_buffer_ttl_seconds', 86400),
+                re_association_timeout=topo_data.get('re_association_timeout', 30),
+                coordinator_heartbeat_interval=topo_data.get('coordinator_heartbeat_interval', 10),
+                enable_route_cache=topo_data.get('enable_route_cache', True),
+                route_cache_ttl=topo_data.get('route_cache_ttl', 300),
+            )
 
         return config

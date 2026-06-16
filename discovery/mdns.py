@@ -43,6 +43,7 @@ class MeshDiscovery:
         try:
             self._zeroconf = Zeroconf()
             aiozc = AsyncZeroconf(self._zeroconf)
+            self._aiozc = aiozc
 
             # Register our service
             properties = {
@@ -62,7 +63,7 @@ class MeshDiscovery:
 
             # Start browsing for other services
             self._browser = AsyncServiceBrowser(
-                self._zeroconf,
+                aiozc,
                 self.service_type,
                 handlers=[self._on_service_state_change],
             )
@@ -76,7 +77,12 @@ class MeshDiscovery:
 
     async def stop(self) -> bool:
         """Stop mDNS advertising and browsing."""
-        if self._zeroconf:
+        if self._aiozc:
+            try:
+                await self._aiozc.async_close()
+            except Exception:
+                pass
+        elif self._zeroconf:
             try:
                 await self._zeroconf.async_close()
             except Exception:

@@ -373,6 +373,67 @@ class MeshNode:
         )
         return await self.send(msg)
 
+    # ─── Health Endpoint ─────────────────────────────────────────────
+
+    async def _run_health_server(self):
+        """Simple HTTP health check server on configured port."""
+        try:
+            from aiohttp import web
+        except ImportError:
+            log.warning("aiohttp not installed — health endpoint disabled")
+            return
+
+        async def health_handler(request):
+            """Return node health status as JSON."""
+            uptime = time.time() - self._start_time if self._start_time else 0
+            status = {
+                "status": "running" if self._running else "stopped",
+                "node": self.node_name,
+                "role": self.role.value,
+                "address": f"0x{self.mesh_address.short:04X}" if self.mesh_address else "pending",
+                "uptime_seconds": round(uptime, 1),
+                "transports": {
+                    "pg": self._pg_transport.is_available(),
+                    "p2p": self._p2p_transport.is_available(),
+                    "http": self._http_transport.is_available(),
+                },
+                "election": self.election.get_status() if self.election else {},
+                "ack": self.ack_manager.get_stats(),
+                "offline_queue": self.offline_queue.get_stats(),
+                "messages_sent": self.router._stats.get("sent", 0),
+                "messages_received": self.router._stats.get("received", 0),
+            }
+            return web.json_response(status=200 if self._running else 503, data=status)
+
+        async def ready_handler(request):
+            """Readiness check — returns 200 only if PG transport is available."""
+            if self._pg_transport.is_available():
+                return web.json_response({"ready": True})
+            return web.json_response({"ready": False}, status=503)
+
+        app = web.Application()
+        app.router.add_get("/health", health_handler)
+        app.router.add_get("/ready", ready_handler)
+
+        try:
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", self._health_port)
+            await site.start()
+            log.info(f"Health endpoint started on port {self._health_port}")
+            # Keep running until stopped
+            while self._running:
+                await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.error(f"Health endpoint failed: {e}")
+        finally:
+            try:
+                await runner.cleanup()
+            except Exception:
+                pass
+
     # ─── PG Connection & Persistence ───────────────────────────────
 
     async def _init_pg_write_conn(self) -> bool:
@@ -687,69 +748,6 @@ async def main():
             sys.exit(1)
     finally:
         await node.stop()
-
-    # ─── Health Endpoint ─────────────────────────────────────────────
-
-    async def _run_health_server(self):
-        """Simple HTTP health check server on configured port."""
-        from aiohttp import web
-
-        async def health_handler(request):
-            """Return node health status as JSON."""
-            uptime = time.time() - self._start_time if self._start_time else 0
-            status = {
-                "status": "running" if self._running else "stopped",
-                "node": self.node_name,
-                "role": self.role.value,
-                "address": f"0x{self.mesh_address.short:04X}" if self.mesh_address else "pending",
-                "uptime_seconds": round(uptime, 1),
-                "transports": {
-                    "pg": self._pg_transport.is_available(),
-                    "p2p": self._p2p_transport.is_available(),
-                    "http": self._http_transport.is_available(),
-                },
-                "election": {
-                    "state": self.election.state.value,
-                    "coordinator": self.election.coordinator_name,
-                    "is_coordinator": self.election.is_coordinator(),
-                },
-                "ack": self.ack_manager.get_stats(),
-                "offline_queue": self.offline_queue.get_stats(),
-                "messages_sent": self.router._stats.get("sent", 0),
-                "messages_received": self.router._stats.get("received", 0),
-            }
-            return web.json_response(status=200 if self._running else 503, data=status)
-
-        async def ready_handler(request):
-            """Readiness check — returns 200 only if PG transport is available."""
-            if self._pg_transport.is_available():
-                return web.json_response({"ready": True})
-            return web.json_response({"ready": False}, status=503)
-
-        app = web.Application()
-        app.router.add_get("/health", health_handler)
-        app.router.add_get("/ready", ready_handler)
-
-        try:
-            runner = web.AppRunner(app)
-            await runner.setup()
-            site = web.TCPSite(runner, "0.0.0.0", self._health_port)
-            await site.start()
-            log.info(f"Health endpoint started on port {self._health_port}")
-            # Keep running until stopped
-            while self._running:
-                await asyncio.sleep(10)
-        except ImportError:
-            log.warning("aiohttp not installed — health endpoint disabled")
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            log.error(f"Health endpoint failed: {e}")
-        finally:
-            try:
-                await runner.cleanup()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":
