@@ -12,9 +12,10 @@ Features:
 import asyncio
 import json
 import logging
+import os
 import time
 import uuid
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
 log = logging.getLogger("a2a_mesh.dashboard")
@@ -44,6 +45,7 @@ class DashboardHandler:
     Mounted as routes on the existing aiohttp app (same port as /health).
     Routes:
         GET  /              → Dashboard HTML page
+        GET  /dashboard     → Dashboard HTML page
         GET  /api/status    → JSON status of all agents and mesh
         GET  /api/messages  → Recent messages (last 100)
         POST /api/send      → Send a message to the mesh
@@ -70,14 +72,14 @@ class DashboardHandler:
     async def _dashboard_page(self, request):
         """Serve the dashboard HTML page."""
         from aiohttp import web
-        html = self._generate_html()
+        html = self._load_html()
         return web.Response(text=html, content_type="text/html")
 
     async def _api_status(self, request):
         """Return full mesh status."""
         from aiohttp import web
         status = self.node.get_status()
-        # Convert any non-serializable objects to strings
+
         def sanitize(obj):
             if isinstance(obj, dict):
                 return {k: sanitize(v) for k, v in obj.items()}
@@ -91,6 +93,7 @@ class DashboardHandler:
                 return sanitize(obj.__dict__)
             else:
                 return str(obj)
+
         return web.json_response(sanitize(status))
 
     async def _api_messages(self, request):
@@ -195,7 +198,6 @@ class DashboardHandler:
     async def _api_send_file(self, request):
         """Upload a file to the mesh via P2P file transfer."""
         from aiohttp import web
-        # Multipart file upload
         reader = await request.multipart()
         field = None
         recipient = ""
@@ -214,7 +216,6 @@ class DashboardHandler:
 
         # Save to temp file
         import tempfile
-        import os
         tmp_dir = tempfile.mkdtemp(prefix="a2a_upload_")
         file_path = os.path.join(tmp_dir, field.filename)
         with open(file_path, "wb") as f:
@@ -281,7 +282,6 @@ class DashboardHandler:
                     try:
                         data = json.loads(msg.data)
                         if data.get("type") == "chat":
-                            # Forward to mesh
                             content = data.get("content", "")
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
@@ -375,377 +375,12 @@ class DashboardHandler:
             "message_history_size": len(self._message_history),
         }
 
-    def _generate_html(self) -> str:
-        """Generate the dashboard HTML page."""
-        return '''<!DOCTYPE html>
-<html lang="hu">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A2A Mesh Dashboard</title>
-<style>
-:root {
-  --bg: #0a0e17; --surface: #131a2b; --surface2: #1a2238;
-  --border: #2a3555; --primary: #4f8cff; --primary-dim: #2d5bb9;
-  --success: #22c55e; --warning: #f59e0b; --danger: #ef4444;
-  --text: #e2e8f0; --text2: #94a3b8; --text3: #64748b;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; }
-
-/* Header */
-.header { background:var(--surface); border-bottom:1px solid var(--border); padding:12px 20px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
-.header h1 { font-size:18px; font-weight:600; display:flex; align-items:center; gap:8px; }
-.header h1 .mesh-icon { width:28px; height:28px; background:var(--primary); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:16px; }
-.header-info { display:flex; gap:16px; align-items:center; font-size:13px; color:var(--text2); }
-.status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:4px; }
-.status-dot.online { background:var(--success); box-shadow:0 0 6px var(--success); }
-.status-dot.offline { background:var(--danger); }
-
-/* Main layout */
-.main { display:flex; flex:1; overflow:hidden; }
-
-/* Sidebar — Agent list */
-.sidebar { width:280px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
-.sidebar-header { padding:12px 16px; border-bottom:1px solid var(--border); font-size:14px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
-.sidebar-header .count { background:var(--primary-dim); color:var(--primary); padding:2px 8px; border-radius:10px; font-size:12px; }
-.agent-list { flex:1; overflow-y:auto; padding:8px; }
-.agent-card { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:8px; cursor:pointer; transition:border-color 0.2s; }
-.agent-card:hover { border-color:var(--primary); }
-.agent-card.active { border-color:var(--primary); box-shadow:0 0 8px rgba(79,140,255,0.2); }
-.agent-card .name { font-weight:600; font-size:14px; display:flex; align-items:center; gap:6px; }
-.agent-card .role { font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:0.5px; }
-.agent-card .transports { display:flex; gap:4px; margin-top:6px; flex-wrap:wrap; }
-.transport-badge { font-size:10px; padding:2px 6px; border-radius:4px; background:var(--primary-dim); color:var(--primary); }
-.transport-badge.inactive { background:var(--border); color:var(--text3); }
-
-/* Chat area */
-.chat-area { flex:1; display:flex; flex-direction:column; }
-.chat-header { padding:12px 20px; border-bottom:1px solid var(--border); background:var(--surface); display:flex; align-items:center; justify-content:space-between; }
-.chat-header .channel { font-weight:600; font-size:15px; }
-.chat-header .info { font-size:12px; color:var(--text3); }
-
-.messages { flex:1; overflow-y:auto; padding:16px 20px; display:flex; flex-direction:column; gap:8px; }
-.msg { max-width:75%; padding:10px 14px; border-radius:12px; font-size:14px; line-height:1.5; word-wrap:break-word; }
-.msg.sent { align-self:flex-end; background:var(--primary-dim); color:var(--text); border-bottom-right-radius:4px; }
-.msg.received { align-self:flex-start; background:var(--surface2); border:1px solid var(--border); border-bottom-left-radius:4px; }
-.msg.broadcast { align-self:flex-start; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); border-bottom-left-radius:4px; }
-.msg .meta { font-size:11px; color:var(--text3); margin-top:4px; display:flex; gap:8px; }
-.msg .meta .priority { padding:1px 5px; border-radius:3px; font-size:10px; }
-.msg .meta .priority.p-high { background:rgba(239,68,68,0.2); color:var(--danger); }
-.msg .meta .priority.p-med { background:rgba(245,158,11,0.2); color:var(--warning); }
-.msg .meta .priority.p-low { background:rgba(34,197,94,0.2); color:var(--success); }
-.msg .sender { font-weight:600; font-size:12px; color:var(--primary); margin-bottom:2px; }
-
-/* Input area */
-.input-area { padding:12px 20px; border-top:1px solid var(--border); background:var(--surface); display:flex; gap:8px; align-items:center; }
-.input-area input[type="text"] { flex:1; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text); font-size:14px; outline:none; }
-.input-area input[type="text"]:focus { border-color:var(--primary); }
-.input-area select { background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 8px; color:var(--text); font-size:13px; outline:none; }
-.input-area select:focus { border-color:var(--primary); }
-.btn { background:var(--primary); color:white; border:none; border-radius:8px; padding:10px 18px; font-size:14px; cursor:pointer; font-weight:500; transition:opacity 0.2s; }
-.btn:hover { opacity:0.9; }
-.btn:active { opacity:0.8; }
-
-/* Right panel — Status */
-.right-panel { width:300px; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; flex-shrink:0; }
-.panel-section { border-bottom:1px solid var(--border); padding:12px 16px; }
-.panel-section h3 { font-size:13px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px; }
-.stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-.stat-box { background:var(--surface2); border-radius:6px; padding:8px 10px; }
-.stat-box .label { font-size:11px; color:var(--text3); }
-.stat-box .value { font-size:18px; font-weight:700; color:var(--text); }
-.stat-box .value.green { color:var(--success); }
-.stat-box .value.blue { color:var(--primary); }
-.stat-box .value.amber { color:var(--warning); }
-
-/* User ID modal */
-.modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:100; }
-.modal { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:24px; width:360px; }
-.modal h2 { margin-bottom:16px; font-size:18px; }
-.modal input { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; color:var(--text); font-size:14px; margin-bottom:12px; outline:none; }
-.modal input:focus { border-color:var(--primary); }
-
-/* Scrollbar */
-::-webkit-scrollbar { width:6px; }
-::-webkit-scrollbar-track { background:var(--bg); }
-::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
-::-webkit-scrollbar-thumb:hover { background:var(--text3); }
-
-@media (max-width:768px) {
-  .sidebar, .right-panel { display:none; }
-}
-</style>
-</head>
-<body>
-
-<!-- User identification modal -->
-<div class="modal-overlay" id="loginModal">
-  <div class="modal">
-    <h2>🤖 A2A Mesh Dashboard</h2>
-    <p style="color:var(--text2);margin-bottom:16px;font-size:14px;">Add meg a neved a csatlakozáshoz</p>
-    <input type="text" id="usernameInput" placeholder="Felhasználónév..." maxlength="30" autofocus>
-    <button class="btn" style="width:100%" onclick="connectDashboard()">Csatlakozás</button>
-  </div>
-</div>
-
-<!-- Header -->
-<div class="header">
-  <h1><span class="mesh-icon">⚡</span> A2A Mesh</h1>
-  <div class="header-info">
-    <span><span class="status-dot online" id="statusDot"></span> <span id="nodeName">—</span></span>
-    <span id="userCount">0 user</span>
-  </div>
-</div>
-
-<div class="main">
-  <!-- Sidebar: Agent list -->
-  <div class="sidebar">
-    <div class="sidebar-header">
-      Agentek <span class="count" id="agentCount">0</span>
-    </div>
-    <div class="agent-list" id="agentList">
-      <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">Betöltés...</div>
-    </div>
-  </div>
-
-  <!-- Chat area -->
-  <div class="chat-area">
-    <div class="chat-header">
-      <div>
-        <div class="channel" id="chatChannel">📺 Mesh Broadcast</div>
-        <div class="info" id="chatInfo">Minden agent látja az üzenetet</div>
-      </div>
-    </div>
-    <div class="messages" id="messages"></div>
-    <div class="input-area">
-      <select id="recipientSelect">
-        <option value="">📢 Broadcast</option>
-      </select>
-      <input type="text" id="messageInput" placeholder="Üzenet írása..." onkeydown="if(event.key==='Enter')sendMessage()">
-      <select id="prioritySelect">
-        <option value="5">P5 Normál</option>
-        <option value="7">P7 Magas</option>
-        <option value="10">P10 Sürgős</option>
-        <option value="1">P1 Alacsony</option>
-      </select>
-      <button class="btn" onclick="sendMessage()">Küldés</button>
-    </div>
-  </div>
-
-  <!-- Right panel: Status -->
-  <div class="right-panel">
-    <div class="panel-section">
-      <h3>Mesh Státusz</h3>
-      <div class="stat-grid">
-        <div class="stat-box"><div class="label">Üzenetek</div><div class="value blue" id="msgCount">0</div></div>
-        <div class="stat-box"><div class="label">Agentek</div><div class="value green" id="totalAgents">0</div></div>
-        <div class="stat-box"><div class="label">Local Store</div><div class="value" id="localStore">0</div></div>
-        <div class="stat-box"><div class="label">P2P Peers</div><div class="value" id="p2pPeers">0</div></div>
-      </div>
-    </div>
-    <div class="panel-section">
-      <h3>Transportok</h3>
-      <div class="stat-grid" id="transportGrid"></div>
-    </div>
-    <div class="panel-section">
-      <h3>Auto-Steer</h3>
-      <div class="stat-grid" id="steerGrid"></div>
-    </div>
-    <div class="panel-section" style="flex:1;overflow-y:auto;">
-      <h3>Rendszernapló</h3>
-      <div id="sysLog" style="font-size:11px;color:var(--text3);max-height:200px;overflow-y:auto;"></div>
-    </div>
-  </div>
-</div>
-
-<script>
-let ws = null;
-let nodeId = "";
-let username = "";
-let messageHistory = [];
-
-function connectDashboard() {
-  username = document.getElementById("usernameInput").value.trim() || "user_" + Math.random().toString(36).substr(2, 6);
-  localStorage.setItem("a2a_username", username);
-  document.getElementById("loginModal").style.display = "none";
-  initWebSocket();
-}
-
-function initWebSocket() {
-  const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(`${proto}//${location.host}/ws?username=${encodeURIComponent(username)}`);
-
-  ws.onopen = () => { log("WebSocket connected"); loadStatus(); loadMessages(); loadAgents(); };
-  ws.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    handleWsMessage(data);
-  };
-  ws.onclose = () => { log("WebSocket disconnected, reconnecting..."); setTimeout(initWebSocket, 3000); };
-  ws.onerror = () => {};
-}
-
-function handleWsMessage(data) {
-  switch(data.type) {
-    case "connected":
-      nodeId = data.node;
-      document.getElementById("nodeName").textContent = data.node;
-      break;
-    case "status":
-      updateStatus(data.data);
-      break;
-    case "new_message":
-      addMessage(data.message);
-      break;
-    case "pong":
-      break;
-  }
-}
-
-async function loadStatus() {
-  try {
-    const r = await fetch("/api/status");
-    const data = await r.json();
-    updateStatus(data);
-  } catch(e) {}
-}
-
-async function loadMessages() {
-  try {
-    const r = await fetch("/api/messages?limit=100");
-    const data = await r.json();
-    data.messages.reverse().forEach(m => addMessage(m, false));
-    scrollToBottom();
-  } catch(e) {}
-}
-
-async function loadAgents() {
-  try {
-    const r = await fetch("/api/agents");
-    const data = await r.json();
-    renderAgents(data.agents);
-    document.getElementById("totalAgents").textContent = data.total;
-    document.getElementById("agentCount").textContent = data.total;
-
-    // Update recipient dropdown
-    const sel = document.getElementById("recipientSelect");
-    sel.innerHTML = \'<option value="">📢 Broadcast</option>\';
-    data.agents.forEach(a => {
-      if (a.name !== nodeId) {
-        const opt = document.createElement("option");
-        opt.value = a.name;
-        opt.textContent = \`➤ \${a.name} (\${a.role})\`;
-        sel.appendChild(opt);
-      }
-    });
-  } catch(e) {}
-}
-
-function renderAgents(agents) {
-  const list = document.getElementById("agentList");
-  list.innerHTML = agents.map(a => {
-    const isSelf = a.name === nodeId;
-    const status = a.status === "online" || a.status === "available" ? "online" : "offline";
-    const tr = a.transports || {};
-    return \`
-      <div class="agent-card \${isSelf ? "active" : ""}">
-        <div class="name"><span class="status-dot \${status}"></span>\${a.name} \${isSelf ? "(te)" : ""}</div>
-        <div class="role">\${a.role} \${a.host ? "· " + a.host : ""}</div>
-        <div class="transports">
-          \${tr.p2p !== undefined ? \'<span class="transport-badge \'+(tr.p2p?"":"inactive")+\'">P2P</span>\' : ""}
-          \${tr.pg !== undefined ? \'<span class="transport-badge \'+(tr.pg?"":"inactive")+\'">PG</span>\' : ""}
-          \${tr.http !== undefined ? \'<span class="transport-badge \'+(tr.http?"":"inactive")+\'">HTTP</span>\' : ""}
-          \${tr.ble !== undefined ? \'<span class="transport-badge \'+(tr.ble?"":"inactive")+\'">BLE</span>\' : ""}
-        </div>
-      </div>\`;
-  }).join("");
-}
-
-function updateStatus(data) {
-  document.getElementById("msgCount").textContent = data.messages_sent || 0;
-  document.getElementById("localStore").textContent = (data.local_store || {}).outbound_pending || 0;
-  document.getElementById("p2pPeers").textContent = (data.peer_discovery || {}).connected_peers || 0;
-  document.getElementById("userCount").textContent = ((data.dashboard || {}).connected_users || 0) + " user";
-
-  // Transport badges
-  const tr = data.transports || {};
-  document.getElementById("transportGrid").innerHTML = [
-    ["PG", tr.pg], ["P2P", tr.p2p], ["HTTP", tr.http], ["BLE", tr.ble]
-  ].map(([n,v]) => \`<div class="stat-box"><div class="label">\${n}</div><div class="value \${v?"green":"amber"}">\${v?"✓":"✗"}</div></div>\`).join("");
-
-  // Auto-steer
-  const as = data.auto_steer || {};
-  document.getElementById("steerGrid").innerHTML = [
-    ["Interrupts", as.interrupts || 0], ["Queued", as.queued || 0],
-    ["Processed", as.processed || 0], ["Backlog", as.backlog || 0]
-  ].map(([n,v]) => \`<div class="stat-box"><div class="label">\${n}</div><div class="value">\${v}</div></div>\`).join("");
-}
-
-function addMessage(msg, scroll=true) {
-  const isSent = msg.sender === nodeId;
-  const isBroadcast = msg.recipient === "broadcast" || !msg.recipient;
-  let cls = isSent ? "sent" : (isBroadcast ? "broadcast" : "received");
-  const pri = msg.priority || 5;
-  const priCls = pri >= 7 ? "p-high" : pri >= 4 ? "p-med" : "p-low";
-  const priLabel = pri >= 7 ? "SÜRGŐS" : pri >= 4 ? "normál" : "alacsony";
-  const senderLabel = msg.username ? msg.username : msg.sender;
-  const time = msg.timestamp ? new Date(msg.timestamp * 1000).toLocaleTimeString("hu-HU") : new Date().toLocaleTimeString("hu-HU");
-
-  const div = document.createElement("div");
-  div.className = `msg ${cls}`;
-  div.innerHTML = `
-    <div class="sender">${senderLabel}${isBroadcast ? " → 📢 broadcast" : " → " + (msg.recipient || "broadcast")}</div>
-    <div>${escapeHtml(msg.content)}</div>
-    <div class="meta">
-      <span>${time}</span>
-      <span class="priority ${priCls}">${priLabel}</span>
-      ${msg.source === "web_dashboard" ? '<span>🌐 web</span>' : '<span>🤖 mesh</span>'}
-    </div>`;
-  document.getElementById("messages").appendChild(div);
-  messageHistory.push(msg);
-  if (messageHistory.length > 200) messageHistory.shift();
-  if (scroll) scrollToBottom();
-}
-
-function sendMessage() {
-  const input = document.getElementById("messageInput");
-  const content = input.value.trim();
-  if (!content || !ws) return;
-
-  ws.send(JSON.stringify({
-    type: "chat",
-    content: content,
-    recipient: document.getElementById("recipientSelect").value,
-    priority: parseInt(document.getElementById("prioritySelect").value),
-  }));
-  input.value = "";
-}
-
-function scrollToBottom() {
-  const el = document.getElementById("messages");
-  el.scrollTop = el.scrollHeight;
-}
-
-function escapeHtml(t) { const d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
-
-function log(msg) {
-  const el = document.getElementById("sysLog");
-  const time = new Date().toLocaleTimeString("hu-HU");
-  el.innerHTML = `<div>[${time}] ${msg}</div>` + el.innerHTML;
-}
-
-// Auto-refresh agents
-setInterval(loadAgents, 10000);
-setInterval(loadStatus, 5000);
-
-// Check saved username
-const savedUser = localStorage.getItem("a2a_username");
-if (savedUser) {
-  document.getElementById("usernameInput").value = savedUser;
-  connectDashboard();
-}
-
-document.getElementById("usernameInput").addEventListener("keydown", e => { if(e.key === "Enter") connectDashboard(); });
-</script>
-</body>
-</html>'''
+    def _load_html(self) -> str:
+        """Load the dashboard HTML page from external file."""
+        html_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            log.warning(f"Dashboard HTML not found at {html_path}")
+            return '<html><body><h1>A2A Mesh Dashboard</h1><p>HTML not found.</p></body></html>'
