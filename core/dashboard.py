@@ -75,6 +75,10 @@ class DashboardHandler:
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_post("/api/send", self._api_send)
         app.router.add_post("/api/send-file", self._api_send_file)
+        # Memory sync routes
+        app.router.add_get("/api/memory", self._api_memory_get)
+        app.router.add_post("/api/memory", self._api_memory_set)
+        app.router.add_post("/api/memory/sync", self._api_memory_sync)
         # Auth routes
         app.router.add_post("/api/auth/register", self._api_auth_register)
         app.router.add_post("/api/auth/login", self._api_auth_login)
@@ -856,6 +860,48 @@ class DashboardHandler:
             cur.close()
             conn.close()
             return web.json_response({"nodes": nodes})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_memory_get(self, request):
+        """Get local mesh memory cache."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        memory = self.node.memory_sync.get_all_local_memory()
+        return web.json_response({"memory": memory, "count": len(memory)})
+
+    async def _api_memory_set(self, request):
+        """Set a memory key and broadcast to mesh agents."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            key = data.get("key")
+            value = data.get("value")
+            if not key:
+                return web.json_response({"error": "key is required"}, status=400)
+            result = await self.node.memory_sync.broadcast_memory(key, value)
+            if result:
+                return web.json_response({"status": "broadcast", "key": key})
+            return web.json_response({"error": "broadcast failed"}, status=500)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_memory_sync(self, request):
+        """Request full memory sync from PG."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json() if request.content_type == "application/json" else {}
+            since = data.get("since")
+            memories = await self.node.memory_sync.request_sync(since=since)
+            return web.json_response({"synced": len(memories), "memories": memories})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 

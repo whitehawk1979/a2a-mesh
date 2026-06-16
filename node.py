@@ -31,6 +31,7 @@ from .core.auto_steer import AutoSteerProcessor
 from .core.local_store import LocalStore
 from .core.file_transfer import P2PFileTransfer
 from .core.peer_discovery import PeerDiscovery
+from .core.memory_sync import MemorySync
 from .core.dashboard import DashboardHandler
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
@@ -169,6 +170,9 @@ class MeshNode:
             pg_conn=None,  # Set later after PG connection established
         )
 
+        # Initialize mesh memory sync
+        self.memory_sync = MemorySync(self)
+
         # Initialize web dashboard
         self.dashboard = DashboardHandler(self)
 
@@ -238,7 +242,7 @@ class MeshNode:
     async def _dispatch_to_handlers(self, message: A2AMessage):
         """Dispatch incoming message to all registered handlers.
 
-        Special handling for file_transfer messages and dashboard notification.
+        Special handling for file_transfer, memory_sync messages and dashboard notification.
         """
         # Notify dashboard
         try:
@@ -252,6 +256,12 @@ class MeshNode:
             if response and isinstance(response, A2AMessage):
                 # Send response back via P2P
                 asyncio.create_task(self.router.send(response))
+            return
+
+        # Handle memory sync messages
+        if message.type == "memory_sync":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            self.memory_sync.handle_incoming_memory(payload)
             return
 
         for handler in self._handlers:
@@ -328,6 +338,7 @@ class MeshNode:
         # Start peer discovery (link P2P transport and PG conn for auto-connect)
         self.peer_discovery.p2p_transport = self._p2p_transport
         self.peer_discovery._pg_conn = self._pg_conn
+        self.memory_sync.set_pg_conn(self._pg_conn)
         await self.peer_discovery.start()
 
         # Start ACK manager
