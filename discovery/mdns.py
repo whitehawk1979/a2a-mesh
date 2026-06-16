@@ -42,20 +42,30 @@ class MeshDiscovery:
             return False
 
         try:
-            self._zeroconf = Zeroconf()
-            aiozc = AsyncZeroconf(self._zeroconf)
+            from zeroconf import InterfaceChoice
+            aiozc = AsyncZeroconf(interfaces=InterfaceChoice.Default)
+            self._zeroconf = aiozc.zeroconf
             self._aiozc = aiozc
 
             # Register our service
+            import socket
+            local_ip = host_ip or self._get_local_ip()
+            addresses = []
+            if local_ip:
+                try:
+                    addresses = [socket.inet_pton(socket.AF_INET, local_ip)]
+                except (socket.error, OSError):
+                    pass  # Will use auto-detection
+
             properties = {
-                "node": self.node_name.encode('utf-8'),
-                "transport": "p2p".encode('utf-8'),
+                "node": self.node_name,
+                "transport": "p2p",
             }
 
             info = ServiceInfo(
                 self.service_type,
                 f"{self.node_name}.{self.service_type}",
-                addresses=[host_ip.encode() if host_ip else b""],
+                addresses=addresses,
                 port=self.port,
                 properties=properties,
             )
@@ -64,7 +74,7 @@ class MeshDiscovery:
 
             # Start browsing for other services
             self._browser = AsyncServiceBrowser(
-                aiozc,
+                self._zeroconf,
                 self.service_type,
                 handlers=[self._on_service_state_change],
             )
@@ -100,6 +110,19 @@ class MeshDiscovery:
             node_name = name.split(".")[0]
             self._discovered_nodes.pop(node_name, None)
             log.info(f"mDNS: Node {node_name} removed")
+
+    @staticmethod
+    def _get_local_ip() -> str:
+        """Get the local IP address for mDNS registration."""
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return ""
 
     async def _resolve_service(self, name: str):
         """Resolve a discovered service to get host/port."""
