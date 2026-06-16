@@ -7,6 +7,7 @@ Discovery via mDNS (zeroconf) or static config.
 
 import asyncio
 import json
+import os
 import ssl
 import struct
 import logging
