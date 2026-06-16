@@ -25,6 +25,11 @@ class P2PConfig:
     listen_port: int = 8645
     max_connections: int = 50
     idle_timeout: int = 300  # seconds
+    tls_enabled: bool = False
+    tls_cert: str = ""       # Path to TLS certificate (PEM)
+    tls_key: str = ""        # Path to TLS private key (PEM)
+    tls_ca: str = ""         # Path to CA certificate for peer verification
+    tls_verify_peer: bool = False  # Verify peer certificates
 
 
 @dataclass
