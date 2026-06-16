@@ -35,3 +35,11 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local store databases (per-node SQLite)
+*.db
+*.db-shm
+*.db-wal
+
+# Incoming file transfers
+incoming_files/
