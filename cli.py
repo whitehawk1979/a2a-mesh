@@ -25,6 +25,92 @@ from a2a_mesh.core.encryption import MeshEncryption
 from a2a_mesh.node import MeshNode
 
 
+def cmd_elect(trigger: bool = False):
+    """Show coordinator election status or trigger election."""
+    from a2a_mesh.core.election import CoordinatorElection, ElectionConfig
+    from a2a_mesh.core.config import MeshConfig
+
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    config = MeshConfig.from_yaml(config_file) if os.path.exists(config_file) else MeshConfig()
+
+    import psycopg2
+    conn = psycopg2.connect(
+        host=config.pg.host, port=config.pg.port,
+        dbname=config.pg.dbname, user=config.pg.user,
+        password=config.pg.password,
+    )
+    cur = conn.cursor()
+
+    # Get all nodes from PG
+    cur.execute("SELECT node_name, role, short_addr, parent_addr, depth FROM mesh.mesh_nodes ORDER BY short_addr")
+    rows = cur.fetchall()
+
+    # Find coordinator
+    coord_row = None
+    routers = []
+    for name, role, addr, parent, depth in rows:
+        if role == "coordinator":
+            coord_row = (name, addr)
+        elif role == "router":
+            routers.append((name, addr))
+
+    cur.close()
+    conn.close()
+
+    if not coord_row:
+        print("❌ No coordinator found in mesh!")
+        return
+
+    # Create election engine
+    election = CoordinatorElection(
+        self_name=config.node_name,
+        self_addr=0x0000,  # will be updated
+        self_role=config.topology.node_role,
+        config=ElectionConfig(
+            heartbeat_interval=config.heartbeat.interval,
+            suspect_threshold=config.heartbeat.warning_threshold,
+            down_threshold=config.heartbeat.critical_threshold,
+        ),
+    )
+    election.register_coordinator(coord_row[0], coord_row[1], is_original=True)
+
+    # Update self addr
+    for row_name, row_role, row_addr, row_parent, row_depth in rows:
+        if row_name == config.node_name:
+            election.self_addr = row_addr
+            break
+
+    if trigger:
+        print("🏛️ Triggering coordinator election...")
+        routers_sorted = sorted(routers, key=lambda r: r[1])
+        if election.should_initiate_election(routers_sorted):
+            claim = election.initiate_election()
+            print(f"   Claim: {claim['node_name']} (0x{claim['short_addr']:04X})")
+            print(f"   Reason: {claim['claim_reason']}")
+            print(f"   Original coordinator: {claim['original_coordinator']}")
+        else:
+            print("   No election needed — coordinator is active or this node is not senior")
+    else:
+        status = election.get_status()
+        print("Coordinator Election Status")
+        print("=" * 50)
+        coord = status["coordinator"]
+        self_info = status["self"]
+        print(f"  Coordinator:    {coord['node_name']} ({coord['short_addr']})")
+        print(f"  State:          {coord['state']}")
+        print(f"  Original:       {coord['is_original']}")
+        print(f"  Last heartbeat: {coord['last_heartbeat_age']}")
+        print()
+        print(f"  Self:           {self_info['name']} ({self_info['addr']})")
+        print(f"  Role:           {self_info['role']}")
+        print(f"  Acting coord:   {self_info['is_acting_coordinator']}")
+        print()
+        print(f"  Routers (failover candidates):")
+        for name, addr in sorted(routers, key=lambda r: r[1]):
+            marker = " ← senior" if routers and addr == min(routers, key=lambda r: r[1])[1] else ""
+            print(f"    0x{addr:04X}  {name}{marker}")
+
+
 def cmd_keygen():
     """Generate a new Ed25519 keypair for mesh signing."""
     private_hex, public_hex = MeshEncryption.generate_keypair()
@@ -159,7 +245,52 @@ def cmd_test():
     assert len(retrieved) == 1
     print("✅")
 
-    print("\n✅ All tests passed!")
+    # Test 11: Coordinator Election & Failover
+    print("11. Coordinator election... ", end="")
+    from a2a_mesh.core.election import CoordinatorElection, ElectionConfig, CoordinatorState
+
+    el_config = ElectionConfig(heartbeat_interval=300, suspect_threshold=600, down_threshold=900)
+    el = CoordinatorElection("morzsa", 0x0001, "router", el_config)
+
+    # Register coordinator (nova = 0x0000)
+    el.register_coordinator("nova", 0x0000, is_original=True)
+    assert el.coordinator.state == CoordinatorState.ACTIVE
+
+    # Check health — coordinator just registered, should be active
+    state = el.check_coordinator_health([])
+    assert state == CoordinatorState.ACTIVE
+
+    # Simulate coordinator down (set heartbeat to 20 min ago)
+    el.coordinator.last_heartbeat = __import__("time").time() - 1200
+    state = el.check_coordinator_health([("router1", 0x0001), ("router2", 0x0002)])
+    assert state == CoordinatorState.DOWN
+
+    # Morzsa (0x0001) is senior-most router — should initiate election
+    assert el.should_initiate_election([("router2", 0x0002)]) == True
+    claim = el.initiate_election()
+    assert claim["node_name"] == "morzsa"
+    assert claim["short_addr"] == 0x0001
+    assert claim["claim_reason"] == "coordinator_down"
+    assert el.is_acting_coordinator == True
+
+    # Handle coordinator return
+    result = el.handle_coordinator_return("nova", 0x0000)
+    assert result["type"] == "coordinator_return"
+    assert el.is_acting_coordinator == False
+    assert el.coordinator.is_original == True
+
+    # Test election claim handling
+    el2 = CoordinatorElection("router2", 0x0002, "router", el_config)
+    el2.register_coordinator("nova", 0x0000)
+    # router2 should accept claim from morzsa (0x0001 < 0x0002 = senior)
+    accepted = el2.handle_election_claim({"node_name": "morzsa", "short_addr": 0x0001})
+    assert accepted == True
+    assert el2.coordinator.node_name == "morzsa"
+    assert el2.coordinator.is_original == False
+
+    print("✅")
+
+    print("\n✅ All tests passed! (11/11)")
 
 
 def cmd_status():
@@ -590,6 +721,11 @@ def main():
     join_parser.add_argument("--name", "-n", default="", help="Node name (default: config node_name)")
     join_parser.add_argument("--parent", "-p", default="", help="Parent node name")
 
+    # elect
+    elect_parser = subparsers.add_parser("elect", help="Coordinator election status or trigger")
+    elect_parser.add_argument("--trigger", "-t", action="store_true",
+                             help="Trigger coordinator election")
+
     # discover
     subparsers.add_parser("discover", help="Discover mesh nodes")
 
@@ -615,6 +751,8 @@ def main():
         cmd_topology()
     elif args.command == "join":
         cmd_join(args.role, args.name, args.parent)
+    elif args.command == "elect":
+        cmd_elect(trigger=args.trigger)
     elif args.command == "keygen":
         cmd_keygen()
     elif args.command == "test":
