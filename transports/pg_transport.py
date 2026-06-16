@@ -29,12 +29,15 @@ class PGTransport(TransportAdapter):
         self.config = config
         self._available = False
         self._conn = None
+        self._write_conn = None  # Separate connection for writes
         self._listener_task = None
         self._running = False
         self._incoming_queue: asyncio.Queue = asyncio.Queue()
         self._channels = config.pg.channels if config else [
             "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel"
         ]
+        self._reconnect_count = 0
+        self._max_reconnects = 5
 
     async def start(self) -> bool:
         """Start PG LISTEN connection."""
@@ -62,6 +65,21 @@ class PGTransport(TransportAdapter):
             self._running = True
             self._available = True
 
+            # Create separate write connection
+            try:
+                self._write_conn = psycopg2.connect(
+                    host=self.config.pg.host,
+                    port=self.config.pg.port,
+                    dbname=self.config.pg.dbname,
+                    user=self.config.pg.user,
+                    password=self.config.pg.password,
+                )
+                self._write_conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                log.info("PG write connection established")
+            except Exception as e:
+                log.warning(f"PG write connection failed (will use listener conn): {e}")
+                self._write_conn = None
+
             # Start async listener
             self._listener_task = asyncio.create_task(self._listen_loop())
             log.info("PG transport started")
@@ -77,11 +95,14 @@ class PGTransport(TransportAdapter):
         self._running = False
         if self._listener_task:
             self._listener_task.cancel()
-        if self._conn:
-            try:
-                self._conn.close()
-            except Exception:
-                pass
+        for conn in (self._conn, self._write_conn):
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        self._conn = None
+        self._write_conn = None
         self._available = False
         log.info("PG transport stopped")
         return True
@@ -138,7 +159,38 @@ class PGTransport(TransportAdapter):
                 break
             except Exception as e:
                 log.error(f"PG listen error: {e}")
-                await asyncio.sleep(5)
+                # Try to reconnect
+                if self._reconnect_count < self._max_reconnects:
+                    self._reconnect_count += 1
+                    backoff = min(5 * (2 ** (self._reconnect_count - 1)), 60)
+                    log.info(f"PG reconnect attempt {self._reconnect_count}/{self._max_reconnects} in {backoff}s")
+                    await asyncio.sleep(backoff)
+                    try:
+                        if self._conn:
+                            try:
+                                self._conn.close()
+                            except Exception:
+                                pass
+                        self._conn = psycopg2.connect(
+                            host=self.config.pg.host,
+                            port=self.config.pg.port,
+                            dbname=self.config.pg.dbname,
+                            user=self.config.pg.user,
+                            password=self.config.pg.password,
+                            async_=0,
+                        )
+                        self._conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                        cur = self._conn.cursor()
+                        for channel in self._channels:
+                            cur.execute(f"LISTEN {channel};")
+                        cur.close()
+                        self._available = True
+                        self._reconnect_count = 0
+                        log.info("PG reconnected successfully")
+                    except Exception as re:
+                        log.error(f"PG reconnect failed: {re}")
+                else:
+                    await asyncio.sleep(5)
 
     def _fetch_message(self, msg_id: str):
         """Fetch a full message from mesh.mesh_messages by ID."""
@@ -168,15 +220,25 @@ class PGTransport(TransportAdapter):
         return None
 
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send message via PG — INSERT into mesh_messages (trigger sends NOTIFY)."""
-        if not self._available or not self._conn:
+        """Send message via PG — INSERT into mesh_messages (trigger sends NOTIFY).
+        
+        Uses the separate write connection if available, falls back to listener connection.
+        """
+        conn = self._write_conn or self._conn
+        if not self._available or not conn:
             return SendResult(transport="pg_notify", success=False, error="not connected")
 
         try:
             import psycopg2
 
+            # Check connection health
+            if conn.closed:
+                log.warning("PG connection closed, marking unavailable")
+                self._available = False
+                return SendResult(transport="pg_notify", success=False, error="connection closed")
+
             # Insert into mesh.mesh_messages — the NOTIFY trigger will fire
-            cur = self._conn.cursor()
+            cur = conn.cursor()
             payload_json = json.dumps(message.payload, default=str)
 
             # Use routing mode from message or default
@@ -198,7 +260,7 @@ class PGTransport(TransportAdapter):
                 getattr(message, 'src_address', None),
                 getattr(message, 'dst_address', None),
             ))
-            self._conn.commit()
+            conn.commit()
             cur.close()
 
             return SendResult(transport="pg_notify", success=True, latency_ms=1.0)
