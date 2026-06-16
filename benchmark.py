@@ -272,15 +272,33 @@ def bench_pg_notify():
 
 def bench_p2p_tcp():
     """Benchmark: P2P TCP connection latency to Morzsa."""
+    # First test TLS
+    try:
+        import ssl as _ssl
+        tls_ctx = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+        ca_path = os.path.expanduser("~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt")
+        nova_crt = os.path.expanduser("~/.hermes/scripts/a2a_mesh/certs/nova.crt")
+        nova_key = os.path.expanduser("~/.hermes/scripts/a2a_mesh/certs/nova.key")
+        if os.path.exists(ca_path):
+            tls_ctx.load_verify_locations(ca_path)
+            tls_ctx.load_cert_chain(nova_crt, nova_key)
+            has_tls = True
+        else:
+            has_tls = False
+    except Exception:
+        has_tls = False
+
+    # Plain TCP connection
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(2)
         sock.connect(("192.168.1.30", 8651))
+        sock.close()
     except Exception as e:
         print(f"  ⚠️  P2P connection failed: {e} — skipping P2P benchmark")
         return
-    
-    # Connection latency already measured above
+
+    # Connection latency
     connect_times = []
     for _ in range(50):
         t0 = time.perf_counter_ns()
@@ -290,15 +308,32 @@ def bench_p2p_tcp():
         t1 = time.perf_counter_ns()
         connect_times.append((t1 - t0) / 1_000_000)
         s.close()
-    
+
     print(f"  P2P TCP connection latency:")
     print(f"    min={min(connect_times):.1f}ms  avg={statistics.mean(connect_times):.1f}ms  "
           f"p50={statistics.median(connect_times):.1f}ms  p99={sorted(connect_times)[int(len(connect_times)*0.99)]:.1f}ms")
-    
+
+    # TLS connection latency
+    if has_tls:
+        tls_times = []
+        for _ in range(50):
+            t0 = time.perf_counter_ns()
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect(("192.168.1.30", 8651))
+            ss = tls_ctx.wrap_socket(s, server_hostname="morzsa")
+            t1 = time.perf_counter_ns()
+            tls_times.append((t1 - t0) / 1_000_000)
+            ss.close()
+        print(f"  P2P TLS connection latency:")
+        print(f"    min={min(tls_times):.1f}ms  avg={statistics.mean(tls_times):.1f}ms  "
+              f"p50={statistics.median(tls_times):.1f}ms  p99={sorted(tls_times)[int(len(tls_times)*0.99)]:.1f}ms")
+        print(f"  TLS overhead: {statistics.mean(tls_times) - statistics.mean(connect_times):.1f}ms avg")
+
     # Message send latency
     msg = json.dumps({"type": "ping", "sender": "nova", "timestamp": time.time()})
     msg_bytes = msg.encode() + b"\n"
-    
+
     send_times = []
     for _ in range(100):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -309,12 +344,10 @@ def bench_p2p_tcp():
         t1 = time.perf_counter_ns()
         send_times.append((t1 - t0) / 1_000_000)
         s.close()
-    
+
     print(f"  P2P TCP message send latency:")
     print(f"    min={min(send_times):.1f}ms  avg={statistics.mean(send_times):.1f}ms  "
           f"p50={statistics.median(send_times):.1f}ms")
-    
-    sock.close()
 
 
 def bench_full_roundtrip():
