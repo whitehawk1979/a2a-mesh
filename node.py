@@ -279,6 +279,8 @@ class MeshNode:
 
     async def stop(self):
         """Stop all transports and discovery. Deregister from mesh."""
+        if not self._running:
+            return  # Already stopped, avoid double-stop
         log.info(f"Stopping mesh node '{self.node_name}'")
         self._running = False
 
@@ -286,7 +288,10 @@ class MeshNode:
         await self.ack_manager.stop()
 
         # Deregister from mesh_nodes
-        await self._deregister_node()
+        try:
+            await self._deregister_node()
+        except Exception as e:
+            log.warning(f"Failed to deregister node: {e}")
 
         # Cancel tasks
         for task in self._tasks:
