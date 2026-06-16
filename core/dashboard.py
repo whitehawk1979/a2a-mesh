@@ -209,14 +209,14 @@ class DashboardHandler:
         if not content.strip():
             return web.json_response({"error": "Empty message"}, status=400)
 
-        from .message import A2AMessage
+        from .message import A2AMessage, MSG_TYPE_DIRECTIVE
         msg = A2AMessage(
             sender=self.node.node_name,
             recipient=recipient if recipient else "broadcast",
-            content=content,
-            message_type=msg_type,
+            type=msg_type if msg_type != "message" else MSG_TYPE_DIRECTIVE,
             priority=priority,
-            metadata={
+            payload={
+                "text": content,
                 "source": "web_dashboard",
                 "username": user.display_name,
                 "user_id": user.user_id,
@@ -229,8 +229,8 @@ class DashboardHandler:
             "id": msg.id,
             "sender": msg.sender,
             "recipient": msg.recipient,
-            "content": msg.content,
-            "type": msg.message_type,
+            "content": content,
+            "type": msg_type,
             "priority": msg.priority,
             "timestamp": msg.timestamp,
             "source": "web_dashboard",
@@ -460,14 +460,14 @@ class DashboardHandler:
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
 
-                            from .message import A2AMessage
+                            from .message import A2AMessage, MSG_TYPE_DIRECTIVE
                             a2a_msg = A2AMessage(
                                 sender=self.node.node_name,
                                 recipient=recipient if recipient else "broadcast",
-                                content=content,
-                                message_type="message",
+                                type=MSG_TYPE_DIRECTIVE,
                                 priority=priority,
-                                metadata={
+                                payload={
+                                    "text": content,
                                     "source": "web_dashboard",
                                     "username": auth_user.display_name,
                                     "user_id": auth_user.user_id,
@@ -479,8 +479,8 @@ class DashboardHandler:
                                 "id": a2a_msg.id,
                                 "sender": a2a_msg.sender,
                                 "recipient": a2a_msg.recipient,
-                                "content": a2a_msg.content,
-                                "type": a2a_msg.message_type,
+                                "content": content,
+                                "type": "message",
                                 "priority": a2a_msg.priority,
                                 "timestamp": a2a_msg.timestamp,
                                 "source": "web_dashboard",
