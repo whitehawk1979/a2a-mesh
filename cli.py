@@ -343,7 +343,8 @@ def cmd_health(port: int = 8650, output_json: bool = False):
             print(f"   Uptime: {uptime:.0f}s")
             print(f"   Transports: PG={'✅' if transports.get('pg') else '❌'} "
                   f"P2P={'✅' if transports.get('p2p') else '❌'} "
-                  f"HTTP={'✅' if transports.get('http') else '❌'}")
+                  f"HTTP={'✅' if transports.get('http') else '❌'} "
+                  f"BLE={'✅' if transports.get('ble') else '❌'}")
             print(f"   ACK: {ack.get('pending', 0)} pending, {ack.get('acknowledged', 0)} acked, {ack.get('failed', 0)} failed")
             print(f"   Offline Queue: {oq.get('queued', 0)} queued, {oq.get('delivered', 0)} delivered")
             print(f"   Messages: {data.get('messages_sent', 0)} sent, {data.get('messages_received', 0)} received")

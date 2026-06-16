@@ -30,6 +30,7 @@ from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
+from .transports.ble_transport import BLETransport
 from .discovery.mdns import MeshDiscovery
 
 log = logging.getLogger("a2a_mesh.node")
@@ -153,11 +154,13 @@ class MeshNode:
         self._pg_transport = PGTransport(self.config)
         self._p2p_transport = P2PTransport(self.config)
         self._http_transport = HTTPTransport(self.config)
+        self._ble_transport = BLETransport(self.config)
 
         # Register transports with router
         self.router.register_transport("pg_notify", self._pg_transport)
         self.router.register_transport("p2p", self._p2p_transport)
         self.router.register_transport("http", self._http_transport)
+        self.router.register_transport("ble", self._ble_transport)
 
         # Initialize discovery
         self._discovery = MeshDiscovery(
@@ -244,6 +247,13 @@ class MeshNode:
         else:
             log.warning("❌ HTTP/MCP transport failed")
 
+        # Start BLE transport
+        results["ble"] = await self._ble_transport.start()
+        if results["ble"]:
+            log.info("✅ BLE transport started")
+        else:
+            log.warning("❌ BLE transport failed (non-critical)")
+
         # 4. mDNS discovery
         if self.config.discovery.mdns_enabled:
             host_ip = self._get_local_ip()
@@ -314,6 +324,7 @@ class MeshNode:
         await self._pg_transport.stop()
         await self._p2p_transport.stop()
         await self._http_transport.stop()
+        await self._ble_transport.stop()
         await self._discovery.stop()
 
         # Close PG write connection
@@ -409,6 +420,7 @@ class MeshNode:
                     "pg": self._pg_transport.is_available(),
                     "p2p": self._p2p_transport.is_available(),
                     "http": self._http_transport.is_available(),
+                    "ble": self._ble_transport.is_available(),
                 },
                 "election": self.election.get_status() if self.election else {},
                 "ack": self.ack_manager.get_stats(),
