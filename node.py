@@ -30,6 +30,7 @@ from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
 from .core.auto_steer import AutoSteerProcessor
 from .core.local_store import LocalStore
 from .core.file_transfer import P2PFileTransfer
+from .core.peer_discovery import PeerDiscovery
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
@@ -156,6 +157,13 @@ class MeshNode:
         # Initialize P2P file transfer
         self.file_transfer = P2PFileTransfer(
             node_name=self.node_name,
+            local_store=self.local_store,
+        )
+
+        # Initialize peer discovery (P2P transport set after start)
+        self.peer_discovery = PeerDiscovery(
+            node_name=self.node_name,
+            config=self.config,
             local_store=self.local_store,
         )
 
@@ -306,6 +314,10 @@ class MeshNode:
         # Start priority queue processor
         self.router.start_priority_queue()
 
+        # Start peer discovery (link P2P transport for auto-connect)
+        self.peer_discovery.p2p_transport = self._p2p_transport
+        await self.peer_discovery.start()
+
         # Start ACK manager
         await self.ack_manager.start()
 
@@ -336,6 +348,9 @@ class MeshNode:
 
         # Stop priority queue processor
         await self.router.stop_priority_queue()
+
+        # Stop peer discovery
+        await self.peer_discovery.stop()
 
         # Deregister from mesh_nodes
         try:
@@ -460,6 +475,7 @@ class MeshNode:
                 "auto_steer": self.auto_steer.get_stats(),
                 "local_store": self.local_store.get_stats(),
                 "file_transfer": self.file_transfer.get_transfer_stats(),
+                "peer_discovery": self.peer_discovery.get_stats(),
                 "messages_sent": self.router._stats.get("sent", 0),
                 "messages_received": self.router._stats.get("received", 0),
             }
@@ -754,6 +770,7 @@ class MeshNode:
             "auto_steer": self.auto_steer.get_stats(),
             "local_store": self.local_store.get_stats(),
             "file_transfer": self.file_transfer.get_transfer_stats(),
+            "peer_discovery": self.peer_discovery.get_stats(),
             "coordinator": self.election.get_status() if self.election else None,
         }
         if self.mesh_address:

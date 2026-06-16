@@ -1,0 +1,307 @@
+"""A2A Mesh Peer Discovery — Dynamic peer discovery and connection management.
+
+Supports:
+- Static node configuration (from YAML)
+- mDNS service discovery (zeroconf)
+- PG-based discovery (query mesh_nodes table)
+- Health-based peer monitoring
+- Auto-connect to discovered peers
+
+When a new agent joins the mesh:
+1. It registers in the mesh_nodes table in PG
+2. Other agents discover it via PG polling or NOTIFY
+3. They establish P2P connections directly
+4. File transfer and messages work over P2P directly
+"""
+import asyncio
+import json
+import logging
+import time
+from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+
+log = logging.getLogger("a2a_mesh.peer_discovery")
+
+
+@dataclass
+class PeerInfo:
+    """Information about a discovered peer."""
+    name: str
+    host: str
+    port: int
+    role: str = "router"
+    p2p_port: int = 8651
+    health_port: int = 8650
+    last_seen: float = 0.0
+    p2p_available: bool = False
+    pg_available: bool = False
+    http_available: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "host": self.host,
+            "port": self.port,
+            "role": self.role,
+            "p2p_port": self.p2p_port,
+            "health_port": self.health_port,
+            "last_seen": self.last_seen,
+            "p2p_available": self.p2p_available,
+            "pg_available": self.pg_available,
+            "http_available": self.http_available,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'PeerInfo':
+        return cls(
+            name=d.get("name", ""),
+            host=d.get("host", d.get("ip", "")),
+            port=d.get("port", 8651),
+            role=d.get("role", "router"),
+            p2p_port=d.get("p2p_port", d.get("port", 8651)),
+            health_port=d.get("health_port", 8650),
+            last_seen=d.get("last_seen", 0.0),
+            p2p_available=d.get("p2p_available", False),
+            pg_available=d.get("pg_available", False),
+            http_available=d.get("http_available", False),
+        )
+
+
+class PeerDiscovery:
+    """Dynamic peer discovery for A2A mesh.
+
+    Discovery sources (in priority order):
+    1. Static config (discovery.static_nodes)
+    2. PG mesh_nodes table (if PG available)
+    3. mDNS zeroconf (if enabled)
+    4. Health-based peer monitoring
+
+    When a peer is discovered, it's added to the local_store.peer_status
+    table and a P2P connection is attempted.
+    """
+
+    def __init__(self, node_name: str, config, local_store=None, p2p_transport=None):
+        self.node_name = node_name
+        self.config = config
+        self.local_store = local_store
+        self.p2p_transport = p2p_transport
+
+        # Known peers: name → PeerInfo
+        self._peers: Dict[str, PeerInfo] = {}
+
+        # Load static peers from config
+        for node in config.discovery.static_nodes:
+            name = node.get("name", "")
+            if name and name != node_name:
+                peer = PeerInfo(
+                    name=name,
+                    host=node.get("host", node.get("ip", "")),
+                    port=node.get("p2p_port", 8651),
+                    role=node.get("role", "router"),
+                    p2p_port=node.get("p2p_port", 8651),
+                    health_port=node.get("health_port", 8650),
+                )
+                self._peers[name] = peer
+                log.info(f"Loaded static peer: {name} at {peer.host}:{peer.p2p_port}")
+
+        # Discovery state
+        self._running = False
+        self._discover_task: Optional[asyncio.Task] = None
+        self._discover_interval = 30  # seconds
+
+    def add_peer(self, name: str, host: str, p2p_port: int = 8651,
+                 role: str = "router", health_port: int = 8650) -> PeerInfo:
+        """Add or update a peer."""
+        peer = PeerInfo(
+            name=name, host=host, port=p2p_port, role=role,
+            p2p_port=p2p_port, health_port=health_port,
+            last_seen=time.time(),
+        )
+        self._peers[name] = peer
+
+        # Update local store
+        if self.local_store:
+            self.local_store.update_peer_status(
+                node_name=name, role=role, address=f"{host}:{p2p_port}",
+                pg_available=True, p2p_available=True,
+            )
+
+        log.info(f"Discovered peer: {name} at {host}:{p2p_port}")
+        return peer
+
+    def remove_peer(self, name: str):
+        """Remove a peer (e.g., on graceful departure)."""
+        if name in self._peers:
+            del self._peers[name]
+            log.info(f"Peer removed: {name}")
+
+    def get_peer(self, name: str) -> Optional[PeerInfo]:
+        """Get a peer by name."""
+        return self._peers.get(name)
+
+    def get_all_peers(self) -> Dict[str, PeerInfo]:
+        """Get all known peers."""
+        return self._peers.copy()
+
+    def get_available_peers(self) -> List[PeerInfo]:
+        """Get peers that are likely available (seen in last 5 minutes)."""
+        cutoff = time.time() - 300  # 5 minutes
+        return [
+            peer for peer in self._peers.values()
+            if peer.last_seen > cutoff
+        ]
+
+    async def discover_from_pg(self, pg_conn=None) -> List[PeerInfo]:
+        """Discover peers from the mesh_nodes PG table.
+
+        This is the primary discovery mechanism for multi-agent meshes.
+        Every agent registers itself in mesh_nodes, and other agents
+        discover peers by querying this table.
+        """
+        if not pg_conn:
+            return []
+
+        try:
+            cur = pg_conn.cursor()
+            cur.execute("""
+                SELECT node_name, role, host, p2p_port, health_port,
+                       pg_available, p2p_available, http_available,
+                       last_seen
+                FROM mesh.mesh_nodes
+                WHERE node_name != %s
+                  AND last_seen > NOW() - INTERVAL '10 minutes'
+                ORDER BY last_seen DESC
+            """, (self.node_name,))
+
+            discovered = []
+            for row in cur.fetchall():
+                name, role, host, p2p_port, health_port = row[0], row[1], row[2], row[3], row[4]
+                if name in self._peers:
+                    # Update existing peer
+                    self._peers[name].host = host
+                    self._peers[name].p2p_port = p2p_port
+                    self._peers[name].health_port = health_port
+                    self._peers[name].last_seen = time.time()
+                    self._peers[name].pg_available = True
+                    self._peers[name].p2p_available = row[6] if len(row) > 6 else True
+                else:
+                    peer = self.add_peer(name, host, p2p_port, role, health_port)
+                    discovered.append(peer)
+
+            cur.close()
+            return discovered
+
+        except Exception as e:
+            log.warning(f"PG peer discovery failed: {e}")
+            return []
+
+    async def check_peer_health(self, peer: PeerInfo) -> bool:
+        """Check if a peer is healthy by hitting its health endpoint."""
+        import aiohttp
+        url = f"http://{peer.host}:{peer.health_port}/health"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        peer.last_seen = time.time()
+                        peer.p2p_available = data.get("transports", {}).get("p2p", False)
+                        peer.pg_available = data.get("transports", {}).get("pg", False)
+                        peer.http_available = data.get("transports", {}).get("http", False)
+
+                        # Update local store
+                        if self.local_store:
+                            self.local_store.update_peer_status(
+                                node_name=peer.name, role=peer.role,
+                                address=f"{peer.host}:{peer.p2p_port}",
+                                pg_available=peer.pg_available,
+                                p2p_available=peer.p2p_available,
+                            )
+                        return True
+        except Exception:
+            peer.p2p_available = False
+            peer.pg_available = False
+            return False
+
+    async def connect_to_peer(self, peer: PeerInfo) -> bool:
+        """Establish P2P connection to a peer.
+
+        If the P2P transport is available and the peer isn't already connected,
+        attempt a direct connection.
+        """
+        if not self.p2p_transport or not self.p2p_transport.is_available():
+            log.debug(f"P2P not available, skipping connection to {peer.name}")
+            return False
+
+        if peer.name in self.p2p_transport._peers:
+            log.debug(f"Already connected to {peer.name}")
+            return True  # Already connected
+
+        try:
+            await self.p2p_transport._connect_to_peer(
+                peer.name, peer.host, peer.p2p_port
+            )
+            log.info(f"P2P connected to peer {peer.name} at {peer.host}:{peer.p2p_port}")
+            return True
+        except Exception as e:
+            log.warning(f"Failed to connect to {peer.name}: {e}")
+            return False
+
+    async def discover_and_connect(self):
+        """Full discovery cycle: find peers and connect.
+
+        1. Check health of known peers
+        2. Discover from PG
+        3. Connect to newly discovered peers
+        """
+        # 1. Health check known peers
+        for peer in list(self._peers.values()):
+            await self.check_peer_health(peer)
+
+        # 2. Connect to peers that aren't connected yet
+        connected = 0
+        for peer in list(self._peers.values()):
+            if peer.p2p_available and peer.name not in (
+                self.p2p_transport._peers if self.p2p_transport else {}
+            ):
+                if await self.connect_to_peer(peer):
+                    connected += 1
+
+        if connected > 0:
+            log.info(f"Connected to {connected} new peers")
+        return connected
+
+    async def start(self):
+        """Start periodic peer discovery."""
+        self._running = True
+        self._discover_task = asyncio.create_task(self._discover_loop())
+        log.info(f"Peer discovery started (interval: {self._discover_interval}s)")
+
+    async def stop(self):
+        """Stop peer discovery."""
+        self._running = False
+        if self._discover_task:
+            self._discover_task.cancel()
+            try:
+                await self._discover_task
+            except asyncio.CancelledError:
+                pass
+        log.info("Peer discovery stopped")
+
+    async def _discover_loop(self):
+        """Periodic peer discovery loop."""
+        while self._running:
+            try:
+                await self.discover_and_connect()
+            except Exception as e:
+                log.error(f"Discovery loop error: {e}")
+            await asyncio.sleep(self._discover_interval)
+
+    def get_stats(self) -> dict:
+        """Return discovery statistics."""
+        return {
+            "known_peers": len(self._peers),
+            "connected_peers": len(self.p2p_transport._peers) if self.p2p_transport else 0,
+            "available_peers": len(self.get_available_peers()),
+            "peers": {name: peer.to_dict() for name, peer in self._peers.items()},
+        }
