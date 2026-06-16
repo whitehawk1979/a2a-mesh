@@ -186,6 +186,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <h3>Rendszernapló</h3>
       <div id="sysLog" style="font-size:11px;color:var(--text3);max-height:200px;overflow-y:auto;"></div>
     </div>
+    <!-- Admin: Pending Nodes -->
+    <div class="panel-section" id="adminSection" style="display:none;">
+      <h3>⏳ Jóváhagyásra vár</h3>
+      <div id="pendingNodes"></div>
+    </div>
+    <!-- Admin: All Nodes -->
+    <div class="panel-section" id="allNodesSection" style="display:none;">
+      <h3>🌐 Összes Node</h3>
+      <div id="allNodesList"></div>
+    </div>
   </div>
 </div>
 
@@ -258,6 +268,7 @@ function submitAuth() {
         loadStatus();
         loadMessages();
         loadAgents();
+        checkAdminPanel();
       }
     }).catch(function() { errEl.textContent = "Hálózati hiba"; });
   } else {
@@ -473,6 +484,7 @@ if (savedToken) {
         loadStatus();
         loadMessages();
         loadAgents();
+        checkAdminPanel();
       } else {
         localStorage.removeItem("a2a_token");
         showAuth();
@@ -485,6 +497,103 @@ if (savedToken) {
 document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
 document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
 document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
+
+// ─── Admin: Node Approval ──────────────────────────────────
+function loadPendingNodes() {
+  if (!authToken || !authUser || authUser.role !== "owner") return;
+  fetch("/api/nodes/pending", {headers: {"Authorization": "Bearer " + authToken}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("pendingNodes");
+      if (!d.nodes || d.nodes.length === 0) {
+        el.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:8px">Nincs jóváhagyásra váró node</div>';
+        return;
+      }
+      el.innerHTML = d.nodes.map(function(n) {
+        return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;">' +
+          '<div style="font-weight:600;font-size:13px;">🆕 ' + escapeHtml(n.node_name) + '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">' +
+            'Szerep: ' + escapeHtml(n.role || "—") + ' · IP: ' + escapeHtml(n.host || "?") + ':' + (n.p2p_port || "?") +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px">' +
+            'PG: ' + (n.pg_available ? '✅' : '❌') +
+            ' · P2P: ' + (n.p2p_available ? '✅' : '❌') +
+            ' · HTTP: ' + (n.http_available ? '✅' : '❌') +
+          '</div>' +
+          '<div style="margin-top:8px;display:flex;gap:6px;">' +
+            '<button class="btn btn-sm" style="background:var(--success)" onclick="approveNode(\'' + escapeHtml(n.node_name) + '\')">✅ Jóváhagy</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="rejectNode(\'' + escapeHtml(n.node_name) + '\')">❌ Elutasít</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }).catch(function() {});
+}
+
+function approveNode(nodeName) {
+  fetch("/api/nodes/" + encodeURIComponent(nodeName) + "/approve", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + authToken}
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "approved") {
+      log("✅ Node '" + nodeName + "' jóváhagyva");
+      loadPendingNodes();
+      loadAllNodes();
+      loadAgents();
+    } else {
+      log("❌ Hiba: " + (d.error || "ismeretlen"));
+    }
+  }).catch(function() { log("❌ Hálózati hiba"); });
+}
+
+function rejectNode(nodeName) {
+  fetch("/api/nodes/" + encodeURIComponent(nodeName) + "/reject", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + authToken}
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "rejected") {
+      log("🚫 Node '" + nodeName + "' elutasítva");
+      loadPendingNodes();
+      loadAllNodes();
+    } else {
+      log("❌ Hiba: " + (d.error || "ismeretlen"));
+    }
+  }).catch(function() { log("❌ Hálózati hiba"); });
+}
+
+function loadAllNodes() {
+  if (!authToken) return;
+  fetch("/api/nodes", {headers: {"Authorization": "Bearer " + authToken}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.nodes || d.nodes.length === 0) return;
+      var el = document.getElementById("allNodesList");
+      var isAdmin = authUser && authUser.role === "owner";
+      document.getElementById("allNodesSection").style.display = isAdmin ? "block" : "none";
+      el.innerHTML = d.nodes.map(function(n) {
+        var statusIcon = n.status === "active" ? "🟢" : n.status === "pending" ? "🟡" : "🔴";
+        var transports = [];
+        if (n.pg_available) transports.push("PG");
+        if (n.p2p_available) transports.push("P2P");
+        if (n.http_available) transports.push("HTTP");
+        return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:4px;font-size:12px;">' +
+          statusIcon + ' <b>' + escapeHtml(n.node_name) + '</b>' +
+          ' <span style="color:var(--text3)">(' + escapeHtml(n.role || "—") + ')</span>' +
+          ' <span style="color:var(--text3)">· ' + escapeHtml(n.host || "?") + ':' + (n.p2p_port || "?") + '</span>' +
+          (transports.length ? ' <span style="color:var(--primary)">[' + transports.join(", ") + ']</span>' : '') +
+        '</div>';
+      }).join('');
+    }).catch(function() {});
+}
+
+function checkAdminPanel() {
+  var isAdmin = authUser && authUser.role === "owner";
+  document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
+  document.getElementById("allNodesSection").style.display = "block";
+  if (isAdmin) loadPendingNodes();
+  loadAllNodes();
+}
+
+setInterval(function() { if (authToken) checkAdminPanel(); }, 15000);
 </script>
 </body>
 </html>

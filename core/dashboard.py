@@ -81,6 +81,11 @@ class DashboardHandler:
         app.router.add_post("/api/auth/logout", self._api_auth_logout)
         app.router.add_get("/api/auth/me", self._api_auth_me)
         app.router.add_get("/api/users", self._api_users)
+        # Admin routes — node approval
+        app.router.add_get("/api/nodes/pending", self._api_nodes_pending)
+        app.router.add_post("/api/nodes/{node_name}/approve", self._api_node_approve)
+        app.router.add_post("/api/nodes/{node_name}/reject", self._api_node_reject)
+        app.router.add_get("/api/nodes", self._api_nodes_list)
         app.router.add_route("GET", "/ws", self._websocket_handler)
 
     def _require_auth(self, request):
@@ -702,6 +707,157 @@ class DashboardHandler:
             "users": [u.to_dict() for u in self._users.values()],
             "message_history_size": len(self._message_history),
         }
+
+    # ─── Admin: Node Approval ──────────────────────────────────
+
+    def _require_owner(self, request):
+        """Verify user is owner (admin). Returns (user, error_response)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return user, err
+        if user.role != "owner":
+            return user, web.json_response({"error": "Owner access required"}, status=403)
+        return user, None
+
+    async def _api_nodes_pending(self, request):
+        """List nodes pending approval."""
+        from aiohttp import web
+        user, err = self._require_owner(request)
+        if err:
+            return err
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host, port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.execute("""
+                SELECT node_name, role, host, p2p_port, health_port,
+                       pg_available, p2p_available, http_available,
+                       joined_at, last_heartbeat
+                FROM mesh.mesh_nodes WHERE status = 'pending'
+                ORDER BY joined_at
+            """)
+            nodes = []
+            for row in cur.fetchall():
+                nodes.append({
+                    "node_name": row[0], "role": row[1], "host": row[2],
+                    "p2p_port": row[3], "health_port": row[4],
+                    "pg_available": row[5], "p2p_available": row[6], "http_available": row[7],
+                    "joined_at": row[8].isoformat() if row[8] else None,
+                    "last_heartbeat": row[9].isoformat() if row[9] else None,
+                })
+            cur.close()
+            conn.close()
+            return web.json_response({"nodes": nodes})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_node_approve(self, request):
+        """Approve a pending node."""
+        from aiohttp import web
+        user, err = self._require_owner(request)
+        if err:
+            return err
+        node_name = request.match_info["node_name"]
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host, port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.execute("""
+                UPDATE mesh.mesh_nodes SET status = 'active'
+                WHERE node_name = %s AND status = 'pending'
+            """, (node_name,))
+            conn.commit()
+            approved = cur.rowcount
+            cur.close()
+            conn.close()
+            if approved:
+                log.info(f"Node '{node_name}' approved by {user.username}")
+                return web.json_response({"status": "approved", "node_name": node_name})
+            else:
+                return web.json_response({"error": "Node not found or not pending"}, status=404)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_node_reject(self, request):
+        """Reject (remove) a pending node."""
+        from aiohttp import web
+        user, err = self._require_owner(request)
+        if err:
+            return err
+        node_name = request.match_info["node_name"]
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host, port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.execute("""
+                DELETE FROM mesh.mesh_nodes
+                WHERE node_name = %s AND status = 'pending'
+            """, (node_name,))
+            conn.commit()
+            removed = cur.rowcount
+            cur.close()
+            conn.close()
+            if removed:
+                log.info(f"Node '{node_name}' rejected by {user.username}")
+                return web.json_response({"status": "rejected", "node_name": node_name})
+            else:
+                return web.json_response({"error": "Node not found or not pending"}, status=404)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_nodes_list(self, request):
+        """List all nodes (all statuses)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host, port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.execute("""
+                SELECT node_name, role, host, p2p_port, health_port,
+                       pg_available, p2p_available, http_available,
+                       status, joined_at, last_heartbeat
+                FROM mesh.mesh_nodes
+                ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, joined_at
+            """)
+            nodes = []
+            for row in cur.fetchall():
+                nodes.append({
+                    "node_name": row[0], "role": row[1], "host": row[2],
+                    "p2p_port": row[3], "health_port": row[4],
+                    "pg_available": row[5], "p2p_available": row[6], "http_available": row[7],
+                    "status": row[8],
+                    "joined_at": row[9].isoformat() if row[9] else None,
+                    "last_heartbeat": row[10].isoformat() if row[10] else None,
+                })
+            cur.close()
+            conn.close()
+            return web.json_response({"nodes": nodes})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     def _load_html(self) -> str:
         """Load the dashboard HTML page from external file."""

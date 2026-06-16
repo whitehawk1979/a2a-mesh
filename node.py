@@ -589,6 +589,9 @@ class MeshNode:
         p2p_port = getattr(self.config, 'p2p_port', 8645)
         health_port = getattr(self.config, 'health_port', 8650)
 
+        # Coordinator auto-approves itself; other nodes start as 'pending'
+        initial_status = 'active' if self.role == NodeRole.COORDINATOR else 'pending'
+
         try:
             cur = self._pg_conn.cursor()
             cur.execute("""
@@ -596,11 +599,11 @@ class MeshNode:
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
                      pg_available, p2p_available, http_available)
-                VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW(), %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
-                    status = 'active',
+                    status = mesh.mesh_nodes.status,  -- Don't override approved status
                     last_heartbeat = NOW(),
                     host = EXCLUDED.host,
                     p2p_port = EXCLUDED.p2p_port,
@@ -615,6 +618,7 @@ class MeshNode:
                 str(self.mesh_address.extended) if self.mesh_address else self.node_name,
                 self.mesh_address.parent_short if self.mesh_address else None,
                 self.mesh_address.depth if self.mesh_address else 0,
+                initial_status,
                 host_ip,
                 p2p_port,
                 health_port,

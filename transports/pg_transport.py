@@ -217,26 +217,29 @@ class PGTransport(TransportAdapter):
                     await asyncio.sleep(5)
 
     def _fetch_message(self, msg_id: str):
-        """Fetch a full message from mesh.mesh_messages by ID."""
+        """Fetch a full message from shared_a2a_memory by ID."""
         if not self._conn:
             return None
         try:
             cur = self._conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
             cur.execute("""
-                SELECT id, sender, recipient, msg_type, priority, payload, 
-                       routing_mode, src_addr, dst_addr
-                FROM mesh.mesh_messages WHERE id = %s
+                SELECT id, sender_agent, recipient_agent, subject, content,
+                       memory_type, priority, message_type
+                FROM shared_a2a_memory WHERE id = %s
             """, (msg_id,))
             row = cur.fetchone()
             cur.close()
             
             if row:
+                msg_id, sender, recipient, subject, content, mem_type, priority, msg_type = row
+                payload = json.loads(content) if content and isinstance(content, str) else (content or {})
                 msg = A2AMessage.create(
-                    sender=row[1],
-                    recipient=row[2],
-                    msg_type=row[3],
-                    payload=row[5] if isinstance(row[5], dict) else {},
-                    priority=row[4],
+                    sender=sender or "unknown",
+                    recipient=recipient or "",
+                    msg_type=msg_type or mem_type or "message",
+                    payload=payload if isinstance(payload, dict) else {},
+                    priority=priority or 5,
                 )
                 return msg
         except Exception as e:
@@ -244,9 +247,10 @@ class PGTransport(TransportAdapter):
         return None
 
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send message via PG — INSERT into mesh_messages (trigger sends NOTIFY).
+        """Send message via PG — INSERT into shared_a2a_memory (shared memory mode).
         
-        Uses the separate write connection if available, falls back to listener connection.
+        Uses the shared_a2a_memory table which is compatible with A2A watcher
+        and triggers NOTIFY on a2a_channel for instant delivery.
         """
         conn = self._write_conn or self._conn
         if not self._available or not conn:
@@ -261,38 +265,32 @@ class PGTransport(TransportAdapter):
                 self._available = False
                 return SendResult(transport="pg_notify", success=False, error="connection closed")
 
-            # Insert into mesh.mesh_messages — the NOTIFY trigger will fire
+            # Insert into shared_a2a_memory — the NOTIFY trigger will fire
             # SQL_ASCII database requires explicit client_encoding SET + INSERT in same transaction
-            # Switch to READ_COMMITTED to ensure SET and INSERT are in the same transaction
             old_isolation = conn.isolation_level
             conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED)
             cur = conn.cursor()
             cur.execute("SET client_encoding TO UTF8")
-            payload_json = json.dumps(message.payload, default=str, ensure_ascii=True)
 
-            # Use routing mode from message or default
-            routing_mode = getattr(message, 'routing_mode', 'hybrid')
-
-            # src_addr/dst_addr are INTEGER in mesh schema — pass None for now
-            # (port numbers could be used, but IP:port format is not valid)
-            src_addr = None
-            dst_addr = None
+            # Map A2AMessage fields to shared_a2a_memory columns
+            subject = getattr(message, 'subject', None) or message.type
+            content = json.dumps(message.payload, default=str, ensure_ascii=True)
+            msg_type = getattr(message, 'memory_type', None) or message.type
 
             cur.execute("""
-                INSERT INTO mesh.mesh_messages 
-                    (id, sender, recipient, msg_type, priority, payload, 
-                     routing_mode, src_addr, dst_addr, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'sent')
+                INSERT INTO shared_a2a_memory 
+                    (id, sender_agent, recipient_agent, subject, content, 
+                     memory_type, priority, status, message_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'sent', %s)
             """, (
                 message.id,
                 message.sender,
                 message.recipient,
-                message.type,
+                subject,
+                content,
+                msg_type,
                 getattr(message, 'priority', 5),
-                payload_json,
-                routing_mode,
-                src_addr,
-                dst_addr,
+                message.type,
             ))
             conn.commit()
             cur.close()
