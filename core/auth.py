@@ -412,6 +412,7 @@ class AuthConfig:
     mode: str = AuthMode.OPEN
     whitelist: set = field(default_factory=set)
     trusted_keys: dict = field(default_factory=dict)  # node_name -> public_key
+    trust_center: str = ""  # Coordinator node name
 
 
 @dataclass
