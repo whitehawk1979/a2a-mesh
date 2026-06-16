@@ -129,11 +129,71 @@ class DashboardHandler:
         return web.json_response(sanitize(status))
 
     async def _api_messages(self, request):
-        """Return recent messages."""
+        """Return recent messages — local history + PG messages from other agents."""
         from aiohttp import web
         limit = min(int(request.query.get("limit", 50)), 200)
-        messages = self._message_history[-limit:]
-        return web.json_response({"messages": messages, "total": len(self._message_history)})
+        
+        # Local messages
+        local_messages = self._message_history[-limit:]
+        
+        # Also fetch recent messages from PG (other agents' responses)
+        pg_messages = []
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host,
+                port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname,
+                user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            # Get recent messages from mesh_messages where sender != our node
+            cur.execute("""
+                SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
+                FROM mesh.mesh_messages
+                WHERE sender != %s
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (self.node.node_name, limit))
+            for row in cur.fetchall():
+                msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
+                # Parse payload — it's stored as text (JSON string)
+                import json
+                try:
+                    payload_data = json.loads(payload) if isinstance(payload, str) else payload
+                except (json.JSONDecodeError, TypeError):
+                    payload_data = {"text": str(payload)}
+                
+                pg_messages.append({
+                    "id": str(msg_id),
+                    "sender": sender,
+                    "recipient": recipient,
+                    "type": msg_type,
+                    "priority": priority,
+                    "payload": payload_data,
+                    "timestamp": created_at.isoformat() if created_at else None,
+                    "status": status,
+                    "source": "pg",
+                })
+            cur.close()
+            conn.close()
+        except Exception as e:
+            log.warning(f"Failed to fetch PG messages: {e}")
+        
+        # Merge local + PG messages, deduplicate by ID, sort by timestamp
+        all_messages = {m.get("id", f"local_{i}"): m for i, m in enumerate(local_messages)}
+        for m in pg_messages:
+            msg_id = m.get("id", "")
+            if msg_id not in all_messages:
+                all_messages[msg_id] = m
+        
+        # Sort by timestamp
+        sorted_messages = sorted(all_messages.values(), key=lambda m: m.get("timestamp", ""))
+        result = sorted_messages[-limit:]
+        
+        return web.json_response({"messages": result, "total": len(sorted_messages)})
 
     async def _api_agents(self, request):
         """Return list of known agents with consistent transport format."""
