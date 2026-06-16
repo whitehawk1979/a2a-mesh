@@ -77,7 +77,21 @@ class DashboardHandler:
         """Return full mesh status."""
         from aiohttp import web
         status = self.node.get_status()
-        return web.json_response(status)
+        # Convert any non-serializable objects to strings
+        def sanitize(obj):
+            if isinstance(obj, dict):
+                return {k: sanitize(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [sanitize(v) for v in obj]
+            elif isinstance(obj, (str, int, float, bool, type(None))):
+                return obj
+            elif hasattr(obj, '__dataclass_fields__'):
+                return sanitize(obj.__dict__)
+            elif hasattr(obj, '__dict__'):
+                return sanitize(obj.__dict__)
+            else:
+                return str(obj)
+        return web.json_response(sanitize(status))
 
     async def _api_messages(self, request):
         """Return recent messages."""
@@ -114,7 +128,7 @@ class DashboardHandler:
                     "http": peer.http_available,
                 },
             })
-        return web.json_response({"agents": agents, "total": len(agents)})
+        return web.json_response({"agents": agents, "total": len(agents)}, dumps=lambda x: json.dumps(x, default=str))
 
     async def _api_send(self, request):
         """Send a message to the mesh from the dashboard."""
