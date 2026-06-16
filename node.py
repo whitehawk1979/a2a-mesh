@@ -259,6 +259,7 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
+        self._tasks.append(asyncio.create_task(self._stats_update_loop()))
 
         # Start ACK manager
         await self.ack_manager.start()
@@ -731,6 +732,42 @@ class MeshNode:
                 break
             except Exception as e:
                 log.error(f"Health monitor error: {e}")
+
+    # ─── Stats Update Loop ───────────────────────────────────────────
+
+    async def _stats_update_loop(self):
+        """Periodically update node stats in PG (messages sent/received, uptime)."""
+        while self._running:
+            try:
+                await asyncio.sleep(60)  # Update every 60s
+                if not self._running:
+                    break
+                await self._update_node_stats()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.debug(f"Stats update error: {e}")
+
+    async def _update_node_stats(self):
+        """Update node statistics in the mesh_nodes table."""
+        if not self._pg_transport or not self._pg_transport._available:
+            return
+        try:
+            conn = self._pg_transport._write_conn or self._pg_transport._conn
+            if not conn or conn.closed:
+                return
+            cur = conn.cursor()
+            stats = self.router._stats.copy()
+            cur.execute("""
+                UPDATE mesh.mesh_nodes 
+                SET last_heartbeat = NOW(),
+                    status = 'active'
+                WHERE node_name = %s
+            """, (self.node_name,))
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            log.debug(f"Stats update failed: {e}")
 
     # ─── Webhook Trigger ─────────────────────────────────────────────
 
