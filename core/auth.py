@@ -1,170 +1,395 @@
-"""A2A Mesh Node Authentication — Verify new nodes joining the mesh.
+"""A2A Mesh Dashboard Authentication — User registration, login, session management.
 
-When a node sends a join request, the coordinator (or trust center) verifies:
-1. The node's identity (Ed25519 signature verification)
-2. The node is authorized (whitelist or trust-on-first-use)
-3. The join request has a valid nonce and timestamp
-
-Modes:
-- "open" — any node can join (default for local mesh)
-- "whitelist" — only pre-approved nodes can join
-- "trust_on_first_use" — first node to claim a name is trusted
+SQLite-backed user store with bcrypt password hashing and JWT tokens.
+Owner role can manage users; regular users can only use the dashboard.
 """
-
 import hashlib
+import hmac
+import json
 import logging
+import os
+import sqlite3
 import time
+import uuid
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Optional, Set, Dict
+from typing import Optional
 
 log = logging.getLogger("a2a_mesh.auth")
 
+# Try to import bcrypt; fall back to hashlib if not available
+try:
+    import bcrypt
+    HAS_BCRYPT = True
+except ImportError:
+    HAS_BCRYPT = False
 
-class AuthMode(Enum):
-    """Node authentication mode."""
-    OPEN = "open"                     # Any node can join
-    WHITELIST = "whitelist"            # Only whitelisted nodes
-    TRUST_ON_FIRST_USE = "tofu"        # First claim wins
+DB_PATH = os.path.expanduser("~/.hermes/mesh_users.db")
+
+# JWT-like token signing secret (generated once, stored in file)
+SECRET_PATH = os.path.expanduser("~/.hermes/mesh_auth_secret")
+
+
+def _get_secret() -> str:
+    """Get or generate the signing secret for tokens."""
+    if os.path.exists(SECRET_PATH):
+        with open(SECRET_PATH, "r") as f:
+            return f.read().strip()
+    secret = uuid.uuid4().hex + uuid.uuid4().hex
+    os.makedirs(os.path.dirname(SECRET_PATH), exist_ok=True)
+    with open(SECRET_PATH, "w") as f:
+        f.write(secret)
+    return secret
+
+
+SIGNING_SECRET = _get_secret()
 
 
 @dataclass
-class AuthConfig:
-    """Authentication configuration."""
-    mode: str = "open"                 # AuthMode value
-    trust_center: str = ""             # Node name of trust center (coordinator)
-    whitelist: Set[str] = field(default_factory=set)  # Pre-approved node names
-    max_join_age_seconds: int = 300    # Join request must be fresh (5 min)
-    max_failed_attempts: int = 5       # Ban after this many failed attempts
+class DashboardUser:
+    """A dashboard user."""
+    user_id: str
+    username: str
+    display_name: str
+    role: str  # "owner" or "user"
+    created_at: float = field(default_factory=time.time)
+    last_login: float = 0.0
+    is_active: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "user_id": self.user_id,
+            "username": self.username,
+            "display_name": self.display_name,
+            "role": self.role,
+            "created_at": self.created_at,
+            "last_login": self.last_login,
+            "is_active": self.is_active,
+        }
 
 
-@dataclass
-class JoinRequest:
-    """A node requesting to join the mesh."""
-    node_name: str
-    node_role: str                      # "coordinator", "router", "end_device"
-    public_key: str                     # Ed25519 verify key (hex)
-    timestamp: float                    # Unix timestamp
-    nonce: str                          # Random challenge
-    signature: str = ""                 # Ed25519 signature of join payload
-    parent_node: str = ""               # Requested parent node
-    proof: str = ""                     # Additional proof (e.g., shared secret)
+class AuthManager:
+    """SQLite-backed user authentication for the dashboard.
 
+    Roles:
+        - owner: Full access, can manage users, view all data
+        - user: Dashboard access, can send messages, view agents
 
-class NodeAuthenticator:
-    """Authenticates nodes joining the mesh.
-
-    Usage:
-        auth = NodeAuthenticator(config)
-        result = auth.authenticate_join(join_request)
-        if result:
-            print("Node authorized!")
+    Features:
+        - Password hashing (bcrypt if available, sha256+salt otherwise)
+        - JWT-like token authentication
+        - Session management with expiry
+        - Rate limiting on login attempts
     """
 
-    def __init__(self, config: AuthConfig):
-        self.config = config
-        self._known_keys: Dict[str, str] = {}       # node_name → public_key
-        self._failed_attempts: Dict[str, int] = {}   # node_name → failed count
-        self._banned_until: Dict[str, float] = {}    # node_name → ban expiry
+    def __init__(self, db_path: str = DB_PATH):
+        self.db_path = db_path
+        self._rate_limits: dict = {}  # username -> [timestamp, ...]
+        self._init_db()
 
-    def authenticate_join(self, request: JoinRequest) -> tuple[bool, str]:
-        """Authenticate a join request. Returns (authorized, reason)."""
-        # Check if node is banned
-        if request.node_name in self._banned_until:
-            if time.time() < self._banned_until[request.node_name]:
-                return False, f"Node {request.node_name} is temporarily banned"
-            else:
-                del self._banned_until[request.node_name]
-                self._failed_attempts.pop(request.node_name, 0)
+    def _init_db(self):
+        """Create tables if they don't exist."""
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                username TEXT UNIQUE NOT NULL,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                created_at REAL NOT NULL,
+                last_login REAL DEFAULT 0,
+                is_active INTEGER DEFAULT 1
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(user_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)")
+        conn.commit()
 
-        # Check timestamp freshness
-        age = time.time() - request.timestamp
-        if age < 0 or age > self.config.max_join_age_seconds:
-            return False, f"Join request too old ({age:.0f}s, max {self.config.max_join_age_seconds}s)"
+        # Create default owner if no users exist
+        cur = conn.execute("SELECT COUNT(*) FROM users")
+        if cur.fetchone()[0] == 0:
+            self.register_user("zsolt", "Lakatos Miklós Zsolt", "mesh2026", role="owner")
+            log.info("Default owner user 'zsolt' created")
 
-        # Mode-specific checks
-        mode = AuthMode(self.config.mode)
+        conn.close()
 
-        if mode == AuthMode.OPEN:
-            # Open mesh — any node can join
-            self._register_node(request)
-            return True, "Node authorized (open mode)"
+    def _hash_password(self, password: str, salt: Optional[str] = None) -> tuple:
+        """Hash a password with salt. Returns (hash, salt)."""
+        if salt is None:
+            salt = uuid.uuid4().hex[:16]
 
-        elif mode == AuthMode.WHITELIST:
-            # Check whitelist
-            if request.node_name not in self.config.whitelist:
-                self._record_failure(request.node_name)
-                return False, f"Node {request.node_name} not in whitelist"
+        if HAS_BCRYPT:
+            hashed = bcrypt.hashpw((password + salt).encode(), bcrypt.gensalt(12)).decode()
+        else:
+            # Fallback: HMAC-SHA256
+            hashed = hmac.new(
+                SIGNING_SECRET.encode(),
+                (password + salt).encode(),
+                hashlib.sha256
+            ).hexdigest()
 
-            # Verify signature if provided
-            if request.signature:
-                if not self._verify_signature(request):
-                    self._record_failure(request.node_name)
-                    return False, "Invalid signature"
+        return hashed, salt
 
-            self._register_node(request)
-            return True, "Node authorized (whitelist mode)"
+    def _verify_password(self, password: str, stored_hash: str, salt: str) -> bool:
+        """Verify a password against stored hash and salt."""
+        if HAS_BCRYPT and stored_hash.startswith("$2"):
+            try:
+                return bcrypt.checkpw((password + salt).encode(), stored_hash.encode())
+            except Exception:
+                pass
 
-        elif mode == AuthMode.TRUST_ON_FIRST_USE:
-            # First node to claim a name is trusted
-            if request.node_name in self._known_keys:
-                # Known node — verify public key matches
-                if self._known_keys[request.node_name] != request.public_key:
-                    self._record_failure(request.node_name)
-                    return False, f"Public key mismatch for {request.node_name}"
+        # Fallback verification
+        computed = hmac.new(
+            SIGNING_SECRET.encode(),
+            (password + salt).encode(),
+            hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(computed, stored_hash)
 
-                # Verify signature
-                if request.signature and not self._verify_signature(request):
-                    self._record_failure(request.node_name)
-                    return False, "Invalid signature"
-            else:
-                # New node — trust first use
-                log.info(f"Trust-on-first-use: accepting new node {request.node_name}")
+    def register_user(self, username: str, display_name: str, password: str, role: str = "user") -> Optional[DashboardUser]:
+        """Register a new user. Returns the user object or None if username taken."""
+        if len(username) < 2 or len(username) > 30:
+            raise ValueError("Username must be 2-30 characters")
+        if len(password) < 6:
+            raise ValueError("Password must be at least 6 characters")
+        if role not in ("owner", "user"):
+            raise ValueError("Role must be 'owner' or 'user'")
 
-            self._register_node(request)
-            return True, "Node authorized (TOFU mode)"
+        password_hash, salt = self._hash_password(password)
+        user_id = uuid.uuid4().hex[:12]
 
-        return False, f"Unknown auth mode: {self.config.mode}"
-
-    def _verify_signature(self, request: JoinRequest) -> bool:
-        """Verify Ed25519 signature of the join request."""
+        conn = sqlite3.connect(self.db_path)
         try:
-            from .encryption import MeshEncryption
-            # Reconstruct the signed content
-            content = f"{request.node_name}:{request.node_role}:{request.public_key}:{request.timestamp}:{request.nonce}"
-            enc = MeshEncryption()
-            return enc.verify_message(content, request.signature, request.public_key)
-        except ImportError:
-            log.warning("pynacl not installed — skipping signature verification")
-            return True
-        except Exception as e:
-            log.error(f"Signature verification failed: {e}")
+            conn.execute(
+                "INSERT INTO users (user_id, username, display_name, password_hash, salt, role, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username.lower(), display_name, password_hash, salt, role, time.time())
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.close()
+            return None  # Username taken
+
+        conn.close()
+        return DashboardUser(
+            user_id=user_id,
+            username=username.lower(),
+            display_name=display_name,
+            role=role,
+            created_at=time.time(),
+        )
+
+    def login(self, username: str, password: str) -> Optional[dict]:
+        """Authenticate a user. Returns {user, token} or None."""
+        # Rate limiting: max 5 attempts per minute
+        now = time.time()
+        attempts = self._rate_limits.get(username.lower(), [])
+        attempts = [t for t in attempts if now - t < 60]
+        if len(attempts) >= 5:
+            raise ValueError("Too many login attempts. Try again in 1 minute.")
+        attempts.append(now)
+        self._rate_limits[username.lower()] = attempts
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute(
+            "SELECT * FROM users WHERE username = ? AND is_active = 1",
+            (username.lower(),)
+        )
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        if not self._verify_password(password, row["password_hash"], row["salt"]):
+            return None
+
+        # Generate token
+        token = self._generate_token(row["user_id"])
+
+        # Update last login
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE users SET last_login = ? WHERE user_id = ?", (time.time(), row["user_id"]))
+        conn.commit()
+        conn.close()
+
+        user = DashboardUser(
+            user_id=row["user_id"],
+            username=row["username"],
+            display_name=row["display_name"],
+            role=row["role"],
+            created_at=row["created_at"],
+            last_login=time.time(),
+            is_active=bool(row["is_active"]),
+        )
+
+        return {
+            "user": user,
+            "token": token,
+        }
+
+    def _generate_token(self, user_id: str, expiry_hours: int = 24) -> str:
+        """Generate a JWT-like token."""
+        expires = time.time() + (expiry_hours * 3600)
+        payload = {
+            "user_id": user_id,
+            "exp": expires,
+            "jti": uuid.uuid4().hex[:8],
+        }
+        payload_json = json.dumps(payload, sort_keys=True)
+        signature = hmac.new(SIGNING_SECRET.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+        token = f"{payload_json}:{signature}"
+
+        # Store session
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            (signature, user_id, time.time(), expires)
+        )
+        conn.commit()
+        conn.close()
+
+        return token
+
+    def verify_token(self, token: str) -> Optional[DashboardUser]:
+        """Verify a token and return the user. Returns None if invalid/expired."""
+        if ":" not in token:
+            return None
+
+        payload_json, signature = token.rsplit(":", 1)
+        try:
+            payload = json.loads(payload_json)
+        except json.JSONDecodeError:
+            return None
+
+        # Check expiry
+        if payload.get("exp", 0) < time.time():
+            return None
+
+        # Verify signature
+        expected = hmac.new(SIGNING_SECRET.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+
+        # Check session exists
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.execute(
+            "SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?",
+            (signature, time.time())
+        )
+        session = cur.fetchone()
+        conn.close()
+
+        if not session:
+            return None
+
+        # Get user
+        return self.get_user(payload["user_id"])
+
+    def logout(self, token: str):
+        """Invalidate a session token."""
+        if ":" not in token:
+            return
+        _, signature = token.rsplit(":", 1)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM sessions WHERE token = ?", (signature,))
+        conn.commit()
+        conn.close()
+
+    def get_user(self, user_id: str) -> Optional[DashboardUser]:
+        """Get a user by ID."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return DashboardUser(
+            user_id=row["user_id"],
+            username=row["username"],
+            display_name=row["display_name"],
+            role=row["role"],
+            created_at=row["created_at"],
+            last_login=row["last_login"] or 0,
+            is_active=bool(row["is_active"]),
+        )
+
+    def list_users(self) -> list:
+        """List all users (owner only)."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT * FROM users ORDER BY created_at")
+        rows = cur.fetchall()
+        conn.close()
+
+        return [DashboardUser(
+            user_id=r["user_id"],
+            username=r["username"],
+            display_name=r["display_name"],
+            role=r["role"],
+            created_at=r["created_at"],
+            last_login=r["last_login"] or 0,
+            is_active=bool(r["is_active"]),
+        ) for r in rows]
+
+    def update_user(self, user_id: str, **kwargs) -> bool:
+        """Update user fields. Returns True if successful."""
+        allowed = {"display_name", "role", "is_active"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        if not updates:
             return False
 
-    def _register_node(self, request: JoinRequest):
-        """Register a node's public key after successful authentication."""
-        self._known_keys[request.node_name] = request.public_key
-        log.info(f"Registered node {request.node_name} with key {request.public_key[:16]}...")
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [user_id]
 
-    def _record_failure(self, node_name: str):
-        """Record a failed authentication attempt."""
-        self._failed_attempts[node_name] = self._failed_attempts.get(node_name, 0) + 1
-        count = self._failed_attempts[node_name]
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(f"UPDATE users SET {set_clause} WHERE user_id = ?", values)
+        conn.commit()
+        conn.close()
+        return True
 
-        if count >= self.config.max_failed_attempts:
-            # Ban for 1 hour
-            self._banned_until[node_name] = time.time() + 3600
-            log.warning(f"Node {node_name} banned for 1h after {count} failed attempts")
+    def change_password(self, user_id: str, new_password: str) -> bool:
+        """Change a user's password."""
+        if len(new_password) < 6:
+            raise ValueError("Password must be at least 6 characters")
 
-    def revoke_node(self, node_name: str):
-        """Revoke a node's authentication (force re-authentication)."""
-        self._known_keys.pop(node_name, None)
-        log.info(f"Revoked authentication for node {node_name}")
+        password_hash, salt = self._hash_password(new_password)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "UPDATE users SET password_hash = ?, salt = ? WHERE user_id = ?",
+            (password_hash, salt, user_id)
+        )
+        conn.commit()
+        conn.close()
+        return True
 
-    def get_known_nodes(self) -> Dict[str, str]:
-        """Get all known authenticated nodes and their public keys."""
-        return dict(self._known_keys)
+    def delete_user(self, user_id: str) -> bool:
+        """Deactivate a user (soft delete)."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE users SET is_active = 0 WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        return True
 
-    def is_authenticated(self, node_name: str) -> bool:
-        """Check if a node is authenticated (has a known key)."""
-        return node_name in self._known_keys
+    def cleanup_sessions(self):
+        """Remove expired sessions."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+        conn.commit()
+        conn.close()

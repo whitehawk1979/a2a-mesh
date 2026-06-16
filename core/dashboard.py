@@ -2,12 +2,11 @@
 
 Embedded into the mesh node as additional HTTP routes on the health port.
 Features:
+- User authentication (register/login with password)
 - Agent list with status (online/offline, transport availability)
 - Real-time chat via WebSocket
-- User identification (username stored in browser)
 - Message history
-- File transfer status
-- Mesh topology visualization
+- Owner can manage users
 """
 import asyncio
 import json
@@ -18,12 +17,14 @@ import uuid
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
+from .auth import AuthManager, DashboardUser as AuthUser
+
 log = logging.getLogger("a2a_mesh.dashboard")
 
 
 @dataclass
 class DashboardUser:
-    """A web dashboard user."""
+    """A connected WebSocket user."""
     user_id: str
     username: str
     websocket: object = None
@@ -42,18 +43,25 @@ class DashboardUser:
 class DashboardHandler:
     """Handles web dashboard HTTP and WebSocket requests.
 
-    Mounted as routes on the existing aiohttp app (same port as /health).
     Routes:
         GET  /              → Dashboard HTML page
         GET  /dashboard     → Dashboard HTML page
-        GET  /api/status    → JSON status of all agents and mesh
-        GET  /api/messages  → Recent messages (last 100)
-        POST /api/send      → Send a message to the mesh
+        GET  /api/status    → JSON status
+        GET  /api/messages  → Recent messages
+        GET  /api/agents    → Agent list
+        POST /api/send      → Send a message
+        POST /api/send-file → Upload a file
+        POST /api/auth/register → Register new user (owner only)
+        POST /api/auth/login    → Login
+        POST /api/auth/logout   → Logout
+        GET  /api/auth/me       → Current user info
+        GET  /api/users          → List users (owner only)
         WS   /ws            → WebSocket for real-time updates
     """
 
     def __init__(self, node):
         self.node = node
+        self.auth = AuthManager()
         self._users: Dict[str, DashboardUser] = {}
         self._message_history: List[dict] = []
         self._max_history = 200
@@ -67,7 +75,31 @@ class DashboardHandler:
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_post("/api/send", self._api_send)
         app.router.add_post("/api/send-file", self._api_send_file)
-        app.router.add_get("/ws", self._websocket_handler)
+        # Auth routes
+        app.router.add_post("/api/auth/register", self._api_auth_register)
+        app.router.add_post("/api/auth/login", self._api_auth_login)
+        app.router.add_post("/api/auth/logout", self._api_auth_logout)
+        app.router.add_get("/api/auth/me", self._api_auth_me)
+        app.router.add_get("/api/users", self._api_users)
+        app.router.add_ws("/ws", self._websocket_handler)
+
+    def _require_auth(self, request):
+        """Extract and verify auth token from request. Returns (user, error_response)."""
+        from aiohttp import web
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+        else:
+            token = request.cookies.get("a2a_token", "") or request.query.get("token", "")
+
+        if not token:
+            return None, web.json_response({"error": "Authentication required"}, status=401)
+
+        user = self.auth.verify_token(token)
+        if not user:
+            return None, web.json_response({"error": "Invalid or expired token"}, status=401)
+
+        return user, None
 
     async def _dashboard_page(self, request):
         """Serve the dashboard HTML page."""
@@ -104,15 +136,39 @@ class DashboardHandler:
         return web.json_response({"messages": messages, "total": len(self._message_history)})
 
     async def _api_agents(self, request):
-        """Return list of known agents."""
+        """Return list of known agents with consistent transport format."""
         from aiohttp import web
         agents = []
-        # Self
+        # Self — extract transport availability from TransportStatus objects
+        status = self.node.get_status()
+        raw_transports = status.get("transports", {})
+        transport_inner = raw_transports
+        if isinstance(raw_transports, dict) and "transports" in raw_transports:
+            transport_inner = raw_transports["transports"]
+        self_transports = {}
+        for key in ("p2p", "pg", "pg_notify", "http", "ble"):
+            val = transport_inner.get(key, False)
+            if isinstance(val, str) and "available=True" in val:
+                self_transports[key] = True
+            elif isinstance(val, str) and "available=False" in val:
+                self_transports[key] = False
+            elif isinstance(val, bool):
+                self_transports[key] = val
+            elif hasattr(val, "available"):
+                self_transports[key] = val.available
+            else:
+                self_transports[key] = bool(val)
         agents.append({
             "name": self.node.node_name,
             "role": self.node.config.topology.node_role,
             "status": "online",
-            "transports": self.node.get_status().get("transports", {}),
+            "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
+            "transports": {
+                "p2p": self_transports.get("p2p", False),
+                "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
+                "http": self_transports.get("http", False),
+                "ble": self_transports.get("ble", False),
+            },
             "local_store": self.node.local_store.get_stats(),
         })
         # Known peers
@@ -131,11 +187,15 @@ class DashboardHandler:
                     "http": peer.http_available,
                 },
             })
-        return web.json_response({"agents": agents, "total": len(agents)}, dumps=lambda x: json.dumps(x, default=str))
+        return web.json_response({"agents": agents, "total": len(agents)})
 
     async def _api_send(self, request):
         """Send a message to the mesh from the dashboard."""
         from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+
         try:
             data = await request.json()
         except Exception:
@@ -145,12 +205,10 @@ class DashboardHandler:
         content = data.get("content", "")
         msg_type = data.get("type", "message")
         priority = int(data.get("priority", 5))
-        username = data.get("username", "web_user")
 
         if not content.strip():
             return web.json_response({"error": "Empty message"}, status=400)
 
-        # Create and send A2A message
         from .core.message import A2AMessage
         msg = A2AMessage(
             sender=self.node.node_name,
@@ -160,14 +218,13 @@ class DashboardHandler:
             priority=priority,
             metadata={
                 "source": "web_dashboard",
-                "username": username,
-                "user_id": data.get("user_id", ""),
+                "username": user.display_name,
+                "user_id": user.user_id,
             },
         )
 
         result = await self.node.router.send(msg)
 
-        # Store in history
         self._message_history.append({
             "id": msg.id,
             "sender": msg.sender,
@@ -177,13 +234,12 @@ class DashboardHandler:
             "priority": msg.priority,
             "timestamp": msg.timestamp,
             "source": "web_dashboard",
-            "username": username,
+            "username": user.display_name,
             "result": str(result),
         })
         if len(self._message_history) > self._max_history:
             self._message_history = self._message_history[-self._max_history:]
 
-        # Broadcast to WebSocket clients
         await self._broadcast_ws({
             "type": "new_message",
             "message": self._message_history[-1],
@@ -198,23 +254,23 @@ class DashboardHandler:
     async def _api_send_file(self, request):
         """Upload a file to the mesh via P2P file transfer."""
         from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+
         reader = await request.multipart()
         field = None
         recipient = ""
-        username = "web_user"
 
         async for part in reader:
             if part.name == "file":
                 field = part
             elif part.name == "recipient":
                 recipient = (await part.text()).strip()
-            elif part.name == "username":
-                username = (await part.text()).strip()
 
         if not field:
             return web.json_response({"error": "No file uploaded"}, status=400)
 
-        # Save to temp file
         import tempfile
         tmp_dir = tempfile.mkdtemp(prefix="a2a_upload_")
         file_path = os.path.join(tmp_dir, field.filename)
@@ -226,8 +282,6 @@ class DashboardHandler:
                 f.write(chunk)
 
         file_size = os.path.getsize(file_path)
-
-        # Create file transfer
         file_id = str(uuid.uuid4())
         transfer = self.node.file_transfer.create_outbound_transfer(
             file_id=file_id,
@@ -236,7 +290,7 @@ class DashboardHandler:
             file_size=file_size,
             sender=self.node.node_name,
             recipient=recipient or "broadcast",
-            metadata={"source": "web_dashboard", "username": username},
+            metadata={"source": "web_dashboard", "username": user.display_name},
         )
 
         return web.json_response({
@@ -244,8 +298,116 @@ class DashboardHandler:
             "file_id": file_id,
             "filename": field.filename,
             "size": file_size,
-            "recipient": recipient or "broadcast",
         })
+
+    # ─── Auth endpoints ───
+
+    async def _api_auth_register(self, request):
+        """Register a new user. Only owners can create other users."""
+        from aiohttp import web
+        caller, err = self._require_auth(request)
+        if err:
+            return err
+
+        if caller.role != "owner":
+            return web.json_response({"error": "Only owners can register new users"}, status=403)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        username = data.get("username", "").strip().lower()
+        display_name = data.get("display_name", "").strip()
+        password = data.get("password", "")
+        role = data.get("role", "user")
+
+        if not username or not password:
+            return web.json_response({"error": "Username and password required"}, status=400)
+
+        try:
+            user = self.auth.register_user(username, display_name or username, password, role=role)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+        if not user:
+            return web.json_response({"error": "Username already taken"}, status=409)
+
+        return web.json_response({
+            "status": "registered",
+            "user": user.to_dict(),
+        })
+
+    async def _api_auth_login(self, request):
+        """Login and get a token."""
+        from aiohttp import web
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        username = data.get("username", "").strip()
+        password = data.get("password", "")
+
+        if not username or not password:
+            return web.json_response({"error": "Username and password required"}, status=400)
+
+        try:
+            result = self.auth.login(username, password)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=429)
+
+        if not result:
+            return web.json_response({"error": "Invalid username or password"}, status=401)
+
+        # Set token as cookie too for WebSocket auth
+        response = web.json_response({
+            "status": "ok",
+            "token": result["token"],
+            "user": result["user"].to_dict(),
+        })
+        response.set_cookie("a2a_token", result["token"], max_age=86400, httponly=True, samesite="Lax")
+        return response
+
+    async def _api_auth_logout(self, request):
+        """Logout and invalidate token."""
+        from aiohttp import web
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
+        if not token:
+            token = request.cookies.get("a2a_token", "")
+
+        if token:
+            self.auth.logout(token)
+
+        response = web.json_response({"status": "ok"})
+        response.del_cookie("a2a_token")
+        return response
+
+    async def _api_auth_me(self, request):
+        """Return current user info."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        return web.json_response({"user": user.to_dict()})
+
+    async def _api_users(self, request):
+        """List all users (owner only)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        users = self.auth.list_users()
+        return web.json_response({
+            "users": [u.to_dict() for u in users],
+            "total": len(users),
+        })
+
+    # ─── WebSocket handler ───
 
     async def _websocket_handler(self, request):
         """WebSocket handler for real-time dashboard updates."""
@@ -253,25 +415,30 @@ class DashboardHandler:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
 
+        # Auth: check token from query param
+        token = request.query.get("token", "")
+        auth_user = None
+        if token:
+            auth_user = self.auth.verify_token(token)
+
         user_id = str(uuid.uuid4())[:8]
-        username = request.query.get("username", f"user_{user_id}")
+        username = auth_user.display_name if auth_user else (request.query.get("username", f"guest_{user_id}"))
         user = DashboardUser(user_id=user_id, username=username, websocket=ws)
         self._users[user_id] = user
 
-        log.info(f"Dashboard user connected: {username} ({user_id})")
+        log.info(f"Dashboard user connected: {username} ({user_id}) auth={'yes' if auth_user else 'no'}")
 
-        # Send initial status
+        # Send initial data
         try:
             await ws.send_json({
                 "type": "connected",
                 "user_id": user_id,
                 "username": username,
                 "node": self.node.node_name,
+                "authenticated": auth_user is not None,
+                "role": auth_user.role if auth_user else "guest",
             })
-            await ws.send_json({
-                "type": "status",
-                "data": self.node.get_status(),
-            })
+            await ws.send_json({"type": "status", "data": self.node.get_status()})
         except Exception:
             pass
 
@@ -281,7 +448,14 @@ class DashboardHandler:
                 if msg.type == 1:  # TEXT
                     try:
                         data = json.loads(msg.data)
-                        if data.get("type") == "chat":
+                        msg_type = data.get("type", "")
+
+                        if msg_type == "chat":
+                            # Require auth for sending messages
+                            if not auth_user:
+                                await ws.send_json({"type": "error", "message": "Authentication required to send messages"})
+                                continue
+
                             content = data.get("content", "")
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
@@ -295,13 +469,12 @@ class DashboardHandler:
                                 priority=priority,
                                 metadata={
                                     "source": "web_dashboard",
-                                    "username": username,
-                                    "user_id": user_id,
+                                    "username": auth_user.display_name,
+                                    "user_id": auth_user.user_id,
                                 },
                             )
                             result = await self.node.router.send(a2a_msg)
 
-                            # Store in history
                             self._message_history.append({
                                 "id": a2a_msg.id,
                                 "sender": a2a_msg.sender,
@@ -311,18 +484,17 @@ class DashboardHandler:
                                 "priority": a2a_msg.priority,
                                 "timestamp": a2a_msg.timestamp,
                                 "source": "web_dashboard",
-                                "username": username,
+                                "username": auth_user.display_name,
                             })
                             if len(self._message_history) > self._max_history:
                                 self._message_history = self._message_history[-self._max_history:]
 
-                            # Broadcast to all WS clients
                             await self._broadcast_ws({
                                 "type": "new_message",
                                 "message": self._message_history[-1],
                             })
 
-                        elif data.get("type") == "ping":
+                        elif msg_type == "ping":
                             await ws.send_json({"type": "pong", "timestamp": time.time()})
                     except json.JSONDecodeError:
                         pass

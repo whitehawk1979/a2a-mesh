@@ -12,6 +12,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .header h1{font-size:18px;font-weight:600;display:flex;align-items:center;gap:8px}
 .header h1 .mesh-icon{width:28px;height:28px;background:var(--primary);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px}
 .header-info{display:flex;gap:16px;align-items:center;font-size:13px;color:var(--text2)}
+.user-badge{background:var(--primary-dim);color:var(--primary);padding:4px 10px;border-radius:12px;font-size:12px;cursor:pointer;display:none;align-items:center;gap:4px}
+.user-badge:hover{background:var(--primary);color:#fff}
 .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
 .status-dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
 .status-dot.offline{background:var(--danger)}
@@ -50,6 +52,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .input-area select:focus{border-color:var(--primary)}
 .btn{background:var(--primary);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:14px;cursor:pointer;font-weight:500;transition:opacity .2s}
 .btn:hover{opacity:.9}
+.btn:active{opacity:.8}
+.btn-danger{background:var(--danger)}
+.btn-sm{padding:6px 12px;font-size:12px}
 .right-panel{width:300px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
 .panel-section{border-bottom:1px solid var(--border);padding:12px 16px}
 .panel-section h3{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
@@ -60,11 +65,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .stat-box .value.green{color:var(--success)}
 .stat-box .value.blue{color:var(--primary)}
 .stat-box .value.amber{color:var(--warning)}
-.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:100}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:360px}
-.modal h2{margin-bottom:16px;font-size:18px}
-.modal input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;margin-bottom:12px;outline:none}
+/* Auth modal */
+.modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;width:400px;max-width:90vw}
+.modal h2{margin-bottom:8px;font-size:20px;text-align:center}
+.modal .subtitle{color:var(--text2);font-size:14px;text-align:center;margin-bottom:20px}
+.modal label{display:block;font-size:13px;color:var(--text2);margin-bottom:4px;margin-top:12px}
+.modal input[type="text"],.modal input[type="password"]{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;outline:none}
 .modal input:focus{border-color:var(--primary)}
+.modal .btn{width:100%;margin-top:16px;padding:12px;font-size:15px}
+.modal .switch{font-size:13px;color:var(--text2);text-align:center;margin-top:12px}
+.modal .switch a{color:var(--primary);cursor:pointer;text-decoration:none}
+.modal .switch a:hover{text-decoration:underline}
+.modal .error{color:var(--danger);font-size:13px;text-align:center;margin-top:8px;min-height:20px}
+.role-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px}
+.role-badge.owner{background:rgba(245,158,11,.2);color:var(--warning)}
+.role-badge.user{background:rgba(79,140,255,.2);color:var(--primary)}
 ::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -74,28 +90,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </head>
 <body>
 
-<div class="modal-overlay" id="loginModal">
+<!-- Auth Modal -->
+<div class="modal-overlay" id="authModal">
   <div class="modal">
-    <h2>🤖 A2A Mesh Dashboard</h2>
-    <p style="color:var(--text2);margin-bottom:16px;font-size:14px;">Add meg a neved a csatlakozáshoz</p>
-    <input type="text" id="usernameInput" placeholder="Felhasználónév..." maxlength="30" autofocus>
-    <button class="btn" style="width:100%" id="connectBtn">Csatlakozás</button>
+    <h2 id="authTitle">🤖 Bejelentkezés</h2>
+    <div class="subtitle" id="authSubtitle">Add meg a felhasználóneved és jelszavad</div>
+    <label for="authUsername">Felhasználónév</label>
+    <input type="text" id="authUsername" placeholder="Felhasználónév..." autocomplete="username">
+    <label for="authPassword">Jelszó</label>
+    <input type="password" id="authPassword" placeholder="Jelszó..." autocomplete="current-password">
+    <div id="authExtraFields" style="display:none">
+      <label for="authDisplayName">Megjelenítendő név</label>
+      <input type="text" id="authDisplayName" placeholder="Pl: Zsolt">
+      <label for="authRole">Szerepkör</label>
+      <select id="authRole">
+        <option value="user">Felhasználó</option>
+        <option value="owner">Tulajdonos</option>
+      </select>
+    </div>
+    <button class="btn" id="authSubmitBtn" onclick="submitAuth()">Bejelentkezés</button>
+    <div class="error" id="authError"></div>
+    <div class="switch" id="authSwitch">Még nincs fiókod? <a onclick="switchAuthMode()">Regisztrálj</a></div>
   </div>
 </div>
 
+<!-- Main Dashboard -->
 <div class="header">
   <h1><span class="mesh-icon">⚡</span> A2A Mesh</h1>
   <div class="header-info">
     <span><span class="status-dot online" id="statusDot"></span> <span id="nodeName">—</span></span>
     <span id="userCount">0 user</span>
+    <span class="user-badge" id="userBadge" onclick="logout()"></span>
   </div>
 </div>
 
 <div class="main">
   <div class="sidebar">
-    <div class="sidebar-header">
-      Agentek <span class="count" id="agentCount">0</span>
-    </div>
+    <div class="sidebar-header">Agentek <span class="count" id="agentCount">0</span></div>
     <div class="agent-list" id="agentList">
       <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">Betöltés...</div>
     </div>
@@ -110,9 +141,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <div class="messages" id="messages"></div>
     <div class="input-area">
-      <select id="recipientSelect">
-        <option value="">📢 Broadcast</option>
-      </select>
+      <select id="recipientSelect"><option value="">📢 Broadcast</option></select>
       <input type="text" id="messageInput" placeholder="Üzenet írása...">
       <select id="prioritySelect">
         <option value="5">P5 Normál</option>
@@ -120,7 +149,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <option value="10">P10 Sürgős</option>
         <option value="1">P1 Alacsony</option>
       </select>
-      <button class="btn" id="sendBtn">Küldés</button>
+      <button class="btn" id="sendBtn" onclick="sendMessage()">Küldés</button>
     </div>
   </div>
 
@@ -150,46 +179,121 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
-// A2A Mesh Dashboard — Client-side JavaScript
 var ws = null;
 var nodeId = "";
-var username = "";
+var authToken = null;
+var authUser = null;
 var messageHistory = [];
 
-function connectDashboard() {
-  username = document.getElementById("usernameInput").value.trim() || "user_" + Math.random().toString(36).substr(2, 6);
-  localStorage.setItem("a2a_username", username);
-  document.getElementById("loginModal").style.display = "none";
-  initWebSocket();
+function showAuth() {
+  document.getElementById("authModal").style.display = "flex";
+  document.getElementById("authError").textContent = "";
+  var saved = localStorage.getItem("a2a_username");
+  if (saved) document.getElementById("authUsername").value = saved;
+  document.getElementById("authUsername").focus();
+}
+
+function switchAuthMode() {
+  var isLogin = document.getElementById("authTitle").textContent.indexOf("Bejelentkez") >= 0;
+  document.getElementById("authTitle").textContent = isLogin ? "🤖 Regisztráció" : "🤖 Bejelentkezés";
+  document.getElementById("authSubtitle").textContent = isLogin ? "Új felhasználó létrehozása (csak owner)" : "Add meg a felhasználóneved és jelszavad";
+  document.getElementById("authSubmitBtn").textContent = isLogin ? "Regisztráció" : "Bejelentkezés";
+  document.getElementById("authExtraFields").style.display = isLogin ? "block" : "none";
+  document.getElementById("authSwitch").innerHTML = isLogin
+    ? "Már van fiókod? <a onclick=\"switchAuthMode()\">Jelentkezz be</a>"
+    : "Még nincs fiókod? <a onclick=\"switchAuthMode()\">Regisztrálj</a>";
+  document.getElementById("authError").textContent = "";
+}
+
+function submitAuth() {
+  var username = document.getElementById("authUsername").value.trim().toLowerCase();
+  var password = document.getElementById("authPassword").value;
+  var errEl = document.getElementById("authError");
+  errEl.textContent = "";
+
+  if (!username || !password) { errEl.textContent = "Felhasználónév és jelszó kötelező"; return; }
+
+  var isLogin = document.getElementById("authTitle").textContent.indexOf("Regisztráció") < 0;
+
+  if (isLogin) {
+    fetch("/api/auth/login", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username: username, password: password})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) {
+        errEl.textContent = d.error;
+      } else {
+        authToken = d.token;
+        authUser = d.user;
+        localStorage.setItem("a2a_token", d.token);
+        localStorage.setItem("a2a_username", d.user.username);
+        document.getElementById("authModal").style.display = "none";
+        document.getElementById("userBadge").style.display = "flex";
+        updateUserBadge();
+        initWebSocket();
+        loadStatus();
+        loadMessages();
+        loadAgents();
+      }
+    }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+  } else {
+    var displayName = document.getElementById("authDisplayName").value.trim() || username;
+    var role = document.getElementById("authRole").value;
+    fetch("/api/auth/register", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + authToken},
+      body: JSON.stringify({username: username, display_name: displayName, password: password, role: role})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) {
+        errEl.textContent = d.error;
+      } else {
+        errEl.style.color = "var(--success)";
+        errEl.textContent = "Felhasználó '" + d.user.username + "' sikeresen regisztrálva!";
+        setTimeout(function() { errEl.style.color = ""; switchAuthMode(); }, 2000);
+      }
+    }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+  }
+}
+
+function logout() {
+  var token = authToken || localStorage.getItem("a2a_token");
+  if (token) {
+    fetch("/api/auth/logout", {method: "POST", headers: {"Authorization": "Bearer " + token}}).catch(function() {});
+  }
+  authToken = null;
+  authUser = null;
+  localStorage.removeItem("a2a_token");
+  if (ws) ws.close();
+  showAuth();
+}
+
+function updateUserBadge() {
+  var badge = document.getElementById("userBadge");
+  if (authUser) {
+    var rb = authUser.role === "owner" ? '<span class="role-badge owner">owner</span>' : '<span class="role-badge user">user</span>';
+    badge.innerHTML = authUser.display_name + " " + rb + " ▾";
+  }
 }
 
 function initWebSocket() {
   var proto = location.protocol === "https:" ? "wss:" : "ws:";
-  ws = new WebSocket(proto + "//" + location.host + "/ws?username=" + encodeURIComponent(username));
+  var wsUrl = proto + "//" + location.host + "/ws";
+  if (authToken) wsUrl += "?token=" + encodeURIComponent(authToken);
+  ws = new WebSocket(wsUrl);
+
   ws.onopen = function() { log("WebSocket connected"); loadStatus(); loadMessages(); loadAgents(); };
   ws.onmessage = function(e) {
     var data = JSON.parse(e.data);
-    handleWsMessage(data);
+    switch(data.type) {
+      case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
+      case "status": updateStatus(data.data); break;
+      case "new_message": addMessage(data.message); break;
+      case "error": log("Hiba: " + data.message); break;
+    }
   };
   ws.onclose = function() { log("WebSocket disconnected, reconnecting..."); setTimeout(initWebSocket, 3000); };
   ws.onerror = function() {};
-}
-
-function handleWsMessage(data) {
-  switch(data.type) {
-    case "connected":
-      nodeId = data.node;
-      document.getElementById("nodeName").textContent = data.node;
-      break;
-    case "status":
-      updateStatus(data.data);
-      break;
-    case "new_message":
-      addMessage(data.message);
-      break;
-    case "pong":
-      break;
-  }
 }
 
 function loadStatus() {
@@ -209,7 +313,7 @@ function loadAgents() {
     document.getElementById("totalAgents").textContent = d.total;
     document.getElementById("agentCount").textContent = d.total;
     var sel = document.getElementById("recipientSelect");
-    sel.innerHTML = "<option value=\"\">📢 Broadcast</option>";
+    sel.innerHTML = '<option value="">📢 Broadcast</option>';
     d.agents.forEach(function(a) {
       if (a.name !== nodeId) {
         var opt = document.createElement("option");
@@ -228,15 +332,15 @@ function renderAgents(agents) {
     var isSelf = a.name === nodeId;
     var status = (a.status === "online" || a.status === "available") ? "online" : "offline";
     var tr = a.transports || {};
-    html += "<div class=\"agent-card " + (isSelf ? "active" : "") + "\">";
-    html += "<div class=\"name\"><span class=\"status-dot " + status + "\"></span>" + a.name + (isSelf ? " (te)" : "") + "</div>";
-    html += "<div class=\"role\">" + a.role + (a.host ? " · " + a.host : "") + "</div>";
-    html += "<div class=\"transports\">";
-    if (tr.p2p !== undefined) html += "<span class=\"transport-badge " + (tr.p2p ? "" : "inactive") + "\">P2P</span>";
-    if (tr.pg !== undefined) html += "<span class=\"transport-badge " + (tr.pg ? "" : "inactive") + "\">PG</span>";
-    if (tr.http !== undefined) html += "<span class=\"transport-badge " + (tr.http ? "" : "inactive") + "\">HTTP</span>";
-    if (tr.ble !== undefined) html += "<span class=\"transport-badge " + (tr.ble ? "" : "inactive") + "\">BLE</span>";
-    html += "</div></div>";
+    html += '<div class="agent-card ' + (isSelf ? "active" : "") + '">';
+    html += '<div class="name"><span class="status-dot ' + status + '"></span>' + a.name + (isSelf ? " (te)" : "") + '</div>';
+    html += '<div class="role">' + a.role + (a.host ? " · " + a.host : "") + '</div>';
+    html += '<div class="transports">';
+    if (tr.p2p !== undefined) html += '<span class="transport-badge ' + (tr.p2p ? "" : "inactive") + '">P2P</span>';
+    if (tr.pg !== undefined) html += '<span class="transport-badge ' + (tr.pg ? "" : "inactive") + '">PG</span>';
+    if (tr.http !== undefined) html += '<span class="transport-badge ' + (tr.http ? "" : "inactive") + '">HTTP</span>';
+    if (tr.ble !== undefined) html += '<span class="transport-badge ' + (tr.ble ? "" : "inactive") + '">BLE</span>';
+    html += '</div></div>';
   });
   list.innerHTML = html;
 }
@@ -246,21 +350,30 @@ function updateStatus(data) {
   document.getElementById("localStore").textContent = (data.local_store || {}).outbound_pending || 0;
   document.getElementById("p2pPeers").textContent = (data.peer_discovery || {}).connected_peers || 0;
   document.getElementById("userCount").textContent = ((data.dashboard || {}).connected_users || 0) + " user";
+
   var tr = data.transports || {};
+  var inner = tr.transports || tr;
   document.getElementById("transportGrid").innerHTML =
-    statBox("PG", tr.pg_notify) + statBox("P2P", tr.p2p) + statBox("HTTP", tr.http) + statBox("BLE", tr.ble);
+    statBox("PG", inner.pg_notify !== undefined ? inner.pg_notify : inner.pg) +
+    statBox("P2P", inner.p2p) +
+    statBox("HTTP", inner.http) +
+    statBox("BLE", inner.ble);
+
   var as = data.auto_steer || {};
   document.getElementById("steerGrid").innerHTML =
-    statBox("Interrupts", as.interrupts || 0, true) + statBox("Queued", as.queued || 0, true) +
-    statBox("Processed", as.processed || 0, true) + statBox("Backlog", as.backlog || 0, true);
+    statBox("Interrupts", as.interrupts || 0) + statBox("Queued", as.queued || 0) +
+    statBox("Processed", as.processed || 0) + statBox("Backlog", as.backlog || 0);
 }
 
-function statBox(label, val, isNum) {
+function statBox(label, val) {
   if (typeof val === "object" && val !== null) {
     var avail = val.available !== undefined ? val.available : false;
-    return "<div class=\"stat-box\"><div class=\"label\">" + label + "</div><div class=\"value " + (avail ? "green" : "amber") + "\">" + (avail ? "✓" : "✗") + "</div></div>";
+    return '<div class="stat-box"><div class="label">' + label + '</div><div class="value ' + (avail ? "green" : "amber") + '">' + (avail ? "✓" : "✗") + '</div></div>';
   }
-  return "<div class=\"stat-box\"><div class=\"label\">" + label + "</div><div class=\"value\">" + val + "</div></div>";
+  if (typeof val === "boolean") {
+    return '<div class="stat-box"><div class="label">' + label + '</div><div class="value ' + (val ? "green" : "amber") + '">' + (val ? "✓" : "✗") + '</div></div>';
+  }
+  return '<div class="stat-box"><div class="label">' + label + '</div><div class="value">' + val + '</div></div>';
 }
 
 function addMessage(msg, scroll) {
@@ -277,13 +390,13 @@ function addMessage(msg, scroll) {
   var div = document.createElement("div");
   div.className = "msg " + cls;
   div.innerHTML =
-    "<div class=\"sender\">" + escapeHtml(senderLabel) + (isBroadcast ? " → 📢 broadcast" : " → " + escapeHtml(msg.recipient || "broadcast")) + "</div>" +
-    "<div>" + escapeHtml(msg.content) + "</div>" +
-    "<div class=\"meta\">" +
-      "<span>" + time + "</span>" +
-      "<span class=\"priority " + priCls + "\">" + priLabel + "</span>" +
-      (msg.source === "web_dashboard" ? "<span>🌐 web</span>" : "<span>🤖 mesh</span>") +
-    "</div>";
+    '<div class="sender">' + escapeHtml(senderLabel) + (isBroadcast ? " → 📢 broadcast" : " → " + escapeHtml(msg.recipient || "broadcast")) + '</div>' +
+    '<div>' + escapeHtml(msg.content) + '</div>' +
+    '<div class="meta">' +
+      '<span>' + time + '</span>' +
+      '<span class="priority ' + priCls + '">' + priLabel + '</span>' +
+      (msg.source === "web_dashboard" ? '<span>🌐 web</span>' : '<span>🤖 mesh</span>') +
+    '</div>';
   document.getElementById("messages").appendChild(div);
   messageHistory.push(msg);
   if (messageHistory.length > 200) messageHistory.shift();
@@ -294,6 +407,7 @@ function sendMessage() {
   var input = document.getElementById("messageInput");
   var content = input.value.trim();
   if (!content || !ws) return;
+
   ws.send(JSON.stringify({
     type: "chat",
     content: content,
@@ -313,26 +427,41 @@ function escapeHtml(t) { var d = document.createElement("div"); d.textContent = 
 function log(msg) {
   var el = document.getElementById("sysLog");
   var time = new Date().toLocaleTimeString("hu-HU");
-  el.innerHTML = "<div>[" + time + "] " + msg + "</div>" + el.innerHTML;
+  el.innerHTML = '<div>[' + time + '] ' + msg + '</div>' + el.innerHTML;
 }
-
-// Event listeners
-document.getElementById("connectBtn").addEventListener("click", connectDashboard);
-document.getElementById("messageInput").addEventListener("keydown", function(e) { if (e.key === "Enter") sendMessage(); });
-document.getElementById("sendBtn").addEventListener("click", sendMessage);
 
 // Auto-refresh
 setInterval(loadAgents, 10000);
 setInterval(loadStatus, 5000);
 
-// Check saved username
-var savedUser = localStorage.getItem("a2a_username");
-if (savedUser) {
-  document.getElementById("usernameInput").value = savedUser;
-  connectDashboard();
+// Check saved token
+var savedToken = localStorage.getItem("a2a_token");
+if (savedToken) {
+  fetch("/api/auth/me", {headers: {"Authorization": "Bearer " + savedToken}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.user) {
+        authToken = savedToken;
+        authUser = d.user;
+        document.getElementById("authModal").style.display = "none";
+        document.getElementById("userBadge").style.display = "flex";
+        updateUserBadge();
+        initWebSocket();
+        loadStatus();
+        loadMessages();
+        loadAgents();
+      } else {
+        localStorage.removeItem("a2a_token");
+        showAuth();
+      }
+    }).catch(function() { showAuth(); });
+} else {
+  showAuth();
 }
 
-document.getElementById("usernameInput").addEventListener("keydown", function(e) { if (e.key === "Enter") connectDashboard(); });
+document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
+document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
+document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
 </script>
 </body>
 </html>
