@@ -213,9 +213,11 @@ class DashboardHandler:
             return web.json_response({"error": "Empty message"}, status=400)
 
         from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+        # Use "morzsa" as recipient for broadcast so A2A watcher delivers it
+        effective_recipient = "morzsa" if (not recipient or recipient == "broadcast") else recipient
         msg = A2AMessage(
-            sender=self.node.node_name,
-            recipient=recipient if recipient else "broadcast",
+            sender="web_dashboard",
+            recipient=effective_recipient,
             type=msg_type if msg_type != "message" else MSG_TYPE_DIRECTIVE,
             priority=effective_priority,
             payload={
@@ -223,6 +225,7 @@ class DashboardHandler:
                 "source": "web_dashboard",
                 "username": user.display_name,
                 "user_id": user.user_id,
+                "original_sender": self.node.node_name,
             },
         )
 
@@ -471,9 +474,12 @@ class DashboardHandler:
                             effective_priority = max(priority, 7)
 
                             from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+                            # Use "morzsa" as recipient for broadcast so A2A watcher delivers it
+                            # Use web_dashboard as sender to avoid self-ref filter
+                            effective_recipient = "morzsa" if (not recipient or recipient == "broadcast") else recipient
                             a2a_msg = A2AMessage(
-                                sender=self.node.node_name,
-                                recipient=recipient if recipient else "broadcast",
+                                sender="web_dashboard",
+                                recipient=effective_recipient,
                                 type=MSG_TYPE_DIRECTIVE,
                                 priority=effective_priority,
                                 payload={
@@ -481,6 +487,7 @@ class DashboardHandler:
                                     "source": "web_dashboard",
                                     "username": auth_user.display_name,
                                     "user_id": auth_user.user_id,
+                                    "original_sender": self.node.node_name,
                                 },
                             )
                             result = await self.node.router.send(a2a_msg)
@@ -602,42 +609,32 @@ class DashboardHandler:
 
     async def _wake_agent(self, message):
         """Wake Hermes agent via webhook so it can process/respond to dashboard messages."""
-        webhook_port = getattr(self.node, 'config', None)
-        if webhook_port:
-            webhook_port = getattr(webhook_port, 'webhook_port', 8644)
-        else:
-            webhook_port = 8644
         try:
-            import aiohttp
-            # Try the Hermes webhook endpoint first
-            payload = {
-                "message_id": message.id,
+            import hmac as hmac_mod
+            import hashlib
+            import urllib.request
+            payload = json.dumps({
+                "event_type": "a2a_message",
                 "sender": message.sender,
-                "recipient": message.recipient,
-                "type": message.type,
+                "recipient": message.recipient or "broadcast",
+                "subject": f"Dashboard: {(message.payload or {}).get('text', '')[:60]}",
+                "content": json.dumps(message.payload) if isinstance(message.payload, dict) else str(message.payload),
                 "priority": message.priority,
-                "payload": message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)},
-                "source": "web_dashboard",
-            }
-            async with aiohttp.ClientSession() as session:
-                # Try webhook endpoint
-                try:
-                    async with session.post(f"http://localhost:{webhook_port}/webhook", json=payload, timeout=aiohttp.ClientTimeout(total=3)) as resp:
-                        if resp.status == 200:
-                            log.info(f"Agent woken via webhook for dashboard message {message.id[:8]}")
-                            return
-                except Exception:
-                    pass
-                # Fallback: try Hermes gateway health endpoint to trigger processing
-                try:
-                    async with session.get(f"http://localhost:{webhook_port}/health", timeout=aiohttp.ClientTimeout(total=2)) as resp:
-                        log.debug(f"Gateway health check: {resp.status}")
-                except Exception:
-                    pass
-                # Final fallback: trigger via A2A watcher PG NOTIFY (already done by _insert_pg_message)
-                log.info(f"Agent wake: webhook unavailable, PG NOTIFY will trigger A2A watcher")
+            })
+            sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
+            req = urllib.request.Request(
+                "http://localhost:8644/webhooks/a2a-instant",
+                data=payload.encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Hub-Signature-256": f"sha256={sig}",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read().decode())
+                log.info(f"Agent woken via webhook: {result.get('status', 'unknown')}")
         except Exception as e:
-            log.debug(f"Agent wake skipped: {e}")
+            log.info(f"Agent wake: webhook failed ({e}), PG NOTIFY will trigger A2A watcher")
 
     def get_stats(self) -> dict:
         return {
