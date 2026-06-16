@@ -107,12 +107,17 @@ class MeshNode:
             log.info(f"Coordinator mode: address={self.mesh_address}")
         elif self.role == NodeRole.ROUTER:
             # Router joins network, gets address from coordinator
+            # If coordinator not reachable, assign self as first router (0x0001)
             self.address_manager = AddressManager(
                 max_children=topo.max_children,
                 max_routers=topo.max_routers,
                 max_depth=topo.max_depth,
             )
-            log.info(f"Router mode: will join network and get address")
+            self.mesh_address = self.address_manager.assign_address(
+                self.node_name, NodeRole.ROUTER
+            )
+            self.tree_router = TreeRouter(self.mesh_address, self.address_manager)
+            log.info(f"Router mode: address={self.mesh_address}")
         else:
             # End device — lightweight, connects via parent
             log.info(f"End device mode: will join network via parent router")
