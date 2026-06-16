@@ -28,6 +28,8 @@ from .core.ack import AckManager, AckType, AckStatus
 from .core.offline_queue import OfflineQueue
 from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
 from .core.auto_steer import AutoSteerProcessor
+from .core.local_store import LocalStore
+from .core.file_transfer import P2PFileTransfer
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
@@ -85,7 +87,8 @@ class MeshNode:
                 log.warning("pynacl not installed, message signing disabled")
 
         # Initialize router
-        self.router = MeshRouter(self.node_name, self.config)
+        self.local_store = LocalStore(node_name=self.node_name)
+        self.router = MeshRouter(self.node_name, self.config, local_store=self.local_store)
 
         # Initialize topology (Zigbee-inspired)
         topo = self.config.topology
@@ -148,6 +151,12 @@ class MeshNode:
         self.auto_steer = AutoSteerProcessor(
             node_name=self.node_name,
             config=self.config,
+        )
+
+        # Initialize P2P file transfer
+        self.file_transfer = P2PFileTransfer(
+            node_name=self.node_name,
+            local_store=self.local_store,
         )
 
         # Initialize node authenticator
@@ -214,7 +223,18 @@ class MeshNode:
         self._handlers.append(handler)
 
     async def _dispatch_to_handlers(self, message: A2AMessage):
-        """Dispatch incoming message to all registered handlers."""
+        """Dispatch incoming message to all registered handlers.
+
+        Special handling for file_transfer messages.
+        """
+        # Handle file transfer messages
+        if message.type == "file_transfer":
+            response = self.file_transfer.handle_incoming(message)
+            if response and isinstance(response, A2AMessage):
+                # Send response back via P2P
+                asyncio.create_task(self.router.send(response))
+            return
+
         for handler in self._handlers:
             try:
                 result = handler(message)
@@ -438,6 +458,8 @@ class MeshNode:
                 "ack": self.ack_manager.get_stats(),
                 "offline_queue": self.offline_queue.get_stats(),
                 "auto_steer": self.auto_steer.get_stats(),
+                "local_store": self.local_store.get_stats(),
+                "file_transfer": self.file_transfer.get_transfer_stats(),
                 "messages_sent": self.router._stats.get("sent", 0),
                 "messages_received": self.router._stats.get("received", 0),
             }
@@ -730,6 +752,8 @@ class MeshNode:
             "encryption": "enabled" if self.encryption else "disabled",
             "dedup_cache_size": self.router.dedup.size,
             "auto_steer": self.auto_steer.get_stats(),
+            "local_store": self.local_store.get_stats(),
+            "file_transfer": self.file_transfer.get_transfer_stats(),
             "coordinator": self.election.get_status() if self.election else None,
         }
         if self.mesh_address:

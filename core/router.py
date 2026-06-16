@@ -2,6 +2,7 @@
 
 import logging
 import asyncio
+import json
 from typing import Dict, List, Optional, Callable
 from ..core.message import A2AMessage, SendResult, ProcessResult
 from ..core.dedup import DedupCache
@@ -22,9 +23,10 @@ class MeshRouter:
     - Priority-based routing (P10+ immediate, P1-9 queued)
     """
 
-    def __init__(self, node_name: str, config=None):
+    def __init__(self, node_name: str, config=None, local_store=None):
         self.node_name = node_name
         self.config = config
+        self.local_store = local_store
 
         # Transport adapters: name → adapter instance
         self.transports: Dict[str, 'TransportAdapter'] = {}
@@ -118,10 +120,11 @@ class MeshRouter:
                 log.error(f"Priority queue error: {e}")
 
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send a message via best available transport.
+        """Send a message via best available transport with fallback.
 
-        For broadcast messages, sends on ALL available transports.
-        For directed messages, tries transports in priority order.
+        Priority order: PG → P2P → HTTP (configurable)
+        If a transport fails, automatically falls back to the next.
+        Messages are also stored in LocalStore for offline resilience.
         """
         message.sender = self.node_name
 
@@ -132,27 +135,56 @@ class MeshRouter:
             content = message.sign_content()
             message.signature = enc.sign_message(content)
 
+        # Store in local_store for offline resilience
+        if self.local_store:
+            try:
+                payload_str = message.payload if isinstance(message.payload, str) else json.dumps(message.payload)
+                self.local_store.enqueue_outbound(
+                    msg_id=message.id,
+                    sender=message.sender,
+                    recipient=message.recipient or "",
+                    msg_type=message.type,
+                    priority=message.priority,
+                    payload=payload_str,
+                    routing_mode=message.routing_mode or "hybrid",
+                )
+            except Exception as e:
+                log.debug(f"LocalStore enqueue skipped: {e}")
+
         # Broadcast: send on all transports
         if message.is_broadcast():
             return await self._send_broadcast(message)
 
-        # Directed: try transports in priority order
+        # Directed: try transports in priority order with fallback
         priority = self.config.transport_priority if self.config else ["pg_notify", "p2p", "http"]
+        failures = []
         for transport_name in priority:
             transport = self.transports.get(transport_name)
             if not transport or not transport.is_available():
+                failures.append(f"{transport_name}: unavailable")
                 continue
             try:
                 result = await transport.send(message)
                 if result.success:
                     self._stats["sent"] += 1
+                    # Mark as PG-synced if we used PG
+                    if transport_name == "pg_notify" and self.local_store:
+                        try:
+                            self.local_store.mark_outbound_pg_synced(message.id)
+                        except Exception:
+                            pass
                     return result
+                failures.append(f"{transport_name}: {result.error}")
             except Exception as e:
+                failures.append(f"{transport_name}: {str(e)}")
                 log.warning(f"Transport {transport_name} failed: {e}")
                 continue
 
-        # All transports failed
-        return SendResult(transport="none", success=False, error="all transports failed")
+        # All transports failed — message stays in local_store for later sync
+        self._stats["errors"] += 1
+        error_detail = "; ".join(failures)
+        log.warning(f"All transports failed for {message.id[:8]}: {error_detail}")
+        return SendResult(transport="none", success=False, error=f"all transports failed: {error_detail}")
 
     async def _send_broadcast(self, message: A2AMessage) -> SendResult:
         """Send broadcast message on all available transports."""
