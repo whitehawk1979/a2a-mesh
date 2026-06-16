@@ -81,7 +81,7 @@ class DashboardHandler:
         app.router.add_post("/api/auth/logout", self._api_auth_logout)
         app.router.add_get("/api/auth/me", self._api_auth_me)
         app.router.add_get("/api/users", self._api_users)
-        app.router.add_ws("/ws", self._websocket_handler)
+        app.router.add_route("GET", "/ws", self._websocket_handler)
 
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
