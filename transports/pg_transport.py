@@ -108,14 +108,20 @@ class PGTransport(TransportAdapter):
         return True
 
     async def _listen_loop(self):
-        """Async loop for PG NOTIFY processing."""
+        """Async loop for PG NOTIFY processing using run_in_executor."""
         import select
+
+        loop = asyncio.get_event_loop()
 
         while self._running:
             try:
-                # Check for notifies (non-blocking with timeout)
-                if select.select([self._conn], [], [], 1.0) == ([], [], []):
-                    await asyncio.sleep(0.1)
+                # Use run_in_executor to avoid blocking the event loop
+                readable = await loop.run_in_executor(
+                    None,  # default thread pool
+                    lambda: select.select([self._conn], [], [], 1.0)
+                )
+                if readable == ([], [], []):
+                    await asyncio.sleep(0.05)
                     continue
 
                 self._conn.poll()
@@ -137,6 +143,7 @@ class PGTransport(TransportAdapter):
                             message = self._fetch_message(msg_id)
                             if message:
                                 await self._incoming_queue.put((message, "pg_notify"))
+                                log.info(f"Received mesh message {msg_id[:8]} from {sender} (PG NOTIFY)")
                             else:
                                 # Fallback: create message from NOTIFY payload
                                 message = A2AMessage.create(
@@ -147,10 +154,12 @@ class PGTransport(TransportAdapter):
                                     priority=priority,
                                 )
                                 await self._incoming_queue.put((message, "pg_notify"))
+                                log.info(f"Received mesh message (fallback) from {sender}")
                         else:
                             # Other channels (a2a_channel, a2a_steer_channel, etc.)
                             message = A2AMessage.from_dict(payload)
                             await self._incoming_queue.put((message, "pg_notify"))
+                            log.info(f"Received A2A message on {notify.channel} from {getattr(message, 'sender', '?')}")
 
                     except Exception as e:
                         log.error(f"Failed to parse NOTIFY payload: {e}")
