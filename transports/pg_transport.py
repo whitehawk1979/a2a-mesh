@@ -52,8 +52,13 @@ class PGTransport(TransportAdapter):
                 user=self.config.pg.user,
                 password=self.config.pg.password,
                 async_=0,  # Synchronous for notify
+                options="-c client_encoding=UTF8",
             )
             self._conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+            # Force UTF8 client encoding for SQL_ASCII database compatibility
+            cur = self._conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.close()
 
             # Start listening on all channels
             cur = self._conn.cursor()
@@ -73,8 +78,13 @@ class PGTransport(TransportAdapter):
                     dbname=self.config.pg.dbname,
                     user=self.config.pg.user,
                     password=self.config.pg.password,
+                    options="-c client_encoding=UTF8",
                 )
                 self._write_conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                # Force UTF8 client encoding for write connection too
+                wcur = self._write_conn.cursor()
+                wcur.execute("SET client_encoding TO UTF8")
+                wcur.close()
                 log.info("PG write connection established")
             except Exception as e:
                 log.warning(f"PG write connection failed (will use listener conn): {e}")
@@ -187,8 +197,13 @@ class PGTransport(TransportAdapter):
                             user=self.config.pg.user,
                             password=self.config.pg.password,
                             async_=0,
+                            options="-c client_encoding=UTF8",
                         )
                         self._conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                        # Force UTF8 client encoding after reconnect
+                        cur = self._conn.cursor()
+                        cur.execute("SET client_encoding TO UTF8")
+                        cur.close()
                         cur = self._conn.cursor()
                         for channel in self._channels:
                             cur.execute(f"LISTEN {channel};")
@@ -247,11 +262,21 @@ class PGTransport(TransportAdapter):
                 return SendResult(transport="pg_notify", success=False, error="connection closed")
 
             # Insert into mesh.mesh_messages — the NOTIFY trigger will fire
+            # SQL_ASCII database requires explicit client_encoding SET + INSERT in same transaction
+            # Switch to READ_COMMITTED to ensure SET and INSERT are in the same transaction
+            old_isolation = conn.isolation_level
+            conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED)
             cur = conn.cursor()
-            payload_json = json.dumps(message.payload, default=str)
+            cur.execute("SET client_encoding TO UTF8")
+            payload_json = json.dumps(message.payload, default=str, ensure_ascii=True)
 
             # Use routing mode from message or default
             routing_mode = getattr(message, 'routing_mode', 'hybrid')
+
+            # src_addr/dst_addr are INTEGER in mesh schema — pass None for now
+            # (port numbers could be used, but IP:port format is not valid)
+            src_addr = None
+            dst_addr = None
 
             cur.execute("""
                 INSERT INTO mesh.mesh_messages 
@@ -266,11 +291,13 @@ class PGTransport(TransportAdapter):
                 getattr(message, 'priority', 5),
                 payload_json,
                 routing_mode,
-                getattr(message, 'src_address', None),
-                getattr(message, 'dst_address', None),
+                src_addr,
+                dst_addr,
             ))
             conn.commit()
             cur.close()
+            # Restore autocommit for subsequent operations
+            conn.set_isolation_level(old_isolation)
 
             return SendResult(transport="pg_notify", success=True, latency_ms=1.0)
 

@@ -164,6 +164,15 @@ class P2PTransport(TransportAdapter):
                 await writer.wait_closed()
             except Exception:
                 pass
+            # Remove dead peer from _peers dict so send() doesn't try to use it
+            removed = None
+            for pname, (pr, pw) in list(self._peers.items()):
+                if pw is writer:
+                    removed = self._peers.pop(pname, None)
+                    log.info(f"Peer {pname} disconnected, removed from peers dict")
+                    break
+            if removed is None:
+                log.debug(f"Connection from {peer_addr} closed (was not in peers dict)")
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
         """Connect to a known peer with exponential backoff."""
@@ -263,7 +272,7 @@ class P2PTransport(TransportAdapter):
         """Periodically check for disconnected peers and attempt reconnection."""
         while self._running:
             try:
-                await asyncio.sleep(30)  # Check every 30 seconds
+                await asyncio.sleep(5)  # Check every 5 seconds for fast reconnect
                 if not self._running:
                     break
 
