@@ -393,3 +393,61 @@ class AuthManager:
         conn.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
         conn.commit()
         conn.close()
+
+
+# ─── Node Authentication (peer-to-peer) ───
+# These classes handle peer node authentication (open, whitelist, TOFU modes)
+# which is separate from dashboard user authentication above.
+
+class AuthMode:
+    """Node authentication modes for peer connections."""
+    OPEN = "open"
+    WHITELIST = "whitelist"
+    TRUST_ON_FIRST_USE = "tofu"
+
+
+@dataclass
+class AuthConfig:
+    """Configuration for node authentication."""
+    mode: str = AuthMode.OPEN
+    whitelist: set = field(default_factory=set)
+    trusted_keys: dict = field(default_factory=dict)  # node_name -> public_key
+
+
+@dataclass
+class JoinRequest:
+    """A node join request."""
+    node_name: str
+    node_role: str = "end_device"
+    public_key: str = ""
+    timestamp: float = field(default_factory=time.time)
+    nonce: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
+
+
+class NodeAuthenticator:
+    """Authenticates peer node join requests based on configured mode."""
+
+    def __init__(self, config: AuthConfig = None):
+        self.config = config or AuthConfig()
+        self._trusted_keys: dict = dict(config.trusted_keys) if config else {}
+
+    def authenticate_join(self, request: JoinRequest) -> tuple:
+        """Authenticate a join request. Returns (accepted: bool, reason: str)."""
+        if self.config.mode == AuthMode.OPEN:
+            return True, "open_mode"
+
+        if self.config.mode == AuthMode.WHITELIST:
+            if request.node_name in self.config.whitelist:
+                return True, "whitelisted"
+            return False, f"node '{request.node_name}' not in whitelist"
+
+        if self.config.mode == AuthMode.TRUST_ON_FIRST_USE:
+            if request.node_name in self._trusted_keys:
+                if self._trusted_keys[request.node_name] == request.public_key:
+                    return True, "known_key"
+                return False, f"key mismatch for '{request.node_name}'"
+            # First use — trust the key
+            self._trusted_keys[request.node_name] = request.public_key
+            return True, "trust_on_first_use"
+
+        return False, f"unknown auth mode: {self.config.mode}"
