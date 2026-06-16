@@ -27,6 +27,7 @@ from .core.election import CoordinatorElection, ElectionConfig, CoordinatorState
 from .core.ack import AckManager, AckType, AckStatus
 from .core.offline_queue import OfflineQueue
 from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
+from .core.auto_steer import AutoSteerProcessor
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
@@ -141,6 +142,12 @@ class MeshNode:
         self.offline_queue = OfflineQueue(
             pg_config=self.config.pg,
             node_name=self.node_name,
+        )
+
+        # Initialize auto-steer processor
+        self.auto_steer = AutoSteerProcessor(
+            node_name=self.node_name,
+            config=self.config,
         )
 
         # Initialize node authenticator
@@ -590,14 +597,17 @@ class MeshNode:
 
                             result = await self.router.receive(msg, from_transport)
                             if result.status == "processed":
-                                log.debug(f"Processed message {msg.id[:8]} from {msg.sender}")
+                                # Auto-steer classification and dispatch
+                                action = await self.auto_steer.process_message(msg)
 
-                                # P7+ = immediate processing + webhook
-                                if msg.priority >= 7:
+                                if action in ("interrupt", "steer_interrupt"):
+                                    # P10+: immediate handler dispatch + webhook
                                     await self._dispatch_to_handlers(msg)
-                                    asyncio.create_task(self._trigger_webhook(msg))
+                                elif action in ("high", "steer_queued"):
+                                    # P7-9: handler dispatch (no webhook)
+                                    await self._dispatch_to_handlers(msg)
                                 else:
-                                    # P1-6 = queued, processed in priority order
+                                    # P1-6: queued backlog processing
                                     await self.router.enqueue(msg)
 
                     except Exception as e:
@@ -718,6 +728,7 @@ class MeshNode:
             "transports": self.router.get_stats(),
             "encryption": "enabled" if self.encryption else "disabled",
             "dedup_cache_size": self.router.dedup.size,
+            "auto_steer": self.auto_steer.get_stats(),
             "coordinator": self.election.get_status() if self.election else None,
         }
         if self.mesh_address:
@@ -767,6 +778,8 @@ class MeshNode:
                 if not self._running:
                     break
                 await self._update_node_stats()
+                # Cleanup old steer directives
+                self.auto_steer.cleanup_old_steers(max_age_seconds=3600)
             except asyncio.CancelledError:
                 break
             except Exception as e:
