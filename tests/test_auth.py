@@ -81,7 +81,7 @@ class TestAuthLogin:
     def test_login_returns_token(self, auth):
         auth.register_user("testuser", "Test", "password123")
         result = auth.login("testuser", "password123")
-        assert ":" in result["token"]  # JWT-like format
+        assert len(result["token"]) > 20  # Base64-encoded token
 
     def test_login_updates_last_login(self, auth):
         auth.register_user("testuser", "Test", "password123")

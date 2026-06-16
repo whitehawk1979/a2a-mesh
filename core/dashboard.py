@@ -209,7 +209,7 @@ class DashboardHandler:
         if not content.strip():
             return web.json_response({"error": "Empty message"}, status=400)
 
-        from .core.message import A2AMessage
+        from .message import A2AMessage
         msg = A2AMessage(
             sender=self.node.node_name,
             recipient=recipient if recipient else "broadcast",
@@ -460,7 +460,7 @@ class DashboardHandler:
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
 
-                            from .core.message import A2AMessage
+                            from .message import A2AMessage
                             a2a_msg = A2AMessage(
                                 sender=self.node.node_name,
                                 recipient=recipient if recipient else "broadcast",

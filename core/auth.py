@@ -241,7 +241,8 @@ class AuthManager:
         }
 
     def _generate_token(self, user_id: str, expiry_hours: int = 24) -> str:
-        """Generate a JWT-like token."""
+        """Generate a JWT-like token (base64-encoded for URL safety)."""
+        import base64
         expires = time.time() + (expiry_hours * 3600)
         payload = {
             "user_id": user_id,
@@ -250,7 +251,10 @@ class AuthManager:
         }
         payload_json = json.dumps(payload, sort_keys=True)
         signature = hmac.new(SIGNING_SECRET.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
-        token = f"{payload_json}:{signature}"
+        raw_token = f"{payload_json}:{signature}"
+
+        # Base64-encode for URL-safe tokens (no JSON curly braces in URLs)
+        token = base64.urlsafe_b64encode(raw_token.encode()).decode().rstrip("=")
 
         # Store session
         conn = sqlite3.connect(self.db_path)
@@ -265,10 +269,23 @@ class AuthManager:
 
     def verify_token(self, token: str) -> Optional[DashboardUser]:
         """Verify a token and return the user. Returns None if invalid/expired."""
+        import base64
+
+        # Decode base64 token (new format) or use raw (old format for backward compat)
+        raw_token = token
         if ":" not in token:
+            try:
+                # Add padding back if stripped
+                padded = token + "=" * (4 - len(token) % 4) if len(token) % 4 else token
+                decoded = base64.urlsafe_b64decode(padded).decode()
+                raw_token = decoded
+            except Exception:
+                return None
+
+        if ":" not in raw_token:
             return None
 
-        payload_json, signature = token.rsplit(":", 1)
+        payload_json, signature = raw_token.rsplit(":", 1)
         try:
             payload = json.loads(payload_json)
         except json.JSONDecodeError:
@@ -300,9 +317,17 @@ class AuthManager:
 
     def logout(self, token: str):
         """Invalidate a session token."""
+        import base64
+        raw_token = token
         if ":" not in token:
+            try:
+                padded = token + "=" * (4 - len(token) % 4) if len(token) % 4 else token
+                raw_token = base64.urlsafe_b64decode(padded).decode()
+            except Exception:
+                return
+        if ":" not in raw_token:
             return
-        _, signature = token.rsplit(":", 1)
+        _, signature = raw_token.rsplit(":", 1)
         conn = sqlite3.connect(self.db_path)
         conn.execute("DELETE FROM sessions WHERE token = ?", (signature,))
         conn.commit()
