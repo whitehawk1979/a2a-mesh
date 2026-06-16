@@ -187,6 +187,12 @@ class MeshConfig:
                 listen_host=p2p_data.get('listen_host', config.p2p.listen_host),
                 listen_port=p2p_data.get('listen_port', config.p2p.listen_port),
                 max_connections=p2p_data.get('max_connections', config.p2p.max_connections),
+                idle_timeout=p2p_data.get('idle_timeout', config.p2p.idle_timeout),
+                tls_enabled=p2p_data.get('tls_enabled', config.p2p.tls_enabled),
+                tls_cert=p2p_data.get('tls_cert', config.p2p.tls_cert),
+                tls_key=p2p_data.get('tls_key', config.p2p.tls_key),
+                tls_ca=p2p_data.get('tls_ca', config.p2p.tls_ca),
+                tls_verify_peer=p2p_data.get('tls_verify_peer', config.p2p.tls_verify_peer),
             )
 
         # HTTP config
