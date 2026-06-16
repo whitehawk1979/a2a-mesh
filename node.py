@@ -261,6 +261,9 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
 
+        # Start priority queue processor
+        self.router.start_priority_queue()
+
         # Start ACK manager
         await self.ack_manager.start()
 
@@ -288,6 +291,9 @@ class MeshNode:
 
         # Stop ACK manager
         await self.ack_manager.stop()
+
+        # Stop priority queue processor
+        await self.router.stop_priority_queue()
 
         # Deregister from mesh_nodes
         try:
@@ -569,12 +575,13 @@ class MeshNode:
                             if result.status == "processed":
                                 log.debug(f"Processed message {msg.id[:8]} from {msg.sender}")
 
-                                # Dispatch to handlers
-                                await self._dispatch_to_handlers(msg)
-
-                                # Trigger webhook for high-priority messages
+                                # P7+ = immediate processing + webhook
                                 if msg.priority >= 7:
+                                    await self._dispatch_to_handlers(msg)
                                     asyncio.create_task(self._trigger_webhook(msg))
+                                else:
+                                    # P1-6 = queued, processed in priority order
+                                    await self.router.enqueue(msg)
 
                     except Exception as e:
                         log.debug(f"Receive error on {transport_name}: {e}")
@@ -828,9 +835,15 @@ async def main():
     node.add_handler(lambda msg: print(f"📨 {msg.sender} → {msg.recipient}: {msg.type}"))
 
     # Setup signal handlers for graceful shutdown
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler():
+        log.info("Received shutdown signal, stopping gracefully...")
+        shutdown_event.set()
+
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.create_task(node.stop()))
+        loop.add_signal_handler(sig, _signal_handler)
 
     try:
         if await node.start():
@@ -841,17 +854,15 @@ async def main():
             print(f"   P2P: {'✅' if node._p2p_transport.is_available() else '❌'}")
             print(f"   HTTP: {'✅' if node._http_transport.is_available() else '❌'}")
 
-            # Run forever
-            try:
-                while node._running:
-                    await asyncio.sleep(1)
-            except (KeyboardInterrupt, SystemExit):
-                pass
+            # Wait for shutdown signal
+            await shutdown_event.wait()
+            log.info("Shutdown signal received, stopping node...")
         else:
             print("🔴 Failed to start mesh node")
             sys.exit(1)
     finally:
         await node.stop()
+        log.info("Mesh node stopped completely")
 
 
 if __name__ == "__main__":

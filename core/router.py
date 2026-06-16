@@ -43,6 +43,11 @@ class MeshRouter:
         # Message handlers
         self._handlers: List[Callable] = []
 
+        # Priority queue for incoming messages (P10=high, P1=low)
+        self._pq = asyncio.PriorityQueue()
+        self._pq_task: Optional[asyncio.Task] = None
+        self._pq_running = False
+
         # Statistics
         self._stats = {
             "sent": 0,
@@ -65,6 +70,52 @@ class MeshRouter:
     def add_handler(self, handler: Callable):
         """Add a message handler (called when a message is for this node)."""
         self._handlers.append(handler)
+
+    def start_priority_queue(self):
+        """Start the priority queue processor (P10 first, P1 last)."""
+        self._pq_running = True
+        self._pq_task = asyncio.create_task(self._pq_process_loop())
+        log.info("Priority queue processor started (P10→P1)")
+
+    async def stop_priority_queue(self):
+        """Stop the priority queue processor."""
+        self._pq_running = False
+        if self._pq_task:
+            self._pq_task.cancel()
+            try:
+                await self._pq_task
+            except asyncio.CancelledError:
+                pass
+        log.info("Priority queue processor stopped")
+
+    async def enqueue(self, message: A2AMessage):
+        """Enqueue message for priority-based processing. P10=urgent, P1=low."""
+        # PriorityQueue sorts by first element (negated priority for P10 first)
+        priority_key = (-message.priority, message.timestamp or "")
+        await self._pq.put((priority_key, message))
+
+    async def _pq_process_loop(self):
+        """Process messages from priority queue (P10→P1 order)."""
+        while self._pq_running:
+            try:
+                priority_key, message = await asyncio.wait_for(
+                    self._pq.get(), timeout=1.0
+                )
+                # Call handlers
+                for handler in self._handlers:
+                    try:
+                        result = handler(message)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception as e:
+                        log.error(f"Handler error for {message.id[:8]}: {e}")
+                self._pq.task_done()
+            except asyncio.TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Priority queue error: {e}")
 
     async def send(self, message: A2AMessage) -> SendResult:
         """Send a message via best available transport.
