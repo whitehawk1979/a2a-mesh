@@ -164,6 +164,143 @@ def cmd_leave(node_name: str = ""):
     conn.close()
 
 
+def cmd_send_file(filepath: str, recipient: str, description: str = ""):
+    """Send a file to a mesh node via file transfer."""
+    import asyncio
+    from a2a_mesh.file_transfer import FileTransfer
+
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    config = MeshConfig.from_yaml(config_file) if os.path.exists(config_file) else MeshConfig()
+
+    if not os.path.exists(filepath):
+        print(f"❌ File not found: {filepath}")
+        return
+
+    file_size = os.path.getsize(filepath)
+    ft = FileTransfer(config)
+    result = asyncio.run(
+        ft.send_file(filepath, recipient, description=description)
+    )
+
+    if result.success:
+        print(f"✅ File sent via {result.method}")
+        print(f"   Filename: {os.path.basename(filepath)}")
+        print(f"   Size: {file_size:,} bytes")
+        print(f"   SHA-256: {result.sha256[:16]}...")
+        print(f"   Message ID: {result.message_id[:8]}")
+        if result.remote_path:
+            print(f"   MinIO path: {result.remote_path}")
+    else:
+        print(f"❌ File transfer failed: {result.error}")
+
+
+def cmd_receive_file(message_id: str = "", output_dir: str = ""):
+    """Receive a file from a mesh message."""
+    import asyncio
+    from a2a_mesh.file_transfer import FileTransfer
+
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    config = MeshConfig.from_yaml(config_file) if os.path.exists(config_file) else MeshConfig()
+
+    ft = FileTransfer(config)
+
+    if message_id:
+        # Fetch message from PG and receive file
+        import psycopg2
+        conn = psycopg2.connect(
+            host=config.pg.host, port=config.pg.port,
+            dbname=config.pg.dbname, user=config.pg.user,
+            password=config.pg.password,
+        )
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, sender, recipient, msg_type, payload
+            FROM mesh.mesh_messages
+            WHERE id = %s AND msg_type = 'file_share'
+        """, (message_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not row:
+            print(f"❌ No file_share message found with ID: {message_id}")
+            return
+
+        msg = A2AMessage.create(
+            sender=row[1],
+            recipient=row[2],
+            msg_type=row[3],
+            payload=row[4] if isinstance(row[4], dict) else {},
+        )
+
+        saved_path = asyncio.run(
+            ft.receive_file(msg, output_dir=output_dir or None)
+        )
+        if saved_path:
+            print(f"✅ File received: {saved_path}")
+        else:
+            print(f"❌ File receive failed")
+    else:
+        # List recent file_share messages
+        import psycopg2
+        conn = psycopg2.connect(
+            host=config.pg.host, port=config.pg.port,
+            dbname=config.pg.dbname, user=config.pg.user,
+            password=config.pg.password,
+        )
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, sender, recipient, payload->>'filename' as filename,
+                   payload->>'transfer_method' as method,
+                   payload->>'file_size' as file_size,
+                   created_at
+            FROM mesh.mesh_messages
+            WHERE msg_type = 'file_share'
+            ORDER BY created_at DESC LIMIT 10
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        if not rows:
+            print("No file share messages found.")
+            return
+
+        print("Recent file transfers:")
+        print("-" * 70)
+        for row in rows:
+            msg_id, sender, recipient, filename, method, fsize, created = row
+            size_str = f"{int(fsize):,} bytes" if fsize else "unknown"
+            print(f"  {msg_id[:8]}  {sender} → {recipient}")
+            print(f"    {filename} ({size_str}) via {method}")
+            print(f"    {created}")
+            print()
+
+
+def cmd_list_files():
+    """List shared files in MinIO."""
+    from a2a_mesh.file_transfer import FileTransfer
+
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    config = MeshConfig.from_yaml(config_file) if os.path.exists(config_file) else MeshConfig()
+
+    ft = FileTransfer(config)
+    files = ft.list_shared_files(prefix=config.node_name + "/")
+
+    if not files:
+        # Try without prefix
+        files = ft.list_shared_files()
+
+    if not files:
+        print("No shared files found.")
+        return
+
+    print("Shared files in MinIO:")
+    print("-" * 60)
+    for f in files:
+        print(f"  {f['path']}  ({f['size']})  {f['date']}")
+
+
 def cmd_keygen():
     """Generate a new Ed25519 keypair for mesh signing."""
     private_hex, public_hex = MeshEncryption.generate_keypair()
@@ -343,7 +480,29 @@ def cmd_test():
 
     print("✅")
 
-    print("\n✅ All tests passed! (11/11)")
+    # Test 12: File transfer classification
+    print("12. File transfer classification... ", end="")
+    from a2a_mesh.file_transfer import FileTransfer, PG_THRESHOLD, MINIO_THRESHOLD
+    ft = FileTransfer(config)
+    assert ft._classify_size(500) == "pg_base64", f"Expected pg_base64, got {ft._classify_size(500)}"
+    assert ft._classify_size(PG_THRESHOLD - 1) == "pg_base64"
+    assert ft._classify_size(PG_THRESHOLD + 1) == "minio_s3"
+    assert ft._classify_size(MINIO_THRESHOLD - 1) == "minio_s3"
+    assert ft._classify_size(MINIO_THRESHOLD + 1) == "scp"
+    print("✅")
+
+    # Test 13: File transfer SHA-256
+    print("13. File SHA-256 hash... ", end="")
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        f.write("test file content for mesh transfer")
+        tmp_path = f.name
+    sha = ft._sha256_file(tmp_path)
+    assert len(sha) == 64, f"SHA-256 length wrong: {len(sha)}"
+    os.unlink(tmp_path)
+    print("✅")
+
+    print(f"\n✅ All tests passed! (13/13)")
 
 
 def cmd_status():
@@ -783,6 +942,20 @@ def main():
     leave_parser = subparsers.add_parser("leave", help="Leave mesh network gracefully")
     leave_parser.add_argument("--name", "-n", default="", help="Node name (default: config node_name)")
 
+    # send-file
+    sf_parser = subparsers.add_parser("send-file", help="Send a file to a mesh node")
+    sf_parser.add_argument("filepath", help="Path to file to send")
+    sf_parser.add_argument("--to", "-t", required=True, help="Recipient node name")
+    sf_parser.add_argument("--desc", "-d", default="", help="File description")
+
+    # receive-file
+    rf_parser = subparsers.add_parser("receive-file", help="Receive a file from a mesh message")
+    rf_parser.add_argument("--id", "-i", default="", help="Message ID to receive")
+    rf_parser.add_argument("--output", "-o", default="", help="Output directory")
+
+    # list-files
+    subparsers.add_parser("list-files", help="List shared files in MinIO")
+
     # discover
     subparsers.add_parser("discover", help="Discover mesh nodes")
 
@@ -812,6 +985,12 @@ def main():
         cmd_elect(trigger=args.trigger)
     elif args.command == "leave":
         cmd_leave(args.name)
+    elif args.command == "send-file":
+        cmd_send_file(args.filepath, args.to, args.desc)
+    elif args.command == "receive-file":
+        cmd_receive_file(args.id, args.output)
+    elif args.command == "list-files":
+        cmd_list_files()
     elif args.command == "keygen":
         cmd_keygen()
     elif args.command == "test":
