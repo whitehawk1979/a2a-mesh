@@ -1,0 +1,88 @@
+"""A2A Mesh Dedup — Message deduplication with TTL-based cache."""
+
+import time
+import threading
+from collections import OrderedDict
+from typing import Optional
+
+
+class DedupCache:
+    """Thread-safe LRU deduplication cache with TTL.
+
+    Prevents processing the same message twice (arriving via different transports).
+    Uses OrderedDict for O(1) lookup and LRU eviction.
+    """
+
+    def __init__(self, max_size: int = 5000, ttl_seconds: int = 300):
+        self.max_size = max_size
+        self.ttl = ttl_seconds
+        self._cache: OrderedDict[str, float] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def is_duplicate(self, message_id: str) -> bool:
+        """Check if a message ID has been seen recently."""
+        with self._lock:
+            if message_id in self._cache:
+                ts = self._cache[message_id]
+                if time.time() - ts < self.ttl:
+                    # Move to end (most recently accessed)
+                    self._cache.move_to_end(message_id)
+                    return True
+                else:
+                    # Expired, remove it
+                    del self._cache[message_id]
+            return False
+
+    def add(self, message_id: str) -> None:
+        """Add a message ID to the cache."""
+        with self._lock:
+            if message_id in self._cache:
+                self._cache.move_to_end(message_id)
+                self._cache[message_id] = time.time()
+            else:
+                self._cache[message_id] = time.time()
+                # Evict oldest if over max size
+                while len(self._cache) > self.max_size:
+                    self._cache.popitem(last=False)
+
+    def check_and_add(self, message_id: str) -> bool:
+        """Check if duplicate, then add. Returns True if duplicate."""
+        is_dup = self.is_duplicate(message_id)
+        if not is_dup:
+            self.add(message_id)
+        return is_dup
+
+    def remove(self, message_id: str) -> None:
+        """Remove a message ID from the cache."""
+        with self._lock:
+            self._cache.pop(message_id, None)
+
+    def clear(self) -> None:
+        """Clear the entire cache."""
+        with self._lock:
+            self._cache.clear()
+
+    def cleanup(self) -> int:
+        """Remove expired entries. Returns number of entries removed."""
+        now = time.time()
+        removed = 0
+        with self._lock:
+            # Iterate from oldest to newest
+            keys_to_remove = []
+            for key, ts in self._cache.items():
+                if now - ts > self.ttl:
+                    keys_to_remove.append(key)
+                else:
+                    break  # OrderedDict is ordered by insertion time
+            for key in keys_to_remove:
+                del self._cache[key]
+                removed += 1
+        return removed
+
+    @property
+    def size(self) -> int:
+        """Current cache size."""
+        return len(self._cache)
+
+    def __repr__(self):
+        return f"DedupCache(size={self.size}, max={self.max_size}, ttl={self.ttl}s)"

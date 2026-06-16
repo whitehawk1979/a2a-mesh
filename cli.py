@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+"""A2A Mesh CLI — Command-line interface for mesh node management.
+
+Usage:
+    a2a-mesh start [--name NAME] [--port PORT] [--config FILE]
+    a2a-mesh send --to RECIPIENT --type TYPE --payload JSON
+    a2a-mesh broadcast --type TYPE --payload JSON
+    a2a-mesh status
+    a2a-mesh discover
+    a2a-mesh keygen
+    a2a-mesh test
+"""
+
+import asyncio
+import json
+import os
+import sys
+
+# Add parent directory to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from a2a_mesh.core.config import MeshConfig
+from a2a_mesh.core.message import A2AMessage, MSG_TYPE_DIRECTIVE
+from a2a_mesh.core.encryption import MeshEncryption
+from a2a_mesh.node import MeshNode
+
+
+def cmd_keygen():
+    """Generate a new Ed25519 keypair for mesh signing."""
+    private_hex, public_hex = MeshEncryption.generate_keypair()
+    print(f"Private key (signing_key): {private_hex}")
+    print(f"Public key (verify_key):   {public_hex}")
+    print()
+    print("Add to mesh_config.yaml:")
+    print(f"  security:")
+    print(f"    signing_key: {private_hex}")
+
+
+def cmd_test():
+    """Run self-test for mesh components."""
+    print("🧪 A2A Mesh Self-Test\n")
+
+    # Test 1: Message serialization
+    print("1. Message serialization... ", end="")
+    msg = A2AMessage.create(
+        sender="test-sender",
+        recipient="test-recipient",
+        msg_type="test",
+        payload={"hello": "world"},
+    )
+    json_str = msg.to_json()
+    msg2 = A2AMessage.from_json(json_str)
+    assert msg.id == msg2.id
+    assert msg.sender == msg2.sender
+    print("✅")
+
+    # Test 2: Message bytes (msgpack)
+    print("2. Message bytes (msgpack)... ", end="")
+    data = msg.to_bytes()
+    msg3 = A2AMessage.from_bytes(data)
+    assert msg.id == msg3.id
+    print("✅")
+
+    # Test 3: Dedup cache
+    print("3. Dedup cache... ", end="")
+    from a2a_mesh.core.dedup import DedupCache
+    cache = DedupCache(max_size=100, ttl_seconds=60)
+    assert not cache.check_and_add("msg-1")  # First time: not duplicate
+    assert cache.check_and_add("msg-1")       # Second time: duplicate
+    assert not cache.check_and_add("msg-2")   # New msg: not duplicate
+    print("✅")
+
+    # Test 4: Encryption
+    print("4. Encryption (Ed25519)... ", end="")
+    try:
+        enc = MeshEncryption()
+        content = "test message content"
+        sig = enc.sign_message(content)
+        assert enc.verify_message(content, sig, enc.verify_key_hex)
+        assert not enc.verify_message("wrong content", sig, enc.verify_key_hex)
+        print("✅")
+    except ImportError:
+        print("⚠️  pynacl not installed")
+
+    # Test 5: Router
+    print("5. Router... ", end="")
+    from a2a_mesh.core.router import MeshRouter
+    router = MeshRouter("test-node")
+    assert router.node_name == "test-node"
+    stats = router.get_stats()
+    assert "sent" in stats
+    print("✅")
+
+    # Test 6: Config
+    print("6. Config... ", end="")
+    config = MeshConfig()
+    assert config.node_name == "nova"
+    assert config.pg.host == "192.168.1.30"
+    assert config.p2p.listen_port == 8645
+    print("✅")
+
+    # Test 7: Message routing
+    print("7. Message routing... ", end="")
+    broadcast = A2AMessage.create(
+        sender="nova",
+        recipient="broadcast",
+        msg_type="heartbeat",
+        payload={"status": "ok"},
+    )
+    assert broadcast.is_broadcast()
+    assert not broadcast.is_expired()
+
+    directed = A2AMessage.create(
+        sender="nova",
+        recipient="morzsa",
+        msg_type="directive",
+        payload={"action": "ping"},
+    )
+    assert not directed.is_broadcast()
+    fwd = directed.decrement_ttl()
+    assert fwd.ttl == 9
+    assert fwd.hop_count == 1
+    print("✅")
+
+    # Test 8: Zigbee topology
+    print("8. Zigbee topology... ", end="")
+    from a2a_mesh.core.topology import NodeRole, MeshAddress, AddressManager
+    from a2a_mesh.core.tree_router import TreeRouter
+
+    mgr = AddressManager(max_children=20, max_routers=6, max_depth=5)
+    coord = mgr.assign_address("nova", NodeRole.COORDINATOR)
+    router1 = mgr.assign_address("morzsa", NodeRole.ROUTER, parent_short=0)
+    ed1 = mgr.assign_address("worker-1", NodeRole.END_DEVICE, parent_short=1)
+
+    assert coord.is_coordinator
+    assert router1.is_router
+    assert ed1.is_end_device
+    assert mgr.compute_cskip(0) > 0
+    assert mgr.compute_cskip(5) == 0
+    print("✅")
+
+    # Test 9: TreeRouter
+    print("9. TreeRouter... ", end="")
+    tree_router = TreeRouter(coord, mgr)
+    local_msg = A2AMessage.create(sender="nova", recipient="nova", msg_type="test", payload={})
+    hops = tree_router.route_message(local_msg, routing_mode="tree")
+    assert hops == []  # Local delivery
+    print("✅")
+
+    # Test 10: Sleepy end device buffer
+    print("10. Sleepy end device buffer... ", end="")
+    router_node = TreeRouter(
+        MeshAddress(short=1, extended="morzsa", role=NodeRole.ROUTER, depth=1, parent_short=0),
+        mgr
+    )
+    buffered_msg = A2AMessage.create(sender="nova", recipient="worker-1", msg_type="task", payload={"x": 1})
+    router_node.buffer_message(ed1.short, buffered_msg)
+    retrieved = router_node.get_buffered_messages(ed1.short)
+    assert len(retrieved) == 1
+    print("✅")
+
+    print("\n✅ All tests passed!")
+
+
+def cmd_status():
+    """Show mesh node status."""
+    # Connect to running node via PG and check
+    print("A2A Mesh Status")
+    print("=" * 40)
+
+    config = MeshConfig()
+    print(f"Node name:  {config.node_name}")
+    print(f"PG host:    {config.pg.host}:{config.pg.port}")
+    print(f"P2P port:   {config.p2p.listen_port}")
+    print(f"HTTP url:   {config.http.url}")
+    print(f"Discovery:  {'mDNS + static' if config.discovery.mdns_enabled else 'static only'}")
+
+
+async def cmd_send(recipient: str, msg_type: str, payload_str: str, priority: int = 5):
+    """Send a message via mesh."""
+    config = MeshConfig()
+    node = MeshNode(config)
+
+    try:
+        if await node.start():
+            payload = json.loads(payload_str) if payload_str else {}
+            result = await node.send_direct(recipient, msg_type, payload, priority)
+            print(f"Send result: {result}")
+        else:
+            print("Failed to start node")
+    finally:
+        await node.stop()
+
+
+async def cmd_broadcast(msg_type: str, payload_str: str, priority: int = 5):
+    """Broadcast a message via mesh."""
+    config = MeshConfig()
+    node = MeshNode(config)
+
+    try:
+        if await node.start():
+            payload = json.loads(payload_str) if payload_str else {}
+            result = await node.broadcast(msg_type, payload, priority)
+            print(f"Broadcast result: {result}")
+        else:
+            print("Failed to start node")
+    finally:
+        await node.stop()
+
+
+async def cmd_run(name: str, port: int, config_path: str):
+    """Run the mesh node interactively."""
+    config_file = os.path.expanduser(config_path)
+    if os.path.exists(config_file):
+        config = MeshConfig.from_yaml(config_file)
+    else:
+        config = MeshConfig()
+
+    config.node_name = name
+    config.p2p.listen_port = port
+
+    node = MeshNode(config)
+
+    def handle_message(msg: A2AMessage):
+        print(f"📨 {msg.sender} → {msg.recipient}: {msg.type} (P{msg.priority})")
+        if msg.payload:
+            print(f"   {json.dumps(msg.payload, indent=2)[:200]}")
+
+    node.add_handler(handle_message)
+
+    try:
+        if await node.start():
+            status = node.get_status()
+            print(f"🟢 Mesh node '{name}' started")
+            for tname, tstatus in status.get("transports", {}).items():
+                avail = tstatus.get("available", False) if isinstance(tstatus, dict) else str(tstatus)
+                print(f"   {tname}: {'✅' if avail else '❌'}")
+            print("Press Ctrl+C to stop")
+            while True:
+                await asyncio.sleep(1)
+        else:
+            print("🔴 Failed to start mesh node")
+            sys.exit(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        await node.stop()
+
+
+def main():
+    """CLI entry point."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="A2A Mesh CLI")
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+
+    # start
+    start_parser = subparsers.add_parser("start", help="Start mesh node")
+    start_parser.add_argument("--name", "-n", default=os.environ.get("A2A_NODE_NAME", "nova"))
+    start_parser.add_argument("--port", "-p", type=int, default=8645)
+    start_parser.add_argument("--config", "-c", default="~/.hermes/mesh_config.yaml")
+
+    # send
+    send_parser = subparsers.add_parser("send", help="Send a message")
+    send_parser.add_argument("--to", "-t", required=True, help="Recipient")
+    send_parser.add_argument("--type", "-T", default="directive", help="Message type")
+    send_parser.add_argument("--payload", "-p", default="{}", help="JSON payload")
+    send_parser.add_argument("--priority", "-P", type=int, default=5)
+
+    # broadcast
+    bc_parser = subparsers.add_parser("broadcast", help="Broadcast a message")
+    bc_parser.add_argument("--type", "-T", default="broadcast", help="Message type")
+    bc_parser.add_argument("--payload", "-p", default="{}", help="JSON payload")
+    bc_parser.add_argument("--priority", "-P", type=int, default=5)
+
+    # status
+    subparsers.add_parser("status", help="Show mesh status")
+
+    # discover
+    subparsers.add_parser("discover", help="Discover mesh nodes")
+
+    # keygen
+    subparsers.add_parser("keygen", help="Generate signing keypair")
+
+    # test
+    subparsers.add_parser("test", help="Run self-tests")
+
+    args = parser.parse_args()
+
+    if args.command == "start":
+        asyncio.run(cmd_run(args.name, args.port, args.config))
+    elif args.command == "send":
+        asyncio.run(cmd_send(args.to, args.type, args.payload, args.priority))
+    elif args.command == "broadcast":
+        asyncio.run(cmd_broadcast(args.type, args.payload, args.priority))
+    elif args.command == "status":
+        cmd_status()
+    elif args.command == "keygen":
+        cmd_keygen()
+    elif args.command == "test":
+        cmd_test()
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

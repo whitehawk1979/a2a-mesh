@@ -1,0 +1,1 @@
+"""A2A Mesh Core — Core modules for mesh communication."""
