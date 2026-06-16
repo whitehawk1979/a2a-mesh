@@ -85,7 +85,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--text3)}
-@media(max-width:768px){.sidebar,.right-panel{display:none}}
+.mobile-sidebar-toggle{display:none;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer;margin:8px}
+.sidebar-close{display:none;position:absolute;top:8px;right:8px;background:var(--border);color:var(--text);border:none;border-radius:6px;padding:4px 10px;font-size:16px;cursor:pointer}
+@media(max-width:900px){
+  .sidebar{position:fixed;left:-300px;top:0;height:100vh;z-index:50;transition:left .3s ease;width:280px}
+  .sidebar.open{left:0}
+  .sidebar-close{display:block}
+  .right-panel{display:none}
+  .mobile-sidebar-toggle{display:inline-flex;align-items:center;gap:6px}
+  .modal{width:95vw;padding:20px}
+}
 </style>
 </head>
 <body>
@@ -116,6 +125,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <!-- Main Dashboard -->
 <div class="header">
+  <button class="mobile-sidebar-toggle" onclick="toggleSidebar()">☰ Agentek</button>
   <h1><span class="mesh-icon">⚡</span> A2A Mesh</h1>
   <div class="header-info">
     <span><span class="status-dot online" id="statusDot"></span> <span id="nodeName">—</span></span>
@@ -125,7 +135,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <div class="main">
-  <div class="sidebar">
+  <div class="sidebar" id="sidebar">
+    <button class="sidebar-close" onclick="toggleSidebar()">✕</button>
     <div class="sidebar-header">Agentek <span class="count" id="agentCount">0</span></div>
     <div class="agent-list" id="agentList">
       <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">Betöltés...</div>
@@ -184,6 +195,18 @@ var nodeId = "";
 var authToken = null;
 var authUser = null;
 var messageHistory = [];
+
+function toggleSidebar() {
+  var sb = document.getElementById("sidebar");
+  sb.classList.toggle("open");
+  var ov = document.getElementById("sidebarOverlay");
+  if (sb.classList.contains("open")) {
+    if (!ov) { ov = document.createElement("div"); ov.id = "sidebarOverlay"; ov.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:40"; ov.onclick = toggleSidebar; document.body.appendChild(ov); }
+    ov.style.display = "block";
+  } else {
+    if (ov) ov.style.display = "none";
+  }
+}
 
 function showAuth() {
   document.getElementById("authModal").style.display = "flex";
