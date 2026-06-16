@@ -28,11 +28,12 @@ class MeshDiscovery:
         self.node_name = node_name
         self.port = port
         self.service_type = service_type
-        self._zeroconf: Optional[object] = None
-        self._browser: Optional[object] = None
-        self._discovered_nodes = {}  # name → {host, port, ...}
         self._running = False
-        self._on_discover: Optional[Callable] = None
+        self._discovered_nodes: Dict[str, dict] = {}
+        self._zeroconf = None
+        self._aiozc = None
+        self._browser = None
+        self._callbacks: List[Callable] = []
 
     async def start(self, host_ip: str = "") -> bool:
         """Start mDNS advertising and browsing."""

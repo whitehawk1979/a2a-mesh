@@ -258,6 +258,7 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._receive_loop()))
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
+        self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
 
         # Start ACK manager
         await self.ack_manager.start()
@@ -570,6 +571,10 @@ class MeshNode:
                                 # Dispatch to handlers
                                 await self._dispatch_to_handlers(msg)
 
+                                # Trigger webhook for high-priority messages
+                                if msg.priority >= 7:
+                                    asyncio.create_task(self._trigger_webhook(msg))
+
                     except Exception as e:
                         log.debug(f"Receive error on {transport_name}: {e}")
 
@@ -694,6 +699,63 @@ class MeshNode:
             status["address"] = f"0x{self.mesh_address.short:04X}"
             status["depth"] = self.mesh_address.depth
         return status
+
+    # ─── Health Monitoring Loop ──────────────────────────────────────
+
+    async def _health_monitor_loop(self):
+        """Periodic health check: verify PG connection, transports, and peer connectivity."""
+        while self._running:
+            try:
+                await asyncio.sleep(30)  # Check every 30s
+                if not self._running:
+                    break
+
+                # Check PG connection
+                if self._pg_conn and self._pg_conn.closed:
+                    log.warning("PG connection lost — attempting reconnect")
+                    try:
+                        self._pg_conn = await asyncio.get_event_loop().run_in_executor(
+                            None, self._pg_transport._connect
+                        )
+                        if self._pg_conn and not self._pg_conn.closed:
+                            log.info("PG connection restored")
+                    except Exception as e:
+                        log.error(f"PG reconnect failed: {e}")
+
+                # Check transport availability
+                for name, transport in self.router.transports.items():
+                    if not transport.is_available():
+                        log.debug(f"Transport {name} unavailable")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Health monitor error: {e}")
+
+    # ─── Webhook Trigger ─────────────────────────────────────────────
+
+    async def _trigger_webhook(self, message: A2AMessage):
+        """Trigger Hermes webhook to wake the agent on incoming message."""
+        if not self.config.webhook_port:
+            return
+        try:
+            import aiohttp
+            url = f"http://localhost:{self.config.webhook_port}/webhook"
+            payload = {
+                "message_id": message.id,
+                "sender": message.sender,
+                "recipient": message.recipient,
+                "type": message.type,
+                "priority": message.priority,
+            }
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        log.debug(f"Webhook triggered for message {message.id[:8]}")
+                    else:
+                        log.debug(f"Webhook response: {resp.status}")
+        except Exception as e:
+            log.debug(f"Webhook trigger skipped: {e}")
 
 
 async def main():

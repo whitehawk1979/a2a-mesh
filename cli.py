@@ -313,6 +313,51 @@ def cmd_keygen():
     print(f"    signing_key: {private_hex}")
 
 
+def cmd_health(port: int = 8650, output_json: bool = False):
+    """Check mesh node health via HTTP endpoint."""
+    import urllib.request
+    import json as json_mod
+
+    try:
+        url = f"http://localhost:{port}/health"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json_mod.loads(resp.read().decode())
+
+        if output_json:
+            print(json_mod.dumps(data, indent=2))
+        else:
+            status = data.get("status", "unknown")
+            node = data.get("node", "?")
+            role = data.get("role", "?")
+            addr = data.get("address", "?")
+            uptime = data.get("uptime_seconds", 0)
+            transports = data.get("transports", {})
+            ack = data.get("ack", {})
+            oq = data.get("offline_queue", {})
+
+            emoji = "🟢" if status == "running" else "🔴"
+            print(f"{emoji} Mesh Node: {node}")
+            print(f"   Role: {role}")
+            print(f"   Address: {addr}")
+            print(f"   Uptime: {uptime:.0f}s")
+            print(f"   Transports: PG={'✅' if transports.get('pg') else '❌'} "
+                  f"P2P={'✅' if transports.get('p2p') else '❌'} "
+                  f"HTTP={'✅' if transports.get('http') else '❌'}")
+            print(f"   ACK: {ack.get('pending', 0)} pending, {ack.get('acknowledged', 0)} acked, {ack.get('failed', 0)} failed")
+            print(f"   Offline Queue: {oq.get('queued', 0)} queued, {oq.get('delivered', 0)} delivered")
+            print(f"   Messages: {data.get('messages_sent', 0)} sent, {data.get('messages_received', 0)} received")
+        return 0
+
+    except urllib.error.URLError:
+        print(f"🔴 Mesh node not responding on port {port}")
+        print("   Is the daemon running? Start with: python3 -m a2a_mesh.node")
+        return 1
+    except Exception as e:
+        print(f"🔴 Health check failed: {e}")
+        return 1
+
+
 def cmd_test():
     """Run self-test for mesh components."""
     print("🧪 A2A Mesh Self-Test\n")
@@ -1034,6 +1079,11 @@ def main():
     # keygen
     subparsers.add_parser("keygen", help="Generate signing keypair")
 
+    # health
+    health_parser = subparsers.add_parser("health", help="Check mesh node health")
+    health_parser.add_argument("--port", type=int, default=8650, help="Health endpoint port")
+    health_parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
     # test
     subparsers.add_parser("test", help="Run self-tests")
 
@@ -1065,6 +1115,8 @@ def main():
         cmd_list_files()
     elif args.command == "keygen":
         cmd_keygen()
+    elif args.command == "health":
+        cmd_health(port=args.port, output_json=args.json)
     elif args.command == "test":
         cmd_test()
     else:
