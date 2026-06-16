@@ -437,6 +437,7 @@ class MeshNode:
                 "election": self.election.get_status() if self.election else {},
                 "ack": self.ack_manager.get_stats(),
                 "offline_queue": self.offline_queue.get_stats(),
+                "auto_steer": self.auto_steer.get_stats(),
                 "messages_sent": self.router._stats.get("sent", 0),
                 "messages_received": self.router._stats.get("received", 0),
             }
