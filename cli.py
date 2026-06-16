@@ -938,7 +938,11 @@ def cmd_join(role: str, name: str, parent: str = ""):
 
 async def cmd_send(recipient: str, msg_type: str, payload_str: str, priority: int = 5):
     """Send a message via mesh."""
-    config = MeshConfig()
+    config_path = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    if os.path.exists(config_path):
+        config = MeshConfig.from_yaml(config_path)
+    else:
+        config = MeshConfig()
     node = MeshNode(config)
 
     try:
@@ -954,7 +958,11 @@ async def cmd_send(recipient: str, msg_type: str, payload_str: str, priority: in
 
 async def cmd_broadcast(msg_type: str, payload_str: str, priority: int = 5):
     """Broadcast a message via mesh."""
-    config = MeshConfig()
+    config_path = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    if os.path.exists(config_path):
+        config = MeshConfig.from_yaml(config_path)
+    else:
+        config = MeshConfig()
     node = MeshNode(config)
 
     try:
