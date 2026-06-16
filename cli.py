@@ -163,17 +163,317 @@ def cmd_test():
 
 
 def cmd_status():
-    """Show mesh node status."""
-    # Connect to running node via PG and check
-    print("A2A Mesh Status")
-    print("=" * 40)
+    """Show mesh node status with topology info."""
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    if os.path.exists(config_file):
+        config = MeshConfig.from_yaml(config_file)
+    else:
+        config = MeshConfig()
 
-    config = MeshConfig()
-    print(f"Node name:  {config.node_name}")
-    print(f"PG host:    {config.pg.host}:{config.pg.port}")
-    print(f"P2P port:   {config.p2p.listen_port}")
-    print(f"HTTP url:   {config.http.url}")
-    print(f"Discovery:  {'mDNS + static' if config.discovery.mdns_enabled else 'static only'}")
+    topo = config.topology
+    print("A2A Mesh Status")
+    print("=" * 50)
+    print(f"  Node name:    {config.node_name}")
+    print(f"  Node role:     {topo.node_role.upper()}")
+    print(f"  Routing mode: {topo.routing_mode}")
+    print(f"  PG host:      {config.pg.host}:{config.pg.port}")
+    print(f"  P2P port:     {config.p2p.listen_port}")
+    print(f"  HTTP url:     {config.http.url}")
+    print(f"  Discovery:    {'mDNS + static' if config.discovery.mdns_enabled else 'static only'}")
+    print()
+    print("Topology")
+    print("-" * 50)
+    print(f"  Max children: {topo.max_children} (Cm)")
+    print(f"  Max routers:   {topo.max_routers} (Rm)")
+    print(f"  Max depth:     {topo.max_depth} (Lm)")
+    print(f"  Trust center:  {'ON' if topo.trust_center_enabled else 'OFF'}")
+    print(f"  Sleepy ED:     {'ON' if topo.enable_sleepy_end_devices else 'OFF'}")
+    print(f"  Route cache:   {'ON' if topo.enable_route_cache else 'OFF'} (TTL: {topo.route_cache_ttl}s)")
+    print()
+
+    # Show address table from PG if available
+    try:
+        import psycopg2
+        conn = psycopg2.connect(
+            host=config.pg.host, port=config.pg.port,
+            dbname=config.pg.dbname, user=config.pg.user,
+            password=config.pg.password,
+        )
+        cur = conn.cursor()
+        # Check if mesh_nodes table exists
+        cur.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'mesh' AND table_name = 'mesh_nodes'
+            )
+        """)
+        if cur.fetchone()[0]:
+            cur.execute("SELECT node_name, role, short_addr, parent_addr, joined_at FROM mesh.mesh_nodes ORDER BY short_addr")
+            rows = cur.fetchall()
+            if rows:
+                print(f"Known nodes ({len(rows)}):")
+                for row in rows:
+                    name, role, short_addr, parent_addr, joined_at = row
+                    parent_str = f"parent=0x{parent_addr:04X}" if parent_addr is not None else "root"
+                    print(f"  0x{short_addr:04X}  {role:<12}  {name:<15}  {parent_str}")
+            else:
+                print("No nodes registered yet")
+        else:
+            print("Mesh tables not initialized yet — run 'a2a-mesh init' first")
+        conn.close()
+    except Exception as e:
+        print(f"  PG connection: {e}")
+
+
+def cmd_init():
+    """Initialize mesh tables in PG database."""
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    if os.path.exists(config_file):
+        config = MeshConfig.from_yaml(config_file)
+    else:
+        config = MeshConfig()
+
+    import psycopg2
+    conn = psycopg2.connect(
+        host=config.pg.host, port=config.pg.port,
+        dbname=config.pg.dbname, user=config.pg.user,
+        password=config.pg.password,
+    )
+    cur = conn.cursor()
+
+    # Create mesh_nodes table
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mesh.mesh_nodes (
+            node_name VARCHAR(64) PRIMARY KEY,
+            role VARCHAR(20) NOT NULL DEFAULT 'end_device',
+            short_addr INTEGER NOT NULL,
+            extended_uuid VARCHAR(128) NOT NULL,
+            parent_addr INTEGER,
+            depth INTEGER NOT NULL DEFAULT 0,
+            public_key TEXT,
+            transport_info JSONB,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_heartbeat TIMESTAMPTZ,
+            UNIQUE(short_addr),
+            UNIQUE(extended_uuid)
+        )
+    """)
+
+    # Create mesh_messages table for message tracking
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mesh.mesh_messages (
+            id VARCHAR(48) PRIMARY KEY,
+            sender VARCHAR(64) NOT NULL,
+            recipient VARCHAR(64),
+            msg_type VARCHAR(40) NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 5,
+            payload JSONB,
+            routing_mode VARCHAR(10) DEFAULT 'hybrid',
+            src_addr INTEGER,
+            dst_addr INTEGER,
+            route_path INTEGER[],
+            status VARCHAR(20) DEFAULT 'sent',
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            delivered_at TIMESTAMPTZ
+        )
+    """)
+
+    # Create indexes
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_nodes_role ON mesh.mesh_nodes(role)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_nodes_status ON mesh.mesh_nodes(status)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_messages_sender ON mesh.mesh_messages(sender)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_messages_recipient ON mesh.mesh_messages(recipient)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_messages_created ON mesh.mesh_messages(created_at)")
+
+    # Add NOTIFY trigger for mesh_channel
+    cur.execute("""
+        CREATE OR REPLACE FUNCTION mesh.notify_mesh_channel() RETURNS trigger AS $$
+        BEGIN
+            PERFORM pg_notify('mesh_channel', json_build_object(
+                'id', NEW.id,
+                'sender', NEW.sender,
+                'recipient', NEW.recipient,
+                'msg_type', NEW.msg_type,
+                'priority', NEW.priority
+            )::text);
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql
+    """)
+
+    cur.execute("""
+        DROP TRIGGER IF EXISTS mesh_message_notify ON mesh.mesh_messages;
+        CREATE TRIGGER mesh_message_notify
+            AFTER INSERT ON mesh.mesh_messages
+            FOR EACH ROW EXECUTE FUNCTION mesh.notify_mesh_channel()
+    """)
+
+    conn.commit()
+
+    # Register coordinator in mesh.mesh_nodes
+    from a2a_mesh.core.topology import NodeRole, AddressManager
+    mgr = AddressManager(
+        max_children=config.topology.max_children,
+        max_routers=config.topology.max_routers,
+        max_depth=config.topology.max_depth,
+    )
+    coord = mgr.assign_address(config.node_name, NodeRole.COORDINATOR)
+
+    import uuid
+    ext_uuid = str(uuid.uuid4())
+    cur.execute("""
+        INSERT INTO mesh.mesh_nodes (node_name, role, short_addr, extended_uuid, parent_addr, depth, status)
+        VALUES (%s, %s, %s, %s, NULL, 0, 'active')
+        ON CONFLICT (node_name) DO UPDATE SET
+            role = EXCLUDED.role,
+            short_addr = EXCLUDED.short_addr,
+            status = 'active',
+            last_heartbeat = NOW()
+    """, (config.node_name, 'coordinator', coord.short, ext_uuid))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    print("✅ Mesh tables initialized:")
+    print("   - mesh.mesh_nodes (node registry)")
+    print("   - mesh.mesh_messages (message tracking)")
+    print("   - NOTIFY trigger on mesh_channel")
+    print(f"\n📍 Coordinator registered: {config.node_name} = 0x{coord.short:04X}")
+
+
+def cmd_topology():
+    """Show mesh topology tree."""
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    if os.path.exists(config_file):
+        config = MeshConfig.from_yaml(config_file)
+    else:
+        config = MeshConfig()
+
+    import psycopg2
+    try:
+        conn = psycopg2.connect(
+            host=config.pg.host, port=config.pg.port,
+            dbname=config.pg.dbname, user=config.pg.user,
+            password=config.pg.password,
+        )
+        cur = conn.cursor()
+        cur.execute("SELECT node_name, role, short_addr, depth, parent_addr FROM mesh.mesh_nodes ORDER BY short_addr")
+        rows = cur.fetchall()
+        conn.close()
+    except Exception as e:
+        print(f"PG error: {e}")
+        return
+
+    if not rows:
+        print("No nodes in topology — run 'a2a-mesh init' first")
+        return
+
+    # Build tree
+    from a2a_mesh.core.topology import NodeRole
+    nodes_by_parent = {}
+    root = None
+    for name, role, short_addr, depth, parent_addr in rows:
+        parent_key = parent_addr if parent_addr is not None else None
+        if parent_key not in nodes_by_parent:
+            nodes_by_parent[parent_key] = []
+        role_icon = {"coordinator": "⭐", "router": "📡", "end_device": "📱"}.get(role, "❓")
+        nodes_by_parent[parent_key].append((short_addr, name, role, role_icon))
+        if role == "coordinator":
+            root = (short_addr, name, role, role_icon)
+
+    if root:
+        print("Mesh Topology")
+        print("=" * 50)
+        _print_tree(root, nodes_by_parent, indent=0)
+    else:
+        print("No coordinator found!")
+
+def _print_tree(node, nodes_by_parent, indent=0):
+    """Recursively print topology tree."""
+    short_addr, name, role, icon = node
+    prefix = "  " * indent + ("└─ " if indent > 0 else "")
+    print(f"{prefix}{icon} {name} (0x{short_addr:04X}, {role})")
+    children = nodes_by_parent.get(short_addr, [])
+    for child in children:
+        _print_tree(child, nodes_by_parent, indent + 1)
+
+
+def cmd_join(role: str, name: str, parent: str = ""):
+    """Join the mesh network with a specified role."""
+    config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
+    if os.path.exists(config_file):
+        config = MeshConfig.from_yaml(config_file)
+    else:
+        config = MeshConfig()
+
+    # Use provided name or default from config
+    node_name = name if name else config.node_name
+
+    # Update role in config
+    config.topology.node_role = role
+
+    import psycopg2
+    from a2a_mesh.core.topology import NodeRole, AddressManager
+
+    conn = psycopg2.connect(
+        host=config.pg.host, port=config.pg.port,
+        dbname=config.pg.dbname, user=config.pg.user,
+        password=config.pg.password,
+    )
+    cur = conn.cursor()
+
+    # Get current address table
+    cur.execute("SELECT node_name, role, short_addr, extended_uuid FROM mesh.mesh_nodes")
+    rows = cur.fetchall()
+
+    mgr = AddressManager(
+        max_children=config.topology.max_children,
+        max_routers=config.topology.max_routers,
+        max_depth=config.topology.max_depth,
+    )
+
+    # Rebuild address table
+    for n, r, short, ext in rows:
+        node_role = NodeRole(r)
+        addr = mgr.assign_address(n, node_role, parent_short=0)
+
+    # Determine parent
+    parent_short = 0  # Default: coordinator
+    if parent:
+        cur.execute("SELECT short_addr FROM mesh.mesh_nodes WHERE node_name = %s", (parent,))
+        row = cur.fetchone()
+        if row:
+            parent_short = row[0]
+
+    # Assign address for this node
+    node_role = NodeRole(role)
+    addr = mgr.assign_address(node_name, node_role, parent_short=parent_short)
+
+    # Register in PG
+    import uuid
+    ext_uuid = str(uuid.uuid4())
+    cur.execute("""
+        INSERT INTO mesh.mesh_nodes (node_name, role, short_addr, extended_uuid, parent_addr, depth, status)
+        VALUES (%s, %s, %s, %s, %s, %s, 'active')
+        ON CONFLICT (node_name) DO UPDATE SET
+            role = EXCLUDED.role,
+            short_addr = EXCLUDED.short_addr,
+            parent_addr = EXCLUDED.parent_addr,
+            depth = EXCLUDED.depth,
+            status = 'active',
+            last_heartbeat = NOW()
+    """, (config.node_name, role, addr.short, ext_uuid, parent_short, addr.depth))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    icon = {"coordinator": "⭐", "router": "📡", "end_device": "📱"}.get(role, "❓")
+    print(f"{icon} Joined mesh as {role.upper()}")
+    print(f"   Address: 0x{addr.short:04X}")
+    print(f"   Depth: {addr.depth}")
+    print(f"   Parent: 0x{parent_short:04X}")
 
 
 async def cmd_send(recipient: str, msg_type: str, payload_str: str, priority: int = 5):
@@ -274,7 +574,21 @@ def main():
     bc_parser.add_argument("--priority", "-P", type=int, default=5)
 
     # status
-    subparsers.add_parser("status", help="Show mesh status")
+    subparsers.add_parser("status", help="Show mesh status and topology")
+
+    # init
+    subparsers.add_parser("init", help="Initialize mesh tables in PG")
+
+    # topology
+    subparsers.add_parser("topology", help="Show mesh topology tree")
+
+    # join
+    join_parser = subparsers.add_parser("join", help="Join mesh with role")
+    join_parser.add_argument("--role", "-r", default="router",
+                             choices=["coordinator", "router", "end_device"],
+                             help="Node role")
+    join_parser.add_argument("--name", "-n", default="", help="Node name (default: config node_name)")
+    join_parser.add_argument("--parent", "-p", default="", help="Parent node name")
 
     # discover
     subparsers.add_parser("discover", help="Discover mesh nodes")
@@ -295,6 +609,12 @@ def main():
         asyncio.run(cmd_broadcast(args.type, args.payload, args.priority))
     elif args.command == "status":
         cmd_status()
+    elif args.command == "init":
+        cmd_init()
+    elif args.command == "topology":
+        cmd_topology()
+    elif args.command == "join":
+        cmd_join(args.role, args.name, args.parent)
     elif args.command == "keygen":
         cmd_keygen()
     elif args.command == "test":
