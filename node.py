@@ -31,6 +31,7 @@ from .core.auto_steer import AutoSteerProcessor
 from .core.local_store import LocalStore
 from .core.file_transfer import P2PFileTransfer
 from .core.peer_discovery import PeerDiscovery
+from .core.dashboard import DashboardHandler
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
@@ -167,6 +168,9 @@ class MeshNode:
             local_store=self.local_store,
         )
 
+        # Initialize web dashboard
+        self.dashboard = DashboardHandler(self)
+
         # Initialize node authenticator
         auth_config = AuthConfig(
             mode=getattr(self.config, 'auth_mode', 'open'),
@@ -233,8 +237,14 @@ class MeshNode:
     async def _dispatch_to_handlers(self, message: A2AMessage):
         """Dispatch incoming message to all registered handlers.
 
-        Special handling for file_transfer messages.
+        Special handling for file_transfer messages and dashboard notification.
         """
+        # Notify dashboard
+        try:
+            await self.dashboard.on_mesh_message(message)
+        except Exception as e:
+            log.debug(f"Dashboard notification failed: {e}")
+
         # Handle file transfer messages
         if message.type == "file_transfer":
             response = self.file_transfer.handle_incoming(message)
@@ -476,6 +486,7 @@ class MeshNode:
                 "local_store": self.local_store.get_stats(),
                 "file_transfer": self.file_transfer.get_transfer_stats(),
                 "peer_discovery": self.peer_discovery.get_stats(),
+                "dashboard": self.dashboard.get_stats(),
                 "messages_sent": self.router._stats.get("sent", 0),
                 "messages_received": self.router._stats.get("received", 0),
             }
@@ -490,6 +501,9 @@ class MeshNode:
         app = web.Application()
         app.router.add_get("/health", health_handler)
         app.router.add_get("/ready", ready_handler)
+
+        # Register dashboard routes
+        self.dashboard.register_routes(app)
 
         try:
             runner = web.AppRunner(app)
