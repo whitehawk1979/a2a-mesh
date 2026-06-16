@@ -80,11 +80,12 @@ class PeerDiscovery:
     table and a P2P connection is attempted.
     """
 
-    def __init__(self, node_name: str, config, local_store=None, p2p_transport=None):
+    def __init__(self, node_name: str, config, local_store=None, p2p_transport=None, pg_conn=None):
         self.node_name = node_name
         self.config = config
         self.local_store = local_store
         self.p2p_transport = p2p_transport
+        self._pg_conn = pg_conn
 
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
@@ -166,26 +167,39 @@ class PeerDiscovery:
             cur.execute("""
                 SELECT node_name, role, host, p2p_port, health_port,
                        pg_available, p2p_available, http_available,
-                       last_seen
+                       last_heartbeat
                 FROM mesh.mesh_nodes
                 WHERE node_name != %s
-                  AND last_seen > NOW() - INTERVAL '10 minutes'
-                ORDER BY last_seen DESC
+                  AND status = 'active'
+                  AND last_heartbeat > NOW() - INTERVAL '10 minutes'
+                ORDER BY last_heartbeat DESC
             """, (self.node_name,))
 
             discovered = []
             for row in cur.fetchall():
                 name, role, host, p2p_port, health_port = row[0], row[1], row[2], row[3], row[4]
+                pg_avail = row[5] if len(row) > 5 else False
+                p2p_avail = row[6] if len(row) > 6 else False
+                http_avail = row[7] if len(row) > 7 else False
+
+                if not host:
+                    log.debug(f"Skipping peer {name}: no host address")
+                    continue
+
                 if name in self._peers:
                     # Update existing peer
                     self._peers[name].host = host
                     self._peers[name].p2p_port = p2p_port
                     self._peers[name].health_port = health_port
                     self._peers[name].last_seen = time.time()
-                    self._peers[name].pg_available = True
-                    self._peers[name].p2p_available = row[6] if len(row) > 6 else True
+                    self._peers[name].pg_available = pg_avail
+                    self._peers[name].p2p_available = p2p_avail
+                    self._peers[name].http_available = http_avail
                 else:
                     peer = self.add_peer(name, host, p2p_port, role, health_port)
+                    peer.pg_available = pg_avail
+                    peer.p2p_available = p2p_avail
+                    peer.http_available = http_avail
                     discovered.append(peer)
 
             cur.close()
@@ -250,15 +264,27 @@ class PeerDiscovery:
     async def discover_and_connect(self):
         """Full discovery cycle: find peers and connect.
 
-        1. Check health of known peers
-        2. Discover from PG
+        1. Discover from PG (primary source)
+        2. Check health of known peers
         3. Connect to newly discovered peers
         """
-        # 1. Health check known peers
+        # 1. Discover from PG
+        pg_conn = self._pg_conn
+        if not pg_conn and self.local_store and hasattr(self.local_store, '_pg_conn'):
+            pg_conn = self.local_store._pg_conn
+        if pg_conn:
+            try:
+                new_peers = await self.discover_from_pg(pg_conn)
+                if new_peers:
+                    log.info(f"Discovered {len(new_peers)} new peers from PG: {[p.name for p in new_peers]}")
+            except Exception as e:
+                log.warning(f"PG peer discovery failed: {e}")
+
+        # 2. Health check known peers
         for peer in list(self._peers.values()):
             await self.check_peer_health(peer)
 
-        # 2. Connect to peers that aren't connected yet
+        # 3. Connect to peers that aren't connected yet
         connected = 0
         for peer in list(self._peers.values()):
             if peer.p2p_available and peer.name not in (

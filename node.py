@@ -166,6 +166,7 @@ class MeshNode:
             node_name=self.node_name,
             config=self.config,
             local_store=self.local_store,
+            pg_conn=None,  # Set later after PG connection established
         )
 
         # Initialize web dashboard
@@ -324,8 +325,9 @@ class MeshNode:
         # Start priority queue processor
         self.router.start_priority_queue()
 
-        # Start peer discovery (link P2P transport for auto-connect)
+        # Start peer discovery (link P2P transport and PG conn for auto-connect)
         self.peer_discovery.p2p_transport = self._p2p_transport
+        self.peer_discovery._pg_conn = self._pg_conn
         await self.peer_discovery.start()
 
         # Start ACK manager
@@ -572,21 +574,40 @@ class MeshNode:
             log.error(f"Failed to persist message {message.id[:8]}: {e}")
 
     async def _register_node(self):
-        """Register this node in mesh.mesh_nodes."""
+        """Register this node in mesh.mesh_nodes with network info."""
         if not self._pg_conn:
             return
+
+        # Determine host address for other nodes to connect to
+        import socket
+        try:
+            host_ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            host_ip = "0.0.0.0"
+
+        # Get port config
+        p2p_port = getattr(self.config, 'p2p_port', 8645)
+        health_port = getattr(self.config, 'health_port', 8650)
 
         try:
             cur = self._pg_conn.cursor()
             cur.execute("""
                 INSERT INTO mesh.mesh_nodes 
-                    (node_name, role, short_addr, extended_uuid, parent_addr, depth, status, last_heartbeat)
-                VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW())
+                    (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
+                     status, last_heartbeat, host, p2p_port, health_port,
+                     pg_available, p2p_available, http_available)
+                VALUES (%s, %s, %s, %s, %s, %s, 'active', NOW(), %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
                     status = 'active',
-                    last_heartbeat = NOW()
+                    last_heartbeat = NOW(),
+                    host = EXCLUDED.host,
+                    p2p_port = EXCLUDED.p2p_port,
+                    health_port = EXCLUDED.health_port,
+                    pg_available = EXCLUDED.pg_available,
+                    p2p_available = EXCLUDED.p2p_available,
+                    http_available = EXCLUDED.http_available
             """, (
                 self.node_name,
                 self.role.value,
@@ -594,9 +615,15 @@ class MeshNode:
                 str(self.mesh_address.extended) if self.mesh_address else self.node_name,
                 self.mesh_address.parent_short if self.mesh_address else None,
                 self.mesh_address.depth if self.mesh_address else 0,
+                host_ip,
+                p2p_port,
+                health_port,
+                bool(self._pg_conn),
+                self._transports.get("p2p", None) is not None if hasattr(self, "_transports") else False,
+                self._transports.get("http", None) is not None if hasattr(self, "_transports") else False,
             ))
             cur.close()
-            log.info(f"Registered node {self.node_name} (0x{(self.mesh_address.short if self.mesh_address else 0):04X}) in mesh")
+            log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
         except Exception as e:
             log.error(f"Failed to register node: {e}")
 
@@ -624,9 +651,19 @@ class MeshNode:
         try:
             cur = self._pg_conn.cursor()
             cur.execute("""
-                UPDATE mesh.mesh_nodes SET last_heartbeat = NOW(), status = 'active'
+                UPDATE mesh.mesh_nodes SET 
+                    last_heartbeat = NOW(), 
+                    status = 'active',
+                    pg_available = %s,
+                    p2p_available = %s,
+                    http_available = %s
                 WHERE node_name = %s
-            """, (self.node_name,))
+            """, (
+                bool(self._pg_conn),
+                self._transports.get("p2p", None) is not None if hasattr(self, "_transports") else False,
+                self._transports.get("http", None) is not None if hasattr(self, "_transports") else False,
+                self.node_name,
+            ))
             cur.close()
         except Exception as e:
             log.error(f"Heartbeat PG update failed: {e}")
