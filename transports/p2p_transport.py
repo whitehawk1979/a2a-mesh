@@ -7,6 +7,7 @@ Discovery via mDNS (zeroconf) or static config.
 
 import asyncio
 import json
+import ssl
 import struct
 import logging
 import time
@@ -47,6 +48,20 @@ class P2PTransport(TransportAdapter):
         self._message_callback = None
         self._max_retries = config.p2p.max_connections  # reuse as max reconnect attempts
         self._reconnect_interval = config.p2p.idle_timeout  # base retry interval in seconds
+        self._ssl_context: Optional[ssl.SSLContext] = None  # TLS if configured
+
+        # Setup TLS if configured
+        p2p_config = getattr(config, 'p2p', None)
+        tls_enabled = getattr(p2p_config, 'tls_enabled', False) if p2p_config else False
+        tls_cert = getattr(p2p_config, 'tls_cert', '') if p2p_config else ''
+        tls_key = getattr(p2p_config, 'tls_key', '') if p2p_config else ''
+
+        if tls_enabled and tls_cert and tls_key:
+            import ssl as _ssl
+            self._ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+            self._ssl_context.load_cert_chain(tls_cert, tls_key)
+            self._ssl_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM')
+            log.info("P2P TLS enabled with server certificate")
 
     async def start(self) -> bool:
         """Start TCP server and connect to known peers."""
@@ -55,6 +70,7 @@ class P2PTransport(TransportAdapter):
                 self._handle_connection,
                 self._listen_host,
                 self._listen_port,
+                ssl=self._ssl_context,  # None = plain TCP, SSLContext = TLS
             )
             self._running = True
             self._available = True

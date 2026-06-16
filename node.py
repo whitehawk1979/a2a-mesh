@@ -17,13 +17,16 @@ import sys
 import time
 from typing import Optional, Dict, List, Callable
 
-from .core.message import A2AMessage, SendResult, ProcessResult, MSG_TYPE_HEARTBEAT
+from .core.message import A2AMessage, SendResult, ProcessResult, MSG_TYPE_HEARTBEAT, MAX_MESSAGE_SIZE
 from .core.config import MeshConfig
 from .core.router import MeshRouter
 from .core.encryption import MeshEncryption
 from .core.topology import NodeRole, MeshAddress, AddressManager
 from .core.tree_router import TreeRouter
 from .core.election import CoordinatorElection, ElectionConfig, CoordinatorState
+from .core.ack import AckManager, AckType, AckStatus
+from .core.offline_queue import OfflineQueue
+from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
 from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
@@ -124,6 +127,27 @@ class MeshNode:
                 down_threshold=self.config.heartbeat.critical_threshold,
             ),
         )
+
+        # Initialize ACK manager
+        self.ack_manager = AckManager(node_name=self.node_name)
+
+        # Initialize offline queue
+        self.offline_queue = OfflineQueue(
+            pg_config=self.config.pg,
+            node_name=self.node_name,
+        )
+
+        # Initialize node authenticator
+        auth_config = AuthConfig(
+            mode=getattr(self.config, 'auth_mode', 'open'),
+            trust_center=self.node_name if self.role == NodeRole.COORDINATOR else "",
+            whitelist=set(getattr(self.config, 'auth_whitelist', [])),
+        )
+        self.authenticator = NodeAuthenticator(auth_config)
+
+        # Health endpoint
+        self._health_server: Optional[asyncio.AbstractServer] = None
+        self._health_port = getattr(self.config, 'health_port', 8650)
 
         # Initialize transports
         self._pg_transport = PGTransport(self.config)
@@ -235,6 +259,15 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
 
+        # Start ACK manager
+        await self.ack_manager.start()
+
+        # Ensure offline queue table exists
+        self.offline_queue.ensure_table()
+
+        # Start health endpoint
+        self._tasks.append(asyncio.create_task(self._run_health_server()))
+
         # At least one transport must be working
         any_ok = any(results.values())
         if any_ok:
@@ -248,6 +281,9 @@ class MeshNode:
         """Stop all transports and discovery. Deregister from mesh."""
         log.info(f"Stopping mesh node '{self.node_name}'")
         self._running = False
+
+        # Stop ACK manager
+        await self.ack_manager.stop()
 
         # Deregister from mesh_nodes
         await self._deregister_node()
@@ -277,14 +313,36 @@ class MeshNode:
         log.info("Mesh node stopped")
 
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send a message via the best available transport."""
+        """Send a message via the best available transport.
+
+        Includes: size validation, compression, ACK tracking, offline queuing.
+        """
         message.sender = self.node_name
         message.sender_node_id = self.node_name
+
+        # Validate message size
+        valid, size = message.validate_size()
+        if not valid:
+            log.error(f"Message {message.id[:8]} too large: {size} bytes (max {MAX_MESSAGE_SIZE})")
+            return SendResult(transport="none", success=False, error=f"Message too large: {size} bytes")
+
+        # Compress if needed
+        message = message.compress_payload()
 
         # Sign if encryption is available
         if self.encryption and not message.signature:
             content = message.sign_content()
             message.signature = self.encryption.sign_message(content)
+
+        # Check if recipient is online — if not, queue for later
+        if not message.is_broadcast() and self.offline_queue.is_node_online(message.recipient) is False:
+            log.info(f"Recipient {message.recipient} is offline — queuing message")
+            self.offline_queue.enqueue(message)
+            return SendResult(transport="offline_queue", success=True, error="Queued for offline delivery")
+
+        # Track for ACK (non-broadcast only)
+        if not message.is_broadcast() and message.type != MSG_TYPE_HEARTBEAT:
+            self.ack_manager.track(message)
 
         # Also persist to PG for reliability
         await self._persist_message(message)
@@ -629,6 +687,69 @@ async def main():
             sys.exit(1)
     finally:
         await node.stop()
+
+    # ─── Health Endpoint ─────────────────────────────────────────────
+
+    async def _run_health_server(self):
+        """Simple HTTP health check server on configured port."""
+        from aiohttp import web
+
+        async def health_handler(request):
+            """Return node health status as JSON."""
+            uptime = time.time() - self._start_time if self._start_time else 0
+            status = {
+                "status": "running" if self._running else "stopped",
+                "node": self.node_name,
+                "role": self.role.value,
+                "address": f"0x{self.mesh_address.short:04X}" if self.mesh_address else "pending",
+                "uptime_seconds": round(uptime, 1),
+                "transports": {
+                    "pg": self._pg_transport.is_available(),
+                    "p2p": self._p2p_transport.is_available(),
+                    "http": self._http_transport.is_available(),
+                },
+                "election": {
+                    "state": self.election.state.value,
+                    "coordinator": self.election.coordinator_name,
+                    "is_coordinator": self.election.is_coordinator(),
+                },
+                "ack": self.ack_manager.get_stats(),
+                "offline_queue": self.offline_queue.get_stats(),
+                "messages_sent": self.router._stats.get("sent", 0),
+                "messages_received": self.router._stats.get("received", 0),
+            }
+            return web.json_response(status=200 if self._running else 503, data=status)
+
+        async def ready_handler(request):
+            """Readiness check — returns 200 only if PG transport is available."""
+            if self._pg_transport.is_available():
+                return web.json_response({"ready": True})
+            return web.json_response({"ready": False}, status=503)
+
+        app = web.Application()
+        app.router.add_get("/health", health_handler)
+        app.router.add_get("/ready", ready_handler)
+
+        try:
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, "0.0.0.0", self._health_port)
+            await site.start()
+            log.info(f"Health endpoint started on port {self._health_port}")
+            # Keep running until stopped
+            while self._running:
+                await asyncio.sleep(10)
+        except ImportError:
+            log.warning("aiohttp not installed — health endpoint disabled")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.error(f"Health endpoint failed: {e}")
+        finally:
+            try:
+                await runner.cleanup()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

@@ -47,6 +47,11 @@ MSG_TYPE_CONTEXT = "context"
 MSG_TYPE_ERROR = "error"
 MSG_TYPE_MESH = "mesh"  # Mesh-level messages (join, leave, ping)
 
+# Message size limits (bytes)
+MAX_MESSAGE_SIZE = 1 * 1024 * 1024       # 1MB max payload size
+MAX_COMPRESSED_SIZE = 512 * 1024           # 512KB max after compression
+COMPRESSION_THRESHOLD = 4 * 1024          # Compress payloads > 4KB
+
 
 @dataclass
 class A2AMessage:
@@ -173,6 +178,58 @@ class A2AMessage:
         msg = A2AMessage.from_dict(self.to_dict())
         msg.path = list(self.path) + [node_name]
         return msg
+
+    def validate_size(self) -> tuple[bool, int]:
+        """Validate message payload size. Returns (valid, size_in_bytes)."""
+        payload_json = json.dumps(self.payload, default=str)
+        size = len(payload_json.encode('utf-8'))
+        return size <= MAX_MESSAGE_SIZE, size
+
+    def compress_payload(self) -> 'A2AMessage':
+        """Compress payload if it exceeds threshold. Returns new message with compressed payload."""
+        import zlib
+        import base64
+
+        payload_json = json.dumps(self.payload, default=str)
+        payload_bytes = payload_json.encode('utf-8')
+
+        if len(payload_bytes) < COMPRESSION_THRESHOLD:
+            return self  # No compression needed
+
+        compressed = zlib.compress(payload_bytes)
+        if len(compressed) > MAX_COMPRESSED_SIZE:
+            log.warning(f"Compressed payload still too large: {len(compressed)} bytes")
+            return self
+
+        msg = A2AMessage.from_dict(self.to_dict())
+        msg.payload = {
+            "__compressed__": True,
+            "__encoding__": "zlib+base64",
+            "data": base64.b64encode(compressed).decode('ascii'),
+            "original_size": len(payload_bytes),
+            "compressed_size": len(compressed),
+        }
+        return msg
+
+    def decompress_payload(self) -> 'A2AMessage':
+        """Decompress payload if it was compressed. Returns new message with original payload."""
+        import zlib
+        import base64
+
+        if not self.payload.get("__compressed__"):
+            return self
+
+        try:
+            compressed = base64.b64decode(self.payload["data"])
+            decompressed = zlib.decompress(compressed)
+            original_payload = json.loads(decompressed.decode('utf-8'))
+
+            msg = A2AMessage.from_dict(self.to_dict())
+            msg.payload = original_payload
+            return msg
+        except Exception as e:
+            log.error(f"Payload decompression failed: {e}")
+            return self
 
     def __hash__(self):
         return hash(self.id)

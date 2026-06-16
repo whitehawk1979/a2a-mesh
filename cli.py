@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -503,6 +504,77 @@ def cmd_test():
     print("✅")
 
     print(f"\n✅ All tests passed! (13/13)")
+
+    # Test 14: ACK tracking
+    print("14. ACK manager... ", end="")
+    from a2a_mesh.core.ack import AckManager, AckType, AckStatus, PRIORITY_TIMEOUTS
+    ack = AckManager(node_name="test_nova")
+    msg = A2AMessage.create(sender="nova", recipient="morzsa", msg_type="directive", payload={"test": True})
+    ack.track(msg)
+    stats = ack.get_stats()
+    assert stats["pending"] == 1, f"Expected 1 pending, got {stats['pending']}"
+    assert PRIORITY_TIMEOUTS[5] == 45, f"P5 timeout should be 45s, got {PRIORITY_TIMEOUTS[5]}"
+    ack_msg = ack.create_ack(msg, AckType.DELIVERED)
+    assert ack_msg.type == "ack", f"ACK type should be 'ack', got {ack_msg.type}"
+    assert ack_msg.payload["ack_for"] == msg.id
+    result = ack.process_ack(ack_msg)
+    assert result is not None, "ACK should be processed"
+    assert result.status == AckStatus.ACKNOWLEDGED
+    stats = ack.get_stats()
+    assert stats["pending"] == 0, f"Expected 0 pending after ACK, got {stats['pending']}"
+    print("✅")
+
+    # Test 15: Message compression
+    print("15. Message compression... ", end="")
+    import zlib
+    big_payload = {"data": "x" * 10000}  # > 4KB threshold
+    big_msg = A2AMessage.create(sender="nova", recipient="morzsa", msg_type="directive", payload=big_payload)
+    compressed = big_msg.compress_payload()
+    assert compressed.payload.get("__compressed__") == True, "Should be compressed"
+    assert compressed.payload["original_size"] > compressed.payload["compressed_size"]
+    decompressed = compressed.decompress_payload()
+    assert decompressed.payload["data"] == "x" * 10000, "Decompressed data should match"
+    # Small payload should not be compressed
+    small_msg = A2AMessage.create(sender="nova", recipient="morzsa", msg_type="directive", payload={"x": 1})
+    assert small_msg.compress_payload().payload.get("__compressed__") is None, "Small payload should not be compressed"
+    print("✅")
+
+    # Test 16: Message size validation
+    print("16. Message size validation... ", end="")
+    from a2a_mesh.core.message import MAX_MESSAGE_SIZE
+    ok_msg = A2AMessage.create(sender="nova", recipient="morzsa", msg_type="directive", payload={"test": True})
+    valid, size = ok_msg.validate_size()
+    assert valid == True, f"Small message should be valid, size={size}"
+    assert size < MAX_MESSAGE_SIZE
+    print("✅")
+
+    # Test 17: Node authentication
+    print("17. Node authentication... ", end="")
+    from a2a_mesh.core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
+    auth_config = AuthConfig(mode="open")
+    auth = NodeAuthenticator(auth_config)
+    join = JoinRequest(
+        node_name="test_node",
+        node_role="router",
+        public_key="test_key_abc123",
+        timestamp=time.time(),
+        nonce="random_nonce_123",
+    )
+    authorized, reason = auth.authenticate_join(join)
+    assert authorized == True, f"Open mode should authorize: {reason}"
+    assert auth.is_authenticated("test_node") == True
+    # Whitelist mode
+    wl_config = AuthConfig(mode="whitelist", whitelist={"morzsa", "nova"})
+    wl_auth = NodeAuthenticator(wl_config)
+    join2 = JoinRequest(node_name="morzsa", node_role="router", public_key="key2", timestamp=time.time(), nonce="n2")
+    authorized2, reason2 = wl_auth.authenticate_join(join2)
+    assert authorized2 == True, f"Whitelisted node should be authorized: {reason2}"
+    join3 = JoinRequest(node_name="unknown", node_role="router", public_key="key3", timestamp=time.time(), nonce="n3")
+    authorized3, _ = wl_auth.authenticate_join(join3)
+    assert authorized3 == False, "Unknown node should be rejected in whitelist mode"
+    print("✅")
+
+    print(f"\n✅ All tests passed! (17/17)")
 
 
 def cmd_status():
