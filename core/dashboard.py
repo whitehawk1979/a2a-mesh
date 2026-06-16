@@ -206,6 +206,9 @@ class DashboardHandler:
         msg_type = data.get("type", "message")
         priority = int(data.get("priority", 5))
 
+        # Dashboard messages get minimum P7 to ensure agent wake-up via auto-steer
+        effective_priority = max(priority, 7)
+
         if not content.strip():
             return web.json_response({"error": "Empty message"}, status=400)
 
@@ -214,7 +217,7 @@ class DashboardHandler:
             sender=self.node.node_name,
             recipient=recipient if recipient else "broadcast",
             type=msg_type if msg_type != "message" else MSG_TYPE_DIRECTIVE,
-            priority=priority,
+            priority=effective_priority,
             payload={
                 "text": content,
                 "source": "web_dashboard",
@@ -224,6 +227,10 @@ class DashboardHandler:
         )
 
         result = await self.node.router.send(msg)
+
+        # Wake Hermes agent + insert into PG for A2A processing
+        await self._insert_pg_message(msg, user)
+        await self._wake_agent(msg)
 
         self._message_history.append({
             "id": msg.id,
@@ -460,12 +467,15 @@ class DashboardHandler:
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
 
+                            # Dashboard messages get minimum P7 to ensure agent wake-up via auto-steer
+                            effective_priority = max(priority, 7)
+
                             from .message import A2AMessage, MSG_TYPE_DIRECTIVE
                             a2a_msg = A2AMessage(
                                 sender=self.node.node_name,
                                 recipient=recipient if recipient else "broadcast",
                                 type=MSG_TYPE_DIRECTIVE,
-                                priority=priority,
+                                priority=effective_priority,
                                 payload={
                                     "text": content,
                                     "source": "web_dashboard",
@@ -474,6 +484,12 @@ class DashboardHandler:
                                 },
                             )
                             result = await self.node.router.send(a2a_msg)
+
+                            # Wake Hermes agent to process/respond to dashboard messages
+                            await self._wake_agent(a2a_msg)
+
+                            # Also insert into PG shared_a2a_memory for A2A watcher
+                            await self._insert_pg_message(a2a_msg, auth_user)
 
                             self._message_history.append({
                                 "id": a2a_msg.id,
@@ -539,6 +555,89 @@ class DashboardHandler:
             "type": "new_message",
             "message": self._message_history[-1],
         })
+
+    async def _insert_pg_message(self, message, auth_user):
+        """Insert dashboard message into PG shared_a2a_memory so A2A watcher can pick it up."""
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host="192.168.1.30",
+                port=5432,
+                dbname="agent_memory",
+                user="nova",
+                password="nova_agent_2026",
+                options="-c client_encoding=UTF8",
+            )
+            cur = conn.cursor()
+            payload = message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)}
+            # Sanitize text for SQL_ASCII database — replace non-ASCII chars
+            username = (auth_user.display_name if auth_user else "web_user").encode("ascii", "replace").decode("ascii")
+            payload_json = json.dumps(payload, ensure_ascii=True)
+            subject = f"Dashboard message from {username}"
+            cur.execute(
+                """INSERT INTO shared_a2a_memory
+                   (sender_agent, recipient_agent, subject, content, memory_type, priority, status, message_type)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                (
+                    message.sender,
+                    message.recipient or "broadcast",
+                    subject,
+                    payload_json,
+                    "directive",
+                    message.priority,
+                    "unread",
+                    message.type,
+                ),
+            )
+            msg_id = cur.fetchone()[0]
+            conn.commit()
+            # Notify via PG NOTIFY
+            cur.execute("NOTIFY a2a_channel, %s", (str(msg_id),))
+            conn.commit()
+            cur.close()
+            conn.close()
+            log.info(f"Dashboard message {message.id[:8]} inserted into PG (id={msg_id})")
+        except Exception as e:
+            log.warning(f"PG insert failed: {e}")
+
+    async def _wake_agent(self, message):
+        """Wake Hermes agent via webhook so it can process/respond to dashboard messages."""
+        webhook_port = getattr(self.node, 'config', None)
+        if webhook_port:
+            webhook_port = getattr(webhook_port, 'webhook_port', 8644)
+        else:
+            webhook_port = 8644
+        try:
+            import aiohttp
+            # Try the Hermes webhook endpoint first
+            payload = {
+                "message_id": message.id,
+                "sender": message.sender,
+                "recipient": message.recipient,
+                "type": message.type,
+                "priority": message.priority,
+                "payload": message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)},
+                "source": "web_dashboard",
+            }
+            async with aiohttp.ClientSession() as session:
+                # Try webhook endpoint
+                try:
+                    async with session.post(f"http://localhost:{webhook_port}/webhook", json=payload, timeout=aiohttp.ClientTimeout(total=3)) as resp:
+                        if resp.status == 200:
+                            log.info(f"Agent woken via webhook for dashboard message {message.id[:8]}")
+                            return
+                except Exception:
+                    pass
+                # Fallback: try Hermes gateway health endpoint to trigger processing
+                try:
+                    async with session.get(f"http://localhost:{webhook_port}/health", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                        log.debug(f"Gateway health check: {resp.status}")
+                except Exception:
+                    pass
+                # Final fallback: trigger via A2A watcher PG NOTIFY (already done by _insert_pg_message)
+                log.info(f"Agent wake: webhook unavailable, PG NOTIFY will trigger A2A watcher")
+        except Exception as e:
+            log.debug(f"Agent wake skipped: {e}")
 
     def get_stats(self) -> dict:
         return {
