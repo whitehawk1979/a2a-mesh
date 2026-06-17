@@ -259,7 +259,11 @@ class DashboardHandler:
         return web.json_response({"agents": agents, "total": len(agents)})
 
     async def _api_send(self, request):
-        """Send a message to the mesh from the dashboard."""
+        """Send a message to the mesh from the dashboard.
+
+        Messages stay in the mesh — no webhook redirect to other platforms.
+        All connected agents see messages in real-time via WebSocket broadcast.
+        """
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
@@ -275,20 +279,17 @@ class DashboardHandler:
         msg_type = data.get("type", "message")
         priority = int(data.get("priority", 5))
 
-        # Dashboard messages get minimum P7 to ensure agent wake-up via auto-steer
-        effective_priority = max(priority, 7)
-
         if not content.strip():
             return web.json_response({"error": "Empty message"}, status=400)
 
         from .message import A2AMessage, MSG_TYPE_DIRECTIVE
-        # Use "morzsa" as recipient for broadcast so A2A watcher delivers it
-        effective_recipient = "morzsa" if (not recipient or recipient == "broadcast") else recipient
+        # For broadcast, use "broadcast" so all agents receive it
+        effective_recipient = recipient if recipient else "broadcast"
         msg = A2AMessage(
-            sender="web_dashboard",
+            sender=user.display_name or "web_user",
             recipient=effective_recipient,
             type=msg_type if msg_type != "message" else MSG_TYPE_DIRECTIVE,
-            priority=effective_priority,
+            priority=priority,
             payload={
                 "text": content,
                 "source": "web_dashboard",
@@ -300,9 +301,8 @@ class DashboardHandler:
 
         result = await self.node.router.send(msg)
 
-        # Wake Hermes agent + insert into PG for A2A processing
-        await self._insert_pg_message(msg, user)
-        await self._wake_agent(msg)
+        # Insert into PG for mesh-wide persistence (mesh_messages, not shared_a2a_memory)
+        await self._insert_mesh_message(msg, user)
 
         self._message_history.append({
             "id": msg.id,
@@ -539,18 +539,14 @@ class DashboardHandler:
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
 
-                            # Dashboard messages get minimum P7 to ensure agent wake-up via auto-steer
-                            effective_priority = max(priority, 7)
-
                             from .message import A2AMessage, MSG_TYPE_DIRECTIVE
-                            # Use "morzsa" as recipient for broadcast so A2A watcher delivers it
-                            # Use web_dashboard as sender to avoid self-ref filter
-                            effective_recipient = "morzsa" if (not recipient or recipient == "broadcast") else recipient
+                            # Broadcast to all agents in the mesh
+                            effective_recipient = recipient if recipient else "broadcast"
                             a2a_msg = A2AMessage(
-                                sender="web_dashboard",
+                                sender=auth_user.display_name or "web_user",
                                 recipient=effective_recipient,
                                 type=MSG_TYPE_DIRECTIVE,
-                                priority=effective_priority,
+                                priority=priority,
                                 payload={
                                     "text": content,
                                     "source": "web_dashboard",
@@ -561,11 +557,8 @@ class DashboardHandler:
                             )
                             result = await self.node.router.send(a2a_msg)
 
-                            # Wake Hermes agent to process/respond to dashboard messages
-                            await self._wake_agent(a2a_msg)
-
-                            # Also insert into PG shared_a2a_memory for A2A watcher
-                            await self._insert_pg_message(a2a_msg, auth_user)
+                            # Insert into mesh_messages for mesh-wide persistence
+                            await self._insert_mesh_message(a2a_msg, auth_user)
 
                             self._message_history.append({
                                 "id": a2a_msg.id,
@@ -613,16 +606,26 @@ class DashboardHandler:
             self._users.pop(user_id, None)
 
     async def on_mesh_message(self, message):
-        """Called by the node when a mesh message is received."""
+        """Called by the node when a mesh message is received.
+
+        Displays agent replies in the dashboard chat in real-time.
+        Extracts text from payload for proper display.
+        """
+        # Extract display text from payload
+        payload = message.payload if isinstance(message.payload, dict) else {}
+        content = payload.get("text", "") or message.content or json.dumps(payload, ensure_ascii=True)
+        username = payload.get("username", "") or message.sender
+
         self._message_history.append({
             "id": message.id,
             "sender": message.sender,
             "recipient": message.recipient,
-            "content": message.content,
-            "type": message.message_type,
+            "content": content,
+            "type": message.type if hasattr(message, "type") else message.message_type,
             "priority": message.priority,
             "timestamp": message.timestamp,
             "source": "mesh",
+            "username": username,
         })
         if len(self._message_history) > self._max_history:
             self._message_history = self._message_history[-self._max_history:]
@@ -632,8 +635,12 @@ class DashboardHandler:
             "message": self._message_history[-1],
         })
 
-    async def _insert_pg_message(self, message, auth_user):
-        """Insert dashboard message into PG shared_a2a_memory so A2A watcher can pick it up."""
+    async def _insert_mesh_message(self, message, auth_user):
+        """Insert dashboard message into mesh.mesh_messages for mesh-wide persistence.
+
+        Uses mesh_messages (not shared_a2a_memory) so all agents in the mesh
+        see it via PG NOTIFY, and the dashboard shows agent replies in real-time.
+        """
         try:
             import psycopg2
             conn = psycopg2.connect(
@@ -646,35 +653,33 @@ class DashboardHandler:
             )
             cur = conn.cursor()
             payload = message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)}
-            # Sanitize text for SQL_ASCII database — replace non-ASCII chars
             username = (auth_user.display_name if auth_user else "web_user").encode("ascii", "replace").decode("ascii")
             payload_json = json.dumps(payload, ensure_ascii=True)
-            subject = f"Dashboard message from {username}"
+
             cur.execute(
-                """INSERT INTO shared_a2a_memory
-                   (sender_agent, recipient_agent, subject, content, memory_type, priority, status, message_type)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                """INSERT INTO mesh.mesh_messages
+                   (id, sender, recipient, msg_type, priority, payload, routing_mode, status, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
                 (
+                    message.id,
                     message.sender,
                     message.recipient or "broadcast",
-                    subject,
-                    payload_json,
-                    "directive",
-                    message.priority,
-                    "unread",
                     message.type,
+                    message.priority,
+                    payload_json,
+                    "hybrid",
+                    "sent",
                 ),
             )
-            msg_id = cur.fetchone()[0]
             conn.commit()
-            # Notify via PG NOTIFY
-            cur.execute("NOTIFY a2a_channel, %s", (str(msg_id),))
+            # Notify mesh channel so all agents receive it
+            cur.execute("NOTIFY mesh_channel, %s", (message.id,))
             conn.commit()
             cur.close()
             conn.close()
-            log.info(f"Dashboard message {message.id[:8]} inserted into PG (id={msg_id})")
+            log.info(f"Dashboard message {message.id[:8]} inserted into mesh_messages")
         except Exception as e:
-            log.warning(f"PG insert failed: {e}")
+            log.warning(f"Mesh insert failed: {e}")
 
     async def _wake_agent(self, message):
         """Wake Hermes agent via webhook so it can process/respond to dashboard messages."""

@@ -146,8 +146,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="chat-area">
     <div class="chat-header">
       <div>
-        <div class="channel" id="chatChannel">📺 Mesh Broadcast</div>
-        <div class="info" id="chatInfo">Minden agent látja az üzenetet</div>
+        <div class="channel" id="chatChannel">💬 Mesh Chat Szoba</div>
+        <div class="info" id="chatInfo">Valós idejű közös chat — minden agent látja és válaszol</div>
       </div>
     </div>
     <div class="messages" id="messages"></div>
@@ -424,7 +424,7 @@ function addMessage(msg, scroll) {
   var div = document.createElement("div");
   div.className = "msg " + cls;
   div.innerHTML =
-    '<div class="sender">' + escapeHtml(senderLabel) + (isBroadcast ? " → 📢 broadcast" : " → " + escapeHtml(msg.recipient || "broadcast")) + '</div>' +
+    '<div class="sender">' + escapeHtml(senderLabel) + (isBroadcast ? "" : " → " + escapeHtml(msg.recipient || "broadcast")) + '</div>' +
     '<div>' + escapeHtml(msg.content) + '</div>' +
     '<div class="meta">' +
       '<span>' + time + '</span>' +
