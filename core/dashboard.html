@@ -294,10 +294,13 @@ function renderChannelMessages() {
 function addMessageToDOM(msg, scroll) {
   if (scroll === undefined) scroll = true;
   // Remove any 'processing' indicator from the same agent when a real reply arrives
-  if (msg.type !== "agent_processing") {
+  if (msg.type !== "agent_processing" && msg.type !== "agent_timeout") {
     var processingEls = document.querySelectorAll('[id^="msg-processing_"]');
     processingEls.forEach(function(el) { el.remove(); });
-    messageHistory = messageHistory.filter(function(m) { return m.type !== "agent_processing"; });
+    // Also remove any timeout messages
+    var timeoutEls = document.querySelectorAll('[id^="msg-timeout_"]');
+    timeoutEls.forEach(function(el) { el.remove(); });
+    messageHistory = messageHistory.filter(function(m) { return m.type !== "agent_processing" && m.type !== "agent_timeout"; });
   }
   var isSent = msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId;
   var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId;

@@ -229,6 +229,9 @@ class DashboardHandler:
             # Allow agent_processing indicators
             if msg_type == "agent_processing":
                 return True
+            # Allow agent_timeout indicators
+            if msg_type == "agent_timeout":
+                return True
             if ch is None:
                 return True
             recip = msg.get("recipient", "broadcast")
@@ -824,6 +827,36 @@ class DashboardHandler:
                         log.warning(f"Failed to post agent reply to mesh chat: {re}")
         except Exception as e:
             log.info(f"Agent wake: webhook failed ({e}), PG NOTIFY will trigger A2A watcher")
+
+        # Start a background task to clean up processing indicator if no reply arrives
+        asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
+
+    async def _cleanup_processing_indicator(self, original_msg_id: str, timeout: int = 90):
+        """Remove the 'processing' indicator if no agent reply arrives within timeout seconds."""
+        await asyncio.sleep(timeout)
+        # Check if the processing indicator is still in history
+        processing_id = f"processing_{original_msg_id}"
+        still_processing = any(m.get("id") == processing_id for m in self._message_history)
+        if still_processing:
+            # Remove the processing indicator
+            self._message_history = [m for m in self._message_history if m.get("id") != processing_id]
+            # Add a timeout message
+            timeout_msg = {
+                "id": f"timeout_{original_msg_id}",
+                "sender": self.node.node_name,
+                "recipient": "broadcast",
+                "content": "⚠️ Agent response timed out. Reply may appear in Telegram.",
+                "type": "agent_timeout",
+                "priority": 3,
+                "timestamp": None,
+                "source": "mesh",
+                "username": self.node.node_name,
+            }
+            self._message_history.append(timeout_msg)
+            if len(self._message_history) > self._max_history:
+                self._message_history = self._message_history[-self._max_history:]
+            await self._broadcast_ws({"type": "new_message", "message": timeout_msg})
+            log.info(f"Processing indicator timed out for message {original_msg_id}, removed")
 
     def get_stats(self) -> dict:
         return {
