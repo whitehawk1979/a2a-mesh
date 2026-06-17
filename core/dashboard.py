@@ -696,6 +696,7 @@ class DashboardHandler:
 
         The webhook payload includes a reply_endpoint so the agent knows
         to send its reply back to the mesh chat (not Telegram).
+        After the webhook response, the reply is also posted to the mesh chat.
         """
         try:
             import hmac as hmac_mod
@@ -722,9 +723,32 @@ class DashboardHandler:
                     "X-Hub-Signature-256": f"sha256={sig}",
                 },
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 result = json.loads(resp.read().decode())
                 log.info(f"Agent woken via webhook for mesh chat: {result.get('status', 'unknown')}")
+
+                # If the webhook response contains a reply, post it to the mesh chat
+                reply_text = result.get("response", "") or result.get("reply", "")
+                if reply_text and isinstance(reply_text, str) and len(reply_text.strip()) > 0:
+                    # Clean up the reply text — remove markdown formatting
+                    reply_text = reply_text.strip()[:2000]  # Limit length
+                    try:
+                        reply_data = json.dumps({
+                            "sender": self.node.node_name,
+                            "content": reply_text,
+                            "recipient": message.sender if message.sender != self.node.node_name else "broadcast",
+                            "priority": 5,
+                            "reply_to": message.id,
+                        }).encode()
+                        reply_req = urllib.request.Request(
+                            "http://localhost:8650/api/agent-reply",
+                            data=reply_data,
+                            headers={"Content-Type": "application/json"},
+                        )
+                        with urllib.request.urlopen(reply_req, timeout=5) as reply_resp:
+                            log.info(f"Agent reply posted to mesh chat: {reply_resp.read().decode()[:100]}")
+                    except Exception as re:
+                        log.warning(f"Failed to post agent reply to mesh chat: {re}")
         except Exception as e:
             log.info(f"Agent wake: webhook failed ({e}), PG NOTIFY will trigger A2A watcher")
 
