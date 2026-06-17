@@ -336,7 +336,7 @@ class DashboardHandler:
         if not content.strip():
             return web.json_response({"error": "Empty message"}, status=400)
 
-        from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+        from .message import A2AMessage, MSG_TYPE_DIRECTIVE, MSG_TYPE_STEER
         # For broadcast, use "broadcast" so all agents receive it
         effective_recipient = recipient if recipient else "broadcast"
         msg = A2AMessage(
@@ -358,7 +358,7 @@ class DashboardHandler:
         # Insert into PG for mesh-wide persistence (mesh_messages, not shared_a2a_memory)
         await self._insert_mesh_message(msg, user)
 
-        # Wake Hermes agent to process and reply in the mesh chat
+        # Always wake agent for dashboard messages (user is waiting for reply)
         await self._wake_agent(msg)
 
         self._message_history.append({
@@ -596,7 +596,7 @@ class DashboardHandler:
                             recipient = data.get("recipient", "")
                             priority = int(data.get("priority", 5))
 
-                            from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+                            from .message import A2AMessage, MSG_TYPE_DIRECTIVE, MSG_TYPE_STEER
                             # Broadcast to all agents in the mesh
                             effective_recipient = recipient if recipient else "broadcast"
                             a2a_msg = A2AMessage(
@@ -617,8 +617,7 @@ class DashboardHandler:
                             # Insert into mesh_messages for mesh-wide persistence
                             await self._insert_mesh_message(a2a_msg, auth_user)
 
-                            # Wake Hermes agent to process and reply in the mesh chat
-                            # The agent will call /api/agent-reply to post its response back
+                            # Always wake agent for dashboard messages (user is waiting for reply)
                             await self._wake_agent(a2a_msg)
 
                             self._message_history.append({
@@ -1165,7 +1164,7 @@ class DashboardHandler:
             if not content.strip():
                 return web.json_response({"error": "Empty message"}, status=400)
 
-            from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+            from .message import A2AMessage, MSG_TYPE_DIRECTIVE, MSG_TYPE_STEER
             msg = A2AMessage(
                 sender=sender,
                 recipient=recipient,

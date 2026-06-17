@@ -990,8 +990,13 @@ async def cmd_run(name: str, port: int, config_path: str):
 
     node = MeshNode(config)
 
+    # Auto-steer: classify incoming mesh messages by priority
+    from core.auto_steer import AutoSteerProcessor
+    steer = AutoSteerProcessor(name, config)
+
     def handle_message(msg: A2AMessage):
-        print(f"📨 {msg.sender} → {msg.recipient}: {msg.type} (P{msg.priority})")
+        level = steer.classify_message(msg)
+        print(f"📨 {msg.sender} → {msg.recipient}: {msg.type} (P{msg.priority}) [{level}]")
         if msg.payload:
             print(f"   {json.dumps(msg.payload, indent=2)[:200]}")
 
