@@ -170,8 +170,11 @@ class DashboardHandler:
             cur.execute("SET client_encoding TO UTF8")
 
             # Build WHERE clause based on channel filter
-            where_clauses = ["sender != %s"]
-            params = [self.node.node_name]
+            where_clauses = []
+            params = []
+
+            # Exclude heartbeat and system messages from chat
+            where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync')")
 
             if channel == "general":
                 # Broadcast messages only
@@ -217,8 +220,12 @@ class DashboardHandler:
         except Exception as e:
             log.warning(f"Failed to fetch PG messages: {e}")
         
-        # Filter local messages by channel
+        # Filter local messages by channel and type
         def matches_channel(msg: dict, ch: str | None) -> bool:
+            # Exclude heartbeat and system messages from chat
+            msg_type = msg.get("type", "")
+            if msg_type in ("heartbeat", "memory_sync"):
+                return False
             if ch is None:
                 return True
             recip = msg.get("recipient", "broadcast")
@@ -657,8 +664,15 @@ class DashboardHandler:
         """Called by the node when a mesh message is received.
 
         Displays agent replies in the dashboard chat in real-time.
+        Filters out heartbeat and system messages.
         Extracts text from payload for proper display.
         """
+        msg_type = message.type if hasattr(message, "type") else message.message_type
+
+        # Skip heartbeat and system messages — they flood the chat
+        if msg_type in ("heartbeat", "memory_sync"):
+            return
+
         # Extract display text from payload
         payload = message.payload if isinstance(message.payload, dict) else {}
         content = payload.get("text", "") or message.content or json.dumps(payload, ensure_ascii=True)
@@ -669,7 +683,7 @@ class DashboardHandler:
             "sender": message.sender,
             "recipient": message.recipient,
             "content": content,
-            "type": message.type if hasattr(message, "type") else message.message_type,
+            "type": msg_type,
             "priority": message.priority,
             "timestamp": message.timestamp,
             "source": "mesh",
