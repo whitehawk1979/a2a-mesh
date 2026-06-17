@@ -828,8 +828,97 @@ class DashboardHandler:
         except Exception as e:
             log.info(f"Agent wake: webhook failed ({e}), PG NOTIFY will trigger A2A watcher")
 
-        # Start a background task to clean up processing indicator if no reply arrives
+        # Start background tasks: poll for agent reply + cleanup timeout
+        asyncio.ensure_future(self._poll_for_agent_reply(message))
         asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
+
+    async def _poll_for_agent_reply(self, original_message, timeout: int = 90, interval: int = 3):
+        """Poll mesh_messages for an agent reply matching the original message.
+        
+        This watches the DB for any new message from the agent that could be
+        a reply to the original dashboard message. If found, it broadcasts it
+        to the chat and removes the processing indicator. Falls back to the
+        90-second timeout if no reply arrives.
+        """
+        import psycopg2
+        start = asyncio.get_event_loop().time()
+        original_id = original_message.id
+        sender = original_message.sender  # The user who sent the original message
+        processing_id = f"processing_{original_id}"
+        
+        # Check if processing indicator still exists (may have been removed by agent-reply API)
+        def still_processing():
+            return any(m.get("id") == processing_id for m in self._message_history)
+        
+        while (asyncio.get_event_loop().time() - start) < timeout:
+            await asyncio.sleep(interval)
+            if not still_processing():
+                log.info(f"Processing indicator removed for {original_id}, reply received — stopping poll")
+                return
+            
+            # Check mesh_messages for a reply from our agent to the sender
+            try:
+                conn = psycopg2.connect(
+                    dbname="agent_memory", user="nova", password="nova_agent_2026",
+                    host="192.168.1.30", port=5432
+                )
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT id, sender, recipient, msg_type, priority, payload, created_at
+                    FROM mesh.mesh_messages
+                    WHERE sender = %s
+                      AND recipient IN (%s, 'broadcast')
+                      AND status = 'acknowledged'
+                      AND created_at > NOW() - INTERVAL '2 minutes'
+                    ORDER BY created_at DESC LIMIT 5
+                """, (self.node.node_name, sender))
+                rows = cur.fetchall()
+                cur.close()
+                conn.close()
+                
+                for row in rows:
+                    msg_id, msg_sender, msg_recipient, msg_type, msg_priority, msg_payload, msg_created = row
+                    # Check if this reply is already in message_history
+                    already_in_history = any(m.get("id") == msg_id for m in self._message_history)
+                    if not already_in_history:
+                        # Found a new reply! Add it to the chat
+                        payload_text = ""
+                        if isinstance(msg_payload, dict):
+                            payload_text = msg_payload.get("text", str(msg_payload))
+                        elif isinstance(msg_payload, str):
+                            try:
+                                import json as _json
+                                p = _json.loads(msg_payload)
+                                payload_text = p.get("text", msg_payload)
+                            except:
+                                payload_text = msg_payload
+                        
+                        reply_msg = {
+                            "id": msg_id,
+                            "sender": msg_sender,
+                            "recipient": msg_recipient,
+                            "content": payload_text[:2000],
+                            "type": "agent_reply",
+                            "priority": msg_priority,
+                            "timestamp": msg_created.isoformat() if msg_created else None,
+                            "source": "mesh",
+                            "username": msg_sender,
+                            "reply_to": original_id,
+                        }
+                        self._message_history.append(reply_msg)
+                        if len(self._message_history) > self._max_history:
+                            self._message_history = self._message_history[-self._max_history:]
+                        
+                        # Remove processing indicator
+                        self._message_history = [m for m in self._message_history if m.get("id") != processing_id]
+                        
+                        await self._broadcast_ws({"type": "new_message", "message": reply_msg})
+                        log.info(f"Agent reply detected via polling for message {original_id}: {msg_id}")
+                        return
+            except Exception as e:
+                log.warning(f"Reply poll error: {e}")
+        
+        log.info(f"Reply poll timed out for message {original_id}")
 
     async def _cleanup_processing_indicator(self, original_msg_id: str, timeout: int = 90):
         """Remove the 'processing' indicator if no agent reply arrives within timeout seconds."""
@@ -1112,6 +1201,15 @@ class DashboardHandler:
             self._message_history.append(msg_dict)
             if len(self._message_history) > self._max_history:
                 self._message_history = self._message_history[-self._max_history:]
+
+            # Remove processing indicator if this is a reply to a tracked message
+            if reply_to:
+                processing_id = f"processing_{reply_to}"
+                was_processing = any(m.get("id") == processing_id for m in self._message_history)
+                if was_processing:
+                    self._message_history = [m for m in self._message_history if m.get("id") != processing_id]
+                    log.info(f"Removed processing indicator for message {reply_to} after agent reply")
+
             await self._broadcast_ws({"type": "new_message", "message": msg_dict})
 
             return web.json_response({"status": "sent", "message_id": msg.id})
