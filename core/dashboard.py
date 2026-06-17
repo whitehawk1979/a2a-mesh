@@ -153,9 +153,38 @@ class DashboardHandler:
         try:
             limit = min(int(request.query.get("limit", 50)), 200)
             channel = request.query.get("channel", None)
-
-            # Local messages
+            log.info(f"_api_messages called: limit={limit}, channel={channel}")
+            
+            # Local messages — deep normalize to prevent type issues
             local_messages = self._message_history[-limit:]
+            log.info(f"Raw local messages: {len(local_messages)}")
+            
+            # CRITICAL: Ensure all messages are plain dicts with string values
+            safe_local = []
+            for i, m in enumerate(local_messages):
+                try:
+                    if not isinstance(m, dict):
+                        log.warning(f"  local[{i}] is NOT a dict: type={type(m).__name__}")
+                        continue
+                    # Convert id to string if not None
+                    mid = m.get("id")
+                    if mid is not None:
+                        m["id"] = str(mid)
+                    else:
+                        m["id"] = f"local_{i}"
+                    # Convert timestamp to string if not None
+                    mts = m.get("timestamp")
+                    if mts is None:
+                        m["timestamp"] = ""
+                    elif not isinstance(mts, str):
+                        m["timestamp"] = str(mts)
+                    safe_local.append(m)
+                except Exception as e:
+                    log.warning(f"  local[{i}] normalize error: {e}")
+            log.info(f"Safe local messages: {len(safe_local)}")
+
+            # Use normalized local messages
+            local_messages = safe_local
 
             # Also fetch recent messages from PG (other agents' responses)
             pg_messages = []
@@ -247,21 +276,24 @@ class DashboardHandler:
 
             filtered_local = [m for m in local_messages if matches_channel(m, channel)]
 
-            # Merge local + PG messages, deduplicate by ID, sort by timestamp
-            all_messages = {m.get("id", f"local_{i}"): m for i, m in enumerate(filtered_local)}
+            # Merge local + PG messages, deduplicate by ID
+            # Use `or ""` to handle None values — .get() returns None when key exists with None value
+            all_messages = {m.get("id") or f"local_{i}": m for i, m in enumerate(filtered_local)}
             for m in pg_messages:
-                msg_id = m.get("id", "")
-                if msg_id not in all_messages:
+                msg_id = m.get("id") or ""
+                if msg_id and msg_id not in all_messages:
                     all_messages[msg_id] = m
             
-            # Sort by timestamp — handle None values
-            def sort_key(m):
+            # Sort by timestamp — ensure all values are strings for consistent comparison
+            msg_list = list(all_messages.values())
+            for m in msg_list:
                 ts = m.get("timestamp")
-                return ts or ""
-            sorted_messages = sorted(all_messages.values(), key=sort_key)
-            result = sorted_messages[-limit:]
+                if ts is None or not isinstance(ts, str):
+                    m["timestamp"] = str(ts) if ts is not None else ""
+            msg_list.sort(key=lambda m: m.get("timestamp", "") or "")
+            result = msg_list[-limit:]
             
-            return web.json_response({"messages": result, "total": len(sorted_messages)})
+            return web.json_response({"messages": result, "total": len(msg_list)})
         except Exception as e:
             log.error(f"Error in _api_messages: {e}\n{tb.format_exc()}")
             return web.json_response({"error": str(e), "traceback": tb.format_exc()}, status=500)
