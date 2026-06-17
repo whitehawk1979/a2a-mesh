@@ -93,6 +93,8 @@ class DashboardHandler:
         app.router.add_route("GET", "/ws", self._websocket_handler)
         # Agent reply endpoint — agents call this to send replies to the mesh chat
         app.router.add_post("/api/agent-reply", self._api_agent_reply)
+        # Message management — delete
+        app.router.add_delete("/api/messages/{msg_id}", self._api_delete_message)
 
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
@@ -1048,6 +1050,55 @@ class DashboardHandler:
         except Exception as e:
             log.error(f"Agent reply failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delete_message(self, request):
+        """Delete a message by ID — requires auth, admin only.
+
+        Deletes from both local history and PG mesh_messages.
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if not user.get("is_admin", False):
+            return web.json_response({"error": "Admin only"}, status=403)
+
+        msg_id = request.match_info.get("msg_id", "")
+        if not msg_id:
+            return web.json_response({"error": "Missing message ID"}, status=400)
+
+        # Remove from local history
+        self._message_history = [m for m in self._message_history if m.get("id") != msg_id]
+
+        # Remove from channelMessages cache
+        for ch in list(self._channel_messages_cache.keys()) if hasattr(self, "_channel_messages_cache") else []:
+            self._channel_messages_cache[ch] = [m for m in self._channel_messages_cache[ch] if m.get("id") != msg_id]
+
+        # Remove from PG
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host,
+                port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname,
+                user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.execute("DELETE FROM mesh.mesh_messages WHERE id = %s", (msg_id,))
+            deleted = cur.rowcount
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            log.warning(f"Failed to delete message from PG: {e}")
+            deleted = 0
+
+        # Broadcast deletion to all connected users
+        await self._broadcast_ws({"type": "message_deleted", "message_id": msg_id})
+
+        return web.json_response({"status": "deleted", "message_id": msg_id, "pg_deleted": deleted})
 
     async def _api_memory_sync(self, request):
         """Request full memory sync from PG."""

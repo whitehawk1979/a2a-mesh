@@ -235,6 +235,7 @@ var ws = null;
 var nodeId = "";
 var authToken = null;
 var authUser = null;
+var isAdmin = false;
 var messageHistory = [];
 var currentChannel = "general";  // "general" or agent name for DM
 var channelMessages = {};  // channel -> [messages]
@@ -313,8 +314,11 @@ function addMessageToDOM(msg, scroll) {
 
   var div = document.createElement("div");
   div.className = "msg " + cls;
+  div.id = "msg-" + (msg.id || "");
   div.innerHTML =
-    '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel + '</div>' +
+    '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel +
+      (isAdmin ? ' <button onclick="deleteMessage(\'' + (msg.id || "") + '\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
+    '</div>' +
     '<div>' + escapeHtml(msg.content) + '</div>' +
     '<div class="meta">' +
       '<span>' + time + '</span>' +
@@ -407,6 +411,24 @@ function sendMessage() {
 function scrollToBottom() {
   var el = document.getElementById("messages");
   el.scrollTop = el.scrollHeight;
+}
+
+function deleteMessage(msgId) {
+  if (!msgId || !confirm("Törlöd ezt az üzenetet?")) return;
+  fetch("/api/messages/" + encodeURIComponent(msgId), {
+    method: "DELETE",
+    headers: { "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "") }
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "deleted") {
+      var el = document.getElementById("msg-" + msgId);
+      if (el) el.remove();
+      // Remove from local history
+      messageHistory = messageHistory.filter(function(m) { return m.id !== msgId; });
+      for (var ch in channelMessages) {
+        channelMessages[ch] = channelMessages[ch].filter(function(m) { return m.id !== msgId; });
+      }
+    }
+  }).catch(function() {});
 }
 
 function escapeHtml(t) { var d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
@@ -510,6 +532,11 @@ function initWebSocket() {
       case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
       case "status": updateStatus(data.data); break;
       case "new_message": addMessage(data.message); break;
+      case "message_deleted":
+        var el = document.getElementById("msg-" + data.message_id);
+        if (el) el.remove();
+        messageHistory = messageHistory.filter(function(m) { return m.id !== data.message_id; });
+        break;
       case "error": log("Hiba: " + data.message); break;
     }
   };
@@ -636,7 +663,7 @@ function loadAllNodes() {
     .then(function(r) { return r.json(); }).then(function(d) {
       if (!d.nodes || d.nodes.length === 0) return;
       var el = document.getElementById("allNodesList");
-      var isAdmin = authUser && authUser.role === "owner";
+      isAdmin = authUser && authUser.role === "owner";
       document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
       el.innerHTML = d.nodes.map(function(n) {
         var statusIcon = n.status === "active" ? "🟢" : n.status === "pending" ? "🟡" : "🔴";
@@ -655,7 +682,7 @@ function loadAllNodes() {
 }
 
 function checkAdminPanel() {
-  var isAdmin = authUser && authUser.role === "owner";
+  isAdmin = authUser && authUser.role === "owner";
   document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
   if (isAdmin) loadPendingNodes();
   loadAllNodes();
