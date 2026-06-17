@@ -140,13 +140,19 @@ class DashboardHandler:
         return web.json_response(sanitize(status))
 
     async def _api_messages(self, request):
-        """Return recent messages — local history + PG messages from other agents."""
+        """Return recent messages — local history + PG messages from other agents.
+
+        Supports channel filtering via ?channel=general|dm:<agent_name>
+        - general: broadcast messages (recipient=broadcast)
+        - dm:morzsa: direct messages with morzsa (sender=morzsa OR recipient=morzsa)
+        """
         from aiohttp import web
         limit = min(int(request.query.get("limit", 50)), 200)
-        
+        channel = request.query.get("channel", None)
+
         # Local messages
         local_messages = self._message_history[-limit:]
-        
+
         # Also fetch recent messages from PG (other agents' responses)
         pg_messages = []
         try:
@@ -160,14 +166,29 @@ class DashboardHandler:
             )
             cur = conn.cursor()
             cur.execute("SET client_encoding TO UTF8")
-            # Get recent messages from mesh_messages where sender != our node
-            cur.execute("""
+
+            # Build WHERE clause based on channel filter
+            where_clauses = ["sender != %s"]
+            params = [self.node.node_name]
+
+            if channel == "general":
+                # Broadcast messages only
+                where_clauses.append("recipient = 'broadcast'")
+            elif channel and channel.startswith("dm:"):
+                # DM with specific agent
+                dm_agent = channel[3:]
+                where_clauses.append("(recipient = %s OR sender = %s)")
+                params.extend([dm_agent, dm_agent])
+
+            where_sql = " AND ".join(where_clauses)
+
+            cur.execute(f"""
                 SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
                 FROM mesh.mesh_messages
-                WHERE sender != %s
+                WHERE {where_sql}
                 ORDER BY created_at DESC
                 LIMIT %s
-            """, (self.node.node_name, limit))
+            """, params + [limit])
             for row in cur.fetchall():
                 msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
                 # Parse payload — it's stored as text (JSON string)
@@ -194,8 +215,23 @@ class DashboardHandler:
         except Exception as e:
             log.warning(f"Failed to fetch PG messages: {e}")
         
+        # Filter local messages by channel
+        def matches_channel(msg: dict, ch: str | None) -> bool:
+            if ch is None:
+                return True
+            recip = msg.get("recipient", "broadcast")
+            sender = msg.get("sender", "")
+            if ch == "general":
+                return recip == "broadcast"
+            elif ch.startswith("dm:"):
+                agent = ch[3:]
+                return sender == agent or recip == agent
+            return True
+
+        filtered_local = [m for m in local_messages if matches_channel(m, channel)]
+
         # Merge local + PG messages, deduplicate by ID, sort by timestamp
-        all_messages = {m.get("id", f"local_{i}"): m for i, m in enumerate(local_messages)}
+        all_messages = {m.get("id", f"local_{i}"): m for i, m in enumerate(filtered_local)}
         for m in pg_messages:
             msg_id = m.get("id", "")
             if msg_id not in all_messages:

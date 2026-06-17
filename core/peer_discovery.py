@@ -327,7 +327,7 @@ class PeerDiscovery:
         """Return discovery statistics."""
         return {
             "known_peers": len(self._peers),
-            "connected_peers": len(self.p2p_transport._peers) if self.p2p_transport else 0,
+            "connected_peers": len([p for p in self._peers.values() if p.p2p_available]),
             "available_peers": len(self.get_available_peers()),
             "peers": {name: peer.to_dict() for name, peer in self._peers.items()},
         }

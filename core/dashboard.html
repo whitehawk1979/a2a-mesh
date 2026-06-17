@@ -276,8 +276,8 @@ function switchChannel(channel) {
     }
   }
 
-  // Load channel messages
-  renderChannelMessages();
+  // Load channel messages from server
+  loadMessages();
 }
 
 function renderChannelMessages() {
@@ -523,10 +523,17 @@ function loadStatus() {
 }
 
 function loadMessages() {
-  fetch("/api/messages?limit=100").then(function(r) { return r.json(); }).then(function(d) {
+  var url = "/api/messages?limit=100";
+  if (currentChannel && currentChannel !== "general") {
+    url += "&channel=" + encodeURIComponent(currentChannel);
+  } else if (currentChannel === "general") {
+    url += "&channel=general";
+  }
+  fetch(url).then(function(r) { return r.json(); }).then(function(d) {
     document.getElementById("messages").innerHTML = "";
     messageHistory = [];
-    channelMessages = {"general": []};
+    channelMessages = {};
+    channelMessages[currentChannel || "general"] = [];
     d.messages.reverse().forEach(function(m) { addMessage(m, false); });
     scrollToBottom();
   }).catch(function() {});
