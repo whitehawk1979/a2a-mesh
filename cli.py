@@ -986,7 +986,12 @@ async def cmd_run(name: str, port: int, config_path: str):
         config = MeshConfig()
 
     config.node_name = name
-    config.p2p.listen_port = port
+    # --port is the dashboard/health port, P2P uses its own port (default 8645)
+    config.health_port = port
+    # Keep P2P on separate port unless explicitly configured
+    if config.p2p.listen_port == 8645:
+        # Default — keep it, don't override with dashboard port
+        pass
 
     node = MeshNode(config)
 

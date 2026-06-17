@@ -529,6 +529,11 @@ class MeshNode:
                 await asyncio.sleep(10)
         except asyncio.CancelledError:
             pass
+        except OSError as e:
+            if "address already in use" in str(e).lower() or getattr(e, 'errno', None) in (48, 98):
+                log.info(f"Health endpoint port {self._health_port} already in use — dashboard handles it")
+            else:
+                log.error(f"Health endpoint failed: {e}")
         except Exception as e:
             log.error(f"Health endpoint failed: {e}")
         finally:
@@ -592,12 +597,12 @@ class MeshNode:
         # Determine host address for other nodes to connect to
         import socket
         try:
-            host_ip = socket.gethostbyname(socket.gethostname())
+            host_ip = self._get_local_ip()
         except Exception:
             host_ip = "0.0.0.0"
 
-        # Get port config
-        p2p_port = getattr(self.config, 'p2p_port', 8645)
+        # Get port config — P2P port from transport config, health port from node config
+        p2p_port = self.config.p2p.listen_port
         health_port = getattr(self.config, 'health_port', 8650)
 
         # Coordinator auto-approves itself; other nodes start as 'pending'
@@ -634,8 +639,8 @@ class MeshNode:
                 p2p_port,
                 health_port,
                 bool(self._pg_conn),
-                self._transports.get("p2p", None) is not None if hasattr(self, "_transports") else False,
-                self._transports.get("http", None) is not None if hasattr(self, "_transports") else False,
+                self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
+                self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
             ))
             cur.close()
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
@@ -675,8 +680,8 @@ class MeshNode:
                 WHERE node_name = %s
             """, (
                 bool(self._pg_conn),
-                self._transports.get("p2p", None) is not None if hasattr(self, "_transports") else False,
-                self._transports.get("http", None) is not None if hasattr(self, "_transports") else False,
+                self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
+                self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
             ))
             cur.close()

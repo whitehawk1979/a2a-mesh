@@ -105,6 +105,17 @@ class P2PTransport(TransportAdapter):
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
             return True
+        except OSError as e:
+            if "address already in use" in str(e).lower() or getattr(e, 'errno', None) in (48, 98):
+                # Port already bound — likely by peer discovery or another instance
+                log.warning(f"P2P port {self._listen_port} already in use — assuming existing server")
+                self._running = True
+                self._available = True
+                # Start reconnection monitor anyway
+                self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+                return True
+            log.error(f"P2P transport start failed: {e}")
+            return False
         except Exception as e:
             log.error(f"P2P transport start failed: {e}")
             return False
