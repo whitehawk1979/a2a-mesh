@@ -1,9 +1,12 @@
 """A2A Mesh Config — Configuration loading and defaults."""
 
+import logging
 import os
 import yaml
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict
+
+log = logging.getLogger("a2a_mesh.config")
 
 
 @dataclass
@@ -242,6 +245,11 @@ class MeshConfig:
         # Auth mode
         config.auth_mode = mesh.get('auth_mode', 'open')
         config.health_port = int(mesh.get('health_port', 8650))
+
+        # Validate: P2P port must differ from health port to avoid conflicts
+        if config.p2p.listen_port == config.health_port:
+            log.warning(f"P2P port {config.p2p.listen_port} == health port {config.health_port}, auto-incrementing P2P to {config.p2p.listen_port + 1}")
+            config.p2p.listen_port = config.p2p.listen_port + 1
 
         # Heartbeat config
         hb_data = mesh.get('heartbeat', {})

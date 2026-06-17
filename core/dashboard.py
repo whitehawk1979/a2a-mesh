@@ -786,12 +786,12 @@ class DashboardHandler:
                 "content": json.dumps(message.payload) if isinstance(message.payload, dict) else str(message.payload),
                 "priority": message.priority,
                 "mesh_message_id": message.id,
-                "reply_endpoint": f"http://localhost:8650/api/agent-reply",
+                "reply_endpoint": f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
                 "reply_format": "mesh_chat",
             })
             sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
             req = urllib.request.Request(
-                "http://localhost:8644/webhooks/a2a-instant",
+                self._get_webhook_url(),
                 data=payload.encode(),
                 headers={
                     "Content-Type": "application/json",
@@ -816,7 +816,7 @@ class DashboardHandler:
                             "reply_to": message.id,
                         }).encode()
                         reply_req = urllib.request.Request(
-                            "http://localhost:8650/api/agent-reply",
+                            f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
                             data=reply_data,
                             headers={"Content-Type": "application/json"},
                         )
@@ -858,8 +858,9 @@ class DashboardHandler:
             # Check mesh_messages for a reply from our agent to the sender
             try:
                 conn = psycopg2.connect(
-                    dbname="agent_memory", user="nova", password="nova_agent_2026",
-                    host="192.168.1.30", port=5432
+                    dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                    password=self.node.config.pg.password,
+                    host=self.node.config.pg.host, port=self.node.config.pg.port
                 )
                 cur = conn.cursor()
                 cur.execute("""
@@ -945,6 +946,14 @@ class DashboardHandler:
                 self._message_history = self._message_history[-self._max_history:]
             await self._broadcast_ws({"type": "new_message", "message": timeout_msg})
             log.info(f"Processing indicator timed out for message {original_msg_id}, removed")
+
+    def _get_host(self):
+        """Get this node's LAN IP address for constructing URLs."""
+        return getattr(self.node.config.p2p, 'listen_host', None) or self.node._get_local_ip()
+
+    def _get_webhook_url(self):
+        """Get the Hermes webhook URL for this node's host."""
+        return f"http://localhost:8644/webhooks/a2a-instant"
 
     def get_stats(self) -> dict:
         return {
