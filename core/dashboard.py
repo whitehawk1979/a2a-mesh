@@ -149,114 +149,122 @@ class DashboardHandler:
         - dm:morzsa: direct messages with morzsa (sender=morzsa OR recipient=morzsa)
         """
         from aiohttp import web
-        limit = min(int(request.query.get("limit", 50)), 200)
-        channel = request.query.get("channel", None)
-
-        # Local messages
-        local_messages = self._message_history[-limit:]
-
-        # Also fetch recent messages from PG (other agents' responses)
-        pg_messages = []
+        import traceback as tb
         try:
-            import psycopg2
-            conn = psycopg2.connect(
-                host=self.node.config.pg.host,
-                port=self.node.config.pg.port,
-                dbname=self.node.config.pg.dbname,
-                user=self.node.config.pg.user,
-                password=self.node.config.pg.password,
-            )
-            cur = conn.cursor()
-            cur.execute("SET client_encoding TO UTF8")
+            limit = min(int(request.query.get("limit", 50)), 200)
+            channel = request.query.get("channel", None)
 
-            # Build WHERE clause based on channel filter
-            where_clauses = []
-            params = []
+            # Local messages
+            local_messages = self._message_history[-limit:]
 
-            # Exclude heartbeat and system messages from chat
-            where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync')")
+            # Also fetch recent messages from PG (other agents' responses)
+            pg_messages = []
+            try:
+                import psycopg2
+                conn = psycopg2.connect(
+                    host=self.node.config.pg.host,
+                    port=self.node.config.pg.port,
+                    dbname=self.node.config.pg.dbname,
+                    user=self.node.config.pg.user,
+                    password=self.node.config.pg.password,
+                )
+                cur = conn.cursor()
+                cur.execute("SET client_encoding TO UTF8")
 
-            if channel == "general":
-                # Broadcast messages only
-                where_clauses.append("recipient = 'broadcast'")
-            elif channel and channel.startswith("dm:"):
-                # DM with specific agent
-                dm_agent = channel[3:]
-                where_clauses.append("(recipient = %s OR sender = %s)")
-                params.extend([dm_agent, dm_agent])
+                # Build WHERE clause based on channel filter
+                where_clauses = []
+                params = []
 
-            where_sql = " AND ".join(where_clauses)
+                # Exclude heartbeat and system messages from chat
+                where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync')")
 
-            cur.execute(f"""
-                SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
-                FROM mesh.mesh_messages
-                WHERE {where_sql}
-                ORDER BY created_at DESC
-                LIMIT %s
-            """, params + [limit])
-            for row in cur.fetchall():
-                msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
-                # Parse payload — it's stored as text (JSON string)
-                import json
-                try:
-                    payload_data = json.loads(payload) if isinstance(payload, str) else payload
-                except (json.JSONDecodeError, TypeError):
-                    payload_data = {"text": str(payload)}
-                
-                pg_messages.append({
-                    "id": str(msg_id),
-                    "sender": sender,
-                    "recipient": recipient,
-                    "type": msg_type,
-                    "priority": priority,
-                    "content": payload_data.get("text", "") if isinstance(payload_data, dict) else str(payload),
-                    "username": payload_data.get("username", sender) if isinstance(payload_data, dict) else sender,
-                    "timestamp": created_at.isoformat() if created_at else None,
-                    "status": status,
-                    "source": "mesh",
-                })
-            cur.close()
-            conn.close()
+                if channel == "general":
+                    # Broadcast messages only
+                    where_clauses.append("recipient = 'broadcast'")
+                elif channel and channel.startswith("dm:"):
+                    # DM with specific agent
+                    dm_agent = channel[3:]
+                    where_clauses.append("(recipient = %s OR sender = %s)")
+                    params.extend([dm_agent, dm_agent])
+
+                where_sql = " AND ".join(where_clauses)
+
+                cur.execute(f"""
+                    SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
+                    FROM mesh.mesh_messages
+                    WHERE {where_sql}
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, params + [limit])
+                for row in cur.fetchall():
+                    msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
+                    # Parse payload — it's stored as text (JSON string)
+                    import json
+                    try:
+                        payload_data = json.loads(payload) if isinstance(payload, str) else payload
+                    except (json.JSONDecodeError, TypeError):
+                        payload_data = {"text": str(payload)}
+                    
+                    pg_messages.append({
+                        "id": str(msg_id),
+                        "sender": sender,
+                        "recipient": recipient,
+                        "type": msg_type,
+                        "priority": priority,
+                        "content": payload_data.get("text", "") if isinstance(payload_data, dict) else str(payload),
+                        "username": payload_data.get("username", sender) if isinstance(payload_data, dict) else sender,
+                        "timestamp": created_at.isoformat() if created_at else None,
+                        "status": status,
+                        "source": "mesh",
+                    })
+                cur.close()
+                conn.close()
+            except Exception as e:
+                log.warning(f"Failed to fetch PG messages: {e}")
+            
+            # Filter local messages by channel and type
+            def matches_channel(msg: dict, ch: str | None) -> bool:
+                # Exclude heartbeat and system messages from chat
+                msg_type = msg.get("type", "")
+                if msg_type in ("heartbeat", "memory_sync"):
+                    return False
+                # Allow agent_processing indicators
+                if msg_type == "agent_processing":
+                    return True
+                # Allow agent_timeout indicators
+                if msg_type == "agent_timeout":
+                    return True
+                if ch is None:
+                    return True
+                recip = msg.get("recipient", "broadcast")
+                sender = msg.get("sender", "")
+                if ch == "general":
+                    return recip == "broadcast"
+                elif ch.startswith("dm:"):
+                    agent = ch[3:]
+                    return sender == agent or recip == agent
+                return True
+
+            filtered_local = [m for m in local_messages if matches_channel(m, channel)]
+
+            # Merge local + PG messages, deduplicate by ID, sort by timestamp
+            all_messages = {m.get("id", f"local_{i}"): m for i, m in enumerate(filtered_local)}
+            for m in pg_messages:
+                msg_id = m.get("id", "")
+                if msg_id not in all_messages:
+                    all_messages[msg_id] = m
+            
+            # Sort by timestamp — handle None values
+            def sort_key(m):
+                ts = m.get("timestamp")
+                return ts or ""
+            sorted_messages = sorted(all_messages.values(), key=sort_key)
+            result = sorted_messages[-limit:]
+            
+            return web.json_response({"messages": result, "total": len(sorted_messages)})
         except Exception as e:
-            log.warning(f"Failed to fetch PG messages: {e}")
-        
-        # Filter local messages by channel and type
-        def matches_channel(msg: dict, ch: str | None) -> bool:
-            # Exclude heartbeat and system messages from chat
-            msg_type = msg.get("type", "")
-            if msg_type in ("heartbeat", "memory_sync"):
-                return False
-            # Allow agent_processing indicators
-            if msg_type == "agent_processing":
-                return True
-            # Allow agent_timeout indicators
-            if msg_type == "agent_timeout":
-                return True
-            if ch is None:
-                return True
-            recip = msg.get("recipient", "broadcast")
-            sender = msg.get("sender", "")
-            if ch == "general":
-                return recip == "broadcast"
-            elif ch.startswith("dm:"):
-                agent = ch[3:]
-                return sender == agent or recip == agent
-            return True
-
-        filtered_local = [m for m in local_messages if matches_channel(m, channel)]
-
-        # Merge local + PG messages, deduplicate by ID, sort by timestamp
-        all_messages = {m.get("id", f"local_{i}"): m for i, m in enumerate(filtered_local)}
-        for m in pg_messages:
-            msg_id = m.get("id", "")
-            if msg_id not in all_messages:
-                all_messages[msg_id] = m
-        
-        # Sort by timestamp
-        sorted_messages = sorted(all_messages.values(), key=lambda m: m.get("timestamp", ""))
-        result = sorted_messages[-limit:]
-        
-        return web.json_response({"messages": result, "total": len(sorted_messages)})
+            log.error(f"Error in _api_messages: {e}\n{tb.format_exc()}")
+            return web.json_response({"error": str(e), "traceback": tb.format_exc()}, status=500)
 
     async def _api_agents(self, request):
         """Return list of known agents with consistent transport format."""
