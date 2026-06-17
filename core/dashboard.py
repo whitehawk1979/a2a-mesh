@@ -181,10 +181,11 @@ class DashboardHandler:
                     "recipient": recipient,
                     "type": msg_type,
                     "priority": priority,
-                    "payload": payload_data,
+                    "content": payload_data.get("text", "") if isinstance(payload_data, dict) else str(payload),
+                    "username": payload_data.get("username", sender) if isinstance(payload_data, dict) else sender,
                     "timestamp": created_at.isoformat() if created_at else None,
                     "status": status,
-                    "source": "pg",
+                    "source": "mesh",
                 })
             cur.close()
             conn.close()

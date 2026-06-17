@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>A2A Mesh Dashboard</title>
 <style>
-:root{--bg:#0a0e17;--surface:#131a2b;--surface2:#1a2238;--border:#2a3555;--primary:#4f8cff;--primary-dim:#2d5bb9;--success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b}
+:root{--bg:#0a0e17;--surface:#131a2b;--surface2:#1a2238;--border:#2a3555;--primary:#4f8cff;--primary-dim:#2d5bb9;--success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--dm-bg:#1a1e2e;--room-active:#1e3a5f}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column}
 .header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
@@ -18,33 +18,43 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .status-dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
 .status-dot.offline{background:var(--danger)}
 .main{display:flex;flex:1;overflow:hidden}
-.sidebar{width:280px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-.sidebar-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
-.sidebar-header .count{background:var(--primary-dim);color:var(--primary);padding:2px 8px;border-radius:10px;font-size:12px}
-.agent-list{flex:1;overflow-y:auto;padding:8px}
-.agent-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color .2s}
-.agent-card:hover{border-color:var(--primary)}
-.agent-card.active{border-color:var(--primary);box-shadow:0 0 8px rgba(79,140,255,.2)}
-.agent-card .name{font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px}
-.agent-card .role{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px}
-.agent-card .transports{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
-.transport-badge{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--primary-dim);color:var(--primary)}
-.transport-badge.inactive{background:var(--border);color:var(--text3)}
+
+/* Channel sidebar */
+.channel-sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.channel-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center}
+.channel-header .count{background:var(--primary-dim);color:var(--primary);padding:2px 8px;border-radius:10px;font-size:12px}
+.channel-section{padding:8px 0}
+.channel-section-title{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;padding:4px 16px;font-weight:600}
+.channel-item{padding:8px 16px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px;transition:background .15s;border-left:3px solid transparent}
+.channel-item:hover{background:var(--surface2)}
+.channel-item.active{background:var(--room-active);border-left-color:var(--primary);color:var(--primary)}
+.channel-item .icon{font-size:16px;width:20px;text-align:center}
+.channel-item .badge{margin-left:auto;background:var(--danger);color:#fff;border-radius:10px;font-size:11px;padding:1px 6px;min-width:18px;text-align:center}
+.agent-list{flex:1;overflow-y:auto}
+
+/* Chat area */
 .chat-area{flex:1;display:flex;flex-direction:column}
 .chat-header{padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;justify-content:space-between}
-.chat-header .channel{font-weight:600;font-size:15px}
+.chat-header .channel{font-weight:600;font-size:15px;display:flex;align-items:center;gap:6px}
 .chat-header .info{font-size:12px;color:var(--text3)}
 .messages{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px}
-.msg{max-width:75%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5;word-wrap:break-word}
+.msg{max-width:80%;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.5;word-wrap:break-word}
 .msg.sent{align-self:flex-end;background:var(--primary-dim);color:var(--text);border-bottom-right-radius:4px}
 .msg.received{align-self:flex-start;background:var(--surface2);border:1px solid var(--border);border-bottom-left-radius:4px}
-.msg.broadcast{align-self:flex-start;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-bottom-left-radius:4px}
+.msg.broadcast{align-self:flex-start;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.2);border-bottom-left-radius:4px}
+.msg.dm{align-self:flex-start;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-bottom-left-radius:4px}
+.msg.system{align-self:center;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:8px;font-size:12px;color:var(--text2);max-width:90%}
+.msg .sender{font-weight:600;font-size:12px;margin-bottom:2px}
+.msg .sender.owner{color:var(--warning)}
+.msg .sender.agent{color:var(--primary)}
+.msg .sender.self{color:var(--success)}
 .msg .meta{font-size:11px;color:var(--text3);margin-top:4px;display:flex;gap:8px}
 .msg .meta .priority{padding:1px 5px;border-radius:3px;font-size:10px}
 .msg .meta .priority.p-high{background:rgba(239,68,68,.2);color:var(--danger)}
 .msg .meta .priority.p-med{background:rgba(245,158,11,.2);color:var(--warning)}
 .msg .meta .priority.p-low{background:rgba(34,197,94,.2);color:var(--success)}
-.msg .sender{font-weight:600;font-size:12px;color:var(--primary);margin-bottom:2px}
+
+/* Input area */
 .input-area{padding:12px 20px;border-top:1px solid var(--border);background:var(--surface);display:flex;gap:8px;align-items:center}
 .input-area input[type="text"]{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:14px;outline:none}
 .input-area input[type="text"]:focus{border-color:var(--primary)}
@@ -55,6 +65,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn:active{opacity:.8}
 .btn-danger{background:var(--danger)}
 .btn-sm{padding:6px 12px;font-size:12px}
+
+/* Right panel */
 .right-panel{width:300px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
 .panel-section{border-bottom:1px solid var(--border);padding:12px 16px}
 .panel-section h3{font-size:13px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
@@ -65,6 +77,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .stat-box .value.green{color:var(--success)}
 .stat-box .value.blue{color:var(--primary)}
 .stat-box .value.amber{color:var(--warning)}
+
 /* Auth modal */
 .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:100}
 .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:32px;width:400px;max-width:90vw}
@@ -81,6 +94,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .role-badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px}
 .role-badge.owner{background:rgba(245,158,11,.2);color:var(--warning)}
 .role-badge.user{background:rgba(79,140,255,.2);color:var(--primary)}
+
 ::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -88,8 +102,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .mobile-sidebar-toggle{display:none;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer;margin:8px}
 .sidebar-close{display:none;position:absolute;top:8px;right:8px;background:var(--border);color:var(--text);border:none;border-radius:6px;padding:4px 10px;font-size:16px;cursor:pointer}
 @media(max-width:900px){
-  .sidebar{position:fixed;left:-300px;top:0;height:100vh;z-index:50;transition:left .3s ease;width:280px}
-  .sidebar.open{left:0}
+  .channel-sidebar{position:fixed;left:-260px;top:0;height:100vh;z-index:50;transition:left .3s ease;width:240px}
+  .channel-sidebar.open{left:0}
   .sidebar-close{display:block}
   .right-panel{display:none}
   .mobile-sidebar-toggle{display:inline-flex;align-items:center;gap:6px}
@@ -112,10 +126,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <label for="authDisplayName">Megjelenítendő név</label>
       <input type="text" id="authDisplayName" placeholder="Pl: Zsolt">
       <label for="authRole">Szerepkör</label>
-      <select id="authRole">
-        <option value="user">Felhasználó</option>
-        <option value="owner">Tulajdonos</option>
-      </select>
+      <select id="authRole"><option value="user">Felhasználó</option><option value="owner">Tulajdonos</option></select>
     </div>
     <button class="btn" id="authSubmitBtn" onclick="submitAuth()">Bejelentkezés</button>
     <div class="error" id="authError"></div>
@@ -125,7 +136,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <!-- Main Dashboard -->
 <div class="header">
-  <button class="mobile-sidebar-toggle" onclick="toggleSidebar()">☰ Agentek</button>
+  <button class="mobile-sidebar-toggle" onclick="toggleSidebar()">☰ Csatornák</button>
   <h1><span class="mesh-icon">⚡</span> A2A Mesh</h1>
   <div class="header-info">
     <span><span class="status-dot online" id="statusDot"></span> <span id="nodeName">—</span></span>
@@ -135,25 +146,54 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <div class="main">
-  <div class="sidebar" id="sidebar">
+  <!-- Channel Sidebar -->
+  <div class="channel-sidebar" id="channelSidebar">
     <button class="sidebar-close" onclick="toggleSidebar()">✕</button>
-    <div class="sidebar-header">Agentek <span class="count" id="agentCount">0</span></div>
-    <div class="agent-list" id="agentList">
-      <div style="padding:20px;text-align:center;color:var(--text3);font-size:13px;">Betöltés...</div>
+    <div class="channel-header">Csatornák</div>
+
+    <!-- Public channels -->
+    <div class="channel-section">
+      <div class="channel-section-title">Közös terek</div>
+      <div class="channel-item active" id="ch-general" onclick="switchChannel('general')">
+        <span class="icon">💬</span> Közös Szoba
+      </div>
+    </div>
+
+    <!-- Agent DMs -->
+    <div class="channel-section">
+      <div class="channel-section-title">Közvetlen üzenetek</div>
+      <div id="dmList" style="padding:0;">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+
+    <!-- Admin: Pending Nodes -->
+    <div class="channel-section" id="adminSection" style="display:none;">
+      <div class="channel-section-title">Admin</div>
+      <div id="pendingNodes"></div>
+    </div>
+
+    <!-- All Nodes -->
+    <div class="channel-section">
+      <div class="channel-section-title">Node-ok</div>
+      <div id="allNodesList"></div>
     </div>
   </div>
 
+  <!-- Chat area -->
   <div class="chat-area">
     <div class="chat-header">
       <div>
-        <div class="channel" id="chatChannel">💬 Mesh Chat Szoba</div>
-        <div class="info" id="chatInfo">Valós idejű közös chat — minden agent látja és válaszol</div>
+        <div class="channel" id="chatChannel">💬 Közös Szoba</div>
+        <div class="info" id="chatInfo">Minden agent látja és válaszol — valós idejű közös chat</div>
       </div>
     </div>
     <div class="messages" id="messages"></div>
     <div class="input-area">
-      <select id="recipientSelect"><option value="">📢 Broadcast</option></select>
-      <input type="text" id="messageInput" placeholder="Üzenet írása...">
+      <select id="recipientSelect">
+        <option value="">📢 Mindenkinek</option>
+      </select>
+      <input type="text" id="messageInput" placeholder="Írd az üzenetet...">
       <select id="prioritySelect">
         <option value="5">P5 Normál</option>
         <option value="7">P7 Magas</option>
@@ -164,6 +204,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
   </div>
 
+  <!-- Right panel (status/stats) -->
   <div class="right-panel">
     <div class="panel-section">
       <h3>Mesh Státusz</h3>
@@ -186,16 +227,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <h3>Rendszernapló</h3>
       <div id="sysLog" style="font-size:11px;color:var(--text3);max-height:200px;overflow-y:auto;"></div>
     </div>
-    <!-- Admin: Pending Nodes -->
-    <div class="panel-section" id="adminSection" style="display:none;">
-      <h3>⏳ Jóváhagyásra vár</h3>
-      <div id="pendingNodes"></div>
-    </div>
-    <!-- Admin: All Nodes -->
-    <div class="panel-section" id="allNodesSection" style="display:none;">
-      <h3>🌐 Összes Node</h3>
-      <div id="allNodesList"></div>
-    </div>
   </div>
 </div>
 
@@ -205,9 +236,12 @@ var nodeId = "";
 var authToken = null;
 var authUser = null;
 var messageHistory = [];
+var currentChannel = "general";  // "general" or agent name for DM
+var channelMessages = {};  // channel -> [messages]
+channelMessages["general"] = [];
 
 function toggleSidebar() {
-  var sb = document.getElementById("sidebar");
+  var sb = document.getElementById("channelSidebar");
   sb.classList.toggle("open");
   var ov = document.getElementById("sidebarOverlay");
   if (sb.classList.contains("open")) {
@@ -218,223 +252,142 @@ function toggleSidebar() {
   }
 }
 
-function showAuth() {
-  document.getElementById("authModal").style.display = "flex";
-  document.getElementById("authError").textContent = "";
-  var saved = localStorage.getItem("a2a_username");
-  if (saved) document.getElementById("authUsername").value = saved;
-  document.getElementById("authUsername").focus();
-}
+function switchChannel(channel) {
+  currentChannel = channel;
+  // Update UI
+  document.querySelectorAll(".channel-item").forEach(function(el) { el.classList.remove("active"); });
+  var chEl = document.getElementById("ch-" + channel);
+  if (chEl) chEl.classList.add("active");
 
-function switchAuthMode() {
-  var isLogin = document.getElementById("authTitle").textContent.indexOf("Bejelentkez") >= 0;
-  document.getElementById("authTitle").textContent = isLogin ? "🤖 Regisztráció" : "🤖 Bejelentkezés";
-  document.getElementById("authSubtitle").textContent = isLogin ? "Új felhasználó létrehozása (csak owner)" : "Add meg a felhasználóneved és jelszavad";
-  document.getElementById("authSubmitBtn").textContent = isLogin ? "Regisztráció" : "Bejelentkezés";
-  document.getElementById("authExtraFields").style.display = isLogin ? "block" : "none";
-  document.getElementById("authSwitch").innerHTML = isLogin
-    ? "Már van fiókod? <a onclick=\"switchAuthMode()\">Jelentkezz be</a>"
-    : "Még nincs fiókod? <a onclick=\"switchAuthMode()\">Regisztrálj</a>";
-  document.getElementById("authError").textContent = "";
-}
-
-function submitAuth() {
-  var username = document.getElementById("authUsername").value.trim().toLowerCase();
-  var password = document.getElementById("authPassword").value;
-  var errEl = document.getElementById("authError");
-  errEl.textContent = "";
-
-  if (!username || !password) { errEl.textContent = "Felhasználónév és jelszó kötelező"; return; }
-
-  var isLogin = document.getElementById("authTitle").textContent.indexOf("Regisztráció") < 0;
-
-  if (isLogin) {
-    fetch("/api/auth/login", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({username: username, password: password})
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.error) {
-        errEl.textContent = d.error;
-      } else {
-        authToken = d.token;
-        authUser = d.user;
-        localStorage.setItem("a2a_token", d.token);
-        localStorage.setItem("a2a_username", d.user.username);
-        document.getElementById("authModal").style.display = "none";
-        document.getElementById("userBadge").style.display = "flex";
-        updateUserBadge();
-        initWebSocket();
-        loadStatus();
-        loadMessages();
-        loadAgents();
-        checkAdminPanel();
-      }
-    }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+  // Update header
+  var header = document.getElementById("chatChannel");
+  var info = document.getElementById("chatInfo");
+  if (channel === "general") {
+    header.innerHTML = "💬 Közös Szoba";
+    info.innerHTML = "Minden agent látja és válaszol — valós idejű közös chat";
+    document.getElementById("recipientSelect").value = "";
   } else {
-    var displayName = document.getElementById("authDisplayName").value.trim() || username;
-    var role = document.getElementById("authRole").value;
-    fetch("/api/auth/register", {
-      method: "POST",
-      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + authToken},
-      body: JSON.stringify({username: username, display_name: displayName, password: password, role: role})
-    }).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.error) {
-        errEl.textContent = d.error;
-      } else {
-        errEl.style.color = "var(--success)";
-        errEl.textContent = "Felhasználó '" + d.user.username + "' sikeresen regisztrálva!";
-        setTimeout(function() { errEl.style.color = ""; switchAuthMode(); }, 2000);
-      }
-    }).catch(function() { errEl.textContent = "Hálózati hiba"; });
-  }
-}
-
-function logout() {
-  var token = authToken || localStorage.getItem("a2a_token");
-  if (token) {
-    fetch("/api/auth/logout", {method: "POST", headers: {"Authorization": "Bearer " + token}}).catch(function() {});
-  }
-  authToken = null;
-  authUser = null;
-  localStorage.removeItem("a2a_token");
-  if (ws) ws.close();
-  showAuth();
-}
-
-function updateUserBadge() {
-  var badge = document.getElementById("userBadge");
-  if (authUser) {
-    var rb = authUser.role === "owner" ? '<span class="role-badge owner">owner</span>' : '<span class="role-badge user">user</span>';
-    badge.innerHTML = authUser.display_name + " " + rb + " ▾";
-  }
-}
-
-function initWebSocket() {
-  var proto = location.protocol === "https:" ? "wss:" : "ws:";
-  var wsUrl = proto + "//" + location.host + "/ws";
-  if (authToken) wsUrl += "?token=" + encodeURIComponent(authToken);
-  ws = new WebSocket(wsUrl);
-
-  ws.onopen = function() { log("WebSocket connected"); loadStatus(); loadMessages(); loadAgents(); };
-  ws.onmessage = function(e) {
-    var data = JSON.parse(e.data);
-    switch(data.type) {
-      case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
-      case "status": updateStatus(data.data); break;
-      case "new_message": addMessage(data.message); break;
-      case "error": log("Hiba: " + data.message); break;
+    header.innerHTML = "👤 " + channel;
+    info.innerHTML = "Közvetlen üzenet — csak te és " + channel;
+    // Set recipient to this agent
+    var opts = document.getElementById("recipientSelect").options;
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].value === channel) { document.getElementById("recipientSelect").selectedIndex = i; break; }
     }
-  };
-  ws.onclose = function() { log("WebSocket disconnected, reconnecting..."); setTimeout(initWebSocket, 3000); };
-  ws.onerror = function() {};
-}
-
-function loadStatus() {
-  fetch("/api/status").then(function(r) { return r.json(); }).then(function(d) { updateStatus(d); }).catch(function() {});
-}
-
-function loadMessages() {
-  fetch("/api/messages?limit=100").then(function(r) { return r.json(); }).then(function(d) {
-    d.messages.reverse().forEach(function(m) { addMessage(m, false); });
-    scrollToBottom();
-  }).catch(function() {});
-}
-
-function loadAgents() {
-  fetch("/api/agents").then(function(r) { return r.json(); }).then(function(d) {
-    renderAgents(d.agents);
-    document.getElementById("totalAgents").textContent = d.total;
-    document.getElementById("agentCount").textContent = d.total;
-    var sel = document.getElementById("recipientSelect");
-    sel.innerHTML = '<option value="">📢 Broadcast</option>';
-    d.agents.forEach(function(a) {
-      if (a.name !== nodeId) {
-        var opt = document.createElement("option");
-        opt.value = a.name;
-        opt.textContent = "➤ " + a.name + " (" + a.role + ")";
-        sel.appendChild(opt);
-      }
-    });
-  }).catch(function() {});
-}
-
-function renderAgents(agents) {
-  var list = document.getElementById("agentList");
-  var html = "";
-  agents.forEach(function(a) {
-    var isSelf = a.name === nodeId;
-    var status = (a.status === "online" || a.status === "available") ? "online" : "offline";
-    var tr = a.transports || {};
-    html += '<div class="agent-card ' + (isSelf ? "active" : "") + '">';
-    html += '<div class="name"><span class="status-dot ' + status + '"></span>' + a.name + (isSelf ? " (te)" : "") + '</div>';
-    html += '<div class="role">' + a.role + (a.host ? " · " + a.host : "") + '</div>';
-    html += '<div class="transports">';
-    if (tr.p2p !== undefined) html += '<span class="transport-badge ' + (tr.p2p ? "" : "inactive") + '">P2P</span>';
-    if (tr.pg !== undefined) html += '<span class="transport-badge ' + (tr.pg ? "" : "inactive") + '">PG</span>';
-    if (tr.http !== undefined) html += '<span class="transport-badge ' + (tr.http ? "" : "inactive") + '">HTTP</span>';
-    if (tr.ble !== undefined) html += '<span class="transport-badge ' + (tr.ble ? "" : "inactive") + '">BLE</span>';
-    html += '</div></div>';
-  });
-  list.innerHTML = html;
-}
-
-function updateStatus(data) {
-  document.getElementById("msgCount").textContent = data.messages_sent || 0;
-  document.getElementById("localStore").textContent = (data.local_store || {}).outbound_pending || 0;
-  document.getElementById("p2pPeers").textContent = (data.peer_discovery || {}).connected_peers || 0;
-  document.getElementById("userCount").textContent = ((data.dashboard || {}).connected_users || 0) + " user";
-
-  var tr = data.transports || {};
-  var inner = tr.transports || tr;
-  document.getElementById("transportGrid").innerHTML =
-    statBox("PG", inner.pg_notify !== undefined ? inner.pg_notify : inner.pg) +
-    statBox("P2P", inner.p2p) +
-    statBox("HTTP", inner.http) +
-    statBox("BLE", inner.ble);
-
-  var as = data.auto_steer || {};
-  document.getElementById("steerGrid").innerHTML =
-    statBox("Interrupts", as.interrupts || 0) + statBox("Queued", as.queued || 0) +
-    statBox("Processed", as.processed || 0) + statBox("Backlog", as.backlog || 0);
-}
-
-function statBox(label, val) {
-  if (typeof val === "object" && val !== null) {
-    var avail = val.available !== undefined ? val.available : false;
-    return '<div class="stat-box"><div class="label">' + label + '</div><div class="value ' + (avail ? "green" : "amber") + '">' + (avail ? "✓" : "✗") + '</div></div>';
   }
-  if (typeof val === "boolean") {
-    return '<div class="stat-box"><div class="label">' + label + '</div><div class="value ' + (val ? "green" : "amber") + '">' + (val ? "✓" : "✗") + '</div></div>';
-  }
-  return '<div class="stat-box"><div class="label">' + label + '</div><div class="value">' + val + '</div></div>';
+
+  // Load channel messages
+  renderChannelMessages();
 }
 
-function addMessage(msg, scroll) {
+function renderChannelMessages() {
+  var container = document.getElementById("messages");
+  container.innerHTML = "";
+  var msgs = channelMessages[currentChannel] || [];
+  msgs.forEach(function(m) { addMessageToDOM(m, false); });
+  scrollToBottom();
+}
+
+function addMessageToDOM(msg, scroll) {
   if (scroll === undefined) scroll = true;
-  var isSent = msg.sender === nodeId;
+  var isSent = msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId;
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId;
   var isBroadcast = !msg.recipient || msg.recipient === "broadcast";
-  var cls = isSent ? "sent" : (isBroadcast ? "broadcast" : "received");
+
+  var cls = isSent ? "sent" : (isDM ? "dm" : (isBroadcast ? "broadcast" : "received"));
   var pri = msg.priority || 5;
   var priCls = pri >= 7 ? "p-high" : pri >= 4 ? "p-med" : "p-low";
   var priLabel = pri >= 7 ? "SÜRGŐS" : pri >= 4 ? "normál" : "alacsony";
   var senderLabel = msg.username || msg.sender || "?";
   var time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString("hu-HU") : new Date().toLocaleTimeString("hu-HU");
 
+  // Determine sender class
+  var senderCls = "agent";
+  if (isSent) senderCls = "self";
+  else if (msg.source === "web_dashboard") senderCls = "owner";
+
+  var recipientLabel = "";
+  if (isBroadcast) recipientLabel = "";
+  else if (isDM) recipientLabel = " → " + escapeHtml(msg.recipient);
+  else recipientLabel = " → " + escapeHtml(msg.recipient);
+
   var div = document.createElement("div");
   div.className = "msg " + cls;
   div.innerHTML =
-    '<div class="sender">' + escapeHtml(senderLabel) + (isBroadcast ? "" : " → " + escapeHtml(msg.recipient || "broadcast")) + '</div>' +
+    '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel + '</div>' +
     '<div>' + escapeHtml(msg.content) + '</div>' +
     '<div class="meta">' +
       '<span>' + time + '</span>' +
       '<span class="priority ' + priCls + '">' + priLabel + '</span>' +
-      (msg.source === "web_dashboard" ? '<span>🌐 web</span>' : '<span>🤖 mesh</span>') +
+      (msg.source === "web_dashboard" ? '<span>🌐</span>' : '<span>🤖</span>') +
     '</div>';
   document.getElementById("messages").appendChild(div);
   messageHistory.push(msg);
-  if (messageHistory.length > 200) messageHistory.shift();
+  if (messageHistory.length > 500) messageHistory.shift();
   if (scroll) scrollToBottom();
+}
+
+function addMessage(msg, scroll) {
+  if (scroll === undefined) scroll = true;
+
+  // Route message to the correct channel
+  var isDM = msg.recipient && msg.recipient !== "broadcast";
+  var channel;
+
+  if (isDM) {
+    // DM message — route to the DM channel with the other party
+    var myName = authUser ? authUser.display_name : nodeId;
+    if (msg.sender === myName || msg.sender === nodeId) {
+      channel = msg.recipient;  // I sent it → show in DM with recipient
+    } else {
+      channel = msg.sender;  // Someone sent it to me → show in DM with sender
+    }
+  } else {
+    channel = "general";  // Broadcast → general channel
+  }
+
+  if (!channelMessages[channel]) channelMessages[channel] = [];
+  channelMessages[channel].push(msg);
+  if (channelMessages[channel].length > 200) channelMessages[channel].shift();
+
+  // Show in current view if it matches
+  if (channel === currentChannel) {
+    addMessageToDOM(msg, scroll);
+  } else {
+    // Show notification badge on the channel
+    var chEl = document.getElementById("ch-" + channel);
+    if (!chEl) {
+      // Create DM channel entry
+      addDMChannel(channel);
+      chEl = document.getElementById("ch-" + channel);
+    }
+    if (chEl) {
+      var badge = chEl.querySelector(".badge");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "badge";
+        chEl.appendChild(badge);
+      }
+      var count = parseInt(badge.textContent || "0") + 1;
+      badge.textContent = count;
+    }
+    // Also show broadcast messages in general even if viewing DM
+    if (!isDM && currentChannel !== "general") {
+      if (!channelMessages["general"]) channelMessages["general"] = [];
+      channelMessages["general"].push(msg);
+    }
+  }
+}
+
+function addDMChannel(agentName) {
+  var list = document.getElementById("dmList");
+  if (document.getElementById("ch-" + agentName)) return;
+  var div = document.createElement("div");
+  div.className = "channel-item";
+  div.id = "ch-" + agentName;
+  div.onclick = function() { switchChannel(agentName); };
+  div.innerHTML = '<span class="icon">👤</span> ' + escapeHtml(agentName);
+  list.appendChild(div);
 }
 
 function sendMessage() {
@@ -464,19 +417,43 @@ function log(msg) {
   el.innerHTML = '<div>[' + time + '] ' + msg + '</div>' + el.innerHTML;
 }
 
-// Auto-refresh
-setInterval(loadAgents, 10000);
-setInterval(loadStatus, 5000);
+// ─── Auth ──────────────────────────────────────────────
+function showAuth() {
+  document.getElementById("authModal").style.display = "flex";
+  document.getElementById("authError").textContent = "";
+  var saved = localStorage.getItem("a2a_username");
+  if (saved) document.getElementById("authUsername").value = saved;
+  document.getElementById("authUsername").focus();
+}
 
-// Check saved token
-var savedToken = localStorage.getItem("a2a_token");
-if (savedToken) {
-  fetch("/api/auth/me", {headers: {"Authorization": "Bearer " + savedToken}})
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.user) {
-        authToken = savedToken;
-        authUser = d.user;
+function switchAuthMode() {
+  var isLogin = document.getElementById("authTitle").textContent.indexOf("Bejelentkez") >= 0;
+  document.getElementById("authTitle").textContent = isLogin ? "🤖 Regisztráció" : "🤖 Bejelentkezés";
+  document.getElementById("authSubtitle").textContent = isLogin ? "Új felhasználó létrehozása (csak owner)" : "Add meg a felhasználóneved és jelszavad";
+  document.getElementById("authSubmitBtn").textContent = isLogin ? "Regisztráció" : "Bejelentkezés";
+  document.getElementById("authExtraFields").style.display = isLogin ? "block" : "none";
+  document.getElementById("authSwitch").innerHTML = isLogin
+    ? "Már van fiókod? <a onclick=\"switchAuthMode()\">Jelentkezz be</a>"
+    : "Még nincs fiókod? <a onclick=\"switchAuthMode()\">Regisztrálj</a>";
+  document.getElementById("authError").textContent = "";
+}
+
+function submitAuth() {
+  var username = document.getElementById("authUsername").value.trim().toLowerCase();
+  var password = document.getElementById("authPassword").value;
+  var errEl = document.getElementById("authError");
+  errEl.textContent = "";
+  if (!username || !password) { errEl.textContent = "Felhasználónév és jelszó kötelező"; return; }
+  var isLogin = document.getElementById("authTitle").textContent.indexOf("Regisztráció") < 0;
+  if (isLogin) {
+    fetch("/api/auth/login", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({username: username, password: password})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) { errEl.textContent = d.error; } else {
+        authToken = d.token; authUser = d.user;
+        localStorage.setItem("a2a_token", d.token);
+        localStorage.setItem("a2a_username", d.user.username);
         document.getElementById("authModal").style.display = "none";
         document.getElementById("userBadge").style.display = "flex";
         updateUserBadge();
@@ -485,25 +462,132 @@ if (savedToken) {
         loadMessages();
         loadAgents();
         checkAdminPanel();
-      } else {
-        localStorage.removeItem("a2a_token");
-        showAuth();
       }
-    }).catch(function() { showAuth(); });
-} else {
+    }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+  } else {
+    var displayName = document.getElementById("authDisplayName").value.trim() || username;
+    var role = document.getElementById("authRole").value;
+    fetch("/api/auth/register", {
+      method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + authToken},
+      body: JSON.stringify({username: username, display_name: displayName, password: password, role: role})
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      if (d.error) { errEl.textContent = d.error; } else {
+        errEl.style.color = "var(--success)";
+        errEl.textContent = "Felhasználó '" + d.user.username + "' sikeresen regisztrálva!";
+        setTimeout(function() { errEl.style.color = ""; switchAuthMode(); }, 2000);
+      }
+    }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+  }
+}
+
+function logout() {
+  var token = authToken || localStorage.getItem("a2a_token");
+  if (token) { fetch("/api/auth/logout", {method: "POST", headers: {"Authorization": "Bearer " + token}}).catch(function() {}); }
+  authToken = null; authUser = null;
+  localStorage.removeItem("a2a_token");
+  if (ws) ws.close();
   showAuth();
 }
 
-document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
-document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
-document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
+function updateUserBadge() {
+  var badge = document.getElementById("userBadge");
+  if (authUser) {
+    var rb = authUser.role === "owner" ? '<span class="role-badge owner">owner</span>' : '<span class="role-badge user">user</span>';
+    badge.innerHTML = authUser.display_name + " " + rb + " ▾";
+  }
+}
 
-// ─── Admin: Node Approval ──────────────────────────────────
+// ─── WebSocket ──────────────────────────────────────────
+function initWebSocket() {
+  var proto = location.protocol === "https:" ? "wss:" : "ws:";
+  var wsUrl = proto + "//" + location.host + "/ws";
+  if (authToken) wsUrl += "?token=" + encodeURIComponent(authToken);
+  ws = new WebSocket(wsUrl);
+  ws.onopen = function() { log("WebSocket connected"); loadStatus(); loadMessages(); loadAgents(); };
+  ws.onmessage = function(e) {
+    var data = JSON.parse(e.data);
+    switch(data.type) {
+      case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
+      case "status": updateStatus(data.data); break;
+      case "new_message": addMessage(data.message); break;
+      case "error": log("Hiba: " + data.message); break;
+    }
+  };
+  ws.onclose = function() { log("WebSocket disconnected, reconnecting..."); setTimeout(initWebSocket, 3000); };
+  ws.onerror = function() {};
+}
+
+// ─── Data Loading ──────────────────────────────────────
+function loadStatus() {
+  fetch("/api/status").then(function(r) { return r.json(); }).then(function(d) { updateStatus(d); }).catch(function() {});
+}
+
+function loadMessages() {
+  fetch("/api/messages?limit=100").then(function(r) { return r.json(); }).then(function(d) {
+    document.getElementById("messages").innerHTML = "";
+    messageHistory = [];
+    channelMessages = {"general": []};
+    d.messages.reverse().forEach(function(m) { addMessage(m, false); });
+    scrollToBottom();
+  }).catch(function() {});
+}
+
+function loadAgents() {
+  fetch("/api/agents").then(function(r) { return r.json(); }).then(function(d) {
+    renderAgents(d.agents);
+    document.getElementById("totalAgents").textContent = d.total;
+    var sel = document.getElementById("recipientSelect");
+    sel.innerHTML = '<option value="">📢 Mindenkinek</option>';
+    d.agents.forEach(function(a) {
+      if (a.name !== nodeId) {
+        var opt = document.createElement("option");
+        opt.value = a.name;
+        opt.textContent = "👤 " + a.name + " (" + a.role + ")";
+        sel.appendChild(opt);
+        // Also add DM channel
+        addDMChannel(a.name);
+      }
+    });
+  }).catch(function() {});
+}
+
+function renderAgents(agents) {
+  // Update DM channels
+  agents.forEach(function(a) { addDMChannel(a.name); });
+}
+
+function updateStatus(data) {
+  document.getElementById("msgCount").textContent = data.messages_sent || 0;
+  document.getElementById("localStore").textContent = (data.local_store || {}).outbound_pending || 0;
+  document.getElementById("p2pPeers").textContent = (data.peer_discovery || {}).connected_peers || 0;
+  document.getElementById("userCount").textContent = ((data.dashboard || {}).connected_users || 0) + " user";
+  var tr = data.transports || {};
+  var inner = tr.transports || tr;
+  document.getElementById("transportGrid").innerHTML =
+    statBox("PG", inner.pg_notify !== undefined ? inner.pg_notify : inner.pg) +
+    statBox("P2P", inner.p2p) + statBox("HTTP", inner.http) + statBox("BLE", inner.ble);
+  var as = data.auto_steer || {};
+  document.getElementById("steerGrid").innerHTML =
+    statBox("Interrupts", as.interrupts || 0) + statBox("Queued", as.queued || 0) +
+    statBox("Processed", as.processed || 0) + statBox("Backlog", as.backlog || 0);
+}
+
+function statBox(label, val) {
+  if (typeof val === "object" && val !== null) {
+    var avail = val.available !== undefined ? val.available : false;
+    return '<div class="stat-box"><div class="label">' + label + '</div><div class="value ' + (avail ? "green" : "amber") + '">' + (avail ? "✓" : "✗") + '</div></div>';
+  }
+  if (typeof val === "boolean") {
+    return '<div class="stat-box"><div class="label">' + label + '</div><div class="value ' + (val ? "green" : "amber") + '">' + (val ? "✓" : "✗") + '</div></div>';
+  }
+  return '<div class="stat-box"><div class="label">' + label + '</div><div class="value">' + val + '</div></div>';
+}
+
+// ─── Admin: Node Approval ──────────────────────────────
 function loadPendingNodes() {
   if (!authToken || !authUser || authUser.role !== "owner") return;
   fetch("/api/nodes/pending", {headers: {"Authorization": "Bearer " + authToken}})
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    .then(function(r) { return r.json(); }).then(function(d) {
       var el = document.getElementById("pendingNodes");
       if (!d.nodes || d.nodes.length === 0) {
         el.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:8px">Nincs jóváhagyásra váró node</div>';
@@ -512,63 +596,41 @@ function loadPendingNodes() {
       el.innerHTML = d.nodes.map(function(n) {
         return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px;">' +
           '<div style="font-weight:600;font-size:13px;">🆕 ' + escapeHtml(n.node_name) + '</div>' +
-          '<div style="font-size:11px;color:var(--text3);margin-top:2px">' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:2px;">' +
             'Szerep: ' + escapeHtml(n.role || "—") + ' · IP: ' + escapeHtml(n.host || "?") + ':' + (n.p2p_port || "?") +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--text3);margin-top:2px">' +
-            'PG: ' + (n.pg_available ? '✅' : '❌') +
-            ' · P2P: ' + (n.p2p_available ? '✅' : '❌') +
-            ' · HTTP: ' + (n.http_available ? '✅' : '❌') +
           '</div>' +
           '<div style="margin-top:8px;display:flex;gap:6px;">' +
             '<button class="btn btn-sm" style="background:var(--success)" onclick="approveNode(\'' + escapeHtml(n.node_name) + '\')">✅ Jóváhagy</button>' +
             '<button class="btn btn-sm btn-danger" onclick="rejectNode(\'' + escapeHtml(n.node_name) + '\')">❌ Elutasít</button>' +
-          '</div>' +
-        '</div>';
+          '</div></div>';
       }).join('');
     }).catch(function() {});
 }
 
 function approveNode(nodeName) {
-  fetch("/api/nodes/" + encodeURIComponent(nodeName) + "/approve", {
-    method: "POST",
-    headers: {"Authorization": "Bearer " + authToken}
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.status === "approved") {
-      log("✅ Node '" + nodeName + "' jóváhagyva");
-      loadPendingNodes();
-      loadAllNodes();
-      loadAgents();
-    } else {
-      log("❌ Hiba: " + (d.error || "ismeretlen"));
-    }
-  }).catch(function() { log("❌ Hálózati hiba"); });
+  fetch("/api/nodes/" + encodeURIComponent(nodeName) + "/approve", {method: "POST", headers: {"Authorization": "Bearer " + authToken}})
+    .then(function(r) { return r.json(); }).then(function(d) {
+      if (d.status === "approved") { log("✅ Node '" + nodeName + "' jóváhagyva"); loadPendingNodes(); loadAllNodes(); loadAgents(); }
+      else { log("❌ Hiba: " + (d.error || "ismeretlen")); }
+    }).catch(function() { log("❌ Hálózati hiba"); });
 }
 
 function rejectNode(nodeName) {
-  fetch("/api/nodes/" + encodeURIComponent(nodeName) + "/reject", {
-    method: "POST",
-    headers: {"Authorization": "Bearer " + authToken}
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.status === "rejected") {
-      log("🚫 Node '" + nodeName + "' elutasítva");
-      loadPendingNodes();
-      loadAllNodes();
-    } else {
-      log("❌ Hiba: " + (d.error || "ismeretlen"));
-    }
-  }).catch(function() { log("❌ Hálózati hiba"); });
+  fetch("/api/nodes/" + encodeURIComponent(nodeName) + "/reject", {method: "POST", headers: {"Authorization": "Bearer " + authToken}})
+    .then(function(r) { return r.json(); }).then(function(d) {
+      if (d.status === "rejected") { log("🚫 Node '" + nodeName + "' elutasítva"); loadPendingNodes(); loadAllNodes(); }
+      else { log("❌ Hiba: " + (d.error || "ismeretlen")); }
+    }).catch(function() { log("❌ Hálózati hiba"); });
 }
 
 function loadAllNodes() {
   if (!authToken) return;
   fetch("/api/nodes", {headers: {"Authorization": "Bearer " + authToken}})
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    .then(function(r) { return r.json(); }).then(function(d) {
       if (!d.nodes || d.nodes.length === 0) return;
       var el = document.getElementById("allNodesList");
       var isAdmin = authUser && authUser.role === "owner";
-      document.getElementById("allNodesSection").style.display = isAdmin ? "block" : "none";
+      document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
       el.innerHTML = d.nodes.map(function(n) {
         var statusIcon = n.status === "active" ? "🟢" : n.status === "pending" ? "🟡" : "🔴";
         var transports = [];
@@ -588,12 +650,43 @@ function loadAllNodes() {
 function checkAdminPanel() {
   var isAdmin = authUser && authUser.role === "owner";
   document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
-  document.getElementById("allNodesSection").style.display = "block";
   if (isAdmin) loadPendingNodes();
   loadAllNodes();
 }
 
+// ─── Recipient select changes channel ──────────────────
+document.getElementById("recipientSelect").addEventListener("change", function() {
+  var val = this.value;
+  if (val === "") {
+    switchChannel("general");
+  } else {
+    switchChannel(val);
+  }
+});
+
+// ─── Auto-refresh ──────────────────────────────────────
+setInterval(loadAgents, 10000);
+setInterval(loadStatus, 5000);
 setInterval(function() { if (authToken) checkAdminPanel(); }, 15000);
+
+// ─── Init ──────────────────────────────────────────────
+var savedToken = localStorage.getItem("a2a_token");
+if (savedToken) {
+  fetch("/api/auth/me", {headers: {"Authorization": "Bearer " + savedToken}})
+    .then(function(r) { return r.json(); }).then(function(d) {
+      if (d.user) {
+        authToken = savedToken; authUser = d.user;
+        document.getElementById("authModal").style.display = "none";
+        document.getElementById("userBadge").style.display = "flex";
+        updateUserBadge();
+        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel();
+      } else { localStorage.removeItem("a2a_token"); showAuth(); }
+    }).catch(function() { showAuth(); });
+} else { showAuth(); }
+
+document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
+document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
+document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
 </script>
 </body>
 </html>
