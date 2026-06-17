@@ -226,6 +226,9 @@ class DashboardHandler:
             msg_type = msg.get("type", "")
             if msg_type in ("heartbeat", "memory_sync"):
                 return False
+            # Allow agent_processing indicators
+            if msg_type == "agent_processing":
+                return True
             if ch is None:
                 return True
             recip = msg.get("recipient", "broadcast")
@@ -748,8 +751,26 @@ class DashboardHandler:
 
         The webhook payload includes a reply_endpoint so the agent knows
         to send its reply back to the mesh chat (not Telegram).
-        After the webhook response, the reply is also posted to the mesh chat.
+        Posts a 'processing' indicator immediately, then calls the webhook.
+        The agent's actual reply arrives via /api/agent-reply or Telegram.
         """
+        # Post a 'processing' indicator to the chat immediately
+        processing_msg = {
+            "id": f"processing_{message.id}",
+            "sender": self.node.node_name,
+            "recipient": message.recipient or "broadcast",
+            "content": "⏳ Agent thinking...",
+            "type": "agent_processing",
+            "priority": 3,
+            "timestamp": message.timestamp if hasattr(message, 'timestamp') and message.timestamp else None,
+            "source": "mesh",
+            "username": self.node.node_name,
+        }
+        self._message_history.append(processing_msg)
+        if len(self._message_history) > self._max_history:
+            self._message_history = self._message_history[-self._max_history:]
+        await self._broadcast_ws({"type": "new_message", "message": processing_msg})
+
         try:
             import hmac as hmac_mod
             import hashlib

@@ -42,6 +42,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .msg.sent{align-self:flex-end;background:var(--primary-dim);color:var(--text);border-bottom-right-radius:4px}
 .msg.received{align-self:flex-start;background:var(--surface2);border:1px solid var(--border);border-bottom-left-radius:4px}
 .msg.broadcast{align-self:flex-start;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.2);border-bottom-left-radius:4px}
+.msg .processing-dots{display:inline-block;animation:pulse 1.5s ease-in-out infinite;color:var(--accent);margin-left:4px}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
 .msg.dm{align-self:flex-start;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-bottom-left-radius:4px}
 .msg.system{align-self:center;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.2);border-radius:8px;font-size:12px;color:var(--text2);max-width:90%}
 .msg .sender{font-weight:600;font-size:12px;margin-bottom:2px}
@@ -291,11 +293,17 @@ function renderChannelMessages() {
 
 function addMessageToDOM(msg, scroll) {
   if (scroll === undefined) scroll = true;
+  // Remove any 'processing' indicator from the same agent when a real reply arrives
+  if (msg.type !== "agent_processing") {
+    var processingEls = document.querySelectorAll('[id^="msg-processing_"]');
+    processingEls.forEach(function(el) { el.remove(); });
+    messageHistory = messageHistory.filter(function(m) { return m.type !== "agent_processing"; });
+  }
   var isSent = msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId;
   var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId;
   var isBroadcast = !msg.recipient || msg.recipient === "broadcast";
 
-  var cls = isSent ? "sent" : (isDM ? "dm" : (isBroadcast ? "broadcast" : "received"));
+  var cls = isSent ? "sent" : (msg.type === "agent_processing" ? "system" : (isDM ? "dm" : (isBroadcast ? "broadcast" : "received")));
   var pri = msg.priority || 5;
   var priCls = pri >= 7 ? "p-high" : pri >= 4 ? "p-med" : "p-low";
   var priLabel = pri >= 7 ? "SÜRGŐS" : pri >= 4 ? "normál" : "alacsony";
