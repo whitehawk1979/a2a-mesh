@@ -789,12 +789,12 @@ class DashboardHandler:
             log.warning(f"Mesh insert failed: {e}")
 
     async def _wake_agent(self, message):
-        """Wake Hermes agent via webhook so it can process/respond to dashboard messages.
-
-        The webhook payload includes a reply_endpoint so the agent knows
-        to send its reply back to the mesh chat (not Telegram).
-        Posts a 'processing' indicator immediately, then calls the webhook.
-        The agent's actual reply arrives via /api/agent-reply or Telegram.
+        """Wake ALL agents via webhook (P2P — every node gets the message).
+        
+        Each agent's webhook URL is: http://<host>:8644/webhooks/a2a-instant
+        The payload includes reply_endpoint pointing back to THIS dashboard
+        so agents know where to send their reply.
+        The agent's actual reply arrives via /api/agent-reply or the poller.
         """
         # Post a 'processing' indicator to the chat immediately
         processing_msg = {
@@ -813,63 +813,89 @@ class DashboardHandler:
             self._message_history = self._message_history[-self._max_history:]
         await self._broadcast_ws({"type": "new_message", "message": processing_msg})
 
-        try:
-            import hmac as hmac_mod
-            import hashlib
-            import urllib.request
-            payload_text = (message.payload or {}).get("text", "")[:60] if isinstance(message.payload, dict) else str(message.payload)[:60]
-            payload = json.dumps({
-                "event_type": "a2a_message",
-                "sender": message.sender,
-                "recipient": message.recipient or "broadcast",
-                "subject": f"Mesh Chat: {payload_text}",
-                "content": json.dumps(message.payload) if isinstance(message.payload, dict) else str(message.payload),
-                "priority": message.priority,
-                "mesh_message_id": message.id,
-                "reply_endpoint": f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
-                "reply_format": "mesh_chat",
-            })
-            sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
-            req = urllib.request.Request(
-                self._get_webhook_url(),
-                data=payload.encode(),
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Hub-Signature-256": f"sha256={sig}",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode())
-                log.info(f"Agent woken via webhook for mesh chat: {result.get('status', 'unknown')}")
+        import hmac as hmac_mod
+        import hashlib
+        import urllib.request
 
-                # If the webhook response contains a reply, post it to the mesh chat
-                reply_text = result.get("response", "") or result.get("reply", "")
-                if reply_text and isinstance(reply_text, str) and len(reply_text.strip()) > 0:
-                    # Clean up the reply text — remove markdown formatting
-                    reply_text = reply_text.strip()[:2000]  # Limit length
-                    try:
-                        reply_data = json.dumps({
-                            "sender": self.node.node_name,
-                            "content": reply_text,
-                            "recipient": message.sender if message.sender != self.node.node_name else "broadcast",
-                            "priority": 5,
-                            "reply_to": message.id,
-                        }).encode()
-                        reply_req = urllib.request.Request(
-                            f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
-                            data=reply_data,
-                            headers={"Content-Type": "application/json"},
-                        )
-                        with urllib.request.urlopen(reply_req, timeout=5) as reply_resp:
-                            log.info(f"Agent reply posted to mesh chat: {reply_resp.read().decode()[:100]}")
-                    except Exception as re:
-                        log.warning(f"Failed to post agent reply to mesh chat: {re}")
+        payload_text = (message.payload or {}).get("text", "")[:60] if isinstance(message.payload, dict) else str(message.payload)[:60]
+        payload = json.dumps({
+            "event_type": "a2a_message",
+            "sender": message.sender,
+            "recipient": message.recipient or "broadcast",
+            "subject": f"Mesh Chat: {payload_text}",
+            "content": json.dumps(message.payload) if isinstance(message.payload, dict) else str(message.payload),
+            "priority": message.priority,
+            "mesh_message_id": message.id,
+            "reply_endpoint": f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
+            "reply_format": "mesh_chat",
+        })
+        sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
+
+        # Build list of webhook targets: self + all known peers
+        webhook_targets = [
+            ("self", self._get_webhook_url()),
+        ]
+        # Add peer webhooks — each peer runs Hermes on port 8644
+        # Use all known peers with a host, not just p2p_available ones
+        # (peers may be reachable via webhook even if P2P is down)
+        try:
+            for name, peer in self.node.peer_discovery.get_all_peers().items():
+                if peer.host:
+                    webhook_targets.append((name, f"http://{peer.host}:8644/webhooks/a2a-instant"))
         except Exception as e:
-            log.info(f"Agent wake: webhook failed ({e}), PG NOTIFY will trigger A2A watcher")
+            log.warning(f"Failed to get peers for webhook: {e}")
+
+        log.info(f"Waking {len(webhook_targets)} agent(s) via webhook for mesh chat message")
+
+        # Fire all webhooks concurrently (don't block on slow/offline agents)
+        for agent_name, webhook_url in webhook_targets:
+            asyncio.ensure_future(self._call_webhook(agent_name, webhook_url, payload, sig, message))
 
         # Start background tasks: poll for agent reply + cleanup timeout
         asyncio.ensure_future(self._poll_for_agent_reply(message))
         asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
+
+    async def _call_webhook(self, agent_name, webhook_url, payload, sig, original_message):
+        """Call a single agent's webhook URL. Non-blocking — logs result."""
+        try:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    webhook_url,
+                    data=payload.encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Hub-Signature-256": f"sha256={sig}",
+                    },
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    result = await resp.json()
+                    log.info(f"Agent '{agent_name}' woken via webhook ({webhook_url}): {result.get('status', 'unknown')}")
+
+                    # If the webhook response contains a reply, post it to the mesh chat
+                    reply_text = result.get("response", "") or result.get("reply", "")
+                    if reply_text and isinstance(reply_text, str) and len(reply_text.strip()) > 0:
+                        reply_text = reply_text.strip()[:2000]
+                        try:
+                            reply_data = json.dumps({
+                                "sender": agent_name,
+                                "content": reply_text,
+                                "recipient": original_message.sender if original_message.sender != agent_name else "broadcast",
+                                "priority": 5,
+                                "reply_to": original_message.id,
+                            })
+                            async with session.post(
+                                f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
+                                data=reply_data.encode(),
+                                headers={"Content-Type": "application/json"},
+                                timeout=aiohttp.ClientTimeout(total=5),
+                            ) as reply_resp:
+                                reply_result = await reply_resp.text()
+                                log.info(f"Agent '{agent_name}' reply posted to mesh chat: {reply_result[:100]}")
+                        except Exception as re:
+                            log.warning(f"Failed to post agent '{agent_name}' reply to mesh chat: {re}")
+        except Exception as e:
+            log.info(f"Agent '{agent_name}' webhook failed ({webhook_url}): {e}")
 
     async def _poll_for_agent_reply(self, original_message, timeout: int = 90, interval: int = 3):
         """Poll mesh_messages for an agent reply matching the original message.
