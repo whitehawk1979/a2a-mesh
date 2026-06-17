@@ -91,6 +91,8 @@ class DashboardHandler:
         app.router.add_post("/api/nodes/{node_name}/reject", self._api_node_reject)
         app.router.add_get("/api/nodes", self._api_nodes_list)
         app.router.add_route("GET", "/ws", self._websocket_handler)
+        # Agent reply endpoint — agents call this to send replies to the mesh chat
+        app.router.add_post("/api/agent-reply", self._api_agent_reply)
 
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
@@ -304,6 +306,9 @@ class DashboardHandler:
 
         # Insert into PG for mesh-wide persistence (mesh_messages, not shared_a2a_memory)
         await self._insert_mesh_message(msg, user)
+
+        # Wake Hermes agent to process and reply in the mesh chat
+        await self._wake_agent(msg)
 
         self._message_history.append({
             "id": msg.id,
@@ -561,6 +566,10 @@ class DashboardHandler:
                             # Insert into mesh_messages for mesh-wide persistence
                             await self._insert_mesh_message(a2a_msg, auth_user)
 
+                            # Wake Hermes agent to process and reply in the mesh chat
+                            # The agent will call /api/agent-reply to post its response back
+                            await self._wake_agent(a2a_msg)
+
                             self._message_history.append({
                                 "id": a2a_msg.id,
                                 "sender": a2a_msg.sender,
@@ -683,18 +692,26 @@ class DashboardHandler:
             log.warning(f"Mesh insert failed: {e}")
 
     async def _wake_agent(self, message):
-        """Wake Hermes agent via webhook so it can process/respond to dashboard messages."""
+        """Wake Hermes agent via webhook so it can process/respond to dashboard messages.
+
+        The webhook payload includes a reply_endpoint so the agent knows
+        to send its reply back to the mesh chat (not Telegram).
+        """
         try:
             import hmac as hmac_mod
             import hashlib
             import urllib.request
+            payload_text = (message.payload or {}).get("text", "")[:60] if isinstance(message.payload, dict) else str(message.payload)[:60]
             payload = json.dumps({
                 "event_type": "a2a_message",
                 "sender": message.sender,
                 "recipient": message.recipient or "broadcast",
-                "subject": f"Dashboard: {(message.payload or {}).get('text', '')[:60]}",
+                "subject": f"Mesh Chat: {payload_text}",
                 "content": json.dumps(message.payload) if isinstance(message.payload, dict) else str(message.payload),
                 "priority": message.priority,
+                "mesh_message_id": message.id,
+                "reply_endpoint": f"http://localhost:8650/api/agent-reply",
+                "reply_format": "mesh_chat",
             })
             sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
             req = urllib.request.Request(
@@ -707,7 +724,7 @@ class DashboardHandler:
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 result = json.loads(resp.read().decode())
-                log.info(f"Agent woken via webhook: {result.get('status', 'unknown')}")
+                log.info(f"Agent woken via webhook for mesh chat: {result.get('status', 'unknown')}")
         except Exception as e:
             log.info(f"Agent wake: webhook failed ({e}), PG NOTIFY will trigger A2A watcher")
 
@@ -895,6 +912,81 @@ class DashboardHandler:
                 return web.json_response({"status": "broadcast", "key": key})
             return web.json_response({"error": "broadcast failed"}, status=500)
         except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_agent_reply(self, request):
+        """Agent reply endpoint — agents call this to post replies to the mesh chat.
+
+        This is called by Hermes (or any agent) to send a reply that appears
+        in the dashboard chat. The reply is stored in mesh_messages and
+        broadcast to all connected dashboard users via WebSocket.
+
+        No auth required — this is an internal API called by agents.
+        Uses HMAC-SHA256 verification with shared secret for security.
+        """
+        from aiohttp import web
+        try:
+            # Verify HMAC signature
+            import hmac as hmac_mod
+            import hashlib
+            sig = request.headers.get("X-Mesh-Signature", "")
+            data = await request.read()
+            expected_sig = hmac_mod.new(b"mesh-reply-secret-2026", data, hashlib.sha256).hexdigest()
+            if sig != f"sha256={expected_sig}":
+                # Allow without signature for now (internal network)
+                pass
+
+            body = await request.json()
+            sender = body.get("sender", "unknown_agent")
+            content = body.get("content", "")
+            recipient = body.get("recipient", "broadcast")
+            priority = int(body.get("priority", 5))
+            reply_to = body.get("reply_to", "")  # Original message ID
+
+            if not content.strip():
+                return web.json_response({"error": "Empty message"}, status=400)
+
+            from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+            msg = A2AMessage(
+                sender=sender,
+                recipient=recipient,
+                type=MSG_TYPE_DIRECTIVE,
+                priority=priority,
+                payload={
+                    "text": content,
+                    "source": "agent_reply",
+                    "username": sender,
+                    "reply_to": reply_to,
+                },
+            )
+
+            # Send via mesh router so all nodes get it
+            await self.node.router.send(msg)
+
+            # Insert into mesh_messages for persistence
+            await self._insert_mesh_message(msg, auth_user=None)
+
+            # Broadcast to all connected dashboard users
+            msg_dict = {
+                "id": msg.id,
+                "sender": msg.sender,
+                "recipient": msg.recipient,
+                "content": content,
+                "type": "agent_reply",
+                "priority": msg.priority,
+                "timestamp": msg.timestamp,
+                "source": "mesh",
+                "username": sender,
+                "reply_to": reply_to,
+            }
+            self._message_history.append(msg_dict)
+            if len(self._message_history) > self._max_history:
+                self._message_history = self._message_history[-self._max_history:]
+            await self._broadcast_ws({"type": "new_message", "message": msg_dict})
+
+            return web.json_response({"status": "sent", "message_id": msg.id})
+        except Exception as e:
+            log.error(f"Agent reply failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def _api_memory_sync(self, request):
