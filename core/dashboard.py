@@ -849,11 +849,66 @@ class DashboardHandler:
 
         # Fire all webhooks concurrently (don't block on slow/offline agents)
         for agent_name, webhook_url in webhook_targets:
-            asyncio.ensure_future(self._call_webhook(agent_name, webhook_url, payload, sig, message))
+            if agent_name == "self":
+                # For self (Nova), use hermes chat -q which has terminal tools
+                asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
+            else:
+                asyncio.ensure_future(self._call_webhook(agent_name, webhook_url, payload, sig, message))
 
         # Start background tasks: poll for agent reply + cleanup timeout
         asyncio.ensure_future(self._poll_for_agent_reply(message))
         asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
+
+    async def _wake_self_via_cli(self, webhook_payload, sig, original_message):
+        """Wake the local agent (Nova) via hermes chat -q — has terminal tools.
+        
+        This bypasses the webhook platform's lack of terminal toolset.
+        The agent gets the message + reply_endpoint and can curl the response.
+        """
+        import asyncio as aio
+        try:
+            payload_data = json.loads(webhook_payload)
+            content = payload_data.get("content", "")
+            sender = payload_data.get("sender", "unknown")
+            reply_endpoint = payload_data.get("reply_endpoint", "")
+            mesh_msg_id = payload_data.get("mesh_message_id", "")
+            
+            # Build a simple prompt for hermes chat -q
+            prompt = (
+                f"A2A Mesh Chat üzenet: {sender} -> broadcast\n"
+                f"Tartalom: {content}\n\n"
+                f"Kérlek röviden válaszolj (magyarul, max 500 karakter), "
+                f"majd AZONNAL futtasd ezt a parancsot a válasz elküldéséhez:\n\n"
+                f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
+                f"-d '{{\"sender\":\"nova\",\"content\":\"VÁLASZOD\",\"recipient\":\"{sender}\","
+                f"\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+            )
+            
+            log.info(f"Waking self (Nova) via hermes chat -q for mesh chat message")
+            
+            # Run hermes -z (one-shot query) with terminal toolset
+            proc = await aio.create_subprocess_exec(
+                "/Users/zsolt/.hermes/hermes-agent/venv/bin/hermes",
+                "-z", prompt,
+                "-t", "terminal",
+                "--yolo",
+                stdout=aio.subprocess.PIPE,
+                stderr=aio.subprocess.PIPE,
+                env={**__import__('os').environ, "HERMES_HOME": "/Users/zsolt/.hermes"},
+            )
+            
+            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
+            output = stdout.decode('utf-8', errors='replace') if stdout else ""
+            err = stderr.decode('utf-8', errors='replace') if stderr else ""
+            
+            log.info(f"Nova CLI response ({len(output)} chars): {output[:200]}")
+            if err:
+                log.warning(f"Nova CLI stderr: {err[:200]}")
+                
+        except asyncio.TimeoutError:
+            log.warning("Nova CLI timed out (90s)")
+        except Exception as e:
+            log.warning(f"Nova CLI wake failed: {e}")
 
     async def _call_webhook(self, agent_name, webhook_url, payload, sig, original_message):
         """Call a single agent's webhook URL. Non-blocking — logs result.
@@ -985,7 +1040,6 @@ class DashboardHandler:
                     FROM mesh.mesh_messages
                     WHERE sender != %s
                       AND recipient IN (%s, 'broadcast')
-                      AND status = 'acknowledged'
                       AND created_at > NOW() - INTERVAL '2 minutes'
                     ORDER BY created_at DESC LIMIT 10
                 """, (sender, sender))
