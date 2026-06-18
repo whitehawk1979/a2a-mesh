@@ -70,6 +70,7 @@ class P2PTransport(TransportAdapter):
         tls_verify_peer = getattr(p2p_config, 'tls_verify_peer', False) if p2p_config else False
 
         log.info(f"P2P TLS config: enabled={tls_enabled} cert={tls_cert} key={tls_key} ca={tls_ca} verify={tls_verify_peer}")
+        print(f"[P2P] TLS config: enabled={tls_enabled} cert={tls_cert} key={tls_key} ca={tls_ca} verify={tls_verify_peer}", flush=True)
 
         if tls_enabled and tls_cert and tls_key:
             import ssl as _ssl
