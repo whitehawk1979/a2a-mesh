@@ -93,6 +93,8 @@ class DashboardHandler:
         app.router.add_route("GET", "/ws", self._websocket_handler)
         # Agent reply endpoint — agents call this to send replies to the mesh chat
         app.router.add_post("/api/agent-reply", self._api_agent_reply)
+        # Wake-agent endpoint — peer nodes call this to wake the local agent
+        app.router.add_post("/api/wake-agent", self._api_wake_agent)
         # Message management — delete
         app.router.add_delete("/api/messages/{msg_id}", self._api_delete_message)
 
@@ -866,29 +868,106 @@ class DashboardHandler:
         webhook_targets = [
             ("self", self._get_webhook_url()),
         ]
-        # Add peer webhooks — each peer runs Hermes on port 8644
-        # Use all known peers with a host, not just p2p_available ones
-        # (peers may be reachable via webhook even if P2P is down)
+        # Build wake targets: self (CLI) + peers (wake-agent API)
+        peer_targets = []
         try:
             for name, peer in self.node.peer_discovery.get_all_peers().items():
-                if peer.host:
-                    webhook_targets.append((name, f"http://{peer.host}:8644/webhooks/a2a-instant"))
+                if peer.host and name != self.node.node_name:
+                    # Use the peer's health port (8650) for wake-agent API
+                    health_port = peer.health_port or 8650
+                    peer_targets.append((name, f"http://{peer.host}:{health_port}/api/wake-agent"))
         except Exception as e:
-            log.warning(f"Failed to get peers for webhook: {e}")
+            log.warning(f"Failed to get peers for wake: {e}")
 
-        log.info(f"Waking {len(webhook_targets)} agent(s) via webhook for mesh chat message")
+        total = 1 + len(peer_targets)  # self + peers
+        log.info(f"Waking {total} agent(s): self (CLI) + {len(peer_targets)} peers (wake-agent API)")
 
-        # Fire all webhooks concurrently (don't block on slow/offline agents)
-        for agent_name, webhook_url in webhook_targets:
-            if agent_name == "self":
-                # For self (Nova), use hermes chat -q which has terminal tools
-                asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
-            else:
-                asyncio.ensure_future(self._call_webhook(agent_name, webhook_url, payload, sig, message))
+        # Wake self via CLI (hermes -z with context)
+        asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
+
+        # Wake peers via wake-agent API (HTTP POST to peer's mesh node)
+        for agent_name, wake_url in peer_targets:
+            asyncio.ensure_future(self._call_wake_agent_api(agent_name, wake_url, payload, message))
 
         # Start background tasks: poll for agent reply + cleanup timeout
         asyncio.ensure_future(self._poll_for_agent_reply(message))
         asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
+
+    async def _call_wake_agent_api(self, agent_name, wake_url, webhook_payload, original_message):
+        """Call a peer node's /api/wake-agent endpoint to wake its local agent.
+        
+        This replaces the old webhook approach. The peer node runs `hermes -z`
+        locally with the context prompt, and the agent curls the reply back
+        to our /api/agent-reply endpoint.
+        """
+        try:
+            import aiohttp
+            payload_data = json.loads(webhook_payload)
+            
+            # Build the context prompt for the peer agent
+            content = payload_data.get("content", "")
+            sender = payload_data.get("sender", "unknown")
+            reply_endpoint = payload_data.get("reply_endpoint", "")
+            mesh_msg_id = payload_data.get("mesh_message_id", "")
+            chat_history = payload_data.get("chat_history", [])
+            
+            # Skip if sender is the peer itself (don't wake agent for its own message)
+            if sender == agent_name:
+                log.info(f"Skipping wake for '{agent_name}': message from self")
+                return
+            
+            # Build context prompt using the chat history from the payload
+            if chat_history:
+                chat_lines = []
+                for h in chat_history:
+                    chat_lines.append(f"  [{h.get('sender','?')}] {h.get('content','')[:200]}")
+                chat_context = "\n".join(chat_lines[-8:])
+            else:
+                chat_context = "(nincs előzmény)"
+            
+            # Parse content — it may be JSON string
+            try:
+                content_parsed = json.loads(content) if isinstance(content, str) else content
+                content_text = content_parsed.get("text", content) if isinstance(content_parsed, dict) else str(content)
+            except (json.JSONDecodeError, TypeError):
+                content_text = content
+            
+            prompt = (
+                f"Te egy A2A Mesh chat résztvevője vagy ({agent_name}). "
+                f"Ez egy közös chat session, mint egy Telegram csoport. "
+                f"Látod a beszélgetés előzményeit és az új üzenetet.\n\n"
+                f"── Beszélgetés eddig ──\n{chat_context}\n\n"
+                f"── Új üzenet ──\n[{sender}] {content_text[:500]}\n\n"
+                f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
+                f"Csak akkor válaszolj, ha az üzenet hozzád szól vagy általános kérdés. "
+                f"Ha nem kell válaszolnod, ne küldd el a curl-t.\n\n"
+                f"Válaszod elküldéséhez futtasd:\n"
+                f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
+                f"-d '{{\"sender\":\"{agent_name}\",\"content\":\"VÁLASZOD\","
+                f"\"recipient\":\"{sender}\",\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+            )
+            
+            wake_body = json.dumps({
+                "mesh_secret": "mesh-wake-secret-2026",
+                "agent_name": agent_name,
+                "prompt": prompt,
+                "reply_endpoint": reply_endpoint,
+            })
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    wake_url,
+                    data=wake_body.encode(),
+                    headers={"Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as resp:
+                    result = await resp.json()
+                    log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
+                    
+        except asyncio.TimeoutError:
+            log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
+        except Exception as e:
+            log.warning(f"Wake-agent '{agent_name}' failed ({wake_url}): {e}")
 
     async def _wake_self_via_cli(self, webhook_payload, sig, original_message):
         """Wake the local agent (Nova) via hermes -z — with full chat context.
@@ -1534,6 +1613,87 @@ class DashboardHandler:
             return web.json_response({"status": "sent", "message_id": msg.id})
         except Exception as e:
             log.error(f"Agent reply failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_wake_agent(self, request):
+        """Wake-agent endpoint — called by peer nodes to wake the LOCAL agent.
+        
+        This replaces the webhook approach. Instead of Nova calling each peer's
+        Hermes webhook (port 8644), Nova calls this endpoint on the peer's mesh
+        node (port 8650). The peer node then runs `hermes -z` locally with the
+        provided context prompt, and the agent's reply is POSTed back to the
+        reply_endpoint via curl.
+        
+        No auth required — internal mesh API. Uses simple shared-secret check.
+        """
+        from aiohttp import web
+        try:
+            body = await request.json()
+            
+            # Simple shared-secret check (internal mesh network)
+            provided_secret = body.get("mesh_secret", "")
+            if provided_secret != "mesh-wake-secret-2026":
+                return web.json_response({"error": "Unauthorized"}, status=401)
+            
+            agent_name = body.get("agent_name", self.node.node_name)
+            prompt = body.get("prompt", "")
+            reply_endpoint = body.get("reply_endpoint", "")
+            
+            if not prompt:
+                return web.json_response({"error": "Empty prompt"}, status=400)
+            
+            log.info(f"Wake-agent request for '{agent_name}' — prompt {len(prompt)} chars")
+            
+            # Run hermes -z locally (same as _wake_self_via_cli but on this node)
+            import asyncio as aio
+            import os
+            
+            # Find hermes binary
+            hermes_bin = os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes")
+            if not os.path.exists(hermes_bin):
+                # Fallback: try PATH
+                hermes_bin = "hermes"
+            
+            hermes_home = os.path.expanduser("~/.hermes")
+            
+            try:
+                proc = await aio.create_subprocess_exec(
+                    hermes_bin,
+                    "-z", prompt,
+                    "-t", "terminal",
+                    "--yolo",
+                    stdout=aio.subprocess.PIPE,
+                    stderr=aio.subprocess.PIPE,
+                    env={**os.environ, "HERMES_HOME": hermes_home},
+                )
+                
+                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
+                output = stdout.decode('utf-8', errors='replace') if stdout else ""
+                err = stderr.decode('utf-8', errors='replace') if stderr else ""
+                
+                log.info(f"Wake-agent '{agent_name}' CLI response ({len(output)} chars): {output[:200]}")
+                if err:
+                    log.warning(f"Wake-agent '{agent_name}' stderr: {err[:200]}")
+                
+                return web.json_response({
+                    "status": "completed",
+                    "agent": agent_name,
+                    "output_length": len(output),
+                    "output_preview": output[:200],
+                })
+                
+            except asyncio.TimeoutError:
+                log.warning(f"Wake-agent '{agent_name}' timed out (90s)")
+                return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
+            except FileNotFoundError:
+                log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")
+                return web.json_response({"error": "Hermes CLI not found"}, status=500)
+            except Exception as e:
+                log.error(f"Wake-agent CLI failed: {e}")
+                return web.json_response({"error": str(e)}, status=500)
+                
+        except Exception as e:
+            log.error(f"Wake-agent endpoint failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def _api_delete_message(self, request):
