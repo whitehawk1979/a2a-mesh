@@ -229,8 +229,7 @@ class DashboardHandler:
 
                 where_sql = " AND ".join(where_clauses)
 
-                # For SQL_ASCII PG: cast payload to text explicitly
-                # psycopg2 may fail decoding non-ASCII bytes; wrap in try/except
+                # For SQL_ASCII PG: try reading payload, fallback to skipping bad rows
                 try:
                     cur.execute(f"""
                         SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
@@ -239,37 +238,32 @@ class DashboardHandler:
                         ORDER BY created_at DESC
                         LIMIT %s
                     """, params + [limit])
-                    rows = cur.fetchall()
-                except UnicodeDecodeError:
-                    # Fallback: cast payload to hex and decode manually
-                    cur.execute(f"""
-                        SELECT id, sender, recipient, msg_type, priority,
-                               encode(payload::bytea, 'hex') as payload_hex,
-                               created_at, status
-                        FROM mesh.mesh_messages
-                        WHERE {where_sql}
-                        ORDER BY created_at DESC
-                        LIMIT %s
-                    """, params + [limit])
-                    rows = []
-                    for row in cur.fetchall():
-                        msg_id, sender, recipient, msg_type, priority, payload_hex, created_at, status = row
-                        payload = bytes.fromhex(payload_hex).decode('utf-8', errors='replace')
-                        rows.append((msg_id, sender, recipient, msg_type, payload, created_at, status))
+                    raw_rows = cur.fetchall()
+                except Exception as pg_err:
+                    log.warning(f"PG query failed ({pg_err}), using local messages only")
+                    raw_rows = []
                 
-                for row in rows:
+                rows = []
+                for row in raw_rows:
                     msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
-                    # Parse payload — it's stored as text (JSON string)
-                    # Handle SQL_ASCII PG: decode bytes safely
-                    import json
+                    # Handle SQL_ASCII encoding: try to decode payload safely
                     if isinstance(payload, bytes):
                         payload = payload.decode("utf-8", errors="replace")
                     elif isinstance(payload, str):
-                        # SQL_ASCII may have raw UTF-8 bytes stored as chars
                         try:
-                            payload = payload.encode("latin-1").decode("utf-8")
-                        except (UnicodeDecodeError, UnicodeEncodeError):
-                                pass  # keep original
+                            payload.encode("ascii")  # test if pure ASCII
+                        except UnicodeEncodeError:
+                            # Non-ASCII bytes in SQL_ASCII field — re-interpret as UTF-8
+                            try:
+                                payload = payload.encode("latin-1").decode("utf-8")
+                            except (UnicodeDecodeError, UnicodeEncodeError):
+                                payload = payload.encode("ascii", "replace").decode("ascii")
+                    rows.append((msg_id, sender, recipient, msg_type, payload, created_at, status))
+                
+                for row in rows:
+                    msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
+                    # Parse payload — already decoded above for SQL_ASCII handling
+                    import json
                     try:
                         payload_data = json.loads(payload) if isinstance(payload, str) else payload
                     except (json.JSONDecodeError, TypeError):
