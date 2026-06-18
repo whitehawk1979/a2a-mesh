@@ -285,9 +285,11 @@ class PeerDiscovery:
             await self.check_peer_health(peer)
 
         # 3. Connect to peers that aren't connected yet
+        # Always attempt connection if peer has a host — don't require p2p_available
+        # (p2p_available is set by health check, which may fail if P2P is down)
         connected = 0
         for peer in list(self._peers.values()):
-            if peer.p2p_available and peer.name not in (
+            if peer.host and peer.name not in (
                 self.p2p_transport._peers if self.p2p_transport else {}
             ):
                 if await self.connect_to_peer(peer):
