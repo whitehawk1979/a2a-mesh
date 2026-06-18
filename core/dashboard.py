@@ -842,16 +842,23 @@ class DashboardHandler:
         import urllib.request
 
         payload_text = (message.payload or {}).get("text", "")[:60] if isinstance(message.payload, dict) else str(message.payload)[:60]
+        
+        # Fetch chat history for context injection (Telegram-group-like session)
+        recipient = message.recipient or "broadcast"
+        channel = "general" if recipient == "broadcast" else f"dm:{message.sender}"
+        chat_history = self._fetch_chat_history(limit=10, channel=channel)
+        
         payload = json.dumps({
             "event_type": "a2a_message",
             "sender": message.sender,
-            "recipient": message.recipient or "broadcast",
+            "recipient": recipient,
             "subject": f"Mesh Chat: {payload_text}",
             "content": json.dumps(message.payload) if isinstance(message.payload, dict) else str(message.payload),
             "priority": message.priority,
             "mesh_message_id": message.id,
             "reply_endpoint": f"http://{self._get_host()}:{self.node.config.health_port}/api/agent-reply",
             "reply_format": "mesh_chat",
+            "chat_history": chat_history,
         })
         sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
 
@@ -884,10 +891,10 @@ class DashboardHandler:
         asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
 
     async def _wake_self_via_cli(self, webhook_payload, sig, original_message):
-        """Wake the local agent (Nova) via hermes chat -q — has terminal tools.
+        """Wake the local agent (Nova) via hermes -z — with full chat context.
         
-        This bypasses the webhook platform's lack of terminal toolset.
-        The agent gets the message + reply_endpoint and can curl the response.
+        The agent sees the recent conversation history (like a Telegram group)
+        and can reply via curl to the reply_endpoint.
         """
         import asyncio as aio
         try:
@@ -897,18 +904,26 @@ class DashboardHandler:
             reply_endpoint = payload_data.get("reply_endpoint", "")
             mesh_msg_id = payload_data.get("mesh_message_id", "")
             
-            # Build a simple prompt for hermes chat -q
-            prompt = (
-                f"A2A Mesh Chat üzenet: {sender} -> broadcast\n"
-                f"Tartalom: {content}\n\n"
-                f"Kérlek röviden válaszolj (magyarul, max 500 karakter), "
-                f"majd AZONNAL futtasd ezt a parancsot a válasz elküldéséhez:\n\n"
-                f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
-                f"-d '{{\"sender\":\"nova\",\"content\":\"VÁLASZOD\",\"recipient\":\"{sender}\","
-                f"\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+            # Determine channel from recipient
+            recipient = payload_data.get("recipient", "broadcast")
+            channel = "general" if recipient == "broadcast" else f"dm:{sender}"
+            
+            # Skip if sender is self (don't reply to own messages)
+            if sender == self.node.node_name:
+                log.info(f"Skipping self-wake: message from {sender} (self)")
+                return
+            
+            # Build context-aware prompt with chat history
+            prompt = self._build_context_prompt(
+                agent_name=self.node.node_name,
+                sender=sender,
+                content=content,
+                reply_endpoint=reply_endpoint,
+                mesh_msg_id=mesh_msg_id,
+                channel=channel,
             )
             
-            log.info(f"Waking self (Nova) via hermes chat -q for mesh chat message")
+            log.info(f"Waking self ({self.node.node_name}) via hermes -z with chat context ({len(prompt)} chars)")
             
             # Run hermes -z (one-shot query) with terminal toolset
             proc = await aio.create_subprocess_exec(
@@ -1149,6 +1164,107 @@ class DashboardHandler:
     def _get_webhook_url(self):
         """Get the Hermes webhook URL for this node's host."""
         return f"http://localhost:8644/webhooks/a2a-instant"
+
+    def _fetch_chat_history(self, limit: int = 10, channel: str = "general") -> list:
+        """Fetch recent chat messages from PG for context injection.
+        
+        Returns a list of {sender, content, timestamp} dicts — the last N
+        non-heartbeat messages from the given channel.
+        """
+        import psycopg2
+        try:
+            conn = psycopg2.connect(
+                dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+                host=self.node.config.pg.host, port=self.node.config.pg.port,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            
+            where_clauses = [
+                "msg_type NOT IN ('heartbeat', 'memory_sync', 'ack')",
+            ]
+            params = []
+            if channel == "general":
+                where_clauses.append("recipient = 'broadcast'")
+            elif channel and channel.startswith("dm:"):
+                dm_agent = channel[3:]
+                where_clauses.append("(recipient = %s OR sender = %s)")
+                params.extend([dm_agent, dm_agent])
+            
+            where_sql = " AND ".join(where_clauses)
+            cur.execute(f"""
+                SELECT sender, recipient, msg_type, payload, created_at
+                FROM mesh.mesh_messages
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, params + [limit])
+            
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            history = []
+            for row in reversed(rows):  # chronological order
+                sender, recipient, msg_type, payload, created_at = row
+                import json as _json
+                try:
+                    p = _json.loads(payload) if isinstance(payload, str) else payload
+                except (ValueError, TypeError):
+                    p = {}
+                text = p.get("text", "") if isinstance(p, dict) else str(payload)
+                # Skip heartbeat-like payloads
+                if isinstance(p, dict) and set(p.keys()) <= {"uptime", "transports"}:
+                    continue
+                if not text:
+                    text = str(payload)[:200]
+                history.append({
+                    "sender": sender,
+                    "content": text[:500],
+                    "timestamp": created_at.isoformat() if created_at else "",
+                    "type": msg_type,
+                })
+            return history
+        except Exception as e:
+            log.warning(f"Failed to fetch chat history: {e}")
+            return []
+
+    def _build_context_prompt(self, agent_name: str, sender: str, content: str, 
+                              reply_endpoint: str, mesh_msg_id: str,
+                              channel: str = "general") -> str:
+        """Build a prompt with full chat context for the agent.
+        
+        The agent sees the recent conversation history + the new message,
+        like a Telegram group chat. It can reply via curl to reply_endpoint.
+        """
+        history = self._fetch_chat_history(limit=10, channel=channel)
+        
+        # Build conversation context
+        if history:
+            chat_lines = []
+            for h in history:
+                # Don't include the current message (it's being delivered separately)
+                chat_lines.append(f"  [{h['sender']}] {h['content']}")
+            chat_context = "\n".join(chat_lines[-8:])  # last 8 messages
+        else:
+            chat_context = "(nincs előzmény)"
+        
+        prompt = (
+            f"Te egy A2A Mesh chat résztvevője vagy ({agent_name}). "
+            f"Ez egy közös chat session, mint egy Telegram csoport. "
+            f"Látod a beszélgetés előzményeit és az új üzenetet.\n\n"
+            f"── Beszélgetés eddig ──\n{chat_context}\n\n"
+            f"── Új üzenet ──\n[{sender}] {content}\n\n"
+            f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
+            f"Csak akkor válaszolj, ha az üzenet hozzád szól vagy általános kérdés. "
+            f"Ha nem kell válaszolnod, ne küldd el a curl-t.\n\n"
+            f"Válaszod elküldéséhez futtasd:\n"
+            f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
+            f"-d '{{\"sender\":\"{agent_name}\",\"content\":\"VÁLASZOD\","
+            f"\"recipient\":\"{sender}\",\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+        )
+        return prompt
 
     def get_stats(self) -> dict:
         return {
