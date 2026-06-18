@@ -873,8 +873,11 @@ class DashboardHandler:
         try:
             for name, peer in self.node.peer_discovery.get_all_peers().items():
                 if peer.host and name != self.node.node_name:
-                    # Use the peer's health port (8650) for wake-agent API
+                    # Use the peer's health port for wake-agent API
+                    # Fallback to 8650 (standard health port) if not set or equals P2P port
                     health_port = peer.health_port or 8650
+                    if health_port == peer.p2p_port:
+                        health_port = 8650  # P2P and health can't be same port
                     peer_targets.append((name, f"http://{peer.host}:{health_port}/api/wake-agent"))
         except Exception as e:
             log.warning(f"Failed to get peers for wake: {e}")
