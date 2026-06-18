@@ -126,7 +126,13 @@ class MeshRouter:
         If a transport fails, automatically falls back to the next.
         Messages are also stored in LocalStore for offline resilience.
         """
-        message.sender = self.node_name
+        # Override sender to node name — UNLESS this is a dashboard message from a human user
+        # Dashboard messages have payload.source = "web_dashboard" and payload.original_sender
+        if isinstance(message.payload, dict) and message.payload.get("source") == "web_dashboard":
+            # Keep the human user's display_name as sender
+            pass
+        else:
+            message.sender = self.node_name
 
         # Sign message
         if self.config and self.config.security.signing_key:

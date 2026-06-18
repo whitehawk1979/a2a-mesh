@@ -981,6 +981,8 @@ class DashboardHandler:
                 f"\"recipient\":\"{sender}\",\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
             )
             
+            log.info(f"Wake-agent prompt for '{agent_name}':\n{prompt[:500]}")
+            
             wake_body = json.dumps({
                 "mesh_secret": "mesh-wake-secret-2026",
                 "agent_name": agent_name,
@@ -1299,7 +1301,8 @@ class DashboardHandler:
             ]
             params = []
             if channel == "general":
-                where_clauses.append("recipient = 'broadcast'")
+                # General channel: broadcast messages + agent replies/directives
+                where_clauses.append("(recipient = 'broadcast' OR msg_type IN ('agent_reply', 'directive'))")
             elif channel and channel.startswith("dm:"):
                 dm_agent = channel[3:]
                 where_clauses.append("(recipient = %s OR sender = %s)")
