@@ -283,9 +283,26 @@ class DashboardHandler:
                 msg_id = m.get("id") or ""
                 if msg_id and msg_id not in all_messages:
                     all_messages[msg_id] = m
-            
-            # Sort by timestamp — ensure all values are strings for consistent comparison
-            msg_list = list(all_messages.values())
+
+            # Filter out agent_reply messages with heartbeat-like payload (uptime/transports only)
+            def _is_heartbeat_reply(m):
+                if m.get("type") != "agent_reply":
+                    return False
+                content = m.get("content", "")
+                if isinstance(content, str):
+                    content = content.strip()
+                    # Check if content is a JSON dict with only uptime/transports keys
+                    if content.startswith("{") and content.endswith("}"):
+                        try:
+                            import json as _json
+                            data = _json.loads(content)
+                            if isinstance(data, dict) and set(data.keys()) <= {"uptime", "transports"}:
+                                return True
+                        except (_json.JSONDecodeError, TypeError):
+                            pass
+                return False
+
+            msg_list = [m for m in all_messages.values() if not _is_heartbeat_reply(m)]
             for m in msg_list:
                 ts = m.get("timestamp")
                 if ts is None or not isinstance(ts, str):
@@ -720,6 +737,13 @@ class DashboardHandler:
 
         # Extract display text from payload
         payload = message.payload if isinstance(message.payload, dict) else {}
+
+        # Skip agent_reply messages that contain heartbeat-like payload (uptime/transports only)
+        # These happen when an agent's webhook response is just a status dump, not a real reply
+        if msg_type == "agent_reply" and isinstance(payload, dict):
+            if set(payload.keys()) <= {"uptime", "transports"}:
+                return
+
         content = payload.get("text", "") or message.content or json.dumps(payload, ensure_ascii=True)
         username = payload.get("username", "") or message.sender
 
