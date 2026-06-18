@@ -15,9 +15,9 @@ import os
 import signal
 import sys
 import time
-from typing import Optional, Dict, List, Callable, Tuple
+from typing import Optional, Dict, List, Callable
 
-from .core.message import A2AMessage, SendResult, ProcessResult, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK, MAX_MESSAGE_SIZE
+from .core.message import A2AMessage, SendResult, ProcessResult, MSG_TYPE_HEARTBEAT, MAX_MESSAGE_SIZE
 from .core.config import MeshConfig
 from .core.router import MeshRouter
 from .core.encryption import MeshEncryption
@@ -29,7 +29,7 @@ from .core.offline_queue import OfflineQueue
 from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
 from .core.auto_steer import AutoSteerProcessor
 from .core.local_store import LocalStore
-from .core.file_transfer import P2PFileTransfer, FILE_OFFER, FILE_ACCEPT, FILE_REJECT, FILE_CHUNK, FILE_COMPLETE, FILE_ACK
+from .core.file_transfer import P2PFileTransfer
 from .core.peer_discovery import PeerDiscovery
 from .core.memory_sync import MemorySync
 from .core.dashboard import DashboardHandler
@@ -242,7 +242,7 @@ class MeshNode:
     async def _dispatch_to_handlers(self, message: A2AMessage):
         """Dispatch incoming message to all registered handlers.
 
-        Special handling for file_transfer, memory_sync messages, ACK, and dashboard notification.
+        Special handling for file_transfer, memory_sync messages and dashboard notification.
         """
         # Notify dashboard
         try:
@@ -250,37 +250,12 @@ class MeshNode:
         except Exception as e:
             log.debug(f"Dashboard notification failed: {e}")
 
-        # Handle ACK messages — process via ack_manager
-        if message.type == MSG_TYPE_ACK:
-            self.ack_manager.process_ack(message)
-            return
-
         # Handle file transfer messages
         if message.type == "file_transfer":
-            # Parse payload
-            payload = message.payload if isinstance(message.payload, dict) else {}
-            if isinstance(message.payload, str):
-                try:
-                    import json as _json
-                    payload = _json.loads(message.payload)
-                except Exception:
-                    payload = {}
-
-            transfer_type = payload.get("transfer_type", "")
-
-            # Let P2PFileTransfer handle the message
             response = self.file_transfer.handle_incoming(message)
             if response and isinstance(response, A2AMessage):
-                # Send response back via P2P (or best transport)
+                # Send response back via P2P
                 asyncio.create_task(self.router.send(response))
-
-            # If we received FILE_ACCEPT, we are the sender — start sending chunks
-            if transfer_type == FILE_ACCEPT:
-                file_id = payload.get("file_id", "")
-                if file_id:
-                    log.info(f"FILE_ACCEPT received for {file_id}, starting chunk transfer")
-                    asyncio.create_task(self._send_file_chunks(file_id, message.sender))
-
             return
 
         # Handle memory sync messages
@@ -323,9 +298,6 @@ class MeshNode:
         results["p2p"] = await self._p2p_transport.start()
         if results["p2p"]:
             log.info("✅ P2P TCP transport started")
-            # Wire up P2P ACK callback — updates PG message status when ACK received
-            self._p2p_transport.set_ack_callback(self._on_p2p_ack)
-            log.info("✅ P2P ACK callback registered")
         else:
             log.warning("❌ P2P TCP transport failed")
 
@@ -494,86 +466,6 @@ class MeshNode:
             priority=priority,
         )
         return await self.send(msg)
-
-    async def send_file(self, file_path: str, recipient: str,
-                        priority: int = 5) -> Tuple[SendResult, str]:
-        """Send a file to a peer via P2P file transfer.
-
-        Creates a FILE_OFFER message. When the recipient accepts (FILE_ACCEPT),
-        chunks are sent automatically via _send_file_chunks.
-
-        Returns (SendResult, file_id).
-        """
-        try:
-            offer_msg, file_id = self.file_transfer.create_offer_message(
-                file_path, recipient, priority
-            )
-            result = await self.send(offer_msg)
-            log.info(f"File transfer initiated: {file_id} → {recipient} ({os.path.basename(file_path)})")
-            return result, file_id
-        except FileNotFoundError as e:
-            log.error(f"File transfer failed: {e}")
-            return SendResult(transport="p2p", success=False, error=str(e)), ""
-
-    async def _send_file_chunks(self, file_id: str, recipient: str):
-        """Send all chunks of a file after FILE_ACCEPT is received.
-
-        Iterates through all chunks, sends each via the mesh, then sends FILE_COMPLETE.
-        """
-        import asyncio
-
-        transfer = self.file_transfer._outgoing.get(file_id)
-        if not transfer:
-            log.error(f"Cannot send chunks: no outgoing transfer for {file_id}")
-            return
-
-        chunk_count = transfer["chunk_count"]
-        log.info(f"Starting chunk transfer: {file_id} → {recipient} ({chunk_count} chunks)")
-
-        for chunk_index in range(chunk_count):
-            try:
-                chunk_msg = self.file_transfer.create_chunk_message(
-                    file_id, chunk_index, recipient, priority=3
-                )
-                if chunk_msg is None:
-                    log.error(f"Failed to create chunk {chunk_index} for {file_id}")
-                    continue
-
-                result = await self.send(chunk_msg)
-                if not result.success:
-                    log.warning(f"Chunk {chunk_index} send failed for {file_id}: {result.error}")
-                else:
-                    log.debug(f"Chunk {chunk_index}/{chunk_count} sent for {file_id}")
-
-                # Small delay to avoid overwhelming the receiver
-                await asyncio.sleep(0.01)
-
-                # Update transfer state
-                transfer["current_chunk"] = chunk_index + 1
-
-            except Exception as e:
-                log.error(f"Error sending chunk {chunk_index} for {file_id}: {e}")
-
-        # Send FILE_COMPLETE
-        complete_msg = self.file_transfer.create_complete_message(file_id, recipient)
-        result = await self.send(complete_msg)
-        log.info(f"FILE_COMPLETE sent for {file_id} → {recipient} (result: {result.success})")
-
-    async def _on_p2p_ack(self, ack_for_id: str, ack_type: str):
-        """Callback when a P2P ACK is received — update message status in PG."""
-        if not self._pg_conn:
-            return
-        try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
-                UPDATE mesh.mesh_messages SET status = 'acknowledged'
-                WHERE id = %s
-            """, (ack_for_id,))
-            self._pg_conn.commit()
-            cur.close()
-            log.info(f"PG message {ack_for_id[:8]} status → acknowledged (P2P ACK: {ack_type})")
-        except Exception as e:
-            log.error(f"Failed to update message status for ACK {ack_for_id[:8]}: {e}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 

@@ -235,8 +235,8 @@ class MeshRouter:
                 self._stats["ttl_expired"] += 1
                 return ProcessResult(status="ttl_expired", message=message)
 
-        # 4. RE-chain filter
-        if self.re_chain_limit > 0 and message.type != "heartbeat":
+        # 4. RE-chain filter (skip for heartbeat and ACK messages)
+        if self.re_chain_limit > 0 and message.type not in ("heartbeat", "ack"):
             re_count = message.payload.get("subject", "").count("RE:")
             if re_count >= self.re_chain_limit:
                 self._stats["re_chain_filtered"] += 1

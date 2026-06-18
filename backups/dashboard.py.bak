@@ -856,10 +856,7 @@ class DashboardHandler:
         asyncio.ensure_future(self._cleanup_processing_indicator(message.id))
 
     async def _call_webhook(self, agent_name, webhook_url, payload, sig, original_message):
-        """Call a single agent's webhook URL. Non-blocking — logs result.
-        
-        Falls back to P2P transport if webhook fails (e.g. Runa has no Hermes gateway on 8644).
-        """
+        """Call a single agent's webhook URL. Non-blocking — logs result."""
         try:
             import aiohttp
             async with aiohttp.ClientSession() as session:
@@ -899,54 +896,6 @@ class DashboardHandler:
                             log.warning(f"Failed to post agent '{agent_name}' reply to mesh chat: {re}")
         except Exception as e:
             log.info(f"Agent '{agent_name}' webhook failed ({webhook_url}): {e}")
-            # Fallback: send wake-up notification via P2P transport directly
-            await self._wake_via_p2p(agent_name, original_message, payload, sig)
-
-    async def _wake_via_p2p(self, agent_name, original_message, webhook_payload, sig):
-        """Fallback: wake an agent via P2P transport when webhook (HTTP 8644) is unavailable.
-        
-        Sends a 'wake' directive via P2P TCP. The receiving node's handler will
-        see this and can process the original message.
-        """
-        from .message import A2AMessage, MSG_TYPE_DIRECTIVE
-        try:
-            p2p = self.node._p2p_transport
-            if not p2p or not p2p.is_available():
-                log.debug(f"P2P fallback skipped for {agent_name}: transport unavailable")
-                return
-
-            # Try to parse webhook payload for content
-            try:
-                payload_data = json.loads(webhook_payload)
-            except Exception:
-                payload_data = {}
-
-            wake_msg = A2AMessage.create(
-                sender=self.node.node_name,
-                recipient=agent_name if agent_name != "self" else "broadcast",
-                msg_type=MSG_TYPE_DIRECTIVE,
-                priority=8,
-                payload={
-                    "text": payload_data.get("content", ""),
-                    "source": "web_dashboard_wake",
-                    "username": payload_data.get("sender", "dashboard"),
-                    "original_sender": self.node.node_name,
-                    "webhook_fallback": True,
-                    "mesh_message_id": original_message.id,
-                    "reply_endpoint": payload_data.get("reply_endpoint", ""),
-                    "reply_format": "mesh_chat",
-                    "subject": payload_data.get("subject", ""),
-                    "sig": sig,
-                },
-            )
-
-            result = await p2p.send(wake_msg)
-            if result.success:
-                log.info(f"P2P fallback: woke agent '{agent_name}' via P2P transport (instead of webhook)")
-            else:
-                log.debug(f"P2P fallback failed for {agent_name}: {result.error}")
-        except Exception as e:
-            log.debug(f"P2P fallback error for {agent_name}: {e}")
 
     async def _poll_for_agent_reply(self, original_message, timeout: int = 90, interval: int = 3):
         """Poll mesh_messages for an agent reply matching the original message.

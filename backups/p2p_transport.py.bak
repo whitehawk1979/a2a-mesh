@@ -12,10 +12,10 @@ import ssl
 import struct
 import logging
 import time
-from typing import Dict, List, Optional, Set, Tuple, Any
+from typing import Dict, List, Optional, Set, Tuple
 
 from .base import TransportAdapter, TransportStatus
-from ..core.message import A2AMessage, SendResult, MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT
+from ..core.message import A2AMessage, SendResult
 
 log = logging.getLogger("a2a_mesh.transports.p2p")
 
@@ -50,16 +50,6 @@ class P2PTransport(TransportAdapter):
         self._max_retries = config.p2p.max_connections  # reuse as max reconnect attempts
         self._reconnect_interval = config.p2p.idle_timeout  # base retry interval in seconds
         self._ssl_context: Optional[ssl.SSLContext] = None  # TLS if configured
-
-        # Retry queue: messages that failed to send, will be retried on reconnect
-        self._retry_queue: List[Tuple[A2AMessage, float]] = []  # (message, queued_at)
-        self._retry_interval = 10  # seconds between retry attempts
-
-        # ACK callback: called when an ACK message is received, so sender can update PG
-        self._ack_callback = None  # Callable[[str, str], Awaitable[None]] (ack_for_id, ack_type)
-
-        # Reverse-lookup: map writer → peer_name for incoming ACK routing
-        self._writer_to_peer: Dict[int, str] = {}  # id(writer) → peer_name
 
         # Setup TLS if configured
         p2p_config = getattr(config, 'p2p', None)
@@ -157,13 +147,6 @@ class P2PTransport(TransportAdapter):
         peer_addr = writer.get_extra_info('peername')
         log.debug(f"New connection from {peer_addr}")
 
-        # Try to identify which peer this connection is from
-        connected_peer_name = None
-        for pname, (pr, pw) in self._peers.items():
-            if pw is writer:
-                connected_peer_name = pname
-                break
-
         try:
             while self._running:
                 # Read length prefix (4 bytes, big-endian)
@@ -178,25 +161,6 @@ class P2PTransport(TransportAdapter):
                 # Read message data
                 data = await reader.readexactly(length)
                 message = A2AMessage.from_bytes(data)
-
-                # Handle ACK messages: don't re-queue, just invoke callback
-                if message.type == MSG_TYPE_ACK:
-                    payload = message.payload if isinstance(message.payload, dict) else {}
-                    ack_for_id = payload.get("ack_for", "")
-                    ack_type = payload.get("ack_type", "delivered")
-                    log.info(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
-                    if self._ack_callback and ack_for_id:
-                        try:
-                            asyncio.create_task(self._ack_callback(ack_for_id, ack_type))
-                        except Exception as e:
-                            log.error(f"ACK callback error: {e}")
-                    # Also enqueue so node-level handlers can process it
-                    await self._incoming_queue.put((message, "p2p"))
-                    continue
-
-                # Auto-ACK: send ACK back for non-heartbeat messages via P2P
-                if message.type != MSG_TYPE_HEARTBEAT and message.sender != getattr(self.config, 'node_name', ''):
-                    asyncio.create_task(self._send_ack(message, writer, connected_peer_name))
 
                 # Queue for processing
                 await self._incoming_queue.put((message, "p2p"))
@@ -216,46 +180,10 @@ class P2PTransport(TransportAdapter):
             for pname, (pr, pw) in list(self._peers.items()):
                 if pw is writer:
                     removed = self._peers.pop(pname, None)
-                    self._writer_to_peer.pop(id(writer), None)
                     log.info(f"Peer {pname} disconnected, removed from peers dict")
                     break
             if removed is None:
                 log.debug(f"Connection from {peer_addr} closed (was not in peers dict)")
-
-    async def _send_ack(self, original_message: A2AMessage, writer: asyncio.StreamWriter, peer_name: Optional[str]):
-        """Send an ACK message back via P2P to the sender."""
-        try:
-            ack_msg = A2AMessage.create(
-                sender=getattr(self.config, 'node_name', ''),
-                recipient=original_message.sender,
-                msg_type=MSG_TYPE_ACK,
-                priority=min(original_message.priority + 1, 10),
-                payload={
-                    "ack_for": original_message.id,
-                    "ack_type": "delivered",
-                    "original_type": original_message.type,
-                    "original_sender": original_message.sender,
-                    "timestamp": time.time(),
-                    "error": "",
-                },
-            )
-
-            data = ack_msg.to_bytes()
-            length_prefix = struct.pack('>I', len(data))
-            payload_bytes = length_prefix + data
-
-            writer.write(payload_bytes)
-            await writer.drain()
-            log.info(f"P2P ACK sent for {original_message.id[:8]} → {original_message.sender}")
-        except Exception as e:
-            log.warning(f"Failed to send P2P ACK for {original_message.id[:8]}: {e}")
-
-    def set_ack_callback(self, callback):
-        """Set callback invoked when an ACK is received.
-        
-        Callback signature: async def callback(ack_for_id: str, ack_type: str)
-        """
-        self._ack_callback = callback
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
         """Connect to a known peer with exponential backoff."""
@@ -264,7 +192,6 @@ class P2PTransport(TransportAdapter):
             reader, writer = await asyncio.open_connection(host, port, ssl=self._ssl_context)
             self._peers[name] = (reader, writer)
             self._peer_addresses[name] = f"{host}:{port}"
-            self._writer_to_peer[id(writer)] = name
             # Reset retry count on success
             self._peer_retry_count[name] = 0
             self._peer_backoff.pop(name, None)
@@ -272,10 +199,6 @@ class P2PTransport(TransportAdapter):
 
             # Start reading from this peer
             asyncio.create_task(self._handle_connection(reader, writer))
-
-            # Flush retry queue: resend any queued messages to this peer
-            self._flush_retry_queue_for_peer(name)
-
         except Exception as e:
             retry_count = self._peer_retry_count.get(name, 0) + 1
             self._peer_retry_count[name] = retry_count
@@ -305,8 +228,6 @@ class P2PTransport(TransportAdapter):
                 log.warning(f"Failed to send to {message.recipient}: {e}")
                 # Remove broken connection
                 self._peers.pop(message.recipient, None)
-                # Queue for retry
-                self._enqueue_for_retry(message)
                 return SendResult(transport="p2p", success=False, error=str(e))
 
         # Broadcast: send to all connected peers
@@ -322,59 +243,7 @@ class P2PTransport(TransportAdapter):
 
         if successes > 0:
             return SendResult(transport="p2p", success=True, latency_ms=2.0)
-
-        # No peers connected — queue for retry only if NOT a broadcast
-        # (broadcast already succeeded via PG, don't queue duplicates)
-        if not message.is_broadcast():
-            self._enqueue_for_retry(message)
         return SendResult(transport="p2p", success=False, error="no peers connected")
-
-    def _enqueue_for_retry(self, message: A2AMessage):
-        """Add a message to the retry queue for later delivery."""
-        # Don't queue heartbeats or ACKs
-        if message.type in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
-            return
-        self._retry_queue.append((message, time.time()))
-        log.info(f"Queued message {message.id[:8]} for retry ({len(self._retry_queue)} queued)")
-
-    def _flush_retry_queue_for_peer(self, peer_name: str):
-        """Attempt to resend queued messages to a newly connected peer."""
-        if not self._retry_queue:
-            return
-
-        # Get writer for this peer
-        if peer_name not in self._peers:
-            return
-        _, writer = self._peers[peer_name]
-
-        # Filter messages for this peer (directed to this peer, or broadcasts)
-        to_resend = []
-        remaining = []
-        for msg, queued_at in self._retry_queue:
-            if msg.recipient == peer_name or msg.is_broadcast():
-                to_resend.append((msg, queued_at))
-            else:
-                remaining.append((msg, queued_at))
-
-        self._retry_queue = remaining
-
-        if to_resend:
-            async def _resend():
-                for msg, queued_at in to_resend:
-                    try:
-                        data = msg.to_bytes()
-                        length_prefix = struct.pack('>I', len(data))
-                        writer.write(length_prefix + data)
-                        await writer.drain()
-                        age = time.time() - queued_at
-                        log.info(f"Retry: sent queued message {msg.id[:8]} to {peer_name} (was queued {age:.0f}s ago)")
-                    except Exception as e:
-                        log.warning(f"Retry failed for {msg.id[:8]} to {peer_name}: {e}")
-                        # Re-queue if still failing
-                        self._enqueue_for_retry(msg)
-                        break
-
-            asyncio.create_task(_resend())
 
     async def receive(self) -> list:
         """Get received messages from the queue."""
@@ -410,10 +279,6 @@ class P2PTransport(TransportAdapter):
         """Return number of connected peers."""
         return len(self._peers)
 
-    def get_retry_queue_size(self) -> int:
-        """Return number of messages waiting in the retry queue."""
-        return len(self._retry_queue)
-
     async def _reconnect_loop(self):
         """Periodically check for disconnected peers and attempt reconnection."""
         while self._running:
@@ -433,29 +298,7 @@ class P2PTransport(TransportAdapter):
                             log.info(f"Reconnecting to peer {name} at {address}")
                             await self._connect_to_peer(name, host, port)
 
-                # Process retry queue: try sending queued messages if any peers are connected
-                if self._retry_queue and self._peers:
-                    await self._process_retry_queue()
-
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.error(f"Reconnect loop error: {e}")
-
-    async def _process_retry_queue(self):
-        """Try to resend queued messages to any available peer."""
-        if not self._retry_queue:
-            return
-        queue = self._retry_queue
-        self._retry_queue = []
-        for msg, queued_at in queue:
-            age = time.time() - queued_at
-            # Don't retry messages older than 1 hour
-            if age > 3600:
-                log.warning(f"Discarding queued message {msg.id[:8]} (too old: {age:.0f}s)")
-                continue
-            result = await self.send(msg)
-            if not result.success:
-                log.debug(f"Retry still failing for {msg.id[:8]}: {result.error}")
-                # Re-queue for next cycle
-                self._retry_queue.append((msg, queued_at))
