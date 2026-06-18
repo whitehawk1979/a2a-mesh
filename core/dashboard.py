@@ -210,8 +210,9 @@ class DashboardHandler:
                 where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync')")
 
                 if channel == "general":
-                    # Broadcast messages only
-                    where_clauses.append("recipient = 'broadcast'")
+                    # General chat: broadcast messages + agent replies (even if recipient=nova)
+                    # Agent replies have recipient=sender but should appear in general chat (Telegram-like)
+                    where_clauses.append("(recipient = 'broadcast' OR msg_type IN ('agent_reply', 'directive'))")
                 elif channel and channel.startswith("dm:"):
                     # DM with specific agent
                     dm_agent = channel[3:]
