@@ -229,14 +229,35 @@ class DashboardHandler:
 
                 where_sql = " AND ".join(where_clauses)
 
-                cur.execute(f"""
-                    SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
-                    FROM mesh.mesh_messages
-                    WHERE {where_sql}
-                    ORDER BY created_at DESC
-                    LIMIT %s
-                """, params + [limit])
-                for row in cur.fetchall():
+                # For SQL_ASCII PG: cast payload to text explicitly
+                # psycopg2 may fail decoding non-ASCII bytes; wrap in try/except
+                try:
+                    cur.execute(f"""
+                        SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
+                        FROM mesh.mesh_messages
+                        WHERE {where_sql}
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    """, params + [limit])
+                    rows = cur.fetchall()
+                except UnicodeDecodeError:
+                    # Fallback: cast payload to hex and decode manually
+                    cur.execute(f"""
+                        SELECT id, sender, recipient, msg_type, priority,
+                               encode(payload::bytea, 'hex') as payload_hex,
+                               created_at, status
+                        FROM mesh.mesh_messages
+                        WHERE {where_sql}
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                    """, params + [limit])
+                    rows = []
+                    for row in cur.fetchall():
+                        msg_id, sender, recipient, msg_type, priority, payload_hex, created_at, status = row
+                        payload = bytes.fromhex(payload_hex).decode('utf-8', errors='replace')
+                        rows.append((msg_id, sender, recipient, msg_type, payload, created_at, status))
+                
+                for row in rows:
                     msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
                     # Parse payload — it's stored as text (JSON string)
                     # Handle SQL_ASCII PG: decode bytes safely
