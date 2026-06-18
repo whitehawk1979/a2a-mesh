@@ -303,8 +303,8 @@ function addMessageToDOM(msg, scroll) {
     messageHistory = messageHistory.filter(function(m) { return m.type !== "agent_processing" && m.type !== "agent_timeout"; });
   }
   var isSent = msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId;
-  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId;
-  var isBroadcast = !msg.recipient || msg.recipient === "broadcast";
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId && msg.type !== "agent_reply" && msg.type !== "directive";
+  var isBroadcast = !msg.recipient || msg.recipient === "broadcast" || msg.type === "agent_reply" || msg.type === "directive";
 
   var cls = isSent ? "sent" : (msg.type === "agent_processing" ? "system" : (isDM ? "dm" : (isBroadcast ? "broadcast" : "received")));
   var pri = msg.priority || 5;
@@ -346,7 +346,8 @@ function addMessage(msg, scroll) {
   if (scroll === undefined) scroll = true;
 
   // Route message to the correct channel
-  var isDM = msg.recipient && msg.recipient !== "broadcast";
+  // Agent replies (even if recipient=nova) should appear in general chat (Telegram-like)
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.type !== "agent_reply" && msg.type !== "directive";
   var channel;
 
   if (isDM) {
