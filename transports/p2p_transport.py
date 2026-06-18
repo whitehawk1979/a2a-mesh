@@ -69,6 +69,8 @@ class P2PTransport(TransportAdapter):
         tls_ca = os.path.expanduser(getattr(p2p_config, 'tls_ca', '') or '') if p2p_config else ''
         tls_verify_peer = getattr(p2p_config, 'tls_verify_peer', False) if p2p_config else False
 
+        log.info(f"P2P TLS config: enabled={tls_enabled} cert={tls_cert} key={tls_key} ca={tls_ca} verify={tls_verify_peer}")
+
         if tls_enabled and tls_cert and tls_key:
             import ssl as _ssl
             self._ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
