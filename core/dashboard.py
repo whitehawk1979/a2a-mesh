@@ -230,9 +230,7 @@ class DashboardHandler:
                 where_sql = " AND ".join(where_clauses)
 
                 cur.execute(f"""
-                    SELECT id, sender, recipient, msg_type, priority,
-                           convert_from(payload::bytea, 'UTF8') as payload,
-                           created_at, status
+                    SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
                     FROM mesh.mesh_messages
                     WHERE {where_sql}
                     ORDER BY created_at DESC
@@ -1204,6 +1202,9 @@ class DashboardHandler:
                     host=self.node.config.pg.host, port=self.node.config.pg.port
                 )
                 cur = conn.cursor()
+                cur.execute("SET client_encoding TO 'UTF8'")
+                # ASCII-safe sender for SQL_ASCII PG
+                safe_sender_param = sender.encode("ascii", "replace").decode("ascii") if sender else ""
                 cur.execute("""
                     SELECT id, sender, recipient, msg_type, priority, payload, created_at
                     FROM mesh.mesh_messages
@@ -1211,7 +1212,7 @@ class DashboardHandler:
                       AND recipient IN (%s, 'broadcast')
                       AND created_at > NOW() - INTERVAL '2 minutes'
                     ORDER BY created_at DESC LIMIT 10
-                """, (sender, sender))
+                """, (safe_sender_param, safe_sender_param))
                 rows = cur.fetchall()
                 cur.close()
                 conn.close()
@@ -1325,9 +1326,7 @@ class DashboardHandler:
             
             where_sql = " AND ".join(where_clauses)
             cur.execute(f"""
-                SELECT sender, recipient, msg_type,
-                       convert_from(payload::bytea, 'UTF8') as payload,
-                       created_at
+                SELECT sender, recipient, msg_type, payload, created_at
                 FROM mesh.mesh_messages
                 WHERE {where_sql}
                 ORDER BY created_at DESC
