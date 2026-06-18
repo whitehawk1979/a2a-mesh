@@ -239,7 +239,16 @@ class DashboardHandler:
                 for row in cur.fetchall():
                     msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
                     # Parse payload — it's stored as text (JSON string)
+                    # Handle SQL_ASCII PG: decode bytes safely
                     import json
+                    if isinstance(payload, bytes):
+                        payload = payload.decode("utf-8", errors="replace")
+                    elif isinstance(payload, str):
+                        # SQL_ASCII may have raw UTF-8 bytes stored as chars
+                        try:
+                            payload = payload.encode("latin-1").decode("utf-8")
+                        except (UnicodeDecodeError, UnicodeEncodeError):
+                                pass  # keep original
                     try:
                         payload_data = json.loads(payload) if isinstance(payload, str) else payload
                     except (json.JSONDecodeError, TypeError):
@@ -795,16 +804,20 @@ class DashboardHandler:
             )
             cur = conn.cursor()
             payload = message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)}
+            # Encode username safely (handle non-ASCII names like "Lakatos Miklós Zsolt")
             username = (auth_user.display_name if auth_user else "web_user").encode("ascii", "replace").decode("ascii")
+            # For SQL_ASCII PG: use ASCII-safe sender name
+            safe_sender = (message.sender or "unknown").encode("ascii", "replace").decode("ascii")
             payload_json = json.dumps(payload, ensure_ascii=True)
 
             cur.execute(
                 """INSERT INTO mesh.mesh_messages
                    (id, sender, recipient, msg_type, priority, payload, routing_mode, status, created_at)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())""",
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                   ON CONFLICT (id) DO NOTHING""",
                 (
                     message.id,
-                    message.sender,
+                    safe_sender,
                     message.recipient or "broadcast",
                     message.type,
                     message.priority,
@@ -1325,6 +1338,14 @@ class DashboardHandler:
             for row in reversed(rows):  # chronological order
                 sender, recipient, msg_type, payload, created_at = row
                 import json as _json
+                # Handle SQL_ASCII PG: decode bytes safely
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8", errors="replace")
+                elif isinstance(payload, str):
+                    try:
+                        payload = payload.encode("latin-1").decode("utf-8")
+                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        pass  # keep original
                 try:
                     p = _json.loads(payload) if isinstance(payload, str) else payload
                 except (ValueError, TypeError):
