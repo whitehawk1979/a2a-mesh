@@ -303,7 +303,8 @@ class DashboardHandler:
                 recip = msg.get("recipient", "broadcast")
                 sender = msg.get("sender", "")
                 if ch == "general":
-                    return recip == "broadcast"
+                    # General channel: broadcast + agent replies/directives (Telegram-like)
+                    return recip == "broadcast" or msg_type in ("agent_reply", "directive")
                 elif ch.startswith("dm:"):
                     agent = ch[3:]
                     return sender == agent or recip == agent
