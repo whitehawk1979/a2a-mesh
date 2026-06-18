@@ -120,7 +120,15 @@ class DashboardHandler:
         """Serve the dashboard HTML page."""
         from aiohttp import web
         html = self._load_html()
-        return web.Response(text=html, content_type="text/html")
+        return web.Response(
+            text=html,
+            content_type="text/html",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     async def _api_status(self, request):
         """Return full mesh status."""
@@ -920,11 +928,26 @@ class DashboardHandler:
                 log.info(f"Skipping wake for '{agent_name}': message from self")
                 return
             
+            # Known agent names in the mesh
+            agent_names = set()
+            try:
+                for name, _ in self.node.peer_discovery.get_all_peers().items():
+                    agent_names.add(name.lower())
+            except Exception:
+                pass
+            agent_names.add(self.node.node_name.lower())
+            
             # Build context prompt using the chat history from the payload
             if chat_history:
                 chat_lines = []
                 for h in chat_history:
-                    chat_lines.append(f"  [{h.get('sender','?')}] {h.get('content','')[:200]}")
+                    h_sender = h.get('sender', '?')
+                    h_content = h.get('content', '')[:200]
+                    # Mark human vs agent
+                    if h_sender.lower() in agent_names or h_sender in ('nova', 'morzsa', 'runa'):
+                        chat_lines.append(f"  [{h_sender} 🤖] {h_content}")
+                    else:
+                        chat_lines.append(f"  [{h_sender} 👤] {h_content}")
                 chat_context = "\n".join(chat_lines[-8:])
             else:
                 chat_context = "(nincs előzmény)"
@@ -936,14 +959,21 @@ class DashboardHandler:
             except (json.JSONDecodeError, TypeError):
                 content_text = content
             
+            # Determine if sender is human or agent
+            is_human = sender.lower() not in agent_names and sender not in ('nova', 'morzsa', 'runa')
+            sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
+            
             prompt = (
-                f"Te egy A2A Mesh chat résztvevője vagy ({agent_name}). "
+                f"Te egy A2A Mesh chat résztvevője vagy ({agent_name} 🤖). "
                 f"Ez egy közös chat session, mint egy Telegram csoport. "
+                f"A chatben emberi felhasználók (👤) és AI agentek (🤖) vesznek részt. "
+                f"Az emberi felhasználók (pl. Zsolt) írnak üzeneteket, az agentek válaszolnak. "
                 f"Látod a beszélgetés előzményeit és az új üzenetet.\n\n"
                 f"── Beszélgetés eddig ──\n{chat_context}\n\n"
-                f"── Új üzenet ──\n[{sender}] {content_text[:500]}\n\n"
+                f"── Új üzenet ──\n[{sender_tag}] {content_text[:500]}\n\n"
                 f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
-                f"Csak akkor válaszolj, ha az üzenet hozzád szól vagy általános kérdés. "
+                f"Ha az üzenet emberi felhasználótól (👤) van, neki válaszolj. "
+                f"Ha egy másik agent (🤖) írt és nem hozzád szól, nem kell válaszolnod. "
                 f"Ha nem kell válaszolnod, ne küldd el a curl-t.\n\n"
                 f"Válaszod elküldéséhez futtasd:\n"
                 f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
@@ -1323,24 +1353,44 @@ class DashboardHandler:
         """
         history = self._fetch_chat_history(limit=10, channel=channel)
         
+        # Known agent names
+        agent_names = set()
+        try:
+            for name, _ in self.node.peer_discovery.get_all_peers().items():
+                agent_names.add(name.lower())
+        except Exception:
+            pass
+        agent_names.add(self.node.node_name.lower())
+        
         # Build conversation context
         if history:
             chat_lines = []
             for h in history:
-                # Don't include the current message (it's being delivered separately)
-                chat_lines.append(f"  [{h['sender']}] {h['content']}")
+                h_sender = h.get('sender', '?')
+                h_content = h.get('content', '')[:200]
+                if h_sender.lower() in agent_names or h_sender.lower() in ('nova', 'morzsa', 'runa'):
+                    chat_lines.append(f"  [{h_sender} 🤖] {h_content}")
+                else:
+                    chat_lines.append(f"  [{h_sender} 👤] {h_content}")
             chat_context = "\n".join(chat_lines[-8:])  # last 8 messages
         else:
             chat_context = "(nincs előzmény)"
         
+        # Determine if sender is human or agent
+        is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
+        sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
+        
         prompt = (
-            f"Te egy A2A Mesh chat résztvevője vagy ({agent_name}). "
+            f"Te egy A2A Mesh chat résztvevője vagy ({agent_name} 🤖). "
             f"Ez egy közös chat session, mint egy Telegram csoport. "
+            f"A chatben emberi felhasználók (👤) és AI agentek (🤖) vesznek részt. "
+            f"Az emberi felhasználók (pl. Zsolt) írnak üzeneteket, az agentek válaszolnak. "
             f"Látod a beszélgetés előzményeit és az új üzenetet.\n\n"
             f"── Beszélgetés eddig ──\n{chat_context}\n\n"
-            f"── Új üzenet ──\n[{sender}] {content}\n\n"
+            f"── Új üzenet ──\n[{sender_tag}] {content}\n\n"
             f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
-            f"Csak akkor válaszolj, ha az üzenet hozzád szól vagy általános kérdés. "
+            f"Ha az üzenet emberi felhasználótól (👤) van, neki válaszolj. "
+            f"Ha egy másik agent (🤖) írt és nem hozzád szól, nem kell válaszolnod. "
             f"Ha nem kell válaszolnod, ne küldd el a curl-t.\n\n"
             f"Válaszod elküldéséhez futtasd:\n"
             f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
