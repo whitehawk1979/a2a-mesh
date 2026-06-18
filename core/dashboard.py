@@ -230,7 +230,9 @@ class DashboardHandler:
                 where_sql = " AND ".join(where_clauses)
 
                 cur.execute(f"""
-                    SELECT id, sender, recipient, msg_type, priority, payload, created_at, status
+                    SELECT id, sender, recipient, msg_type, priority,
+                           convert_from(payload::bytea, 'UTF8') as payload,
+                           created_at, status
                     FROM mesh.mesh_messages
                     WHERE {where_sql}
                     ORDER BY created_at DESC
@@ -1323,7 +1325,9 @@ class DashboardHandler:
             
             where_sql = " AND ".join(where_clauses)
             cur.execute(f"""
-                SELECT sender, recipient, msg_type, payload, created_at
+                SELECT sender, recipient, msg_type,
+                       convert_from(payload::bytea, 'UTF8') as payload,
+                       created_at
                 FROM mesh.mesh_messages
                 WHERE {where_sql}
                 ORDER BY created_at DESC
