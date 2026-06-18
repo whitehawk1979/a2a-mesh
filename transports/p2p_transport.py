@@ -74,22 +74,28 @@ class P2PTransport(TransportAdapter):
 
         if tls_enabled and tls_cert and tls_key:
             import ssl as _ssl
-            self._ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
-            self._ssl_context.load_cert_chain(tls_cert, tls_key)
-            self._ssl_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM')
-            # Minimum TLS 1.2
-            self._ssl_context.minimum_version = _ssl.TLSVersion.TLSv1_2
-            # Load CA for peer verification if configured
-            if tls_ca:
-                self._ssl_context.load_verify_locations(tls_ca)
-                log.info(f"P2P TLS: loaded CA from {tls_ca}")
-            if tls_verify_peer:
-                self._ssl_context.verify_mode = _ssl.CERT_REQUIRED
-                log.info("P2P TLS: peer certificate verification ENABLED")
-            else:
-                self._ssl_context.verify_mode = _ssl.CERT_NONE
-                log.info("P2P TLS: peer certificate verification DISABLED")
-            log.info(f"P2P TLS enabled with cert={tls_cert}")
+            try:
+                self._ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
+                self._ssl_context.load_cert_chain(tls_cert, tls_key)
+                self._ssl_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM')
+                # Minimum TLS 1.2
+                self._ssl_context.minimum_version = _ssl.TLSVersion.TLSv1_2
+                # Load CA for peer verification if configured
+                if tls_ca:
+                    self._ssl_context.load_verify_locations(tls_ca)
+                    log.info(f"P2P TLS: loaded CA from {tls_ca}")
+                if tls_verify_peer:
+                    self._ssl_context.verify_mode = _ssl.CERT_REQUIRED
+                    log.info("P2P TLS: peer certificate verification ENABLED")
+                else:
+                    self._ssl_context.verify_mode = _ssl.CERT_NONE
+                    log.info("P2P TLS: peer certificate verification DISABLED")
+                log.info(f"P2P TLS enabled with cert={tls_cert}")
+                print(f"[P2P] TLS enabled with cert={tls_cert}", flush=True)
+            except Exception as e:
+                log.error(f"P2P TLS init FAILED: {e}")
+                print(f"[P2P] TLS init FAILED: {e}", flush=True)
+                self._ssl_context = None
         elif tls_enabled:
             log.warning("P2P TLS enabled but no cert/key configured — falling back to plain TCP")
 
