@@ -122,17 +122,40 @@ class PeerDiscovery:
 
         If auto_approve is True, the peer is registered immediately.
         Otherwise, it goes into pending state for admin approval.
+        
+        Tries to load capabilities from PG (mesh_nodes table) first,
+        falls back to P2P-discovered info, then defaults.
         """
         from .registry import AgentCard
+        
+        # Try to load capabilities from PG (mesh_nodes table)
+        capabilities = ["a2a_messaging"]  # Default fallback
+        if self._pg_conn and not self._pg_conn.closed:
+            try:
+                cur = self._pg_conn.cursor()
+                cur.execute("""
+                    SELECT capabilities FROM mesh.mesh_nodes 
+                    WHERE node_name = %s
+                """, (peer.name,))
+                row = cur.fetchone()
+                cur.close()
+                if row and row[0]:
+                    import json
+                    caps = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    if isinstance(caps, list) and len(caps) > 0:
+                        capabilities = caps
+            except Exception as e:
+                log.debug(f"Could not load capabilities from PG for {peer.name}: {e}")
+        
         card = AgentCard(
             name=peer.name,
-            capabilities=["a2a_messaging"],  # Default capability for discovered peers
+            capabilities=capabilities,
             endpoint=f"{peer.host}:{peer.p2p_port}",
             description=f"P2P discovered peer ({peer.role})",
         )
         status = self.registry.request_registration(card)
         if status == "approved":
-            log.info(f"Auto-approved discovered peer: {peer.name}")
+            log.info(f"Auto-approved discovered peer: {peer.name} caps={capabilities}")
         else:
             log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 

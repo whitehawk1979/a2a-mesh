@@ -67,7 +67,9 @@ class DashboardHandler:
     def __init__(self, node):
         self.node = node
         self.auth = AuthManager()
-        self.registry = AgentRegistry()
+        # Auto-approve known agents if topology.auto_approve_known_agents is True
+        auto_approve = getattr(getattr(node.config, 'topology', None), 'auto_approve_known_agents', False)
+        self.registry = AgentRegistry(auto_approve=auto_approve)
         self.smart_router = SmartRouter(self.registry)
         self.workflow_coordinator = WorkflowCoordinator(self.registry, self.smart_router)
         self.rate_limiter = RateLimiter()
