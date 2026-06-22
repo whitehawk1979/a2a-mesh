@@ -1143,12 +1143,15 @@ class MeshNode:
         if self.config.health_port and self.config.health_port > 0:
             dashboard_url = f"http://localhost:{self.config.health_port}/api/wake-agent"
         
-        # Try webhook URL first (works even when dashboard is on TLS port)
-        wake_url = webhook_url or dashboard_url
+        # Try dashboard wake-agent API first (most reliable), then webhook
+        wake_url = dashboard_url or webhook_url
         
         if not wake_url:
             log.debug("No URL available for wake-agent")
             return
+        
+        # Prepare webhook secret for signature
+        webhook_secret = getattr(self.config, 'webhook_secret', None) or os.environ.get('WEBHOOK_SECRET', '')
         
         try:
             import aiohttp
@@ -1164,10 +1167,20 @@ class MeshNode:
             if dashboard_url:
                 payload["reply_endpoint"] = dashboard_url.replace("/api/wake-agent", "/api/agent-reply")
             
+            headers = {}
+            if webhook_secret and webhook_url and wake_url == webhook_url:
+                # Sign payload with webhook secret for Hermes webhook
+                import hmac, hashlib
+                payload_json = json.dumps(payload, sort_keys=True)
+                signature = hmac.new(webhook_secret.encode(), payload_json.encode(), hashlib.sha256).hexdigest()
+                headers["X-Hermes-Signature"] = f"sha256={signature}"
+                headers["Content-Type"] = "application/json"
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post(wake_url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     if resp.status == 200:
                         log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
+                        return  # Success, no need for fallback
                     else:
                         body = await resp.text()
                         log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
