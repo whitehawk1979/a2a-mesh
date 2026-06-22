@@ -378,6 +378,9 @@ class MeshNode:
         # Start health endpoint
         self._tasks.append(asyncio.create_task(self._run_health_server()))
 
+        # Auto-register self in the agent registry
+        self._auto_register_self()
+
         # At least one transport must be working
         any_ok = any(results.values())
         if any_ok:
@@ -576,6 +579,36 @@ class MeshNode:
             log.error(f"Failed to update message status for ACK {ack_for_id[:8]}: {e}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
+
+    def _auto_register_self(self):
+        """Auto-register this node in the dashboard's agent registry."""
+        from .core.registry import AgentCard
+
+        # Determine capabilities from config
+        capabilities = getattr(self.config, 'capabilities', []) or [
+            "a2a_messaging",
+            "file_transfer",
+        ]
+
+        # Add common capabilities based on node role
+        if self.role == NodeRole.COORDINATOR:
+            capabilities.append("coordinator")
+
+        endpoint = f"http://{self.config.p2p.listen_host}:{self.config.health_port or 8650}"
+
+        card = AgentCard(
+            name=self.node_name,
+            capabilities=list(set(capabilities)),  # Deduplicate
+            version=getattr(self.config, 'version', '0.7.0'),
+            description=f"A2A Mesh node ({self.role.value})",
+            endpoint=endpoint,
+            health_endpoint="/api/status",
+            max_concurrent=getattr(self.config, 'max_concurrent', 10),
+        )
+
+        if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry'):
+            self.dashboard.registry.register(card, force=True)
+            log.info(f"Auto-registered self in registry: {self.node_name} caps={card.capabilities}")
 
     async def _run_health_server(self):
         """Simple HTTP health check server on configured port."""

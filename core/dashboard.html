@@ -68,6 +68,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-danger{background:var(--danger)}
 .btn-sm{padding:6px 12px;font-size:12px}
 
+/* File transfer styles */
+.file-modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;z-index:200}
+.file-modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;width:600px;max-width:95vw;max-height:80vh;overflow-y:auto}
+.file-modal h2{margin-bottom:16px;font-size:18px}
+.file-list{list-style:none;padding:0}
+.file-list li{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between}
+.file-list li .file-name{font-weight:500;font-size:14px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-list li .file-meta{font-size:12px;color:var(--text3)}
+.file-list li .file-actions{display:flex;gap:8px;align-items:center}
+.upload-progress{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;display:none}
+.upload-progress .progress-bar{height:4px;background:var(--border);border-radius:2px;margin-top:8px;overflow:hidden}
+.upload-progress .progress-bar .progress-fill{height:100%;background:var(--primary);border-radius:2px;transition:width .3s}
+.upload-status{font-size:13px;color:var(--text2)}
+
 /* Right panel */
 .right-panel{width:300px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
 .panel-section{border-bottom:1px solid var(--border);padding:12px 16px}
@@ -203,6 +217,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <option value="1">P1 Alacsony</option>
       </select>
       <button class="btn" id="sendBtn" onclick="sendMessage()">Küldés</button>
+      <button class="btn" id="fileBtn" onclick="document.getElementById('fileInput').click()" title="Fájl küldése" style="background:var(--success);font-size:16px;">📎</button>
+      <input type="file" id="fileInput" style="display:none" onchange="uploadFile()" multiple>
     </div>
   </div>
 
@@ -228,6 +244,66 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="panel-section" style="flex:1;overflow-y:auto;">
       <h3>Rendszernapló</h3>
       <div id="sysLog" style="font-size:11px;color:var(--text3);max-height:200px;overflow-y:auto;"></div>
+    </div>
+    <div class="panel-section">
+      <button class="btn btn-sm" style="width:100%;background:var(--success)" onclick="showFileList()">📎 Fájlok</button>
+    </div>
+    <div class="panel-section">
+      <button class="btn btn-sm" style="width:100%;background:var(--info)" onclick="showRegistry()">🔍 Registry</button>
+    </div>
+  </div>
+</div>
+
+<!-- File List Modal -->
+<div class="file-modal-overlay" id="fileModal" style="display:none">
+  <div class="file-modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">📎 Mesh Fájlok</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('fileModal').style.display='none'">✕</button>
+    </div>
+    <div class="upload-progress" id="uploadProgress">
+      <div class="upload-status" id="uploadStatus">Fájl feltöltése...</div>
+      <div class="progress-bar"><div class="progress-fill" id="uploadFill" style="width:0%"></div></div>
+    </div>
+    <div style="margin-bottom:16px;display:flex;gap:8px">
+      <button class="btn btn-sm" style="background:var(--success)" onclick="document.getElementById('fileUploadInput').click()">⬆️ Fájl feltöltése</button>
+      <input type="file" id="fileUploadInput" style="display:none" onchange="uploadFileFromModal(this)" multiple>
+      <button class="btn btn-sm" onclick="loadFileList()">🔄 Frissítés</button>
+    </div>
+    <ul class="file-list" id="fileListContent"></ul>
+  </div>
+</div>
+
+<!-- Registry Modal -->
+<div class="file-modal-overlay" id="registryModal" style="display:none">
+  <div class="file-modal" style="width:750px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">🔍 Agent Registry</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('registryModal').style.display='none'">✕</button>
+    </div>
+    <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-sm" style="background:var(--info)" onclick="loadRegistry()">🔄 Frissítés</button>
+      <input type="text" id="registryCapSearch" placeholder="Keresés képesség szerint..." style="flex:1;min-width:200px;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+      <button class="btn btn-sm" onclick="searchRegistry()">🔍 Keresés</button>
+      <button class="btn btn-sm" style="background:var(--primary)" onclick="showRegisterAgent()">➕ Regisztrálás</button>
+    </div>
+    <div id="registryStats" style="margin-bottom:12px;font-size:12px;color:var(--text3)"></div>
+    <ul class="file-list" id="registryList"></ul>
+
+    <!-- Register Agent Form (hidden by default) -->
+    <div id="registerAgentForm" style="display:none;margin-top:16px;padding:16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <h3 style="margin:0 0 12px 0;font-size:15px">➕ Új Agent Regisztrálása</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <input type="text" id="regName" placeholder="Agent neve *" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+        <input type="text" id="regVersion" placeholder="Verzió (1.0.0)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+        <input type="text" id="regEndpoint" placeholder="Endpoint (http://...)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);grid-column:span 2">
+        <input type="text" id="regCapabilities" placeholder="Képességek (vesszővel: web_search,code_review)" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);grid-column:span 2">
+        <input type="text" id="regDescription" placeholder="Leírás" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);grid-column:span 2">
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button class="btn btn-sm" style="background:var(--success)" onclick="registerAgent()">✅ Regisztrálás</button>
+        <button class="btn btn-sm" onclick="document.getElementById('registerAgentForm').style.display='none'">Mégsem</button>
+      </div>
     </div>
   </div>
 </div>
@@ -544,6 +620,20 @@ function initWebSocket() {
       case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
       case "status": updateStatus(data.data); break;
       case "new_message": addMessage(data.message); break;
+      case "file_transfer":
+        // Show file transfer notification in chat
+        var ftMsg = {
+          id: "ft_" + Date.now(),
+          sender: data.sender || "system",
+          recipient: data.recipient || "broadcast",
+          type: "system",
+          content: "📎 Fájl megosztva: " + (data.filename || "?") + " (" + (data.results ? data.results.length : 0) + " peer)",
+          priority: 5,
+          timestamp: new Date().toISOString(),
+          source: "web_dashboard"
+        };
+        addMessage(ftMsg);
+        break;
       case "message_deleted":
         var el = document.getElementById("msg-" + data.message_id);
         if (el) el.remove();
@@ -709,6 +799,246 @@ document.getElementById("recipientSelect").addEventListener("change", function()
     switchChannel(val);
   }
 });
+
+// ─── File Transfer Functions ──────────────────────────
+function uploadFile() {
+  var input = document.getElementById("fileInput");
+  if (!input.files || !input.files.length) return;
+  var recipient = document.getElementById("recipientSelect").value || "";
+  uploadFiles(input.files, recipient);
+  input.value = "";  // Reset for next upload
+}
+
+function uploadFileFromModal(input) {
+  if (!input.files || !input.files.length) return;
+  uploadFiles(input.files, "");
+  input.value = "";
+}
+
+function uploadFiles(files, recipient) {
+  var progressEl = document.getElementById("uploadProgress");
+  var statusEl = document.getElementById("uploadStatus");
+  var fillEl = document.getElementById("uploadFill");
+
+  for (var i = 0; i < files.length; i++) {
+    (function(file, idx) {
+      var formData = new FormData();
+      formData.append("file", file);
+      if (recipient) formData.append("recipient", recipient);
+
+      progressEl.style.display = "block";
+      statusEl.textContent = "⬆️ Feltöltés: " + file.name + " (" + formatFileSize(file.size) + ")...";
+      fillEl.style.width = "0%";
+
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/send-file", true);
+      xhr.setRequestHeader("Authorization", "Bearer " + (localStorage.getItem("mesh_token") || ""));
+
+      xhr.upload.onprogress = function(e) {
+        if (e.lengthComputable) {
+          var pct = Math.round((e.loaded / e.total) * 100);
+          fillEl.style.width = pct + "%";
+        }
+      };
+
+      xhr.onload = function() {
+        fillEl.style.width = "100%";
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data.error) {
+            statusEl.textContent = "❌ Hiba: " + data.error;
+            statusEl.style.color = "var(--danger)";
+          } else {
+            statusEl.textContent = "✅ " + data.filename + " elküldve!";
+            statusEl.style.color = "var(--success)";
+            log("📎 Fájl elküldve: " + data.filename + " (" + formatFileSize(data.size) + ")");
+            setTimeout(function() { progressEl.style.display = "none"; statusEl.style.color = ""; }, 3000);
+            loadFileList();
+          }
+        } catch(e) {
+          statusEl.textContent = "❌ Válasz hiba";
+          statusEl.style.color = "var(--danger)";
+        }
+      };
+
+      xhr.onerror = function() {
+        statusEl.textContent = "❌ Hálózati hiba";
+        statusEl.style.color = "var(--danger)";
+      };
+
+      xhr.send(formData);
+    })(files[i], i);
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  return (bytes / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+}
+
+function showFileList() {
+  document.getElementById("fileModal").style.display = "flex";
+  loadFileList();
+}
+
+function loadFileList() {
+  fetch("/api/files", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("fileListContent");
+      if (!d.files || d.files.length === 0) {
+        el.innerHTML = '<li style="text-align:center;color:var(--text3);padding:20px">Nincsenek fájlok</li>';
+        return;
+      }
+      el.innerHTML = d.files.map(function(f) {
+        var icon = f.name.match(/\.(png|jpg|jpeg|gif|webp|svg)$/i) ? "🖼️" :
+                   f.name.match(/\.(mp4|avi|mkv|mov)$/i) ? "🎬" :
+                   f.name.match(/\.(mp3|wav|ogg|flac)$/i) ? "🎵" :
+                   f.name.match(/\.(pdf)$/i) ? "📄" :
+                   f.name.match(/\.(zip|tar|gz|rar|7z)$/i) ? "📦" : "📎";
+        var time = new Date(f.modified * 1000).toLocaleString("hu-HU");
+        var typeLabel = f.type === "uploaded" ? "⬆️" : "⬇️";
+        return '<li>' +
+          '<div>' +
+            '<div class="file-name">' + icon + ' ' + escapeHtml(f.name.replace(/^\d+_/, "")) + '</div>' +
+            '<div class="file-meta">' + typeLabel + ' ' + f.size_human + ' · ' + time + '</div>' +
+          '</div>' +
+          '<div class="file-actions">' +
+            '<a href="' + f.url + '?token=' + encodeURIComponent(localStorage.getItem("mesh_token") || "") + '" target="_blank" class="btn btn-sm" style="text-decoration:none">⬇️ Letöltés</a>' +
+          '</div>' +
+        '</li>';
+      }).join('');
+    })
+    .catch(function() {
+      document.getElementById("fileListContent").innerHTML = '<li style="text-align:center;color:var(--danger)">Hiba a fájlok betöltésekor</li>';
+    });
+}
+
+// ─── Registry Functions ──────────────────────────────────
+function showRegistry() {
+  document.getElementById("registryModal").style.display = "flex";
+  document.getElementById("registerAgentForm").style.display = "none";
+  loadRegistry();
+}
+
+function showRegisterAgent() {
+  document.getElementById("registerAgentForm").style.display = "block";
+}
+
+function registerAgent() {
+  var name = document.getElementById("regName").value.trim();
+  if (!name) { alert("Agent neve kötelező!"); return; }
+  var data = {
+    name: name,
+    version: document.getElementById("regVersion").value.trim() || "1.0.0",
+    endpoint: document.getElementById("regEndpoint").value.trim(),
+    capabilities: document.getElementById("regCapabilities").value.split(",").map(function(s){return s.trim();}).filter(Boolean),
+    description: document.getElementById("regDescription").value.trim(),
+    force: true
+  };
+  fetch("/api/registry/agents", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify(data)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.error) { alert("Hiba: " + d.error); }
+    else { loadRegistry(); document.getElementById("registerAgentForm").style.display = "none"; }
+  })
+  .catch(function() { alert("Hálózati hiba"); });
+}
+
+function loadRegistry() {
+  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var statsEl = document.getElementById("registryStats");
+      statsEl.innerHTML = "🟢 Egészséges: " + (d.healthy_agents||0) + " · 🟡 Degraded: " + (d.degraded_agents||0) + " · 🔴 Unhealthy: " + (d.unhealthy_agents||0) + " · Összesen: " + d.total_agents;
+      loadRegistryAgents();
+    })
+    .catch(function() { document.getElementById("registryStats").textContent = "Hiba a statisztikák betöltésekor"; });
+}
+
+function loadRegistryAgents() {
+  fetch("/api/registry/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("registryList");
+      if (!d.agents || d.agents.length === 0) {
+        el.innerHTML = '<li style="text-align:center;color:var(--text3);padding:20px">Nincsenek regisztrált agensek</li>';
+        return;
+      }
+      el.innerHTML = d.agents.map(function(a) {
+        var scorePct = Math.round(a.health_score * 100);
+        var scoreColor = scorePct >= 80 ? "var(--success)" : scorePct >= 50 ? "#f0ad4e" : "var(--danger)";
+        var statusIcon = a.status === "healthy" ? "🟢" : a.status === "degraded" ? "🟡" : a.status === "unhealthy" ? "🔴" : "⚪";
+        var caps = a.capabilities.map(function(c) { return '<span style="background:var(--primary);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin:2px">' + escapeHtml(c) + '</span>'; }).join(" ");
+        return '<li style="flex-direction:column;align-items:stretch">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<div><strong>' + statusIcon + ' ' + escapeHtml(a.name) + '</strong> <span style="color:var(--text3);font-size:12px">v' + escapeHtml(a.version) + '</span></div>' +
+            '<div style="display:flex;align-items:center;gap:8px">' +
+              '<div style="background:var(--border);border-radius:4px;width:80px;height:8px;overflow:hidden"><div style="background:' + scoreColor + ';height:100%;width:' + scorePct + '%;border-radius:4px"></div></div>' +
+              '<span style="font-size:12px;color:' + scoreColor + '">' + scorePct + '%</span>' +
+              '<button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="deregisterAgent(\'' + escapeHtml(a.name) + '\')">✕</button>' +
+            '</div>' +
+          '</div>' +
+          (a.description ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">' + escapeHtml(a.description) + '</div>' : '') +
+          '<div style="margin-top:6px">' + (caps || '<span style="color:var(--text3);font-size:11px">Nincs képesség</span>') + '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:4px">' +
+            '⏱️ ' + a.avg_latency_ms.toFixed(0) + 'ms · ' +
+            '✅ ' + (a.success_rate * 100).toFixed(0) + '% · ' +
+            '📊 ' + a.current_load + '/' + a.max_concurrent + ' · ' +
+            '📈 ' + a.uptime_pct.toFixed(0) + '% · ' +
+            '📨 ' + a.total_requests +
+          '</div>' +
+        '</li>';
+      }).join('');
+    })
+    .catch(function() {
+      document.getElementById("registryList").innerHTML = '<li style="text-align:center;color:var(--danger)">Hiba a registry betöltésekor</li>';
+    });
+}
+
+function searchRegistry() {
+  var caps = document.getElementById("registryCapSearch").value;
+  var params = "capabilities=" + encodeURIComponent(caps);
+  fetch("/api/registry/find?" + params, {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("registryList");
+      if (!d.matches || d.matches.length === 0) {
+        el.innerHTML = '<li style="text-align:center;color:var(--text3);padding:20px">Nincs találat</li>';
+        return;
+      }
+      el.innerHTML = d.matches.map(function(a) {
+        var scorePct = Math.round(a.health_score * 100);
+        var scoreColor = scorePct >= 80 ? "var(--success)" : scorePct >= 50 ? "#f0ad4e" : "var(--danger)";
+        var caps = a.capabilities.map(function(c) { return '<span style="background:var(--primary);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;margin:2px">' + escapeHtml(c) + '</span>'; }).join(" ");
+        return '<li>' +
+          '<div><strong>' + escapeHtml(a.name) + '</strong> <span style="font-size:12px;color:var(--text3)">v' + escapeHtml(a.version) + '</span></div>' +
+          '<div style="margin-top:4px">' + caps + '</div>' +
+          '<div style="font-size:11px;color:var(--text3);margin-top:4px">' +
+            'Health: <span style="color:' + scoreColor + '">' + scorePct + '%</span> · Load: ' + a.current_load +
+          '</div>' +
+        '</li>';
+      }).join('');
+    })
+    .catch(function() { alert("Keresési hiba"); });
+}
+
+function deregisterAgent(name) {
+  if (!confirm("Biztosan eltávolítod: " + name + "?")) return;
+  fetch("/api/registry/agents/" + encodeURIComponent(name), {
+    method: "DELETE",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) { loadRegistry(); })
+  .catch(function() { alert("Hiba az eltávolításkor"); });
+}
 
 // ─── Auto-refresh ──────────────────────────────────────
 setInterval(loadAgents, 10000);
