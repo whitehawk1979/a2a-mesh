@@ -273,7 +273,7 @@ class PeerDiscovery:
         """Establish P2P connection to a peer.
 
         If the P2P transport is available and the peer isn't already connected,
-        attempt a direct connection.
+        attempt a direct connection. Also register the peer with the agent registry.
         """
         if not self.p2p_transport or not self.p2p_transport.is_available():
             log.debug(f"P2P not available, skipping connection to {peer.name}")
@@ -288,6 +288,9 @@ class PeerDiscovery:
                 peer.name, peer.host, peer.p2p_port
             )
             log.info(f"P2P connected to peer {peer.name} at {peer.host}:{peer.p2p_port}")
+            # Register connected peer with agent registry
+            if self.registry:
+                self._register_discovered_peer(peer)
             return True
         except Exception as e:
             log.warning(f"Failed to connect to {peer.name}: {e}")
