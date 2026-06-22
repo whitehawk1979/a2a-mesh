@@ -1124,16 +1124,34 @@ class MeshNode:
     # ─── Webhook Trigger ─────────────────────────────────────────────
 
     async def _trigger_webhook(self, message: A2AMessage):
-        """Wake the local Hermes agent via the dashboard wake-agent API.
+        """Wake the local Hermes agent via the webhook URL or dashboard wake-agent API.
         
-        Uses the dashboard's /api/wake-agent endpoint which triggers
-        `hermes -z` locally with the message context.
+        Tries webhook URL first (Hermes webhook), then health_port dashboard API.
+        The webhook triggers `hermes -z` which wakes the agent to process the message.
         """
-        # Use dashboard health_port for the wake-agent API
-        wake_port = self.config.health_port or 8650
+        # Determine the correct URL for waking the agent
+        # Priority: webhook_port (Hermes webhook) > health_port (dashboard API) > HTTP transport
+        wake_url = None
+        webhook_url = None
+        
+        # Try webhook_port first (direct Hermes webhook on localhost)
+        if self.config.webhook_port:
+            webhook_url = f"http://localhost:{self.config.webhook_port}/webhooks/a2a-instant"
+        
+        # Dashboard wake-agent API on health_port
+        dashboard_url = None
+        if self.config.health_port and self.config.health_port > 0:
+            dashboard_url = f"http://localhost:{self.config.health_port}/api/wake-agent"
+        
+        # Try webhook URL first (works even when dashboard is on TLS port)
+        wake_url = webhook_url or dashboard_url
+        
+        if not wake_url:
+            log.debug("No URL available for wake-agent")
+            return
+        
         try:
             import aiohttp
-            url = f"http://localhost:{wake_port}/api/wake-agent"
             payload = {
                 "message_id": message.id,
                 "sender": message.sender,
@@ -1141,17 +1159,33 @@ class MeshNode:
                 "type": message.type,
                 "priority": message.priority,
                 "content": message.payload if isinstance(message.payload, str) else str(message.payload),
-                "reply_endpoint": f"http://localhost:{wake_port}/api/agent-reply",
             }
+            # Add reply_endpoint for dashboard API
+            if dashboard_url:
+                payload["reply_endpoint"] = dashboard_url.replace("/api/wake-agent", "/api/agent-reply")
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.post(wake_url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     if resp.status == 200:
-                        log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender}")
+                        log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
                     else:
                         body = await resp.text()
-                        log.warning(f"Wake-agent response {resp.status}: {body[:200]}")
+                        log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
         except Exception as e:
-            log.warning(f"Wake-agent trigger failed: {e}")
+            log.debug(f"Wake-agent via {wake_url} failed: {e}")
+            # Try fallback URL
+            fallback = dashboard_url if wake_url == webhook_url else webhook_url
+            if fallback and fallback != wake_url:
+                try:
+                    import aiohttp as _aiohttp_fallback
+                    async with _aiohttp_fallback.ClientSession() as session:
+                        async with session.post(fallback, json=payload, timeout=_aiohttp_fallback.ClientTimeout(total=5)) as resp:
+                            if resp.status == 200:
+                                log.info(f"Wake-agent triggered via fallback {fallback}")
+                            else:
+                                log.warning(f"Wake-agent fallback {fallback} returned {resp.status}")
+                except Exception as e2:
+                    log.debug(f"Wake-agent fallback {fallback} also failed: {e2}")
 
 
 async def main():
