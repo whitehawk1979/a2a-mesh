@@ -247,17 +247,12 @@ class MeshNode:
         """Dispatch incoming message to all registered handlers.
 
         Special handling for file_transfer, memory_sync messages, ACK, and dashboard notification.
-        Also triggers webhook to wake the local Hermes agent for message processing.
         """
         # Notify dashboard
         try:
             await self.dashboard.on_mesh_message(message)
         except Exception as e:
             log.debug(f"Dashboard notification failed: {e}")
-
-        # Wake local Hermes agent via webhook for all non-ACK, non-heartbeat messages
-        if message.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT):
-            asyncio.create_task(self._trigger_webhook(message))
 
         # Handle ACK messages — process via ack_manager
         if message.type == MSG_TYPE_ACK:
@@ -911,14 +906,17 @@ class MeshNode:
                             result = await self.router.receive(msg, from_transport)
                             log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             if result.status == "processed":
+                                # Always wake the local agent for incoming messages
+                                asyncio.create_task(self._trigger_webhook(msg))
+
                                 # Auto-steer classification and dispatch
                                 action = await self.auto_steer.process_message(msg)
 
                                 if action in ("interrupt", "steer_interrupt"):
-                                    # P10+: immediate handler dispatch + webhook
+                                    # P10+: immediate handler dispatch
                                     await self._dispatch_to_handlers(msg)
                                 elif action in ("high", "steer_queued"):
-                                    # P7-9: handler dispatch (no webhook)
+                                    # P7-9: handler dispatch
                                     await self._dispatch_to_handlers(msg)
                                 else:
                                     # P1-6: queued backlog processing
