@@ -909,6 +909,7 @@ class MeshNode:
                                 continue
 
                             result = await self.router.receive(msg, from_transport)
+                            log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             if result.status == "processed":
                                 # Auto-steer classification and dispatch
                                 action = await self.auto_steer.process_message(msg)
