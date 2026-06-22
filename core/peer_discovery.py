@@ -381,26 +381,17 @@ class PeerDiscovery:
         import select as _select
         import threading
         
-        # Get PG connection config from the existing connection
-        conn = self._pg_conn
-        if not conn or conn.closed:
-            log.debug("PG NOTIFY: no connection available, skipping listener")
+        # Get PG connection config from config (not from DSN, which omits password)
+        config = self.config
+        if not config or not hasattr(config, 'pg') or not config.pg:
+            log.debug("PG NOTIFY: no PG config available, skipping listener")
             return
         
-        # Extract connection params for a new dedicated listener connection
-        try:
-            dsn_params = dict(pair.split('=', 1) for pair in conn.dsn.split() if '=' in pair)
-            pg_host = dsn_params.get('host', 'localhost')
-            pg_port = dsn_params.get('port', '5432')
-            pg_dbname = dsn_params.get('dbname', 'agent_memory')
-            pg_user = dsn_params.get('user', 'nova')
-            pg_password = dsn_params.get('password', '')
-        except Exception:
-            pg_host = getattr(self.config, 'pg_host', '192.168.1.30') if hasattr(self, 'config') and self.config else '192.168.1.30'
-            pg_port = '5432'
-            pg_dbname = 'agent_memory'
-            pg_user = 'nova'
-            pg_password = ''
+        pg_host = getattr(config.pg, 'host', '192.168.1.30')
+        pg_port = getattr(config.pg, 'port', 5432)
+        pg_dbname = getattr(config.pg, 'dbname', 'agent_memory')
+        pg_user = getattr(config.pg, 'user', 'nova')
+        pg_password = getattr(config.pg, 'password', '')
         
         def _listen_sync():
             """Sync PG NOTIFY listener running in a background thread with its own connection."""
