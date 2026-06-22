@@ -168,6 +168,7 @@ class MeshNode:
             config=self.config,
             local_store=self.local_store,
             pg_conn=None,  # Set later after PG connection established
+            registry=None,  # Set after dashboard init
         )
 
         # Initialize mesh memory sync
@@ -175,6 +176,9 @@ class MeshNode:
 
         # Initialize web dashboard
         self.dashboard = DashboardHandler(self)
+
+        # Link registry to peer discovery (after dashboard init)
+        self.peer_discovery.registry = self.dashboard.registry
 
         # Initialize node authenticator
         auth_config = AuthConfig(

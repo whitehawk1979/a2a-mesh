@@ -21,6 +21,8 @@ from .auth import AuthManager, DashboardUser as AuthUser
 from .registry import AgentRegistry, AgentCard, HealthRecord
 from .smart_router import SmartRouter
 from .workflow import WorkflowCoordinator, Workflow, WorkflowTask, ConsensusMode
+from .rate_limiter import RateLimiter
+from .exceptions import MeshError, RoutingError
 
 log = logging.getLogger("a2a_mesh.dashboard")
 
@@ -68,6 +70,7 @@ class DashboardHandler:
         self.registry = AgentRegistry()
         self.smart_router = SmartRouter(self.registry)
         self.workflow_coordinator = WorkflowCoordinator(self.registry, self.smart_router)
+        self.rate_limiter = RateLimiter()
         self._users: Dict[str, DashboardUser] = {}
         self._message_history: List[dict] = []
         self._max_history = 200
@@ -122,6 +125,12 @@ class DashboardHandler:
         app.router.add_post("/api/workflow", self._api_workflow_create)
         app.router.add_get("/api/workflow/{wf_id}", self._api_workflow_status)
         app.router.add_get("/api/workflows", self._api_workflows_list)
+        # Pending agent approval endpoints
+        app.router.add_get("/api/registry/pending", self._api_registry_pending)
+        app.router.add_post("/api/registry/approve/{name}", self._api_registry_approve)
+        app.router.add_post("/api/registry/reject/{name}", self._api_registry_reject)
+        app.router.add_get("/api/settings", self._api_settings_get)
+        app.router.add_post("/api/settings", self._api_settings_update)
 
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
@@ -138,6 +147,11 @@ class DashboardHandler:
         user = self.auth.verify_token(token)
         if not user:
             return None, web.json_response({"error": "Invalid or expired token"}, status=401)
+
+        # Rate limit check
+        client_id = user.username if user else request.remote
+        if not self.rate_limiter.allow(client_id):
+            return None, web.json_response({"error": "Rate limit exceeded"}, status=429)
 
         return user, None
 
@@ -2448,6 +2462,136 @@ class DashboardHandler:
             return err
         workflows = self.workflow_coordinator.list_active_workflows()
         return web.json_response({"workflows": workflows, "total": len(workflows)})
+
+    # ─── Pending Agent Approval API Handlers ──────────────────────────
+
+    async def _api_registry_pending(self, request):
+        """GET /api/registry/pending — List pending agent registrations."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        pending = self.registry.list_pending()
+        result = []
+        for card, status in pending:
+            result.append({
+                "name": card.name,
+                "capabilities": card.capabilities,
+                "version": card.version,
+                "endpoint": card.endpoint,
+                "description": card.description,
+                "status": status,
+            })
+        return web.json_response({"pending": result, "total": len(result)})
+
+    async def _api_registry_approve(self, request):
+        """POST /api/registry/approve/{name} — Approve a pending agent."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        name = request.match_info.get("name", "")
+        card = self.registry.approve_agent(name)
+        if not card:
+            return web.json_response({"error": f"Agent '{name}' not in pending list"}, status=404)
+        return web.json_response({
+            "status": "approved",
+            "agent": {
+                "name": card.name,
+                "capabilities": card.capabilities,
+                "version": card.version,
+                "endpoint": card.endpoint,
+            },
+        })
+
+    async def _api_registry_reject(self, request):
+        """POST /api/registry/reject/{name} — Reject a pending agent."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        name = request.match_info.get("name", "")
+        success = self.registry.reject_agent(name)
+        if not success:
+            return web.json_response({"error": f"Agent '{name}' not in pending list"}, status=404)
+        return web.json_response({"status": "rejected", "agent": name})
+
+    # ─── Settings API Handlers ────────────────────────────────────────
+
+    async def _api_settings_get(self, request):
+        """GET /api/settings — Get current mesh settings."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+
+        settings = {
+            "mesh": {
+                "node_name": self.node.node_name if self.node else "unknown",
+                "p2p_enabled": True,
+                "pg_enabled": bool(self.node and hasattr(self.node, 'pg_transport')),
+                "dashboard_port": 8650,
+            },
+            "registry": {
+                "auto_approve": self.registry.auto_approve,
+                "total_agents": len(self.registry.agents),
+                "pending_agents": len(self.registry.pending_agents),
+                "health_check_interval": self.registry._health_interval,
+            },
+            "rate_limits": {
+                "api_per_min": 100,
+                "p2p_per_min": 200,
+                "workflow_per_min": 20,
+            },
+            "health_scorer": {
+                "decay_factor": self.registry.health_scorer.decay_factor,
+                "recovery_factor": self.registry.health_scorer.recovery_factor,
+                "latency_threshold_ms": self.registry.health_scorer.latency_threshold_ms,
+                "weights": self.registry.health_scorer.weights,
+            },
+        }
+        return web.json_response(settings)
+
+    async def _api_settings_update(self, request):
+        """POST /api/settings — Update mesh settings."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        updated = {}
+
+        # Update auto_approve
+        if "auto_approve" in data.get("registry", {}):
+            self.registry.auto_approve = bool(data["registry"]["auto_approve"])
+            updated["auto_approve"] = self.registry.auto_approve
+
+        # Update health check interval
+        if "health_check_interval" in data.get("registry", {}):
+            self.registry._health_interval = float(data["registry"]["health_check_interval"])
+            updated["health_check_interval"] = self.registry._health_interval
+
+        # Update health scorer weights
+        if "weights" in data.get("health_scorer", {}):
+            for key, val in data["health_scorer"]["weights"].items():
+                if key in self.registry.health_scorer.weights:
+                    self.registry.health_scorer.weights[key] = float(val)
+            updated["weights"] = self.registry.health_scorer.weights
+
+        # Update decay/recovery factors
+        if "decay_factor" in data.get("health_scorer", {}):
+            self.registry.health_scorer.decay_factor = float(data["health_scorer"]["decay_factor"])
+            updated["decay_factor"] = self.registry.health_scorer.decay_factor
+        if "recovery_factor" in data.get("health_scorer", {}):
+            self.registry.health_scorer.recovery_factor = float(data["health_scorer"]["recovery_factor"])
+            updated["recovery_factor"] = self.registry.health_scorer.recovery_factor
+
+        return web.json_response({"status": "ok", "updated": updated})
 
     def _load_html(self) -> str:
         """Load the dashboard HTML page from external file."""

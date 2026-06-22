@@ -249,30 +249,40 @@ class HealthScorer:
 class AgentRegistry:
     """In-memory agent registry with capability-based discovery and health scoring.
 
-    Integrates with our existing PeerDiscovery and LocalStore.
+    Features:
+    - Agent registration with auto-approval or pending approval
+    - Capability-based discovery (with version support)
+    - Composite health scoring
+    - P2P auto-discovery integration (new agents require approval)
 
     Usage:
         registry = AgentRegistry(health_scorer=HealthScorer())
 
         # Register agents
-        card = AgentCard(name="morzsa", capabilities=["code_review", "web_search@v2"])
+        card = AgentCard(name=\"morzsa\", capabilities=[\"code_review\", \"web_search@v2\"])
         registry.register(card)
 
-        # Find agents by capability
-        agents = registry.find_by_capability(["web_search"])
+        # Auto-discovered agents need approval
+        registry.request_registration(discovered_card)  # → pending
+        registry.approve_agent(\"new_agent\")             # → registered
 
-        # Get health info
-        score = registry.get_health("morzsa")
+        # Find agents by capability
+        agents = registry.find_by_capability([\"web_search\"])
     """
 
-    def __init__(self, health_scorer: Optional[HealthScorer] = None):
+    def __init__(self, health_scorer: Optional[HealthScorer] = None, auto_approve: bool = False):
         self.agents: Dict[str, AgentCard] = {}
         self.health_records: Dict[str, HealthRecord] = {}
         self.health_scorer = health_scorer or HealthScorer()
         self._health_task: Optional[asyncio.Task] = None
         self._running = False
-        self._health_interval = 30.0  # seconds between health checks
-        self._peer_discovery = None  # Set via set_peer_discovery()
+        self._health_interval = 30.0
+        self._peer_discovery = None
+
+        # Pending agent approval system
+        self.auto_approve = auto_approve  # If True, auto-approve new agents
+        self.pending_agents: Dict[str, AgentCard] = {}  # name → card (awaiting approval)
+        self._approval_callbacks: List = []  # Callbacks on approval
 
     def register(self, card: AgentCard, force: bool = False) -> HealthRecord:
         """Register an agent with the mesh.
@@ -490,3 +500,87 @@ class AgentRegistry:
             ),
             "agents": agents_data,
         }
+
+    # ─── Pending Agent Approval ──────────────────────────────────────
+
+    def request_registration(self, card: AgentCard) -> str:
+        """Request registration for a new agent (P2P auto-discovery).
+
+        If auto_approve is True, the agent is registered immediately.
+        Otherwise, it goes into pending state awaiting admin approval.
+
+        Returns:
+            "approved" if auto-approved, "pending" if awaiting approval.
+        """
+        if card.name in self.agents:
+            log.info(f"Agent {card.name} already registered, updating")
+            self.agents[card.name] = card
+            return "approved"
+
+        if self.auto_approve:
+            self.register(card, force=True)
+            log.info(f"Auto-approved agent: {card.name}")
+            self._fire_approval_callbacks(card, "approved")
+            return "approved"
+
+        # Add to pending
+        self.pending_agents[card.name] = card
+        log.info(
+            f"Agent {card.name} pending approval "
+            f"(capabilities={card.capabilities}, endpoint={card.endpoint})"
+        )
+        return "pending"
+
+    def approve_agent(self, agent_name: str) -> Optional[AgentCard]:
+        """Approve a pending agent registration.
+
+        Moves agent from pending to registered state.
+        Returns the AgentCard if approved, None if not found in pending.
+        """
+        if agent_name not in self.pending_agents:
+            log.warning(f"Agent {agent_name} not in pending list")
+            return None
+
+        card = self.pending_agents.pop(agent_name)
+        self.register(card, force=True)
+        log.info(f"Agent {agent_name} approved and registered")
+        self._fire_approval_callbacks(card, "approved")
+        return card
+
+    def reject_agent(self, agent_name: str) -> bool:
+        """Reject a pending agent registration.
+
+        Returns True if the agent was in pending and removed.
+        """
+        if agent_name in self.pending_agents:
+            del self.pending_agents[agent_name]
+            log.info(f"Agent {agent_name} registration rejected")
+            self._fire_approval_callbacks(
+                AgentCard(name=agent_name), "rejected"
+            )
+            return True
+        return False
+
+    def list_pending(self) -> List[Tuple[AgentCard, str]]:
+        """List all pending agent registrations.
+
+        Returns:
+            List of (AgentCard, status) tuples for pending agents.
+        """
+        return [(card, "pending") for card in self.pending_agents.values()]
+
+    def on_approval(self, callback):
+        """Register a callback for agent approval events.
+
+        Callback signature: callback(card: AgentCard, action: str)
+        action is "approved" or "rejected".
+        """
+        self._approval_callbacks.append(callback)
+
+    def _fire_approval_callbacks(self, card: AgentCard, action: str):
+        """Fire all registered approval callbacks."""
+        for cb in self._approval_callbacks:
+            try:
+                cb(card, action)
+            except Exception as e:
+                log.error(f"Approval callback error: {e}")

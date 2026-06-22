@@ -251,6 +251,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="panel-section">
       <button class="btn btn-sm" style="width:100%;background:var(--info)" onclick="showRegistry()">🔍 Registry</button>
     </div>
+    <div class="panel-section">
+      <button class="btn btn-sm" style="width:100%;background:var(--warning)" onclick="showSettings()">⚙️ Beállítások</button>
+    </div>
   </div>
 </div>
 
@@ -304,6 +307,83 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <button class="btn btn-sm" style="background:var(--success)" onclick="registerAgent()">✅ Regisztrálás</button>
         <button class="btn btn-sm" onclick="document.getElementById('registerAgentForm').style.display='none'">Mégsem</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="file-modal-overlay" id="settingsModal" style="display:none">
+  <div class="file-modal" style="width:700px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">⚙️ Mesh Beállítások</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('settingsModal').style.display='none'">✕</button>
+    </div>
+
+    <!-- Mesh Info -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">📡 Mesh Információ</h3>
+      <div id="settingsMeshInfo" style="font-size:13px;color:var(--text3)">Betöltés...</div>
+    </div>
+
+    <!-- Registry Settings -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🗄️ Registry Beállítások</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Auto-jóváhagyás</label>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <input type="checkbox" id="settingsAutoApprove" style="width:18px;height:18px">
+            <span style="font-size:13px" id="settingsAutoApproveLabel">Kikapcsolva</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:4px">Új agent automatikus jóváhagyása (P2P felfedezés)</div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Health Check Interval (mp)</label>
+          <input type="number" id="settingsHealthInterval" min="5" max="300" value="30" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+      </div>
+    </div>
+
+    <!-- Health Scorer Settings -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">❤️ Health Scorer Súlyok</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Latencia súly (0-1)</label>
+          <input type="number" id="settingsWeightLatency" min="0" max="1" step="0.1" value="0.4" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Siker ráta súly (0-1)</label>
+          <input type="number" id="settingsWeightSuccess" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Elérhetőség súly (0-1)</label>
+          <input type="number" id="settingsWeightAvail" min="0" max="1" step="0.1" value="0.3" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Latencia küszöb (ms)</label>
+          <input type="number" id="settingsLatencyThreshold" min="100" max="30000" step="100" value="5000" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Degradáció faktor</label>
+          <input type="number" id="settingsDecayFactor" min="0.01" max="0.5" step="0.01" value="0.15" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Gyógyulás faktor</label>
+          <input type="number" id="settingsRecoveryFactor" min="0.01" max="0.5" step="0.01" value="0.05" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+      </div>
+    </div>
+
+    <!-- Pending Agents -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">⏳ Függő Agent Jóváhagyások</h3>
+      <div id="settingsPendingAgents" style="font-size:13px;color:var(--text3)">Nincs függő kérelem</div>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-sm" onclick="document.getElementById('settingsModal').style.display='none'">Mégsem</button>
+      <button class="btn btn-sm" style="background:var(--success)" onclick="saveSettings()">💾 Mentés</button>
     </div>
   </div>
 </div>
@@ -1063,6 +1143,133 @@ if (savedToken) {
 document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
 document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
 document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
+
+// ─── Settings Functions ──────────────────────────────────
+function showSettings() {
+  document.getElementById('settingsModal').style.display = 'flex';
+  loadSettings();
+}
+
+function loadSettings() {
+  fetch("/api/settings", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      document.getElementById("settingsMeshInfo").innerHTML =
+        "<b>Node:</b> " + data.mesh.node_name + "<br>" +
+        "<b>P2P:</b> " + (data.mesh.p2p_enabled ? "✅ Engedélyezve" : "❌ Letiltva") + "<br>" +
+        "<b>PG:</b> " + (data.mesh.pg_enabled ? "✅ Engedélyezve" : "❌ Letiltva") + "<br>" +
+        "<b>Agentek:</b> " + data.registry.total_agents + " regisztrált, " + data.registry.pending_agents + " függő";
+      document.getElementById("settingsAutoApprove").checked = data.registry.auto_approve;
+      document.getElementById("settingsAutoApproveLabel").textContent = data.registry.auto_approve ? "Bekapcsolva" : "Kikapcsolva";
+      document.getElementById("settingsHealthInterval").value = data.registry.health_check_interval;
+      document.getElementById("settingsWeightLatency").value = data.health_scorer.weights.latency;
+      document.getElementById("settingsWeightSuccess").value = data.health_scorer.weights.success_rate;
+      document.getElementById("settingsWeightAvail").value = data.health_scorer.weights.availability;
+      document.getElementById("settingsLatencyThreshold").value = data.health_scorer.latency_threshold_ms;
+      document.getElementById("settingsDecayFactor").value = data.health_scorer.decay_factor;
+      document.getElementById("settingsRecoveryFactor").value = data.health_scorer.recovery_factor;
+      loadPendingAgents();
+    })
+    .catch(function(e) { console.error("Settings load error:", e); });
+}
+
+function loadPendingAgents() {
+  fetch("/api/registry/pending", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var container = document.getElementById("settingsPendingAgents");
+      if (!data.pending || data.pending.length === 0) {
+        container.innerHTML = "<div style='color:var(--text3)'>Nincs függő jóváhagyási kérelem ✅</div>";
+        return;
+      }
+      var html = "<table style='width:100%;border-collapse:collapse;font-size:13px'>";
+      html += "<tr style='border-bottom:1px solid var(--border)'><th style='text-align:left;padding:4px'>Név</th><th style='text-align:left;padding:4px'>Képességek</th><th style='text-align:left;padding:4px'>Endpoint</th><th style='text-align:right;padding:4px'>Művelet</th></tr>";
+      data.pending.forEach(function(agent) {
+        html += "<tr style='border-bottom:1px solid var(--border)'>";
+        html += "<td style='padding:6px'><b>" + agent.name + "</b></td>";
+        html += "<td style='padding:6px'>" + (agent.capabilities || []).join(", ") + "</td>";
+        html += "<td style='padding:6px;font-size:11px'>" + (agent.endpoint || "-") + "</td>";
+        html += "<td style='padding:6px;text-align:right'>";
+        html += "<button class='btn btn-sm' style='background:var(--success);margin-right:4px' onclick='approveAgent(\"" + agent.name + "\")'>✅ Jóváhagy</button>";
+        html += "<button class='btn btn-sm' style='background:var(--danger)' onclick='rejectAgent(\"" + agent.name + "\")'>❌ Elutasít</button>";
+        html += "</td></tr>";
+      });
+      html += "</table>";
+      container.innerHTML = html;
+    })
+    .catch(function(e) { console.error("Pending agents error:", e); });
+}
+
+function approveAgent(name) {
+  fetch("/api/registry/approve/" + name, {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === "approved") {
+        alert("✅ " + name + " jóváhagyva!");
+        loadPendingAgents();
+      } else {
+        alert("❌ Hiba: " + (data.error || "Ismeretlen hiba"));
+      }
+    });
+}
+
+function rejectAgent(name) {
+  if (!confirm("Biztosan elutasítod " + name + " kérelmét?")) return;
+  fetch("/api/registry/reject/" + name, {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === "rejected") {
+        alert("❌ " + name + " elutasítva.");
+        loadPendingAgents();
+      } else {
+        alert("❌ Hiba: " + (data.error || "Ismeretlen hiba"));
+      }
+    });
+}
+
+function saveSettings() {
+  var data = {
+    registry: {
+      auto_approve: document.getElementById("settingsAutoApprove").checked,
+      health_check_interval: parseFloat(document.getElementById("settingsHealthInterval").value)
+    },
+    health_scorer: {
+      weights: {
+        latency: parseFloat(document.getElementById("settingsWeightLatency").value),
+        success_rate: parseFloat(document.getElementById("settingsWeightSuccess").value),
+        availability: parseFloat(document.getElementById("settingsWeightAvail").value)
+      },
+      latency_threshold_ms: parseFloat(document.getElementById("settingsLatencyThreshold").value),
+      decay_factor: parseFloat(document.getElementById("settingsDecayFactor").value),
+      recovery_factor: parseFloat(document.getElementById("settingsRecoveryFactor").value)
+    }
+  };
+  fetch("/api/settings", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    body: JSON.stringify(data)
+  }).then(function(r) { return r.json(); })
+    .then(function(result) {
+      if (result.status === "ok") {
+        alert("✅ Beállítások elmentve!");
+        loadSettings();
+      } else {
+        alert("❌ Hiba: " + (result.error || "Ismeretlen hiba"));
+      }
+    });
+
+  // Update auto-approve label
+  document.getElementById("settingsAutoApproveLabel").textContent =
+    document.getElementById("settingsAutoApprove").checked ? "Bekapcsolva" : "Kikapcsolva";
+}
+
+document.getElementById("settingsAutoApprove").addEventListener("change", function() {
+  document.getElementById("settingsAutoApproveLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
+});
 </script>
 </body>
 </html>

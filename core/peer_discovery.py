@@ -80,12 +80,13 @@ class PeerDiscovery:
     table and a P2P connection is attempted.
     """
 
-    def __init__(self, node_name: str, config, local_store=None, p2p_transport=None, pg_conn=None):
+    def __init__(self, node_name: str, config, local_store=None, p2p_transport=None, pg_conn=None, registry=None):
         self.node_name = node_name
         self.config = config
         self.local_store = local_store
         self.p2p_transport = p2p_transport
         self._pg_conn = pg_conn
+        self.registry = registry  # AgentRegistry for auto-registration
 
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
@@ -109,6 +110,25 @@ class PeerDiscovery:
         self._running = False
         self._discover_task: Optional[asyncio.Task] = None
         self._discover_interval = 30  # seconds
+
+    def _register_discovered_peer(self, peer) -> None:
+        """Register a discovered peer with the agent registry.
+
+        If auto_approve is True, the peer is registered immediately.
+        Otherwise, it goes into pending state for admin approval.
+        """
+        from .registry import AgentCard
+        card = AgentCard(
+            name=peer.name,
+            capabilities=["a2a_messaging"],  # Default capability for discovered peers
+            endpoint=f"{peer.host}:{peer.p2p_port}",
+            description=f"P2P discovered peer ({peer.role})",
+        )
+        status = self.registry.request_registration(card)
+        if status == "approved":
+            log.info(f"Auto-approved discovered peer: {peer.name}")
+        else:
+            log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
     def add_peer(self, name: str, host: str, p2p_port: int = 8651,
                  role: str = "router", health_port: int = 8650) -> PeerInfo:
@@ -277,6 +297,10 @@ class PeerDiscovery:
                 new_peers = await self.discover_from_pg(pg_conn)
                 if new_peers:
                     log.info(f"Discovered {len(new_peers)} new peers from PG: {[p.name for p in new_peers]}")
+                    # Auto-register discovered peers with registry
+                    if self.registry:
+                        for peer in new_peers:
+                            self._register_discovered_peer(peer)
             except Exception as e:
                 log.warning(f"PG peer discovery failed: {e}")
 
