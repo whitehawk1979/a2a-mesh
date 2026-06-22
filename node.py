@@ -247,12 +247,17 @@ class MeshNode:
         """Dispatch incoming message to all registered handlers.
 
         Special handling for file_transfer, memory_sync messages, ACK, and dashboard notification.
+        Also triggers webhook to wake the local Hermes agent for message processing.
         """
         # Notify dashboard
         try:
             await self.dashboard.on_mesh_message(message)
         except Exception as e:
             log.debug(f"Dashboard notification failed: {e}")
+
+        # Wake local Hermes agent via webhook for all non-ACK, non-heartbeat messages
+        if message.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT):
+            asyncio.create_task(self._trigger_webhook(message))
 
         # Handle ACK messages — process via ack_manager
         if message.type == MSG_TYPE_ACK:
