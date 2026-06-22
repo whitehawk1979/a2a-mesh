@@ -1167,6 +1167,14 @@ class MeshNode:
             if dashboard_url:
                 payload["reply_endpoint"] = dashboard_url.replace("/api/wake-agent", "/api/agent-reply")
             
+            # Add mesh_secret for dashboard wake-agent API auth
+            if wake_url == dashboard_url:
+                payload["mesh_secret"] = "mesh-wake-secret-2026"
+                # Build prompt from message content for wake-agent
+                prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
+                payload["prompt"] = prompt_text
+                payload["agent_name"] = self.node_name
+            
             headers = {}
             if webhook_secret and webhook_url and wake_url == webhook_url:
                 # Sign payload with webhook secret for Hermes webhook
