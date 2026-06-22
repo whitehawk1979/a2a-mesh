@@ -373,46 +373,90 @@ class PeerDiscovery:
     async def _listen_pg_notifications(self):
         """Listen for PG NOTIFY on mesh_node_update channel for real-time peer discovery.
         P0 optimization: Instead of waiting 30s for the next poll cycle,
-        immediately discover peers when they register/deregister."""
+        immediately discover peers when they register/deregister.
+        
+        Uses a separate psycopg2 connection in a background thread to avoid
+        blocking the asyncio event loop and to ensure thread safety."""
         import asyncio as _asyncio
+        import select as _select
+        import threading
+        
+        # Get PG connection config from the existing connection
+        conn = self._pg_conn
+        if not conn or conn.closed:
+            log.debug("PG NOTIFY: no connection available, skipping listener")
+            return
+        
+        # Extract connection params for a new dedicated listener connection
         try:
-            conn = self._pg_conn
-            if not conn or conn.closed:
-                return
-            # Listen for node registration/deregistration events
-            await conn.execute("LISTEN mesh_node_update")
-            log.info("Listening for mesh_node_update PG NOTIFY")
-            while self._running:
+            dsn_params = dict(pair.split('=', 1) for pair in conn.dsn.split() if '=' in pair)
+            pg_host = dsn_params.get('host', 'localhost')
+            pg_port = dsn_params.get('port', '5432')
+            pg_dbname = dsn_params.get('dbname', 'agent_memory')
+            pg_user = dsn_params.get('user', 'nova')
+            pg_password = dsn_params.get('password', '')
+        except Exception:
+            pg_host = getattr(self.config, 'pg_host', '192.168.1.30') if hasattr(self, 'config') and self.config else '192.168.1.30'
+            pg_port = '5432'
+            pg_dbname = 'agent_memory'
+            pg_user = 'nova'
+            pg_password = ''
+        
+        def _listen_sync():
+            """Sync PG NOTIFY listener running in a background thread with its own connection."""
+            listener_conn = None
+            try:
+                import psycopg2 as _pg
+                listener_conn = _pg.connect(
+                    host=pg_host, port=int(pg_port),
+                    dbname=pg_dbname, user=pg_user,
+                    password=pg_password, sslmode='prefer'
+                )
+                listener_conn.autocommit = True
+                cur = listener_conn.cursor()
+                cur.execute("LISTEN mesh_node_update")
+                cur.close()
+                log.info("Listening for mesh_node_update PG NOTIFY (dedicated thread)")
+                
+                while self._running:
+                    try:
+                        # Use select() to poll for PG notifications (1s timeout)
+                        if _select.select([listener_conn], [], [], 1.0)[0]:
+                            listener_conn.poll()
+                        while listener_conn.notifies:
+                            msg = listener_conn.notifies.pop(0)
+                            if msg.channel == "mesh_node_update":
+                                import json as _json
+                                try:
+                                    data = _json.loads(msg.payload)
+                                    node_name = data.get("node", data.get("name", ""))
+                                    action = data.get("action", "register")
+                                    log.info(f"PG NOTIFY: peer {node_name} action={action}")
+                                    if action in ("register", "update", "heartbeat"):
+                                        _asyncio.ensure_future(self.discover_and_connect())
+                                    elif action in ("deregister", "offline"):
+                                        if node_name in self._peers:
+                                            del self._peers[node_name]
+                                            log.info(f"Removed offline peer: {node_name}")
+                                except _json.JSONDecodeError:
+                                    log.warning(f"Invalid PG NOTIFY payload: {msg.payload}")
+                    except Exception as e:
+                        if self._running:
+                            log.debug(f"PG NOTIFY listener error: {e}")
+                            import time; time.sleep(1)
+            except Exception as e:
+                log.warning(f"PG NOTIFY listener thread stopped: {e}")
+            finally:
                 try:
-                    # Poll for notifications with 1s timeout
-                    msg = await _asyncio.wait_for(conn.notifies.get(), timeout=5.0)
-                    if msg.channel == "mesh_node_update":
-                        import json as _json
-                        try:
-                            data = _json.loads(msg.payload)
-                            node_name = data.get("node", data.get("name", ""))
-                            action = data.get("action", "register")
-                            log.info(f"PG NOTIFY: peer {node_name} action={action}")
-                            if action in ("register", "update", "heartbeat"):
-                                # Trigger immediate discovery for this peer
-                                await self.discover_and_connect()
-                            elif action in ("deregister", "offline"):
-                                # Remove peer from known peers
-                                if node_name in self._peers:
-                                    del self._peers[node_name]
-                                    log.info(f"Removed offline peer: {node_name}")
-                        except _json.JSONDecodeError:
-                            log.warning(f"Invalid PG NOTIFY payload: {msg.payload}")
-                except _asyncio.TimeoutError:
-                    continue
-                except Exception as e:
-                    if self._running:
-                        log.debug(f"PG NOTIFY listener error: {e}")
-                        await _asyncio.sleep(1)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            log.warning(f"PG NOTIFY listener stopped: {e}")
+                    if listener_conn is not None:
+                        listener_conn.close()
+                except Exception:
+                    pass
+
+        # Start listener in a background thread (non-blocking for asyncio)
+        listener_thread = threading.Thread(target=_listen_sync, daemon=True, name="pg-notify-listener")
+        listener_thread.start()
+        log.info("PG NOTIFY listener thread started")
 
     async def _discover_loop(self):
         """Periodic peer discovery loop."""
