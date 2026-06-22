@@ -781,8 +781,17 @@ class MeshNode:
         if not self._pg_conn:
             return
 
+        # Get capabilities from config (same as _auto_register_self)
+        capabilities = list(getattr(self.config, 'capabilities', []) or [
+            "a2a_messaging", "file_transfer"
+        ])
+        if self.role == NodeRole.COORDINATOR:
+            capabilities.extend(["coordinator", "dashboard", "registry"])
+        capabilities = list(set(capabilities))
+
         # Determine host address for other nodes to connect to
         import socket
+        import json
         try:
             host_ip = self._get_local_ip()
         except Exception:
@@ -801,8 +810,8 @@ class MeshNode:
                 INSERT INTO mesh.mesh_nodes 
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
-                     pg_available, p2p_available, http_available)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s)
+                     pg_available, p2p_available, http_available, capabilities)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
@@ -813,7 +822,8 @@ class MeshNode:
                     health_port = EXCLUDED.health_port,
                     pg_available = EXCLUDED.pg_available,
                     p2p_available = EXCLUDED.p2p_available,
-                    http_available = EXCLUDED.http_available
+                    http_available = EXCLUDED.http_available,
+                    capabilities = EXCLUDED.capabilities
             """, (
                 self.node_name,
                 self.role.value,
@@ -828,6 +838,7 @@ class MeshNode:
                 bool(self._pg_conn),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
+                json.dumps(capabilities),
             ))
             cur.close()
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")

@@ -36,6 +36,11 @@ class PeerInfo:
     p2p_available: bool = False
     pg_available: bool = False
     http_available: bool = False
+    capabilities: Optional[list] = None  # Agent capabilities from PG
+
+    def __post_init__(self):
+        if self.capabilities is None:
+            self.capabilities = []
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +54,7 @@ class PeerInfo:
             "p2p_available": self.p2p_available,
             "pg_available": self.pg_available,
             "http_available": self.http_available,
+            "capabilities": self.capabilities,
         }
 
     @classmethod
@@ -123,14 +129,14 @@ class PeerDiscovery:
         If auto_approve is True, the peer is registered immediately.
         Otherwise, it goes into pending state for admin approval.
         
-        Tries to load capabilities from PG (mesh_nodes table) first,
-        falls back to P2P-discovered info, then defaults.
+        Uses capabilities from: peer.capabilities (PG discovery) > PG mesh_nodes > default.
         """
         from .registry import AgentCard
         
-        # Try to load capabilities from PG (mesh_nodes table)
-        capabilities = ["a2a_messaging"]  # Default fallback
-        if self._pg_conn and not self._pg_conn.closed:
+        # Use peer capabilities if available (from PG discovery), else try PG query, else default
+        capabilities = list(peer.capabilities) if peer.capabilities else ["a2a_messaging"]
+        
+        if not peer.capabilities and self._pg_conn and not self._pg_conn.closed:
             try:
                 cur = self._pg_conn.cursor()
                 cur.execute("""
@@ -216,7 +222,7 @@ class PeerDiscovery:
             cur.execute("""
                 SELECT node_name, role, host, p2p_port, health_port,
                        pg_available, p2p_available, http_available,
-                       last_heartbeat
+                       last_heartbeat, capabilities
                 FROM mesh.mesh_nodes
                 WHERE node_name != %s
                   AND status = 'active'
@@ -230,10 +236,19 @@ class PeerDiscovery:
                 pg_avail = row[5] if len(row) > 5 else False
                 p2p_avail = row[6] if len(row) > 6 else False
                 http_avail = row[7] if len(row) > 7 else False
+                capabilities = row[9] if len(row) > 9 else None
 
                 if not host:
                     log.debug(f"Skipping peer {name}: no host address")
                     continue
+
+                # Parse capabilities from PG (JSONB)
+                import json as _json
+                caps = []
+                if capabilities:
+                    caps = _json.loads(capabilities) if isinstance(capabilities, str) else capabilities
+                    if not isinstance(caps, list):
+                        caps = []
 
                 if name in self._peers:
                     # Update existing peer
@@ -244,11 +259,13 @@ class PeerDiscovery:
                     self._peers[name].pg_available = pg_avail
                     self._peers[name].p2p_available = p2p_avail
                     self._peers[name].http_available = http_avail
+                    self._peers[name].capabilities = caps
                 else:
                     peer = self.add_peer(name, host, p2p_port, role, health_port)
                     peer.pg_available = pg_avail
                     peer.p2p_available = p2p_avail
                     peer.http_available = http_avail
+                    peer.capabilities = caps
                     discovered.append(peer)
 
             cur.close()
