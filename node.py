@@ -1151,7 +1151,7 @@ class MeshNode:
                         body = await resp.text()
                         log.warning(f"Wake-agent response {resp.status}: {body[:200]}")
         except Exception as e:
-            log.debug(f"Wake-agent trigger skipped: {e}")
+            log.warning(f"Wake-agent trigger failed: {e}")
 
 
 async def main():
