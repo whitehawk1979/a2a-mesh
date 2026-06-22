@@ -49,7 +49,8 @@ class P2PTransport(TransportAdapter):
         self._message_callback = None
         self._max_retries = config.p2p.max_connections  # reuse as max reconnect attempts
         self._reconnect_interval = config.p2p.idle_timeout  # base retry interval in seconds
-        self._ssl_context: Optional[ssl.SSLContext] = None  # TLS if configured
+        self._ssl_context: Optional[ssl.SSLContext] = None  # TLS server context (for incoming connections)
+        self._ssl_client_context: Optional[ssl.SSLContext] = None  # TLS client context (for outgoing connections)
 
         # Retry queue: messages that failed to send, will be retried on reconnect
         self._retry_queue: List[Tuple[A2AMessage, float]] = []  # (message, queued_at)
@@ -75,10 +76,12 @@ class P2PTransport(TransportAdapter):
         if tls_enabled and tls_cert and tls_key:
             import ssl as _ssl
             try:
+                # P1: Separate server and client SSL contexts for proper TLS
+                # Server context (for incoming connections)
                 self._ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
                 self._ssl_context.load_cert_chain(tls_cert, tls_key)
-                self._ssl_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM')
-                # Minimum TLS 1.2
+                # P1: Remove DHE ciphers, use only ECDHE+AESGCM (TLS 1.3 compatible)
+                self._ssl_context.set_ciphers('ECDHE+AESGCM')
                 self._ssl_context.minimum_version = _ssl.TLSVersion.TLSv1_2
                 # Load CA for peer verification if configured
                 if tls_ca:
@@ -90,6 +93,20 @@ class P2PTransport(TransportAdapter):
                 else:
                     self._ssl_context.verify_mode = _ssl.CERT_NONE
                     log.info("P2P TLS: peer certificate verification DISABLED")
+
+                # P1: Client context (for outgoing connections) — trust server cert
+                self._ssl_client_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+                self._ssl_client_context.load_cert_chain(tls_cert, tls_key)
+                self._ssl_client_context.minimum_version = _ssl.TLSVersion.TLSv1_2
+                self._ssl_client_context.set_ciphers('ECDHE+AESGCM')
+                if tls_ca:
+                    self._ssl_client_context.load_verify_locations(tls_ca)
+                if tls_verify_peer:
+                    self._ssl_client_context.verify_mode = _ssl.CERT_REQUIRED
+                else:
+                    self._ssl_client_context.check_hostname = False
+                    self._ssl_client_context.verify_mode = _ssl.CERT_NONE
+
                 log.info(f"P2P TLS enabled with cert={tls_cert}")
                 print(f"[P2P] TLS enabled with cert={tls_cert}", flush=True)
             except Exception as e:
@@ -267,10 +284,28 @@ class P2PTransport(TransportAdapter):
         self._ack_callback = callback
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
-        """Connect to a known peer with exponential backoff."""
+        """Connect to a known peer with exponential backoff.
+        P1: Sets TCP keepalive on the socket for faster dead-connection detection."""
+        import socket
         try:
             # Use TLS ssl_context for client connections if configured
-            reader, writer = await asyncio.open_connection(host, port, ssl=self._ssl_context)
+            reader, writer = await asyncio.open_connection(host, port, ssl=self._ssl_client_context or self._ssl_context)
+
+            # P1: Set TCP keepalive for faster dead-connection detection
+            sock = writer.get_extra_info('socket')
+            if sock:
+                try:
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    # macOS/Linux TCP keepalive settings (may not exist on all platforms)
+                    if hasattr(socket, 'TCP_KEEPIDLE'):
+                        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)   # Start probes after 60s idle
+                    if hasattr(socket, 'TCP_KEEPINTVL'):
+                        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)  # Probe every 10s
+                    if hasattr(socket, 'TCP_KEEPCNT'):
+                        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)    # 3 failed probes = dead
+                    log.debug(f"TCP keepalive enabled for peer {name}")
+                except (OSError, AttributeError) as e:
+                    log.debug(f"Could not set TCP keepalive for {name}: {e}")
             self._peers[name] = (reader, writer)
             self._peer_addresses[name] = f"{host}:{port}"
             self._writer_to_peer[id(writer)] = name

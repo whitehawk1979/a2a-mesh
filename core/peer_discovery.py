@@ -111,6 +111,12 @@ class PeerDiscovery:
         self._discover_task: Optional[asyncio.Task] = None
         self._discover_interval = 30  # seconds
 
+        # Shared HTTP session for health checks (P0: connection pooling)
+        self._http_session = None  # type: Optional[aiohttp.ClientSession]
+
+        # PG NOTIFY listener for real-time discovery (P0: replaces polling)
+        self._notify_listener_task: Optional[asyncio.Task] = None
+
     def _register_discovered_peer(self, peer) -> None:
         """Register a discovered peer with the agent registry.
 
@@ -230,28 +236,34 @@ class PeerDiscovery:
             return []
 
     async def check_peer_health(self, peer: PeerInfo) -> bool:
-        """Check if a peer is healthy by hitting its health endpoint."""
+        """Check if a peer is healthy by hitting its health endpoint.
+        Uses shared HTTP session for connection pooling (P0 optimization)."""
         import aiohttp
         url = f"http://{peer.host}:{peer.health_port}/health"
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        peer.last_seen = time.time()
-                        peer.p2p_available = data.get("transports", {}).get("p2p", False)
-                        peer.pg_available = data.get("transports", {}).get("pg", False)
-                        peer.http_available = data.get("transports", {}).get("http", False)
+            # P0: Reuse shared session instead of creating new one per call
+            if self._http_session is None or self._http_session.closed:
+                self._http_session = aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=3),
+                    connector=aiohttp.TCPConnector(limit=10, limit_per_host=5),
+                )
+            async with self._http_session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    peer.last_seen = time.time()
+                    peer.p2p_available = data.get("transports", {}).get("p2p", False)
+                    peer.pg_available = data.get("transports", {}).get("pg", False)
+                    peer.http_available = data.get("transports", {}).get("http", False)
 
-                        # Update local store
-                        if self.local_store:
-                            self.local_store.update_peer_status(
-                                node_name=peer.name, role=peer.role,
-                                address=f"{peer.host}:{peer.p2p_port}",
-                                pg_available=peer.pg_available,
-                                p2p_available=peer.p2p_available,
-                            )
-                        return True
+                    # Update local store
+                    if self.local_store:
+                        self.local_store.update_peer_status(
+                            node_name=peer.name, role=peer.role,
+                            address=f"{peer.host}:{peer.p2p_port}",
+                            pg_available=peer.pg_available,
+                            p2p_available=peer.p2p_available,
+                        )
+                    return True
         except Exception:
             peer.p2p_available = False
             peer.pg_available = False
@@ -324,13 +336,22 @@ class PeerDiscovery:
         return connected
 
     async def start(self):
-        """Start periodic peer discovery."""
+        """Start periodic peer discovery and PG NOTIFY listener (P0: real-time discovery)."""
         self._running = True
         self._discover_task = asyncio.create_task(self._discover_loop())
+
+        # P0: PG NOTIFY for near-instant peer discovery (replaces 30s polling)
+        if self._pg_conn:
+            try:
+                self._notify_listener_task = asyncio.create_task(self._listen_pg_notifications())
+                log.info("PG NOTIFY peer discovery listener started")
+            except Exception as e:
+                log.warning(f"Could not start PG NOTIFY listener: {e}")
+
         log.info(f"Peer discovery started (interval: {self._discover_interval}s)")
 
     async def stop(self):
-        """Stop peer discovery."""
+        """Stop peer discovery and cleanup resources."""
         self._running = False
         if self._discover_task:
             self._discover_task.cancel()
@@ -338,7 +359,60 @@ class PeerDiscovery:
                 await self._discover_task
             except asyncio.CancelledError:
                 pass
+        if self._notify_listener_task:
+            self._notify_listener_task.cancel()
+            try:
+                await self._notify_listener_task
+            except asyncio.CancelledError:
+                pass
+        # P0: Cleanup shared HTTP session
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
         log.info("Peer discovery stopped")
+
+    async def _listen_pg_notifications(self):
+        """Listen for PG NOTIFY on mesh_node_update channel for real-time peer discovery.
+        P0 optimization: Instead of waiting 30s for the next poll cycle,
+        immediately discover peers when they register/deregister."""
+        import asyncio as _asyncio
+        try:
+            conn = self._pg_conn
+            if not conn or conn.closed:
+                return
+            # Listen for node registration/deregistration events
+            await conn.execute("LISTEN mesh_node_update")
+            log.info("Listening for mesh_node_update PG NOTIFY")
+            while self._running:
+                try:
+                    # Poll for notifications with 1s timeout
+                    msg = await _asyncio.wait_for(conn.notifies.get(), timeout=5.0)
+                    if msg.channel == "mesh_node_update":
+                        import json as _json
+                        try:
+                            data = _json.loads(msg.payload)
+                            node_name = data.get("node", data.get("name", ""))
+                            action = data.get("action", "register")
+                            log.info(f"PG NOTIFY: peer {node_name} action={action}")
+                            if action in ("register", "update", "heartbeat"):
+                                # Trigger immediate discovery for this peer
+                                await self.discover_and_connect()
+                            elif action in ("deregister", "offline"):
+                                # Remove peer from known peers
+                                if node_name in self._peers:
+                                    del self._peers[node_name]
+                                    log.info(f"Removed offline peer: {node_name}")
+                        except _json.JSONDecodeError:
+                            log.warning(f"Invalid PG NOTIFY payload: {msg.payload}")
+                except _asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    if self._running:
+                        log.debug(f"PG NOTIFY listener error: {e}")
+                        await _asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            log.warning(f"PG NOTIFY listener stopped: {e}")
 
     async def _discover_loop(self):
         """Periodic peer discovery loop."""

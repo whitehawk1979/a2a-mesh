@@ -585,7 +585,8 @@ class MeshNode:
     # ─── Health Endpoint ─────────────────────────────────────────────
 
     def _auto_register_self(self):
-        """Auto-register this node in the dashboard's agent registry."""
+        """Auto-register this node in the dashboard's agent registry.
+        Also sends PG NOTIFY for near-instant discovery by other nodes (P0 optimization)."""
         from .core.registry import AgentCard
 
         # Determine capabilities from config
@@ -613,6 +614,30 @@ class MeshNode:
         if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry'):
             self.dashboard.registry.register(card, force=True)
             log.info(f"Auto-registered self in registry: {self.node_name} caps={card.capabilities}")
+
+        # P0: Send PG NOTIFY for near-instant peer discovery
+        self._notify_node_update("register")
+
+    def _notify_node_update(self, action: str = "register"):
+        """Send PG NOTIFY for peer discovery (P0: near-instant node discovery).
+        Other nodes listening on mesh_node_update channel will discover this node immediately."""
+        import json
+        try:
+            if not self._pg_conn:
+                return
+            payload = json.dumps({
+                "node": self.node_name,
+                "action": action,
+                "endpoint": f"{self.config.p2p.listen_host}:{self.config.p2p.listen_port}",
+                "capabilities": list(set(getattr(self.config, 'capabilities', []) or ["a2a_messaging"])),
+            })
+            cur = self._pg_conn.cursor()
+            cur.execute(f"NOTIFY mesh_node_update, '{payload}'")
+            self._pg_conn.commit()
+            cur.close()
+            log.debug(f"PG NOTIFY sent: mesh_node_update action={action} node={self.node_name}")
+        except Exception as e:
+            log.debug(f"Could not send PG NOTIFY for {action}: {e}")
 
     async def _run_health_server(self):
         """Simple HTTP health check server on configured port."""
