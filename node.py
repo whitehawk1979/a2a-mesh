@@ -586,25 +586,42 @@ class MeshNode:
 
     def _auto_register_self(self):
         """Auto-register this node in the dashboard's agent registry.
-        Also sends PG NOTIFY for near-instant discovery by other nodes (P0 optimization)."""
+        Also sends PG NOTIFY for near-instant discovery by other nodes (P0 optimization).
+        
+        Capabilities are loaded from config and augmented based on node role and
+        available transports. Every agent registers its full capability list on startup."""
         from .core.registry import AgentCard
 
-        # Determine capabilities from config
-        capabilities = getattr(self.config, 'capabilities', []) or [
-            "a2a_messaging",
-            "file_transfer",
-        ]
+        # Start with configured capabilities
+        capabilities = list(getattr(self.config, 'capabilities', []) or [
+            "a2a_messaging", "file_transfer"
+        ])
 
-        # Add common capabilities based on node role
+        # Add role-based capabilities
         if self.role == NodeRole.COORDINATOR:
-            capabilities.append("coordinator")
+            capabilities.extend(["coordinator", "dashboard", "registry"])
+        
+        # Add transport-based capabilities
+        if hasattr(self, '_p2p_transport') and self._p2p_transport and self._p2p_transport.is_available():
+            capabilities.append("p2p_transport")
+        
+        pg_transport = getattr(self, 'transports', {}).get('pg_notify') if hasattr(self, 'transports') else None
+        if pg_transport and pg_transport.is_available():
+            capabilities.append("pg_transport")
+        
+        # Add health monitoring capability (all nodes have this)
+        if "health_monitor" not in capabilities:
+            capabilities.append("health_monitor")
+        
+        # Deduplicate
+        capabilities = list(set(capabilities))
 
         endpoint = f"http://{self.config.p2p.listen_host}:{self.config.health_port or 8650}"
 
         card = AgentCard(
             name=self.node_name,
-            capabilities=list(set(capabilities)),  # Deduplicate
-            version=getattr(self.config, 'version', '0.7.0'),
+            capabilities=capabilities,
+            version=getattr(self.config, 'version', '0.7.3'),
             description=f"A2A Mesh node ({self.role.value})",
             endpoint=endpoint,
             health_endpoint="/api/status",

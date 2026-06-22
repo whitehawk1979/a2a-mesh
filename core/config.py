@@ -109,6 +109,18 @@ class MeshConfig:
     node_id: str = ""
     public_key: str = ""
 
+    # Agent capabilities — declared here so each node advertises what it can do
+    # These are registered in the Agent Registry on startup and shared via P2P discovery
+    capabilities: List[str] = field(default_factory=lambda: [
+        "a2a_messaging",       # Core mesh messaging (every node has this)
+        "file_transfer",       # Can send/receive files via mesh
+        "p2p_transport",       # Direct P2P TCP connections
+        "pg_transport",        # PG NOTIFY transport
+        "registry",            # Agent registry (coordinator nodes)
+        "dashboard",           # Web dashboard (coordinator nodes)
+        "health_monitor",      # Health monitoring and scoring
+    ])
+
     # Transport priority (first success wins for directed messages)
     transport_priority: List[str] = field(default_factory=lambda: [
         "pg_notify", "p2p", "http"
