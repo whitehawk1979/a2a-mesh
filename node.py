@@ -1125,27 +1125,34 @@ class MeshNode:
     # ─── Webhook Trigger ─────────────────────────────────────────────
 
     async def _trigger_webhook(self, message: A2AMessage):
-        """Trigger Hermes webhook to wake the agent on incoming message."""
-        if not self.config.webhook_port:
-            return
+        """Wake the local Hermes agent via the dashboard wake-agent API.
+        
+        Uses the dashboard's /api/wake-agent endpoint which triggers
+        `hermes -z` locally with the message context.
+        """
+        # Use dashboard health_port for the wake-agent API
+        wake_port = self.config.health_port or 8650
         try:
             import aiohttp
-            url = f"http://localhost:{self.config.webhook_port}/webhook"
+            url = f"http://localhost:{wake_port}/api/wake-agent"
             payload = {
                 "message_id": message.id,
                 "sender": message.sender,
                 "recipient": message.recipient,
                 "type": message.type,
                 "priority": message.priority,
+                "content": message.payload if isinstance(message.payload, str) else str(message.payload),
+                "reply_endpoint": f"http://localhost:{wake_port}/api/agent-reply",
             }
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status == 200:
-                        log.debug(f"Webhook triggered for message {message.id[:8]}")
+                        log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender}")
                     else:
-                        log.debug(f"Webhook response: {resp.status}")
+                        body = await resp.text()
+                        log.warning(f"Wake-agent response {resp.status}: {body[:200]}")
         except Exception as e:
-            log.debug(f"Webhook trigger skipped: {e}")
+            log.debug(f"Wake-agent trigger skipped: {e}")
 
 
 async def main():
