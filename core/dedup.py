@@ -22,6 +22,8 @@ class DedupCache:
         self.ttl = ttl_seconds
         self._cache: OrderedDict[str, float] = OrderedDict()
         self._lock = threading.Lock()
+        self._hits = 0
+        self._misses = 0
 
     def check_and_add(self, message_id: str) -> bool:
         """Check if duplicate and add atomically. Returns True if duplicate.
@@ -36,6 +38,7 @@ class DedupCache:
                 if time.time() - ts < self.ttl:
                     # Move to end (most recently accessed)
                     self._cache.move_to_end(message_id)
+                    self._hits += 1
                     return True
                 else:
                     # Expired, remove it
@@ -43,6 +46,7 @@ class DedupCache:
 
             # Not a duplicate — add it now
             self._cache[message_id] = time.time()
+            self._misses += 1
             # Evict oldest if over max size
             while len(self._cache) > self.max_size:
                 self._cache.popitem(last=False)
@@ -102,5 +106,19 @@ class DedupCache:
         """Current cache size."""
         return len(self._cache)
 
+    @property
+    def stats(self) -> dict:
+        """Dedup statistics including hit/miss ratio."""
+        total = self._hits + self._misses
+        hit_rate = self._hits / total if total > 0 else 0.0
+        return {
+            "size": len(self._cache),
+            "max_size": self.max_size,
+            "ttl_seconds": self.ttl,
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": round(hit_rate, 4),
+        }
+
     def __repr__(self):
-        return f"DedupCache(size={self.size}, max={self.max_size}, ttl={self.ttl}s)"
+        return f"DedupCache(size={self.size}, max={self.max_size}, hits={self._hits}, misses={self._misses})"

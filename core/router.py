@@ -1,14 +1,16 @@
 """A2A Mesh Router — Flood/gossip routing with TTL and loop prevention."""
+"""A2A Mesh Router — Flood/gossip routing with TTL and loop prevention."""
 
 import logging
 import asyncio
 import json
 from typing import Dict, List, Optional, Callable
-from ..core.message import A2AMessage, SendResult, ProcessResult
+from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION
 from ..core.dedup import DedupCache
+from ..core.bounded_queue import BoundedQueue
+from ..core.stream_mux import StreamMultiplexer, create_default_mux
 
 log = logging.getLogger("a2a_mesh.router")
-
 
 class MeshRouter:
     """Routes messages through the mesh using flood/gossip protocol.
@@ -21,6 +23,9 @@ class MeshRouter:
     - Dedup cache (prevents processing same message twice)
     - Loop prevention (self-reference, not-for-me, RE-chain)
     - Priority-based routing (P10+ immediate, P1-9 queued)
+    - Stream multiplexer (AXL-inspired content-based routing)
+    - Bounded queues with oldest-drop overflow protection
+    - Protocol versioning for compatibility
     """
 
     def __init__(self, node_name: str, config=None, local_store=None):
@@ -45,9 +50,15 @@ class MeshRouter:
         # Message handlers
         self._handlers: List[Callable] = []
 
-        # Priority queue for incoming messages (P10=high, P1=low)
-        self._pq = asyncio.PriorityQueue()
-        self._pq_task: Optional[asyncio.Task] = None
+        # Bounded priority queue (AXL-inspired: oldest-drop overflow protection)
+        self._inbound_queue = BoundedQueue(capacity=200, name="inbound")
+        self._outbound_queue = BoundedQueue(capacity=200, name="outbound")
+
+        # Stream multiplexer (AXL-inspired: content-based routing)
+        self._mux = create_default_mux()
+
+        # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
+        self._p2p_semaphore = asyncio.Semaphore(128)
         self._pq_running = False
 
         # Statistics
@@ -77,7 +88,7 @@ class MeshRouter:
         """Start the priority queue processor (P10 first, P1 last)."""
         self._pq_running = True
         self._pq_task = asyncio.create_task(self._pq_process_loop())
-        log.info("Priority queue processor started (P10→P1)")
+        log.info(f"Priority queue processor started (P10→P1) [inbound_queue: {self._inbound_queue.capacity}, outbound_queue: {self._outbound_queue.capacity}]")
 
     async def stop_priority_queue(self):
         """Stop the priority queue processor."""
@@ -91,18 +102,23 @@ class MeshRouter:
         log.info("Priority queue processor stopped")
 
     async def enqueue(self, message: A2AMessage):
-        """Enqueue message for priority-based processing. P10=urgent, P1=low."""
-        # PriorityQueue sorts by first element (negated priority for P10 first)
-        priority_key = (-message.priority, message.timestamp or "")
-        await self._pq.put((priority_key, message))
+        """Enqueue message for priority-based processing. P10=urgent, P1=low.
+        
+        Uses bounded queue with oldest-drop overflow protection.
+        """
+        await self._inbound_queue.put(message, priority=message.priority)
 
     async def _pq_process_loop(self):
-        """Process messages from priority queue (P10→P1 order)."""
+        """Process messages from bounded priority queue (P10→P1 order)."""
         while self._pq_running:
             try:
-                priority_key, message = await asyncio.wait_for(
-                    self._pq.get(), timeout=1.0
-                )
+                message = await self._inbound_queue.get(timeout=1.0)
+                # Route message through stream multiplexer
+                raw_data = message.to_json().encode('utf-8') if hasattr(message, 'to_json') else b'{}'
+                stream = self._mux.match(raw_data)
+                stream_id = stream.stream_id if stream else "default"
+                log.debug(f"Processing message {message.id[:8]} via stream '{stream_id}' (P{message.priority})")
+                
                 # Call handlers
                 for handler in self._handlers:
                     try:
@@ -111,7 +127,6 @@ class MeshRouter:
                             await result
                     except Exception as e:
                         log.error(f"Handler error for {message.id[:8]}: {e}")
-                self._pq.task_done()
             except asyncio.TimeoutError:
                 continue
             except asyncio.CancelledError:
@@ -125,7 +140,12 @@ class MeshRouter:
         Priority order: PG → P2P → HTTP (configurable)
         If a transport fails, automatically falls back to the next.
         Messages are also stored in LocalStore for offline resilience.
+        Enforces protocol version for compatibility.
         """
+        # Ensure protocol version is set (AXL-inspired versioning)
+        if not message.protocol_version:
+            message.protocol_version = A2A_PROTOCOL_VERSION
+
         # Override sender to node name — UNLESS this is a dashboard or agent reply message
         # Dashboard messages have payload.source = "web_dashboard" (human user)
         # Agent replies have payload.source = "agent_reply" (peer agent)
@@ -270,10 +290,14 @@ class MeshRouter:
                 continue
 
     def get_stats(self) -> dict:
-        """Return routing statistics."""
+        """Return routing statistics including stream mux and bounded queue stats."""
         return {
             **self._stats,
-            "dedup_size": self.dedup.size,
+            "dedup": self.dedup.stats,
+            "inbound_queue": self._inbound_queue.stats,
+            "outbound_queue": self._outbound_queue.stats,
+            "stream_mux": self._mux.get_stats(),
+            "protocol_version": A2A_PROTOCOL_VERSION,
             "transports": {
                 name: transport.get_status()
                 for name, transport in self.transports.items()

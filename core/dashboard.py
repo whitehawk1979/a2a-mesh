@@ -119,6 +119,11 @@ class DashboardHandler:
         app.router.add_get("/api/registry/find", self._api_registry_find)
         app.router.add_post("/api/registry/record-success/{name}", self._api_registry_success)
         app.router.add_post("/api/registry/record-failure/{name}", self._api_registry_failure)
+        # A2A v0.8 endpoints — Agent Card + Stream Mux + Queue Stats
+        app.router.add_get("/.well-known/agent-card.json", self._api_agent_card)
+        app.router.add_get("/api/agent-card", self._api_agent_card)
+        app.router.add_get("/api/router/stats", self._api_router_stats)
+        app.router.add_post("/api/registry/record-failure/{name}", self._api_registry_failure)
         # Smart Router endpoints
         app.router.add_get("/api/route", self._api_route)
         app.router.add_get("/api/route/explain", self._api_route_explain)
@@ -2304,6 +2309,70 @@ class DashboardHandler:
             "health_score": round(score, 3),
             "consecutive_failures": health.consecutive_failures if health else 0,
         })
+
+    # ─── A2A v0.8 API Handlers ─────────────────────────────────────
+
+    async def _api_agent_card(self, request):
+        """GET /.well-known/agent-card.json or /api/agent-card — A2A capability discovery.
+        
+        Returns the agent's capabilities, skills, and metadata following
+        the A2A v1.0 agent-card specification. Inspired by gensyn-ai/axl's
+        auto-discovery pattern.
+        """
+        from aiohttp import web
+        from ..core.agent_card import build_agent_card
+        import time
+        
+        # Build agent card from current state
+        uptime = time.time() - self._start_time if hasattr(self, '_start_time') else 0
+        health_score = 1.0
+        load = 0.0
+        queue_size = 0
+        
+        # Get health/load from registry if available
+        if self.registry:
+            health = self.registry.get_health(self.node_name)
+            if health:
+                health_score = health.score
+                load = health.load
+        
+        # Get queue size from router if available
+        if self.router:
+            stats = self.router.get_stats()
+            queue_size = stats.get("inbound_queue", {}).get("current_size", 0)
+            load = queue_size / max(1, 200)  # Normalize to 0-1
+        
+        base_url = f"http://{request.host}" if request.host else ""
+        
+        card = build_agent_card(
+            node_name=self.node_name,
+            registry=self.registry,
+            health_score=health_score,
+            load=load,
+            queue_size=queue_size,
+            uptime=uptime,
+            base_url=base_url,
+        )
+        
+        return web.json_response(card)
+
+    async def _api_router_stats(self, request):
+        """GET /api/router/stats — Detailed router + stream mux + queue statistics.
+        
+        Returns comprehensive routing stats including:
+        - Message routing counters (sent, received, forwarded, duplicates, etc.)
+        - Dedup cache stats (hits, misses, hit rate)
+        - Bounded queue stats (enqueued, dequeued, dropped, overflow)
+        - Stream multiplexer stats (routed, unmatched, by_stream)
+        - Protocol version
+        """
+        from aiohttp import web
+        
+        if not self.router:
+            return web.json_response({"error": "Router not available"}, status=503)
+        
+        stats = self.router.get_stats()
+        return web.json_response(stats)
 
     # ─── Smart Router API Handlers ─────────────────────────────────
 

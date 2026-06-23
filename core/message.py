@@ -47,6 +47,10 @@ MSG_TYPE_CONTEXT = "context"
 MSG_TYPE_ERROR = "error"
 MSG_TYPE_MESH = "mesh"  # Mesh-level messages (join, leave, ping)
 
+# Protocol version (AXL-inspired: version header for compatibility)
+A2A_PROTOCOL_VERSION = "0.8.0"
+A2A_VERSION_HEADER = "A2A-Version"
+
 # Message size limits (bytes)
 MAX_MESSAGE_SIZE = 1 * 1024 * 1024       # 1MB max payload size
 MAX_COMPRESSED_SIZE = 512 * 1024           # 512KB max after compression
@@ -92,6 +96,9 @@ class A2AMessage:
     src_address: Optional[Dict] = None  # Source MeshAddress
     route_path: list = field(default_factory=list)  # Short addresses traversed
     routing_mode: str = "hybrid"  # "flood", "tree", "hybrid"
+
+    # Protocol version (AXL-inspired: version header for compatibility)
+    protocol_version: str = A2A_PROTOCOL_VERSION
 
     def __post_init__(self):
         if not self.id:
