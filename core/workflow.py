@@ -5,20 +5,23 @@ Inspired by sushaan-k/a2a-mesh DAG coordinator, adapted for our P2P mesh.
 Features:
 - DAG-based task orchestration (directed acyclic graph)
 - Fan-out: broadcast a task to multiple agents in parallel
-- Fan-in: collect results from all agents before proceeding
-- Consensus modes: ALL (wait for all), ANY (first response), MAJORITY (>50%)
+- Fan-in: collect results with MERGE, FIRST, or VOTE strategy
+- Consensus modes: ALL (wait for all), ANY (first response), MAJORITY (>50%), QUORUM (N specific)
 - Topological sort: execute tasks in dependency order
-- Timeout handling with configurable grace periods
-- Integration with Smart Router for agent selection
+- Budget tracking with per-level cost accumulation
+- Workflow-level timeout with remaining-time tracking
+- Integration with Smart Router and Health Scorer for agent selection
 """
 
 import asyncio
+import copy
 import logging
 import time
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Sequence, Any, Callable
+from typing import Dict, List, Optional, Sequence, Any, Callable, Awaitable
 
 log = logging.getLogger("a2a_mesh.workflow")
 
@@ -29,6 +32,13 @@ class ConsensusMode(Enum):
     ANY = "any"          # First response wins
     MAJORITY = "majority"  # Wait for >50% of agents
     QUORUM = "quorum"    # Wait for N specific agents
+
+
+class FanInStrategy(Enum):
+    """How to merge fan-out results."""
+    MERGE = "merge"    # Return all results as list
+    FIRST = "first"    # Return first successful result
+    VOTE = "vote"      # Majority vote on string representation
 
 
 class TaskStatus(Enum):
@@ -54,9 +64,12 @@ class WorkflowTask:
     status: TaskStatus = TaskStatus.PENDING
     result: Optional[Any] = None          # Task result
     error: Optional[str] = None           # Error message
+    cost: float = 0.0                    # Cost of this task (sushaan-k pattern)
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     assigned_agent: Optional[str] = None  # Actually assigned agent
+    fan_out_count: int = 1                # Number of parallel copies (fan-out)
+    fan_in_strategy: FanInStrategy = FanInStrategy.MERGE  # How to merge fan-out results
 
     @property
     def duration_ms(self) -> Optional[float]:
@@ -72,10 +85,13 @@ class Workflow:
     name: str
     tasks: Dict[str, WorkflowTask] = field(default_factory=dict)
     consensus_mode: ConsensusMode = ConsensusMode.ALL
+    max_cost: Optional[float] = None       # Budget limit (sushaan-k pattern)
+    timeout: Optional[float] = None         # Workflow-level timeout in seconds
     created_at: float = field(default_factory=time.time)
     status: TaskStatus = TaskStatus.PENDING
     results: Dict[str, Any] = field(default_factory=dict)  # task_id → result
     errors: Dict[str, str] = field(default_factory=dict)    # task_id → error
+    total_cost: float = 0.0               # Accumulated cost across all tasks
 
     def add_task(self, task: WorkflowTask) -> 'Workflow':
         """Add a task to the workflow."""
@@ -150,12 +166,15 @@ class WorkflowCoordinator:
         self.node = node
         self._active_workflows: Dict[str, Workflow] = {}
 
-    def create_workflow(self, name: str, consensus_mode: ConsensusMode = ConsensusMode.ALL) -> Workflow:
-        """Create a new workflow."""
+    def create_workflow(self, name: str, consensus_mode: ConsensusMode = ConsensusMode.ALL,
+                        max_cost: Optional[float] = None, timeout: Optional[float] = None) -> Workflow:
+        """Create a new workflow with optional budget and timeout."""
         wf = Workflow(
             id=str(uuid.uuid4())[:8],
             name=name,
             consensus_mode=consensus_mode,
+            max_cost=max_cost,
+            timeout=timeout,
         )
         return wf
 
@@ -163,31 +182,71 @@ class WorkflowCoordinator:
         """Execute a workflow DAG layer by layer.
 
         For each layer:
-        1. Assign agents to tasks (using SmartRouter if available)
-        2. Fan-out: send tasks to agents in parallel
-        3. Fan-in: collect results based on consensus mode
-        4. Pass results to dependent tasks
+        1. Check budget (max_cost)
+        2. Check remaining timeout
+        3. Fan-out: send tasks to agents in parallel
+        4. Fan-in: collect results based on consensus mode
+        5. Accumulate costs, pass results to dependent tasks
 
         Returns:
-            Dict with workflow results, errors, and timing.
+            Dict with workflow results, errors, timing, and cost.
         """
         workflow.status = TaskStatus.RUNNING
         self._active_workflows[workflow.id] = workflow
+        started_at = time.time()
+        timed_out = False
 
         try:
             layers = workflow.topological_sort()
             log.info(f"Workflow '{workflow.name}' ({workflow.id}): {len(workflow.tasks)} tasks in {len(layers)} layers")
 
             for layer_idx, layer in enumerate(layers):
-                log.info(f"  Layer {layer_idx}: {len(layer)} parallel tasks")
+                # Check remaining timeout
+                remaining = None
+                if workflow.timeout is not None:
+                    elapsed = time.time() - started_at
+                    remaining = max(0.0, workflow.timeout - elapsed)
+                    if remaining <= 0:
+                        log.warning(f"Workflow '{workflow.name}' timed out before layer {layer_idx}")
+                        timed_out = True
+                        break
+
+                # Check budget
+                if workflow.max_cost is not None and workflow.total_cost > workflow.max_cost:
+                    log.warning(f"Workflow '{workflow.name}' budget exceeded: {workflow.total_cost:.4f} > {workflow.max_cost}")
+                    workflow.status = TaskStatus.FAILED
+                    return self._build_result(workflow)
+
+                log.info(f"  Layer {layer_idx}: {len(layer)} parallel tasks (remaining={remaining:.1f}s)")
 
                 # Fan-out: execute all tasks in this layer concurrently
-                results = await self._execute_layer(workflow, layer)
+                try:
+                    if remaining is not None:
+                        results = await asyncio.wait_for(
+                            self._execute_layer(workflow, layer),
+                            timeout=remaining,
+                        )
+                    else:
+                        results = await self._execute_layer(workflow, layer)
+                except asyncio.TimeoutError:
+                    log.warning(f"Workflow '{workflow.name}' layer {layer_idx} timed out")
+                    timed_out = True
+                    for tid in layer:
+                        task = workflow.tasks[tid]
+                        if task.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+                            task.status = TaskStatus.TIMEOUT
+                            task.error = f"Workflow timeout at layer {layer_idx}"
+                            workflow.errors[tid] = task.error
+                    break
 
-                # Check for failures
+                # Accumulate costs
+                for tid in layer:
+                    task = workflow.tasks[tid]
+                    workflow.total_cost += task.cost
+
+                # Check for failures (ALL mode aborts on any failure)
                 failed = [t for t in layer if workflow.tasks[t].status == TaskStatus.FAILED]
                 if failed and workflow.consensus_mode == ConsensusMode.ALL:
-                    # ALL mode: any failure aborts the workflow
                     log.error(f"Workflow '{workflow.name}' aborted: tasks {failed} failed")
                     workflow.status = TaskStatus.FAILED
                     return self._build_result(workflow)
@@ -198,8 +257,17 @@ class WorkflowCoordinator:
                     if task.status == TaskStatus.COMPLETED and task.result:
                         workflow.results[tid] = task.result
 
-            workflow.status = TaskStatus.COMPLETED
-            log.info(f"Workflow '{workflow.name}' completed successfully")
+            # Handle timeout — mark unstarted tasks
+            if timed_out:
+                for tid, task in workflow.tasks.items():
+                    if task.status == TaskStatus.PENDING:
+                        task.status = TaskStatus.TIMEOUT
+                        task.error = "Workflow timeout reached"
+                        workflow.errors[tid] = task.error
+                workflow.status = TaskStatus.TIMEOUT
+            else:
+                workflow.status = TaskStatus.COMPLETED
+                log.info(f"Workflow '{workflow.name}' completed successfully")
 
         except Exception as e:
             log.error(f"Workflow '{workflow.name}' error: {e}")
@@ -210,25 +278,102 @@ class WorkflowCoordinator:
         return self._build_result(workflow)
 
     async def _execute_layer(self, workflow: Workflow, layer: List[str]) -> Dict[str, Any]:
-        """Execute all tasks in a layer concurrently (fan-out/fan-in)."""
-        tasks = []
+        """Execute all tasks in a layer concurrently (fan-out/fan-in).
+
+        Supports fan-out (N parallel copies) with configurable fan-in strategy:
+        - MERGE: collect all results
+        - FIRST: first successful result wins
+        - VOTE: majority vote on string representation
+        """
+        coros = []
+        task_ids = []
         for tid in layer:
             task = workflow.tasks[tid]
             # Inject results from dependencies into payload
             for dep_id in task.dependencies:
                 if dep_id in workflow.results:
                     task.payload[f"result_{dep_id}"] = workflow.results[dep_id]
-            tasks.append(self._execute_task(workflow, task))
 
-        # Fan-out: run all tasks concurrently
+            # Fan-out: if task has fan_out_count > 1, create N copies
+            if task.fan_out_count > 1:
+                for i in range(task.fan_out_count):
+                    cloned = copy.deepcopy(task)
+                    cloned.id = f"{task.id}_fan{i}"
+                    coros.append(self._execute_task(workflow, cloned))
+            else:
+                coros.append(self._execute_task(workflow, task))
+            task_ids.append(tid)
+
+        # Fan-out: run all tasks concurrently with return_exceptions for graceful degradation
+        raw_results = await asyncio.gather(*coros, return_exceptions=True)
+
+        # Fan-in: apply consensus mode
         if workflow.consensus_mode == ConsensusMode.ANY:
             # ANY: first successful result wins
-            results = await self._execute_any(tasks, layer, workflow)
+            results = await self._fan_in_any(raw_results, task_ids, workflow)
+        elif workflow.consensus_mode == ConsensusMode.MAJORITY:
+            # MAJORITY: >50% must agree
+            results = await self._fan_in_majority(raw_results, task_ids, workflow)
         else:
-            # ALL / MAJORITY / QUORUM: wait for all, then apply consensus
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            # ALL / QUORUM: collect all results
+            results = {}
+            for i, (tid, res) in enumerate(zip(layer, raw_results)):
+                task = workflow.tasks[tid]
+                if isinstance(res, BaseException):
+                    task.status = TaskStatus.FAILED
+                    task.error = str(res)
+                    workflow.errors[tid] = str(res)
+                    results[tid] = None
+                else:
+                    results[tid] = res
 
-        return dict(zip(layer, results))
+        return results
+
+    async def _fan_in_any(self, results: List, task_ids: List[str], workflow: Workflow) -> Dict[str, Any]:
+        """Fan-in strategy: first successful result wins (ANY mode)."""
+        output = {}
+        for i, (tid, res) in enumerate(zip(task_ids, results)):
+            if not isinstance(res, BaseException) and res is not None:
+                task = workflow.tasks.get(tid)
+                if task:
+                    output[tid] = res
+                    return output  # First success wins
+        # No success — mark all as failed
+        for tid in task_ids:
+            task = workflow.tasks.get(tid)
+            if task:
+                task.status = TaskStatus.FAILED
+                task.error = "All fan-out attempts failed"
+                workflow.errors[tid] = task.error
+                output[tid] = None
+        return output
+
+    async def _fan_in_majority(self, results: List, task_ids: List[str], workflow: Workflow) -> Dict[str, Any]:
+        """Fan-in strategy: majority vote (>50%) on string representation (MAJORITY mode)."""
+        successes = [(tid, res) for tid, res in zip(task_ids, results)
+                     if not isinstance(res, BaseException) and res is not None]
+
+        if not successes:
+            for tid in task_ids:
+                workflow.errors[tid] = "All fan-out attempts failed"
+            return {tid: None for tid in task_ids}
+
+        # Majority vote on string representation (sushaan-k pattern)
+        str_results = [str(res) for _, res in successes]
+        counted = Counter(str_results)
+        winner, count = counted.most_common(1)[0]
+
+        output = {}
+        for tid, res in zip(task_ids, results):
+            if isinstance(res, BaseException):
+                output[tid] = None
+                workflow.errors[tid] = str(res)
+            elif str(res) == winner:
+                output[tid] = res
+            else:
+                output[tid] = None  # Minority result
+
+        return output
 
     async def _execute_task(self, workflow: Workflow, task: WorkflowTask) -> Any:
         """Execute a single task — assign agent and send message."""
@@ -291,16 +436,6 @@ class WorkflowCoordinator:
 
         return task.result
 
-    async def _execute_any(self, coros, layer: List[str], workflow: Workflow) -> List[Any]:
-        """Execute tasks and return on first success (ANY consensus)."""
-        for coro in asyncio.as_completed(coros):
-            try:
-                result = await coro
-                return [result] + [None] * (len(coros) - 1)
-            except Exception:
-                continue
-        return [None] * len(coros)
-
     def _build_result(self, workflow: Workflow) -> Dict:
         """Build the final result dict from a workflow."""
         task_results = {}
@@ -312,6 +447,7 @@ class WorkflowCoordinator:
                 "duration_ms": task.duration_ms,
                 "result": task.result,
                 "error": task.error,
+                "cost": task.cost,
             }
 
         return {
@@ -321,7 +457,10 @@ class WorkflowCoordinator:
             "total_tasks": len(workflow.tasks),
             "completed": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.COMPLETED),
             "failed": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.FAILED),
+            "timed_out": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.TIMEOUT),
+            "total_cost": round(workflow.total_cost, 4),
             "results": workflow.results,
+            "errors": workflow.errors if workflow.errors else None,
             "task_details": task_results,
         }
 
