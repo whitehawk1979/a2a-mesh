@@ -1,7 +1,7 @@
 """A2A Mesh TCP P2P Transport — Direct TCP peer-to-peer connections.
 
 Each agent runs a TCP server that other agents can connect to.
-Messages are length-prefixed (4 bytes big-endian) + msgpack/JSON.
+Messages use versioned binary framing: [1-byte version][4-byte length][payload].
 Discovery via mDNS (zeroconf) or static config.
 """
 
@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 
 from .base import TransportAdapter, TransportStatus
 from ..core.message import A2AMessage, SendResult, MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT
+from ..core.framing import encode_frame, read_frame, FRAME_VERSION, V1_MARKER
 
 log = logging.getLogger("a2a_mesh.transports.p2p")
 
@@ -192,17 +193,9 @@ class P2PTransport(TransportAdapter):
 
         try:
             while self._running:
-                # Read length prefix (4 bytes, big-endian)
-                length_data = await reader.readexactly(4)
-                length = struct.unpack('>I', length_data)[0]
-
-                # Sanity check: max 10MB message
-                if length > 10 * 1024 * 1024:
-                    log.warning(f"Message too large ({length} bytes), dropping connection")
-                    break
-
-                # Read message data
-                data = await reader.readexactly(length)
+                # Read versioned frame: [1-byte version][4-byte length][payload]
+                # Auto-detects v0 (legacy) and v1 (versioned) frames
+                version, data = await read_frame(reader)
                 message = A2AMessage.from_bytes(data)
 
                 # Handle ACK messages: don't re-queue, just invoke callback
@@ -267,8 +260,7 @@ class P2PTransport(TransportAdapter):
             )
 
             data = ack_msg.to_bytes()
-            length_prefix = struct.pack('>I', len(data))
-            payload_bytes = length_prefix + data
+            payload_bytes = encode_frame(data)
 
             writer.write(payload_bytes)
             await writer.drain()
@@ -335,8 +327,7 @@ class P2PTransport(TransportAdapter):
             return SendResult(transport="p2p", success=False, error="not started")
 
         data = message.to_bytes()
-        length_prefix = struct.pack('>I', len(data))
-        payload = length_prefix + data
+        payload = encode_frame(data)
 
         # If directed message, send to specific peer
         if not message.is_broadcast() and message.recipient in self._peers:
@@ -407,8 +398,7 @@ class P2PTransport(TransportAdapter):
                 for msg, queued_at in to_resend:
                     try:
                         data = msg.to_bytes()
-                        length_prefix = struct.pack('>I', len(data))
-                        writer.write(length_prefix + data)
+                        writer.write(encode_frame(data))
                         await writer.drain()
                         age = time.time() - queued_at
                         log.info(f"Retry: sent queued message {msg.id[:8]} to {peer_name} (was queued {age:.0f}s ago)")

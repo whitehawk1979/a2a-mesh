@@ -1,5 +1,4 @@
-"""A2A Mesh Router — Flood/gossip routing with TTL and loop prevention."""
-"""A2A Mesh Router — Flood/gossip routing with TTL and loop prevention."""
+"""A2A Mesh Router — GossipSub/flood routing with TTL and loop prevention."""
 
 import logging
 import asyncio
@@ -9,6 +8,7 @@ from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_V
 from ..core.dedup import DedupCache
 from ..core.bounded_queue import BoundedQueue
 from ..core.stream_mux import StreamMultiplexer, create_default_mux
+from ..core.gossipsub import GossipSub
 
 log = logging.getLogger("a2a_mesh.router")
 
@@ -56,6 +56,9 @@ class MeshRouter:
 
         # Stream multiplexer (AXL-inspired: content-based routing)
         self._mux = create_default_mux()
+
+        # GossipSub broadcast (AXL-inspired: efficient broadcast for >10 nodes)
+        self._gossipsub = GossipSub(node_name)
 
         # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
         self._p2p_semaphore = asyncio.Semaphore(128)
@@ -297,6 +300,7 @@ class MeshRouter:
             "inbound_queue": self._inbound_queue.stats,
             "outbound_queue": self._outbound_queue.stats,
             "stream_mux": self._mux.get_stats(),
+            "gossipsub": self._gossipsub.stats,
             "protocol_version": A2A_PROTOCOL_VERSION,
             "transports": {
                 name: transport.get_status()
