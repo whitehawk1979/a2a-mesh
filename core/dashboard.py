@@ -982,8 +982,16 @@ class DashboardHandler:
         if msg_type in ("heartbeat", "memory_sync"):
             return
 
-        # Extract display text from payload
-        payload = message.payload if isinstance(message.payload, dict) else {}
+        # Extract display text from payload — handle both dict and JSON string payloads
+        if isinstance(message.payload, dict):
+            payload = message.payload
+        elif isinstance(message.payload, str):
+            try:
+                payload = json.loads(message.payload)
+            except (json.JSONDecodeError, ValueError):
+                payload = {"text": message.payload}
+        else:
+            payload = {}
 
         # Skip agent_reply messages that contain heartbeat-like payload (uptime/transports only)
         # These happen when an agent's webhook response is just a status dump, not a real reply
