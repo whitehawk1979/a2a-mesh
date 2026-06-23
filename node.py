@@ -246,14 +246,9 @@ class MeshNode:
     async def _dispatch_to_handlers(self, message: A2AMessage):
         """Dispatch incoming message to all registered handlers.
 
-        Special handling for file_transfer, memory_sync messages, ACK, and dashboard notification.
+        Special handling for file_transfer, memory_sync messages, ACK.
+        Note: Dashboard notification is now in _receive_loop for ALL processed messages.
         """
-        # Notify dashboard
-        try:
-            await self.dashboard.on_mesh_message(message)
-        except Exception as e:
-            log.debug(f"Dashboard notification failed: {e}")
-
         # Handle ACK messages — process via ack_manager
         if message.type == MSG_TYPE_ACK:
             self.ack_manager.process_ack(message)
@@ -912,6 +907,12 @@ class MeshNode:
                             result = await self.router.receive(msg, from_transport)
                             log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             if result.status == "processed":
+                                # Always notify dashboard for ALL processed messages (chat visibility)
+                                try:
+                                    await self.dashboard.on_mesh_message(msg)
+                                except Exception as e:
+                                    log.debug(f"Dashboard notification failed: {e}")
+
                                 # Always wake the local agent for incoming messages
                                 asyncio.create_task(self._trigger_webhook(msg))
 
