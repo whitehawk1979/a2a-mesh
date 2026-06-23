@@ -139,6 +139,19 @@ class PGTransport(TransportAdapter):
                     notify = self._conn.notifies.pop(0)
                     try:
                         payload = json.loads(notify.payload)
+                    except json.JSONDecodeError:
+                        # Handle bare UUID/string payloads (backward compatibility)
+                        raw = notify.payload.strip() if notify.payload else ""
+                        if notify.channel == "mesh_channel" and raw:
+                            # Bare UUID — treat as message ID for DB lookup
+                            log.debug(f"Received bare UUID on mesh_channel: {raw[:8]}")
+                            message = self._fetch_message(raw)
+                            if message:
+                                await self._incoming_queue.put((message, "pg_notify"))
+                                log.info(f"Received mesh message {raw[:8]} (bare UUID)")
+                            continue
+                        log.warning(f"Invalid NOTIFY payload on {notify.channel}: {notify.payload[:50]}")
+                        continue
                         
                         # Handle different channels
                         if notify.channel == "mesh_channel":
@@ -155,14 +168,17 @@ class PGTransport(TransportAdapter):
                                 await self._incoming_queue.put((message, "pg_notify"))
                                 log.info(f"Received mesh message {msg_id[:8]} from {sender} (PG NOTIFY)")
                             else:
-                                # Fallback: create message from NOTIFY payload
-                                message = A2AMessage.create(
-                                    sender=sender,
-                                    recipient=recipient or "broadcast",
-                                    msg_type=msg_type,
-                                    payload=payload,
-                                    priority=priority,
-                                )
+                                # Fallback: create message from NOTIFY payload, preserving original ID
+                                fallback_id = payload.get("id") or msg_id
+                                msg_data = {
+                                    "id": fallback_id,
+                                    "sender": sender,
+                                    "recipient": recipient or "broadcast",
+                                    "type": msg_type,
+                                    "payload": payload,
+                                    "priority": priority,
+                                }
+                                message = A2AMessage.from_dict(msg_data)
                                 await self._incoming_queue.put((message, "pg_notify"))
                                 log.info(f"Received mesh message (fallback) from {sender}")
                         else:
@@ -232,13 +248,22 @@ class PGTransport(TransportAdapter):
             cur.close()
             
             if row:
-                msg = A2AMessage.create(
-                    sender=row[1],
-                    recipient=row[2],
-                    msg_type=row[3],
-                    payload=row[5] if isinstance(row[5], dict) else {},
-                    priority=row[4],
-                )
+                # Use A2AMessage.from_dict to preserve the original message ID
+                # instead of A2AMessage.create() which generates a new UUID.
+                # This is critical for dedup — the message ID must match across
+                # all transports to prevent duplicate processing.
+                msg_data = {
+                    "id": row[0],           # Preserve original ID!
+                    "sender": row[1],
+                    "recipient": row[2],
+                    "type": row[3],
+                    "priority": row[4],
+                    "payload": row[5] if isinstance(row[5], dict) else {},
+                    "routing_mode": row[6] if row[6] else "hybrid",
+                    "src_address": row[7],
+                    "dst_address": row[8],
+                }
+                msg = A2AMessage.from_dict(msg_data)
                 return msg
         except Exception as e:
             log.error(f"Failed to fetch message {msg_id}: {e}")

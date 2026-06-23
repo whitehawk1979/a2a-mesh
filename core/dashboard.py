@@ -1055,7 +1055,14 @@ class DashboardHandler:
             )
             conn.commit()
             # Notify mesh channel so all agents receive it
-            cur.execute("NOTIFY mesh_channel, %s", (message.id,))
+            notify_payload = json.dumps({
+                "id": str(message.id),
+                "sender": message.sender,
+                "recipient": message.recipient,
+                "msg_type": message.type,
+                "priority": message.priority,
+            })
+            cur.execute("NOTIFY mesh_channel, %s", (notify_payload,))
             conn.commit()
             cur.close()
             conn.close()

@@ -23,8 +23,13 @@ class DedupCache:
         self._cache: OrderedDict[str, float] = OrderedDict()
         self._lock = threading.Lock()
 
-    def is_duplicate(self, message_id: str) -> bool:
-        """Check if a message ID has been seen recently."""
+    def check_and_add(self, message_id: str) -> bool:
+        """Check if duplicate and add atomically. Returns True if duplicate.
+        
+        This is the primary entry point for dedup. The check and add are done
+        under a single lock acquisition to prevent TOCTOU race conditions where
+        two concurrent calls could both see is_duplicate=False before either adds.
+        """
         with self._lock:
             if message_id in self._cache:
                 ts = self._cache[message_id]
@@ -34,6 +39,23 @@ class DedupCache:
                     return True
                 else:
                     # Expired, remove it
+                    del self._cache[message_id]
+
+            # Not a duplicate — add it now
+            self._cache[message_id] = time.time()
+            # Evict oldest if over max size
+            while len(self._cache) > self.max_size:
+                self._cache.popitem(last=False)
+            return False
+
+    def is_duplicate(self, message_id: str) -> bool:
+        """Check if a message ID has been seen recently (does NOT add)."""
+        with self._lock:
+            if message_id in self._cache:
+                ts = self._cache[message_id]
+                if time.time() - ts < self.ttl:
+                    return True
+                else:
                     del self._cache[message_id]
             return False
 
@@ -45,16 +67,8 @@ class DedupCache:
                 self._cache[message_id] = time.time()
             else:
                 self._cache[message_id] = time.time()
-                # Evict oldest if over max size
                 while len(self._cache) > self.max_size:
                     self._cache.popitem(last=False)
-
-    def check_and_add(self, message_id: str) -> bool:
-        """Check if duplicate, then add. Returns True if duplicate."""
-        is_dup = self.is_duplicate(message_id)
-        if not is_dup:
-            self.add(message_id)
-        return is_dup
 
     def remove(self, message_id: str) -> None:
         """Remove a message ID from the cache."""
