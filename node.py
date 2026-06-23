@@ -903,6 +903,12 @@ class MeshNode:
                             if msg.sender == self.node_name:
                                 continue
 
+                            # Skip empty payloads (wake-agent noise, not real messages)
+                            payload = msg.payload if hasattr(msg, 'payload') else None
+                            if payload is None or (isinstance(payload, dict) and len(payload) == 0) or (isinstance(payload, str) and payload.strip() in ('', '{}')):
+                                log.debug(f"Skipping empty payload message {msg.id[:8]} from {msg.sender}")
+                                continue
+
                             result = await self.router.receive(msg, from_transport)
                             log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             if result.status == "processed":
