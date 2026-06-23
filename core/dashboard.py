@@ -2356,7 +2356,7 @@ class DashboardHandler:
             base_url=base_url,
         )
         
-        return web.json_response(card)
+        return web.json_response(card.to_dict())
 
     async def _api_router_stats(self, request):
         """GET /api/router/stats — Detailed router + stream mux + queue statistics.
@@ -2374,7 +2374,22 @@ class DashboardHandler:
             return web.json_response({"error": "Router not available"}, status=503)
         
         stats = self.node.router.get_stats()
-        return web.json_response(stats)
+        
+        def sanitize(obj):
+            if isinstance(obj, dict):
+                return {k: sanitize(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [sanitize(v) for v in obj]
+            elif isinstance(obj, (str, int, float, bool, type(None))):
+                return obj
+            elif hasattr(obj, '__dataclass_fields__'):
+                return sanitize(obj.__dict__)
+            elif hasattr(obj, '__dict__'):
+                return sanitize(obj.__dict__)
+            else:
+                return str(obj)
+        
+        return web.json_response(sanitize(stats))
 
     # ─── Smart Router API Handlers ─────────────────────────────────
 
