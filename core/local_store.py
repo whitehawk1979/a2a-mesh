@@ -170,14 +170,32 @@ class LocalStore:
         )
         self._conn.commit()
 
-    def cleanup_outbound(self, max_age_hours: int = 24):
-        """Remove old synced outbound messages."""
+    def cleanup_outbound(self, max_age_hours: int = 1):
+        """Remove old outbound messages (synced and pending).
+        
+        Synced messages are cleaned after max_age_hours.
+        Pending messages older than max_age_hours are also cleaned — 
+        if they haven't been delivered in that time, they're stale.
+        Heartbeat/ACK messages are never enqueued (filtered in router),
+        so this only affects real message data.
+        """
         cutoff = time.time() - (max_age_hours * 3600)
-        self._conn.execute(
+        # Clean synced messages
+        synced = self._conn.execute(
             "DELETE FROM outbound_queue WHERE pg_synced = 1 AND created_at < ?",
             (cutoff,)
-        )
+        ).rowcount
+        # Clean stale pending messages (older than max_age_hours)
+        # These are messages that were never synced — likely broadcast heartbeats
+        # or messages that already arrived via another transport
+        pending = self._conn.execute(
+            "DELETE FROM outbound_queue WHERE pg_synced = 0 AND created_at < ?",
+            (cutoff,)
+        ).rowcount
         self._conn.commit()
+        if synced > 0 or pending > 0:
+            log.info(f"Cleanup: removed {synced} synced, {pending} stale pending outbound messages")
+        return synced + pending
 
     # ─── Inbound Messages ─────────────────────────────────────────
 

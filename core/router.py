@@ -4,7 +4,7 @@ import logging
 import asyncio
 import json
 from typing import Dict, List, Optional, Callable
-from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION
+from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
 from ..core.dedup import DedupCache
 from ..core.bounded_queue import BoundedQueue
 from ..core.stream_mux import StreamMultiplexer, create_default_mux
@@ -170,7 +170,9 @@ class MeshRouter:
             message.signature = enc.sign_message(content)
 
         # Store in local_store for offline resilience
-        if self.local_store:
+        # Skip transient messages (heartbeat, ack) — they don't need persistence
+        # and would otherwise fill the DB with noise
+        if self.local_store and message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
             try:
                 payload_str = message.payload if isinstance(message.payload, str) else json.dumps(message.payload)
                 self.local_store.enqueue_outbound(
@@ -243,6 +245,14 @@ class MeshRouter:
         successes = sum(1 for r in results if r.success)
         if successes > 0:
             self._stats["sent"] += 1
+            # Mark broadcast as pg_synced in local_store if PG transport succeeded
+            if self.local_store:
+                pg_ok = any(r.success and r.transport == "pg_notify" for r in results)
+                if pg_ok:
+                    try:
+                        self.local_store.mark_outbound_pg_synced(message.id)
+                    except Exception:
+                        pass
             return SendResult(transport="broadcast", success=True,
                             latency_ms=min(r.latency_ms for r in results if r.success))
         return SendResult(transport="broadcast", success=False, error="all transports failed")

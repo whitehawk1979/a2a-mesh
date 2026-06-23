@@ -1113,6 +1113,8 @@ class MeshNode:
                 await self._update_node_stats()
                 # Cleanup old steer directives
                 self.auto_steer.cleanup_old_steers(max_age_seconds=3600)
+                # Cleanup old outbound messages from local_store (pg_synced > 1h old)
+                self.local_store.cleanup_outbound(max_age_hours=1)
             except asyncio.CancelledError:
                 break
             except Exception as e:

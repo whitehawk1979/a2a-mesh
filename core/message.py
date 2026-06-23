@@ -157,13 +157,39 @@ class A2AMessage:
 
     @classmethod
     def from_bytes(cls, data: bytes) -> 'A2AMessage':
-        """Deserialize from bytes (msgpack or JSON)."""
+        """Deserialize from bytes (msgpack or JSON).
+        
+        Tries msgpack first (binary format, first byte 0x80-0x9F or 0xDE+),
+        then falls back to JSON (first byte '{' or '[').
+        Logs a clear error if both fail instead of crashing.
+        """
+        # Quick format detection: JSON starts with { or [, msgpack with 0x80+ 
+        if not data:
+            raise ValueError("Empty message data")
+        
+        first_byte = data[0]
+        is_binary = first_byte not in (0x7B, 0x5B)  # not { or [
+        
+        # Try msgpack for binary data (first byte is not ASCII JSON start)
+        if is_binary:
+            try:
+                import msgpack
+                d = msgpack.unpackb(data, raw=False)
+                return cls.from_dict(d)
+            except ImportError:
+                log.error("msgpack not installed — cannot decode binary message (first_byte=0x%02x, len=%d), install with: pip install msgpack", first_byte, len(data))
+                raise ValueError(f"Cannot decode binary message without msgpack: first_byte=0x{first_byte:02x}, len={len(data)}")
+            except Exception as e:
+                # msgpack header detected but data is corrupted/truncated
+                log.error("msgpack decode failed for binary message: %s, first_byte=0x%02x, len=%d", e, first_byte, len(data))
+                raise ValueError(f"msgpack decode failed: {e}, first_byte=0x{first_byte:02x}, len={len(data)}")
+        
+        # Try JSON decode (only for data starting with { or [)
         try:
-            import msgpack
-            d = msgpack.unpackb(data, raw=False)
-            return cls.from_dict(d)
-        except (ImportError, Exception):
             return cls.from_json(data.decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            log.error("Message decode failed (not valid JSON): %s, first_byte=0x%02x, len=%d", e, first_byte, len(data))
+            raise
 
     def is_broadcast(self) -> bool:
         """Check if this is a broadcast message."""
