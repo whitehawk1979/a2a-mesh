@@ -9,6 +9,7 @@ from ..core.dedup import DedupCache
 from ..core.bounded_queue import BoundedQueue
 from ..core.stream_mux import StreamMultiplexer, create_default_mux
 from ..core.gossipsub import GossipSub
+from ..core.health_scorer import HealthScorer
 
 log = logging.getLogger("a2a_mesh.router")
 
@@ -59,6 +60,9 @@ class MeshRouter:
 
         # GossipSub broadcast (AXL-inspired: efficient broadcast for >10 nodes)
         self._gossipsub = GossipSub(node_name)
+
+        # Health Scorer (sushaan-k/a2a-mesh inspired: trust-based agent scoring)
+        self._health_scorer = HealthScorer()
 
         # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
         self._p2p_semaphore = asyncio.Semaphore(128)
@@ -197,6 +201,11 @@ class MeshRouter:
                 result = await transport.send(message)
                 if result.success:
                     self._stats["sent"] += 1
+                    # Health scorer: record success for this transport/recipient
+                    self._health_scorer.record_success(
+                        message.recipient or transport_name,
+                        latency_ms=result.latency_ms if hasattr(result, 'latency_ms') else 0.0
+                    )
                     # Mark as PG-synced if we used PG
                     if transport_name == "pg_notify" and self.local_store:
                         try:
@@ -212,6 +221,8 @@ class MeshRouter:
 
         # All transports failed — message stays in local_store for later sync
         self._stats["errors"] += 1
+        # Health scorer: record failure for recipient
+        self._health_scorer.record_failure(message.recipient or "unknown")
         error_detail = "; ".join(failures)
         log.warning(f"All transports failed for {message.id[:8]}: {error_detail}")
         return SendResult(transport="none", success=False, error=f"all transports failed: {error_detail}")
@@ -301,6 +312,7 @@ class MeshRouter:
             "outbound_queue": self._outbound_queue.stats,
             "stream_mux": self._mux.get_stats(),
             "gossipsub": self._gossipsub.stats,
+            "health_scorer": self._health_scorer.stats,
             "protocol_version": A2A_PROTOCOL_VERSION,
             "transports": {
                 name: transport.get_status()

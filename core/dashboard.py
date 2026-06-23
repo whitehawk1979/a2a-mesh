@@ -123,6 +123,10 @@ class DashboardHandler:
         app.router.add_get("/.well-known/agent-card.json", self._api_agent_card)
         app.router.add_get("/api/agent-card", self._api_agent_card)
         app.router.add_get("/api/router/stats", self._api_router_stats)
+        # Health Scorer endpoint
+        app.router.add_get("/api/health/scores", self._api_health_scores)
+        app.router.add_post("/api/health/record-success/{name}", self._api_health_success)
+        app.router.add_post("/api/health/record-failure/{name}", self._api_health_failure)
         app.router.add_post("/api/registry/record-failure/{name}", self._api_registry_failure)
         # Smart Router endpoints
         app.router.add_get("/api/route", self._api_route)
@@ -2390,6 +2394,37 @@ class DashboardHandler:
                 return str(obj)
         
         return web.json_response(sanitize(stats))
+
+    # ─── Health Scorer API Handlers ─────────────────────────────────
+
+    async def _api_health_scores(self, request):
+        """GET /api/health/scores — All agent health scores."""
+        from aiohttp import web
+        scorer = getattr(self.node.router, '_health_scorer', None)
+        if scorer:
+            return web.json_response(scorer.stats)
+        return web.json_response({"agent_count": 0, "agents": {}})
+
+    async def _api_health_success(self, request):
+        """POST /api/health/record-success/{name}?latency_ms=0 — Record agent success."""
+        from aiohttp import web
+        name = request.match_info['name']
+        latency_ms = float(request.query.get('latency_ms', '0'))
+        scorer = getattr(self.node.router, '_health_scorer', None)
+        if scorer:
+            score = scorer.record_success(name, latency_ms)
+            return web.json_response({"agent": name, "health_score": round(score, 3)})
+        return web.json_response({"error": "health_scorer not available"}, status=503)
+
+    async def _api_health_failure(self, request):
+        """POST /api/health/record-failure/{name} — Record agent failure."""
+        from aiohttp import web
+        name = request.match_info['name']
+        scorer = getattr(self.node.router, '_health_scorer', None)
+        if scorer:
+            score = scorer.record_failure(name)
+            return web.json_response({"agent": name, "health_score": round(score, 3)})
+        return web.json_response({"error": "health_scorer not available"}, status=503)
 
     # ─── Smart Router API Handlers ─────────────────────────────────
 
