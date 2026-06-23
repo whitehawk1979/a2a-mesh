@@ -314,6 +314,23 @@ class PGTransport(TransportAdapter):
                 None,  # dst_addr
             ))
             conn.commit()
+
+            # Send PG NOTIFY so all agents receive the message immediately
+            try:
+                notify_payload = json.dumps({
+                    "id": str(message.id),
+                    "sender": message.sender,
+                    "recipient": message.recipient,
+                    "msg_type": message.type,
+                    "priority": message.priority,
+                }, ensure_ascii=True)
+                cur2 = conn.cursor()
+                cur2.execute("NOTIFY mesh_channel, %s", (notify_payload,))
+                conn.commit()
+                cur2.close()
+            except Exception as notify_err:
+                log.debug(f"PG NOTIFY failed (non-critical): {notify_err}")
+
             cur.close()
             # Restore autocommit for subsequent operations
             conn.set_isolation_level(old_isolation)
