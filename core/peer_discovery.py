@@ -477,7 +477,14 @@ class PeerDiscovery:
                                     action = data.get("action", "register")
                                     log.info(f"PG NOTIFY: peer {node_name} action={action}")
                                     if action in ("register", "update", "heartbeat"):
-                                        _asyncio.ensure_future(self.discover_and_connect())
+                                        try:
+                                            loop = _asyncio.get_event_loop()
+                                            if loop.is_running():
+                                                _asyncio.ensure_future(self.discover_and_connect())
+                                            else:
+                                                loop.run_until_complete(self.discover_and_connect())
+                                        except RuntimeError:
+                                            _asyncio.ensure_future(self.discover_and_connect())
                                     elif action in ("deregister", "offline"):
                                         if node_name in self._peers:
                                             del self._peers[node_name]

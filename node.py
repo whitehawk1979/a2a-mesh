@@ -1209,10 +1209,14 @@ class MeshNode:
                         return  # Success, no need for fallback
                     else:
                         body = await resp.text()
+                        # Auth errors (401/403) mean the endpoint exists but rejects us — don't fallback to webhook
+                        if resp.status in (401, 403):
+                            log.warning(f"Wake-agent auth error {resp.status} from {wake_url}: check mesh_secret config")
+                            return  # Don't fallback — auth issue won't be solved by trying another endpoint
                         log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
-        except Exception as e:
-            log.debug(f"Wake-agent via {wake_url} failed: {e}")
-            # Try fallback URL
+        except aiohttp.ClientError as e:
+            log.debug(f"Wake-agent network error via {wake_url}: {e}")
+            # Network error — try fallback URL
             fallback = dashboard_url if wake_url == webhook_url else webhook_url
             if fallback and fallback != wake_url:
                 try:
@@ -1225,6 +1229,8 @@ class MeshNode:
                                 log.warning(f"Wake-agent fallback {fallback} returned {resp.status}")
                 except Exception as e2:
                     log.debug(f"Wake-agent fallback {fallback} also failed: {e2}")
+        except Exception as e:
+            log.debug(f"Wake-agent via {wake_url} failed: {e}")
 
 
 async def main():
