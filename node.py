@@ -909,13 +909,15 @@ class MeshNode:
 
                             result = await self.router.receive(msg, from_transport)
                             log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
-                            if result.status == "processed":
-                                # Always notify dashboard for ALL processed messages (chat visibility)
+                            if result.status in ("processed", "forwarded"):
+                                # Notify dashboard for processed AND forwarded messages (chat visibility)
+                                # Forwarded messages are replies to dashboard users that need to be displayed
                                 try:
                                     await self.dashboard.on_mesh_message(msg)
                                 except Exception as e:
                                     log.debug(f"Dashboard notification failed: {e}")
 
+                            if result.status == "processed":
                                 # Always wake the local agent for incoming messages
                                 asyncio.create_task(self._trigger_webhook(msg))
 
