@@ -152,23 +152,24 @@ class PGTransport(TransportAdapter):
                             continue
                         log.warning(f"Invalid NOTIFY payload on {notify.channel}: {notify.payload[:50]}")
                         continue
-                        
-                        # Handle different channels
+
+                    # Process parsed JSON payload
+                    try:
                         if notify.channel == "mesh_channel":
-                            # Full message from mesh_messages INSERT trigger
+                            # Full message from mesh_messages INSERT or NOTIFY
                             msg_id = payload.get("id")
                             msg_type = payload.get("msg_type", "unknown")
                             sender = payload.get("sender", "unknown")
                             recipient = payload.get("recipient")
                             priority = payload.get("priority", 5)
-                            
+
                             # Fetch full message from DB
                             message = self._fetch_message(msg_id)
                             if message:
                                 await self._incoming_queue.put((message, "pg_notify"))
                                 log.info(f"Received mesh message {msg_id[:8]} from {sender} (PG NOTIFY)")
                             else:
-                                # Fallback: create message from NOTIFY payload, preserving original ID
+                                # Fallback: create message from NOTIFY payload
                                 fallback_id = payload.get("id") or msg_id
                                 msg_data = {
                                     "id": fallback_id,
@@ -188,7 +189,7 @@ class PGTransport(TransportAdapter):
                             log.info(f"Received A2A message on {notify.channel} from {getattr(message, 'sender', '?')}")
 
                     except Exception as e:
-                        log.error(f"Failed to parse NOTIFY payload: {e}")
+                        log.error(f"Failed to process NOTIFY payload: {e}")
 
             except asyncio.CancelledError:
                 break
