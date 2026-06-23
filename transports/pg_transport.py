@@ -259,7 +259,7 @@ class PGTransport(TransportAdapter):
                     "recipient": row[2],
                     "type": row[3],
                     "priority": row[4],
-                    "payload": row[5] if isinstance(row[5], dict) else {},
+                    "payload": row[5] if row[5] else {},
                     "routing_mode": row[6] if row[6] else "hybrid",
                     "src_address": row[7],
                     "dst_address": row[8],
