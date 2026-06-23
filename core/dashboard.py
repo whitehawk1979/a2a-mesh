@@ -2324,28 +2324,30 @@ class DashboardHandler:
         import time
         
         # Build agent card from current state
-        uptime = time.time() - self._start_time if hasattr(self, '_start_time') else 0
+        uptime = time.time() - self.node._start_time if hasattr(self.node, '_start_time') and self.node._start_time else 0
         health_score = 1.0
         load = 0.0
         queue_size = 0
+        node_name = self.node.node_name
+        router = self.node.router
         
         # Get health/load from registry if available
         if self.registry:
-            health = self.registry.get_health(self.node_name)
+            health = self.registry.get_health(node_name)
             if health:
-                health_score = health.score
-                load = health.load
+                health_score = getattr(health, 'score', 1.0)
+                load = getattr(health, 'load', 0.0)
         
         # Get queue size from router if available
-        if self.router:
-            stats = self.router.get_stats()
+        if router:
+            stats = router.get_stats()
             queue_size = stats.get("inbound_queue", {}).get("current_size", 0)
             load = queue_size / max(1, 200)  # Normalize to 0-1
         
         base_url = f"http://{request.host}" if request.host else ""
         
         card = build_agent_card(
-            node_name=self.node_name,
+            node_name=node_name,
             registry=self.registry,
             health_score=health_score,
             load=load,
@@ -2368,10 +2370,10 @@ class DashboardHandler:
         """
         from aiohttp import web
         
-        if not self.router:
+        if not self.node.router:
             return web.json_response({"error": "Router not available"}, status=503)
         
-        stats = self.router.get_stats()
+        stats = self.node.router.get_stats()
         return web.json_response(stats)
 
     # ─── Smart Router API Handlers ─────────────────────────────────
