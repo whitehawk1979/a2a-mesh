@@ -127,6 +127,9 @@ class DashboardHandler:
         app.router.add_get("/api/health/scores", self._api_health_scores)
         app.router.add_post("/api/health/record-success/{name}", self._api_health_success)
         app.router.add_post("/api/health/record-failure/{name}", self._api_health_failure)
+        # P2P management endpoints
+        app.router.add_post("/api/p2p/reset-backoff", self._api_p2p_reset_backoff)
+        app.router.add_post("/api/p2p/reconnect", self._api_p2p_reconnect)
         app.router.add_post("/api/registry/record-failure/{name}", self._api_registry_failure)
         # Smart Router endpoints
         app.router.add_get("/api/route", self._api_route)
@@ -2313,6 +2316,45 @@ class DashboardHandler:
             "health_score": round(score, 3),
             "consecutive_failures": health.consecutive_failures if health else 0,
         })
+
+    async def _api_p2p_reset_backoff(self, request):
+        """POST /api/p2p/reset-backoff — Reset P2P backoff for all or specific peers."""
+        from aiohttp import web
+        p2p = self.node.p2p_transport
+        if not p2p:
+            return web.json_response({"error": "P2P transport not available"}, status=503)
+        body = await request.json() if request.content_type == 'application/json' else {}
+        peer_name = body.get("peer")
+        if peer_name:
+            p2p._peer_backoff.pop(peer_name, None)
+            p2p._peer_retry_count.pop(peer_name, None)
+            return web.json_response({"status": "ok", "peer": peer_name, "backoff_reset": True})
+        # Reset all backoffs
+        count = len(p2p._peer_backoff)
+        p2p._peer_backoff.clear()
+        p2p._peer_retry_count.clear()
+        return web.json_response({"status": "ok", "backoffs_reset": count})
+
+    async def _api_p2p_reconnect(self, request):
+        """POST /api/p2p/reconnect — Trigger immediate P2P reconnection to all discovered peers."""
+        from aiohttp import web
+        import logging
+        log = logging.getLogger("a2a_mesh.dashboard")
+        discovery = self.node.peer_discovery
+        if not discovery:
+            return web.json_response({"error": "Peer discovery not available"}, status=503)
+        # Reset all backoffs first
+        p2p = self.node.p2p_transport
+        if p2p:
+            p2p._peer_backoff.clear()
+            p2p._peer_retry_count.clear()
+        # Trigger discovery and connect
+        try:
+            result = await discovery.discover_and_connect()
+            return web.json_response({"status": "ok", "discovery_result": str(result)})
+        except Exception as e:
+            log.error(f"P2P reconnect failed: {e}")
+            return web.json_response({"status": "error", "error": str(e)}, status=500)
 
     # ─── A2A v0.8 API Handlers ─────────────────────────────────────
 
