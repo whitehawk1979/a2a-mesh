@@ -259,9 +259,10 @@ class MeshConfig:
         config.health_port = int(mesh.get('health_port', 8650))
 
         # Validate: P2P port must differ from health port to avoid conflicts
+        # Convention: P2P port = health_port - 5 (e.g., 8650→8645) for consistency across nodes
         if config.p2p.listen_port == config.health_port:
-            log.warning(f"P2P port {config.p2p.listen_port} == health port {config.health_port}, auto-incrementing P2P to {config.p2p.listen_port + 1}")
-            config.p2p.listen_port = config.p2p.listen_port + 1
+            config.p2p.listen_port = config.health_port - 5
+            log.info(f"P2P port == health port, setting P2P port to {config.p2p.listen_port} (health_port - 5)")
 
         # Heartbeat config
         hb_data = mesh.get('heartbeat', {})

@@ -144,11 +144,29 @@ class P2PTransport(TransportAdapter):
             return True
         except OSError as e:
             if "address already in use" in str(e).lower() or getattr(e, 'errno', None) in (48, 98):
-                # Port already bound — likely by peer discovery or another instance
-                log.warning(f"P2P port {self._listen_port} already in use — assuming existing server")
+                # Port already bound — try alternative ports before giving up
+                original_port = self._listen_port
+                for offset in [1, -1, 2, -2, 5, -5]:
+                    alt_port = original_port + offset
+                    if alt_port <= 0 or alt_port > 65535:
+                        continue
+                    try:
+                        self._server = await asyncio.start_server(
+                            self._handle_connection, self._listen_host, alt_port
+                        )
+                        self._listen_port = alt_port
+                        self._running = True
+                        self._available = True
+                        log.info(f"P2P port {original_port} in use, bound to alternative port {alt_port}")
+                        # Start reconnection monitor
+                        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+                        return True
+                    except OSError:
+                        continue
+                # All alternative ports failed — assume existing server from previous process
+                log.warning(f"P2P port {original_port} and alternatives in use — assuming existing server")
                 self._running = True
                 self._available = True
-                # Start reconnection monitor anyway
                 self._reconnect_task = asyncio.create_task(self._reconnect_loop())
                 return True
             log.error(f"P2P transport start failed: {e}")
@@ -333,7 +351,12 @@ class P2PTransport(TransportAdapter):
         import socket
         try:
             # Use TLS ssl_context for client connections if configured
-            reader, writer = await asyncio.open_connection(host, port, ssl=self._ssl_client_context or self._ssl_context)
+            ssl_ctx = self._ssl_client_context or self._ssl_context
+            # P2: Add connection timeout (10s) to prevent hanging on unreachable peers
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port, ssl=ssl_ctx),
+                timeout=10
+            )
 
             # P1: Set TCP keepalive for faster dead-connection detection
             sock = writer.get_extra_info('socket')
@@ -364,6 +387,13 @@ class P2PTransport(TransportAdapter):
             # Flush retry queue: resend any queued messages to this peer
             self._flush_retry_queue_for_peer(name)
 
+        except asyncio.TimeoutError:
+            retry_count = self._peer_retry_count.get(name, 0) + 1
+            self._peer_retry_count[name] = retry_count
+            backoff = min(self._reconnect_interval * (2 ** (retry_count - 1)), 300)
+            next_retry = time.time() + backoff
+            self._peer_backoff[name] = next_retry
+            log.warning(f"P2P connection to {name} at {host}:{port} TIMED OUT (retry #{retry_count}, next in {backoff:.0f}s)")
         except Exception as e:
             retry_count = self._peer_retry_count.get(name, 0) + 1
             self._peer_retry_count[name] = retry_count
@@ -371,7 +401,7 @@ class P2PTransport(TransportAdapter):
             backoff = min(self._reconnect_interval * (2 ** (retry_count - 1)), 300)
             next_retry = time.time() + backoff
             self._peer_backoff[name] = next_retry
-            log.debug(f"Failed to connect to {name} at {host}:{port} (retry #{retry_count}, next in {backoff:.0f}s): {e}")
+            log.warning(f"Failed to connect to {name} at {host}:{port} (retry #{retry_count}, next in {backoff:.0f}s): {e}")
 
     async def send(self, message: A2AMessage) -> SendResult:
         """Send message to peer(s) via TCP."""

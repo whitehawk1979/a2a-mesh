@@ -681,6 +681,12 @@ class MeshNode:
                 "local_store": self.local_store.get_stats(),
                 "file_transfer": self.file_transfer.get_transfer_stats(),
                 "peer_discovery": self.peer_discovery.get_stats(),
+                "p2p": {
+                    "peers": list(self._p2p_transport._peers.keys()),
+                    "peer_addresses": dict(self._p2p_transport._peer_addresses),
+                    "backoff_peers": {k: f"{v - time.time():.0f}s" for k, v in self._p2p_transport._peer_backoff.items()},
+                    "incoming_queue": self._p2p_transport._incoming_queue.qsize(),
+                },
                 "dashboard": self.dashboard.get_stats(),
                 "messages_sent": self.router._stats.get("sent", 0),
                 "messages_received": self.router._stats.get("received", 0),

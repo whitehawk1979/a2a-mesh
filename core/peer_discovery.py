@@ -324,6 +324,7 @@ class PeerDiscovery:
             return True  # Already connected
 
         try:
+            log.info(f"P2P: Attempting connection to {peer.name} at {peer.host}:{peer.p2p_port}")
             await self.p2p_transport._connect_to_peer(
                 peer.name, peer.host, peer.p2p_port
             )
