@@ -205,8 +205,8 @@ class P2PTransport(TransportAdapter):
         close the connection.
         """
         peer_addr = writer.get_extra_info('peername')
-        HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30s if idle
-        HEARTBEAT_TIMEOUT = 120   # Close connection if no data for 120s
+        HEARTBEAT_INTERVAL = 45  # Send heartbeat every 45s if idle
+        HEARTBEAT_TIMEOUT = 180   # Close connection if no data for 180s
         log.debug(f"New connection from {peer_addr}")
 
         # Try to identify which peer this connection is from
@@ -534,7 +534,7 @@ class P2PTransport(TransportAdapter):
         """Periodically check for disconnected peers and attempt reconnection."""
         while self._running:
             try:
-                await asyncio.sleep(5)  # Check every 5 seconds for fast reconnect
+                await asyncio.sleep(10)  # Check every 10 seconds for reconnect
                 if not self._running:
                     break
 
