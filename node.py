@@ -885,6 +885,7 @@ class MeshNode:
 
     async def _receive_loop(self):
         """Main receive loop — polls all transports for incoming messages."""
+        poll_count = 0
         while self._running:
             try:
                 # Check each transport for messages
@@ -893,6 +894,8 @@ class MeshNode:
                         continue
                     try:
                         messages = await transport.receive()
+                        if messages:
+                            log.debug(f"Receive loop got {len(messages)} messages from {transport_name}")
                         for msg, from_transport in messages:
                             # Skip own messages (loop prevention)
                             if msg.sender == self.node_name:

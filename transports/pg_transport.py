@@ -357,6 +357,9 @@ class PGTransport(TransportAdapter):
     async def receive(self) -> list:
         """Get received messages from the queue."""
         messages = []
+        qsize = self._incoming_queue.qsize()
+        if qsize > 0:
+            log.info(f"PG receive: {qsize} messages in incoming queue")
         while not self._incoming_queue.empty():
             msg, transport = await self._incoming_queue.get()
             messages.append((msg, transport))
