@@ -180,8 +180,15 @@ class P2PTransport(TransportAdapter):
         return True
 
     async def _handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """Handle incoming TCP connection."""
+        """Handle incoming/outgoing TCP connection with heartbeat keepalive.
+
+        Heartbeat: If no message received within HEARTBEAT_TIMEOUT (60s),
+        send a heartbeat ping. If no response within HEARTBEAT_DEAD (120s),
+        close the connection.
+        """
         peer_addr = writer.get_extra_info('peername')
+        HEARTBEAT_INTERVAL = 30  # Send heartbeat every 30s if idle
+        HEARTBEAT_TIMEOUT = 120   # Close connection if no data for 120s
         log.debug(f"New connection from {peer_addr}")
 
         # Try to identify which peer this connection is from
@@ -191,37 +198,64 @@ class P2PTransport(TransportAdapter):
                 connected_peer_name = pname
                 break
 
+        last_received = time.time()
+        last_heartbeat_sent = time.time()
+
         try:
             while self._running:
-                # Read versioned frame: [1-byte version][4-byte length][payload]
-                # Auto-detects v0 (legacy) and v1 (versioned) frames
-                version, data = await read_frame(reader)
-                message = A2AMessage.from_bytes(data)
+                # Read versioned frame with timeout for heartbeat check
+                try:
+                    frame_data = await asyncio.wait_for(read_frame(reader), timeout=HEARTBEAT_INTERVAL)
+                    if frame_data is None:
+                        log.debug(f"Connection from {peer_addr} closed (read_frame returned None)")
+                        break
+                    version, data = frame_data
+                    message = A2AMessage.from_bytes(data)
 
-                # Handle ACK messages: don't re-queue, just invoke callback
-                if message.type == MSG_TYPE_ACK:
-                    payload = message.payload if isinstance(message.payload, dict) else {}
-                    ack_for_id = payload.get("ack_for", "")
-                    ack_type = payload.get("ack_type", "delivered")
-                    log.info(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
-                    if self._ack_callback and ack_for_id:
-                        try:
-                            asyncio.create_task(self._ack_callback(ack_for_id, ack_type))
-                        except Exception as e:
-                            log.error(f"ACK callback error: {e}")
-                    # Also enqueue so node-level handlers can process it
+                    last_received = time.time()
+
+                    # Handle heartbeat messages
+                    if message.type == MSG_TYPE_HEARTBEAT:
+                        log.debug(f"Heartbeat received from {message.sender}")
+                        # Don't re-queue heartbeats for normal processing
+                        continue
+
+                    # Handle ACK messages: don't re-queue, just invoke callback
+                    if message.type == MSG_TYPE_ACK:
+                        payload = message.payload if isinstance(message.payload, dict) else {}
+                        ack_for_id = payload.get("ack_for", "")
+                        ack_type = payload.get("ack_type", "delivered")
+                        log.info(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
+                        if self._ack_callback and ack_for_id:
+                            try:
+                                asyncio.create_task(self._ack_callback(ack_for_id, ack_type))
+                            except Exception as e:
+                                log.error(f"ACK callback error: {e}")
+                        # Also enqueue so node-level handlers can process it
+                        await self._incoming_queue.put((message, "p2p"))
+                        continue
+
+                    # Auto-ACK: send ACK back for non-heartbeat messages via P2P
+                    if message.sender != getattr(self.config, 'node_name', ''):
+                        asyncio.create_task(self._send_ack(message, writer, connected_peer_name))
+
+                    # Queue for processing
                     await self._incoming_queue.put((message, "p2p"))
-                    continue
 
-                # Auto-ACK: send ACK back for non-heartbeat messages via P2P
-                if message.type != MSG_TYPE_HEARTBEAT and message.sender != getattr(self.config, 'node_name', ''):
-                    asyncio.create_task(self._send_ack(message, writer, connected_peer_name))
-
-                # Queue for processing
-                await self._incoming_queue.put((message, "p2p"))
+                except asyncio.TimeoutError:
+                    # No data received within HEARTBEAT_INTERVAL — send heartbeat
+                    idle_time = time.time() - last_received
+                    if idle_time > HEARTBEAT_TIMEOUT:
+                        log.warning(f"Peer {connected_peer_name or peer_addr} idle for {idle_time:.0f}s — closing connection")
+                        break
+                    # Send heartbeat if we have a peer name
+                    if self._running:
+                        await self._send_heartbeat(writer, connected_peer_name)
 
         except asyncio.IncompleteReadError:
             log.debug(f"Connection closed by peer {peer_addr}")
+        except ConnectionResetError:
+            log.debug(f"Connection reset by peer {peer_addr}")
         except Exception as e:
             log.error(f"Connection error from {peer_addr}: {e}")
         finally:
@@ -240,6 +274,24 @@ class P2PTransport(TransportAdapter):
                     break
             if removed is None:
                 log.debug(f"Connection from {peer_addr} closed (was not in peers dict)")
+
+    async def _send_heartbeat(self, writer: asyncio.StreamWriter, peer_name: Optional[str]):
+        """Send a heartbeat ping to keep the connection alive."""
+        try:
+            hb_msg = A2AMessage.create(
+                sender=getattr(self.config, 'node_name', ''),
+                recipient=peer_name or '',
+                msg_type=MSG_TYPE_HEARTBEAT,
+                priority=0,
+                payload={"ts": time.time()},
+            )
+            data = hb_msg.to_bytes()
+            writer.write(encode_frame(data))
+            await writer.drain()
+            log.debug(f"Heartbeat sent to {peer_name or 'unknown'}")
+        except Exception as e:
+            log.warning(f"Heartbeat send failed to {peer_name}: {e}")
+            raise  # Let the caller handle the broken connection
 
     async def _send_ack(self, original_message: A2AMessage, writer: asyncio.StreamWriter, peer_name: Optional[str]):
         """Send an ACK message back via P2P to the sender."""

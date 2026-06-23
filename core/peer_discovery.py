@@ -341,7 +341,7 @@ class PeerDiscovery:
 
         1. Discover from PG (primary source)
         2. Check health of known peers
-        3. Connect to newly discovered peers
+        3. Connect to newly discovered peers (skip already connected)
         """
         # 1. Discover from PG
         pg_conn = self._pg_conn
@@ -359,23 +359,32 @@ class PeerDiscovery:
             except Exception as e:
                 log.warning(f"PG peer discovery failed: {e}")
 
-        # 2. Health check known peers
+        # 2. Health check known peers (but don't reconnect if already connected)
         for peer in list(self._peers.values()):
+            # Skip health check for already-connected peers — P2P transport handles keepalive
+            if self.p2p_transport and peer.name in self.p2p_transport._peers:
+                continue
             await self.check_peer_health(peer)
 
-        # 3. Connect to peers that aren't connected yet
-        # Always attempt connection if peer has a host — don't require p2p_available
-        # (p2p_available is set by health check, which may fail if P2P is down)
+        # 3. Connect to peers that aren't connected yet (skip already-connected)
         connected = 0
+        already_connected = 0
         for peer in list(self._peers.values()):
-            if peer.host and peer.name not in (
-                self.p2p_transport._peers if self.p2p_transport else {}
-            ):
-                if await self.connect_to_peer(peer):
-                    connected += 1
+            if not peer.host:
+                continue
+            # CRITICAL: Skip peers that already have an active P2P connection
+            if self.p2p_transport and peer.name in self.p2p_transport._peers:
+                already_connected += 1
+                continue
+            # Skip peers still in backoff (on the P2P transport)
+            if self.p2p_transport and peer.name in self.p2p_transport._peer_backoff:
+                if time.time() < self.p2p_transport._peer_backoff[peer.name]:
+                    continue
+            if await self.connect_to_peer(peer):
+                connected += 1
 
-        if connected > 0:
-            log.info(f"Connected to {connected} new peers")
+        if connected > 0 or already_connected > 0:
+            log.debug(f"Discovery: {connected} new, {already_connected} already connected")
         return connected
 
     async def start(self):
