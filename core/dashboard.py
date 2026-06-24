@@ -2797,148 +2797,105 @@ class DashboardHandler:
         return web.json_response({"status": "ok", "updated": updated})
 
     async def _api_mesh_topology(self, request):
-        """GET /api/mesh/topology — Star topology visualization data.
-        
-        Returns nodes, connections, and P2P status for star mesh rendering.
-        Each node shows: name, host, health_score, status, capabilities, connections.
-        Each connection shows: source, target, transport (p2p/pg), status, latency.
-        """
+        """GET /api/mesh/topology — Star topology visualization data."""
         from aiohttp import web
-        
-        # Collect nodes from registry + P2P peers
-        nodes = {}
-        
-        # Self node
-        self_info = {
-            "name": self.node.node_name,
-            "host": self.node.config.listen_host if hasattr(self.node.config, 'listen_host') else "0.0.0.0",
-            "port": self.node.config.listen_port if hasattr(self.node.config, 'listen_port') else 8650,
-            "p2p_port": self.node.config.p2p_port if hasattr(self.node.config, 'p2p_port') else 8645,
-            "role": getattr(self.node.config, 'topology', None) and getattr(self.node.config.topology, 'node_role', 'router') or 'router',
-            "status": "online",
-            "health_score": 1.0,
-            "capabilities": self.node.config.capabilities if hasattr(self.node.config, 'capabilities') else [],
-        }
-        nodes[self.node.node_name] = self_info
-        
-        # Peer nodes from P2P discovery
-        pd = self.node.peer_discovery
-        if pd and hasattr(pd, '_peers'):
-            for name, peer in pd._peers.items():
-                p2p_available = getattr(peer, 'p2p_available', False)
-                nodes[name] = {
-                    "name": name,
-                    "host": peer.host,
-                    "port": peer.health_port if hasattr(peer, 'health_port') else 8650,
-                    "p2p_port": peer.p2p_port if hasattr(peer, 'p2p_port') else 8645,
-                    "role": peer.role if hasattr(peer, 'role') else 'router',
-                    "status": "connected" if p2p_available else "disconnected",
-                    "health_score": 1.0,
-                    "capabilities": [],
-                }
-        
-        # Registry nodes (more complete info)
-        if self.node.registry:
-            try:
-                for agent in self.node.registry.list_agents():
-                    name = agent.get("name", agent.get("node_name", ""))
-                    if name and name not in nodes:
+        try:
+            nodes = {}
+            connections = []
+            
+            # Self node info
+            cfg = self.node.config
+            self_info = {
+                "name": self.node.node_name,
+                "host": getattr(cfg, 'listen_host', '0.0.0.0') or '0.0.0.0',
+                "port": getattr(cfg, 'listen_port', 8650),
+                "p2p_port": getattr(cfg, 'p2p_port', 8645),
+                "role": getattr(getattr(cfg, 'topology', None), 'node_role', 'router') or 'router',
+                "status": "online",
+                "health_score": 1.0,
+                "capabilities": list(getattr(cfg, 'capabilities', []) or []),
+            }
+            nodes[self.node.node_name] = self_info
+            
+            # P2P peer info
+            pd = getattr(self.node, 'peer_discovery', None)
+            p2p_peers = []
+            backoff_peers = {}
+            if pd:
+                if hasattr(pd, '_peers'):
+                    for name, peer in pd._peers.items():
+                        p2p_peers.append(name)
+                        p2p_available = getattr(peer, 'p2p_available', False)
                         nodes[name] = {
                             "name": name,
-                            "host": agent.get("host", agent.get("endpoint", "").split(":")[0]),
-                            "port": agent.get("health_port", 8650),
-                            "p2p_port": agent.get("p2p_port", 8645),
-                            "role": agent.get("role", "router"),
-                            "status": agent.get("status", "unknown"),
-                            "health_score": agent.get("health_score", 0.0),
-                            "capabilities": agent.get("capabilities", []),
+                            "host": getattr(peer, 'host', ''),
+                            "port": getattr(peer, 'health_port', 8650),
+                            "p2p_port": getattr(peer, 'p2p_port', 8645),
+                            "role": getattr(peer, 'role', 'router'),
+                            "status": "connected" if p2p_available else "disconnected",
+                            "health_score": 1.0,
+                            "capabilities": [],
                         }
-                    elif name in nodes:
-                        # Merge registry info
-                        nodes[name]["capabilities"] = agent.get("capabilities", nodes[name].get("capabilities", []))
-                        nodes[name]["health_score"] = agent.get("health_score", nodes[name].get("health_score", 1.0))
-            except Exception:
-                pass
-        
-        # Build connections (edges) from P2P peers + backoff status
-        connections = []
-        
-        # P2P connections (from this node's perspective)
-        p2p_info = {}
-        if hasattr(self.node, '_p2p_status'):
-            p2p_info = self.node._p2p_status() or {}
-        
-        # Get P2P status from health endpoint
-        p2p_peers = []
-        backoff_peers = {}
-        if pd and hasattr(pd, '_peers'):
-            p2p_peers = list(pd._peers.keys())
-        if hasattr(pd, '_backoff_until'):
-            backoff_peers = {k: str(v) for k, v in (pd._backoff_until or {}).items()}
-        
-        for peer_name in p2p_peers:
-            is_connected = peer_name in (p2p_info.get("peers") or [])
-            in_backoff = peer_name in backoff_peers
-            status = "connected" if is_connected else ("backoff" if in_backoff else "disconnected")
-            connections.append({
-                "source": self.node.node_name,
-                "target": peer_name,
-                "transport": "p2p",
-                "status": status,
-                "backoff": backoff_peers.get(peer_name),
-            })
-        
-        # PG connections (all registered agents have PG transport)
-        for name in list(nodes.keys()):
-            if name != self.node.node_name:
-                has_p2p = any(c["target"] == name and c["transport"] == "p2p" for c in connections)
-                connections.append({
-                    "source": self.node.node_name,
-                    "target": name,
-                    "transport": "pg",
-                    "status": "active",
-                })
-        
-        # Fetch P2P status from other nodes for cross-connections
-        import aiohttp
-        for name, info in list(nodes.items()):
-            if name == self.node.node_name:
-                continue
-            host = info.get("host", "")
-            port = info.get("port", 8650)
-            if host and host not in ("0.0.0.0", ""):
+                if hasattr(pd, '_backoff_until') and pd._backoff_until:
+                    backoff_peers = {k: str(v) for k, v in pd._backoff_until.items()}
+            
+            # Registry info (merge capabilities)
+            reg = getattr(self.node, 'registry', None)
+            if reg:
                 try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(f"http://{host}:{port}/health", timeout=aiohttp.ClientTimeout(total=2)) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                remote_p2p = data.get("p2p", {})
-                                remote_peers = remote_p2p.get("peers", [])
-                                for rp in remote_peers:
-                                    if rp != self.node.node_name and rp in nodes:
-                                        # Check if this cross-connection already exists
-                                        exists = any(
-                                            (c["source"] == name and c["target"] == rp and c["transport"] == "p2p") or
-                                            (c["source"] == rp and c["target"] == name and c["transport"] == "p2p")
-                                            for c in connections
-                                        )
-                                        if not exists:
-                                            connections.append({
-                                                "source": name,
-                                                "target": rp,
-                                                "transport": "p2p",
-                                                "status": "connected",
-                                            })
+                    for agent in reg.list_agents():
+                        name = agent.get("name", agent.get("node_name", ""))
+                        if name and name not in nodes:
+                            nodes[name] = {
+                                "name": name,
+                                "host": agent.get("host", ""),
+                                "port": agent.get("health_port", 8650),
+                                "p2p_port": agent.get("p2p_port", 8645),
+                                "role": agent.get("role", "router"),
+                                "status": agent.get("status", "unknown"),
+                                "health_score": agent.get("health_score", 1.0),
+                                "capabilities": agent.get("capabilities", []),
+                            }
+                        elif name in nodes:
+                            nodes[name]["capabilities"] = agent.get("capabilities", nodes[name].get("capabilities", []))
+                            nodes[name]["health_score"] = agent.get("health_score", nodes[name].get("health_score", 1.0))
                 except Exception:
                     pass
-        
-        return web.json_response({
-            "nodes": nodes,
-            "connections": connections,
-            "topology": "star",
-            "local_node": self.node.node_name,
-            "timestamp": __import__("time").time(),
-        })
+            
+            # Build P2P connections
+            for peer_name in p2p_peers:
+                is_connected = peer_name in (getattr(self.node, '_p2p_status', lambda: {})() or {}).get("peers", [])
+                in_backoff = peer_name in backoff_peers
+                status = "connected" if is_connected else ("backoff" if in_backoff else "disconnected")
+                connections.append({
+                    "source": self.node.node_name,
+                    "target": peer_name,
+                    "transport": "p2p",
+                    "status": status,
+                    "backoff": backoff_peers.get(peer_name),
+                })
+            
+            # PG connections (all registered agents)
+            for name in list(nodes.keys()):
+                if name != self.node.node_name:
+                    connections.append({
+                        "source": self.node.node_name,
+                        "target": name,
+                        "transport": "pg",
+                        "status": "active",
+                    })
+            
+            import time
+            return web.json_response({
+                "nodes": nodes,
+                "connections": connections,
+                "topology": "star",
+                "local_node": self.node.node_name,
+                "timestamp": time.time(),
+            })
+        except Exception as e:
+            log.error(f"Topology API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
 
     async def _api_topology_page(self, request):
         """GET /topology — Star topology visualization page."""
