@@ -739,6 +739,7 @@ class MeshNode:
                 "file_transfer": self.file_transfer.get_transfer_stats(),
                 "peer_discovery": self.peer_discovery.get_stats(),
                 "p2p": {
+                    "listen_port": self._p2p_transport._listen_port,
                     "peers": list(self._p2p_transport._peers.keys()),
                     "peer_addresses": dict(self._p2p_transport._peer_addresses),
                     "backoff_peers": {k: f"{v - time.time():.0f}s" for k, v in self._p2p_transport._peer_backoff.items()},
@@ -835,8 +836,19 @@ class MeshNode:
             log.error(f"Failed to persist message {message.id[:8]}: {e}")
 
     async def _register_node(self):
-        """Register this node in mesh.mesh_nodes with network info."""
+        """Register this node in mesh.mesh_nodes with network info.
+        
+        Retries up to 3 times if PG connection is not available yet.
+        """
+        max_retries = 3
+        for attempt in range(max_retries):
+            if self._pg_conn:
+                break
+            log.warning(f"_register_node: PG connection not available (attempt {attempt+1}/{max_retries}), retrying in 2s...")
+            await asyncio.sleep(2)
+        
         if not self._pg_conn:
+            log.error("_register_node: PG connection not available after retries, skipping registration")
             return
 
         # Get capabilities from config (same as _auto_register_self)
