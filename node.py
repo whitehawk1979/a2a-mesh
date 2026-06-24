@@ -844,7 +844,69 @@ class MeshNode:
             cur.close()
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
         except Exception as e:
-            log.error(f"Failed to register node: {e}")
+            # Handle short_addr unique constraint violation:
+            # Another node may hold our short_addr from a previous session.
+            # Clear stale entries and retry once.
+            if 'short_addr' in str(e) and 'duplicate' in str(e).lower():
+                log.warning(f"short_addr conflict for {self.node_name}: {e} — clearing stale entry and retrying")
+                try:
+                    cur = self._pg_conn.cursor()
+                    # Remove any stale node claiming our short_addr (but not our own row)
+                    if self.mesh_address:
+                        cur.execute("""
+                            DELETE FROM mesh.mesh_nodes
+                            WHERE short_addr = %s AND node_name != %s
+                        """, (self.mesh_address.short, self.node_name))
+                        log.info(f"Cleared {cur.rowcount} stale short_addr={self.mesh_address.short} entries")
+                    # Also remove our own stale row if it exists with a different short_addr
+                    cur.execute("""
+                        DELETE FROM mesh.mesh_nodes
+                        WHERE node_name = %s AND short_addr != %s
+                    """, (self.node_name, self.mesh_address.short if self.mesh_address else 0))
+                    self._pg_conn.commit()
+                    cur.close()
+                    # Retry registration
+                    cur = self._pg_conn.cursor()
+                    cur.execute("""
+                        INSERT INTO mesh.mesh_nodes 
+                            (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
+                             status, last_heartbeat, host, p2p_port, health_port,
+                             pg_available, p2p_available, http_available, capabilities)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (node_name) DO UPDATE SET
+                            role = EXCLUDED.role,
+                            short_addr = EXCLUDED.short_addr,
+                            status = mesh.mesh_nodes.status,
+                            last_heartbeat = NOW(),
+                            host = EXCLUDED.host,
+                            p2p_port = EXCLUDED.p2p_port,
+                            health_port = EXCLUDED.health_port,
+                            pg_available = EXCLUDED.pg_available,
+                            p2p_available = EXCLUDED.p2p_available,
+                            http_available = EXCLUDED.http_available,
+                            capabilities = EXCLUDED.capabilities
+                    """, (
+                        self.node_name,
+                        self.role.value,
+                        self.mesh_address.short if self.mesh_address else 0,
+                        str(self.mesh_address.extended) if self.mesh_address else self.node_name,
+                        self.mesh_address.parent_short if self.mesh_address else None,
+                        self.mesh_address.depth if self.mesh_address else 0,
+                        initial_status,
+                        host_ip,
+                        p2p_port,
+                        health_port,
+                        bool(self._pg_conn),
+                        self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
+                        self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
+                        json.dumps(capabilities),
+                    ))
+                    cur.close()
+                    log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")
+                except Exception as retry_e:
+                    log.error(f"Failed to register node after retry: {retry_e}")
+            else:
+                log.error(f"Failed to register node: {e}")
 
     async def _deregister_node(self):
         """Mark this node as offline in mesh.mesh_nodes."""
@@ -914,7 +976,10 @@ class MeshNode:
                                 continue
 
                             result = await self.router.receive(msg, from_transport)
-                            log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
+                            if result.status == "duplicate":
+                                log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
+                            else:
+                                log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             if result.status in ("processed", "forwarded"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
                                 # Forwarded messages are replies to dashboard users that need to be displayed
