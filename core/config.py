@@ -48,6 +48,9 @@ class DiscoveryConfig:
     mdns_enabled: bool = True
     mdns_service: str = "_a2a._tcp"
     mdns_port: int = 8645
+    udp_broadcast_enabled: bool = True
+    udp_broadcast_port: int = 8646  # Convention: p2p_port + 1
+    udp_broadcast_interval: int = 15  # seconds between announcements
     static_nodes: List[Dict] = field(default_factory=list)
 
 
@@ -228,6 +231,9 @@ class MeshConfig:
                 mdns_enabled=disc_data.get('mdns', {}).get('enabled', True),
                 mdns_service=disc_data.get('mdns', {}).get('service', '_a2a._tcp'),
                 mdns_port=disc_data.get('mdns', {}).get('port', 8645),
+                udp_broadcast_enabled=disc_data.get('udp_broadcast', {}).get('enabled', True),
+                udp_broadcast_port=disc_data.get('udp_broadcast', {}).get('port', 8646),
+                udp_broadcast_interval=disc_data.get('udp_broadcast', {}).get('interval', 15),
                 static_nodes=static_nodes,
             )
 

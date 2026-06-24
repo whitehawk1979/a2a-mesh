@@ -195,6 +195,15 @@ class PeerDiscovery:
         """Get a peer by name."""
         return self._peers.get(name)
 
+    def approve_peer(self, name: str) -> bool:
+        """Auto-approve a discovered peer for P2P connection."""
+        peer = self._peers.get(name)
+        if not peer:
+            return False
+        log.info(f"Auto-approved discovered peer: {name} caps={peer.capabilities or ['a2a_messaging']}")
+        self._register_discovered_peer(peer)
+        return True
+
     def get_all_peers(self) -> Dict[str, PeerInfo]:
         """Get all known peers."""
         return self._peers.copy()

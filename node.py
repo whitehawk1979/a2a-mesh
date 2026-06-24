@@ -38,6 +38,7 @@ from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
 from .transports.ble_transport import BLETransport
 from .discovery.mdns import MeshDiscovery
+from .discovery.udp_broadcast import UDPBroadcastDiscovery
 
 log = logging.getLogger("a2a_mesh.node")
 
@@ -342,14 +343,30 @@ class MeshNode:
         else:
             log.warning("❌ BLE transport failed (non-critical)")
 
-        # 4. mDNS discovery
+        # 4. mDNS discovery (linked to peer_discovery for auto-connect)
         if self.config.discovery.mdns_enabled:
             host_ip = self._get_local_ip()
+            # Link mDNS discovery to peer_discovery so discovered nodes auto-connect
+            self._discovery.on_discover(self._on_mdns_discover)
             disc_ok = await self._discovery.start(host_ip=host_ip)
             if disc_ok:
                 log.info("✅ mDNS discovery started")
             else:
                 log.warning("❌ mDNS discovery failed")
+
+        # 5. UDP broadcast discovery (works on local network + Tailscale)
+        self._udp_discovery = UDPBroadcastDiscovery(
+            node_name=self.node_name,
+            p2p_port=self.config.p2p.listen_port,
+            health_port=self.config.health_port or 8650,
+            discovery_port=self.config.discovery.udp_broadcast_port,
+        )
+        self._udp_discovery.on_discover(self._on_mdns_discover)  # Same handler for both
+        udp_ok = await self._udp_discovery.start()
+        if udp_ok:
+            log.info("✅ UDP broadcast discovery started")
+        else:
+            log.warning("❌ UDP broadcast discovery failed")
 
         # Start background loops
         self._running = True
@@ -426,6 +443,7 @@ class MeshNode:
         await self._http_transport.stop()
         await self._ble_transport.stop()
         await self._discovery.stop()
+        await self._udp_discovery.stop()
 
         # Close PG write connection
         if self._pg_conn:
@@ -435,6 +453,45 @@ class MeshNode:
                 pass
 
         log.info("Mesh node stopped")
+
+    async def _on_mdns_discover(self, node_info: dict):
+        """Handle mDNS discovered node — add to peer_discovery and connect.
+
+        This is the bridge between mDNS discovery and P2P mesh formation,
+        enabling PG-independent peer discovery on local network and Tailscale.
+        """
+        name = node_info.get("name", "")
+        host = node_info.get("host", "")
+        port = node_info.get("port", 8645)
+
+        if not name or name == self.node_name:
+            return  # Skip self
+
+        log.info(f"mDNS discovered peer: {name} at {host}:{port}")
+
+        # Check if we already know this peer with correct port
+        existing = self.peer_discovery.get_peer(name)
+        if existing and existing.p2p_available and name in (self._p2p_transport._peers if self._p2p_transport else {}):
+            log.debug(f"mDNS: {name} already connected, skipping")
+            return
+
+        # Add or update peer in peer_discovery (mDNS port takes priority over stale data)
+        peer = self.peer_discovery.add_peer(
+            name=name,
+            host=host,
+            port=port,
+            role="router",
+            p2p_port=port,
+            health_port=port + 5,  # Convention: health_port = p2p_port + 5
+        )
+
+        # Auto-approve discovered peer
+        self.peer_discovery.approve_peer(name)
+
+        # Connect via P2P if not already connected
+        if self._p2p_transport and name not in self._p2p_transport._peers:
+            log.info(f"mDNS: Attempting P2P connection to {name} at {host}:{port}")
+            await self.peer_discovery.connect_to_peer(peer)
 
     async def send(self, message: A2AMessage) -> SendResult:
         """Send a message via the best available transport.
