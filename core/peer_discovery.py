@@ -30,7 +30,7 @@ class PeerInfo:
     host: str
     port: int
     role: str = "router"
-    p2p_port: int = 8651
+    p2p_port: int = 8645
     health_port: int = 8650
     last_seen: float = 0.0
     p2p_available: bool = False
@@ -62,9 +62,9 @@ class PeerInfo:
         return cls(
             name=d.get("name", ""),
             host=d.get("host", d.get("ip", "")),
-            port=d.get("port", 8651),
+            port=d.get("port", 8645),
             role=d.get("role", "router"),
-            p2p_port=d.get("p2p_port", d.get("port", 8651)),
+            p2p_port=d.get("p2p_port", d.get("port", 8645)),
             health_port=d.get("health_port", 8650),
             last_seen=d.get("last_seen", 0.0),
             p2p_available=d.get("p2p_available", False),
@@ -104,9 +104,9 @@ class PeerDiscovery:
                 peer = PeerInfo(
                     name=name,
                     host=node.get("host", node.get("ip", "")),
-                    port=node.get("p2p_port", 8651),
+                    port=node.get("p2p_port", 8645),
                     role=node.get("role", "router"),
-                    p2p_port=node.get("p2p_port", 8651),
+                    p2p_port=node.get("p2p_port", 8645),
                     health_port=node.get("health_port", 8650),
                 )
                 self._peers[name] = peer
@@ -165,7 +165,7 @@ class PeerDiscovery:
         else:
             log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
-    def add_peer(self, name: str, host: str, p2p_port: int = 8651,
+    def add_peer(self, name: str, host: str, p2p_port: int = 8645,
                  role: str = "router", health_port: int = 8650) -> PeerInfo:
         """Add or update a peer."""
         peer = PeerInfo(
