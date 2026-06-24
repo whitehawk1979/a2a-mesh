@@ -253,6 +253,7 @@ class PeerDiscovery:
                 if name in self._peers:
                     # Update existing peer
                     self._peers[name].host = host
+                    self._peers[name].port = p2p_port  # Keep port in sync with p2p_port
                     self._peers[name].p2p_port = p2p_port
                     self._peers[name].health_port = health_port
                     self._peers[name].last_seen = time.time()
