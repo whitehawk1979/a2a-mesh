@@ -166,12 +166,14 @@ class PeerDiscovery:
             log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
     def add_peer(self, name: str, host: str, p2p_port: int = 8645,
-                 role: str = "router", health_port: int = 8650) -> PeerInfo:
-        """Add or update a peer."""
+                 role: str = "router", health_port: int = 8650,
+                 capabilities: Optional[list] = None) -> PeerInfo:
+        """Add or update a peer and register it with the agent registry."""
         peer = PeerInfo(
             name=name, host=host, port=p2p_port, role=role,
             p2p_port=p2p_port, health_port=health_port,
             last_seen=time.time(),
+            capabilities=capabilities or [],
         )
         self._peers[name] = peer
 
@@ -181,6 +183,9 @@ class PeerDiscovery:
                 node_name=name, role=role, address=f"{host}:{p2p_port}",
                 pg_available=True, p2p_available=True,
             )
+
+        # Register with agent registry so peers appear in dashboard
+        self._register_discovered_peer(peer)
 
         log.info(f"Discovered peer: {name} at {host}:{p2p_port}")
         return peer
@@ -270,12 +275,13 @@ class PeerDiscovery:
                     self._peers[name].p2p_available = p2p_avail
                     self._peers[name].http_available = http_avail
                     self._peers[name].capabilities = caps
+                    # Re-register with registry to keep dashboard in sync
+                    self._register_discovered_peer(self._peers[name])
                 else:
-                    peer = self.add_peer(name, host, p2p_port, role, health_port)
+                    peer = self.add_peer(name, host, p2p_port, role, health_port, capabilities=caps)
                     peer.pg_available = pg_avail
                     peer.p2p_available = p2p_avail
                     peer.http_available = http_avail
-                    peer.capabilities = caps
                     discovered.append(peer)
 
             cur.close()
