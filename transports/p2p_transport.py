@@ -60,6 +60,10 @@ class P2PTransport(TransportAdapter):
         # ACK callback: called when an ACK message is received, so sender can update PG
         self._ack_callback = None  # Callable[[str, str], Awaitable[None]] (ack_for_id, ack_type)
 
+        # Peer connected callback: called when a P2P connection is established (including reconnects)
+        # so the agent registry can be updated
+        self._peer_connected_callback = None  # Callable[[str], Awaitable[None]] (peer_name)
+
         # Reverse-lookup: map writer → peer_name for incoming ACK routing
         self._writer_to_peer: Dict[int, str] = {}  # id(writer) → peer_name
 
@@ -340,10 +344,17 @@ class P2PTransport(TransportAdapter):
 
     def set_ack_callback(self, callback):
         """Set callback invoked when an ACK is received.
-        
+
         Callback signature: async def callback(ack_for_id: str, ack_type: str)
         """
         self._ack_callback = callback
+
+    def set_peer_connected_callback(self, callback):
+        """Set callback invoked when a P2P connection is established (including reconnects).
+
+        Callback signature: async def callback(peer_name: str)
+        """
+        self._peer_connected_callback = callback
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
         """Connect to a known peer with exponential backoff.
@@ -380,6 +391,13 @@ class P2PTransport(TransportAdapter):
             self._peer_retry_count[name] = 0
             self._peer_backoff.pop(name, None)
             log.info(f"Connected to peer {name} at {host}:{port}")
+
+            # Notify peer_discovery that a peer connected (for registry registration)
+            if self._peer_connected_callback:
+                try:
+                    asyncio.create_task(self._peer_connected_callback(name))
+                except Exception as e:
+                    log.debug(f"Peer connected callback error for {name}: {e}")
 
             # Start reading from this peer
             asyncio.create_task(self._handle_connection(reader, writer))

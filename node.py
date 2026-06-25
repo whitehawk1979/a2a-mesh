@@ -325,7 +325,9 @@ class MeshNode:
             log.info("✅ P2P TCP transport started")
             # Wire up P2P ACK callback — updates PG message status when ACK received
             self._p2p_transport.set_ack_callback(self._on_p2p_ack)
-            log.info("✅ P2P ACK callback registered")
+            # Wire up P2P peer connected callback — registers peer with agent registry on connect/reconnect
+            self._p2p_transport.set_peer_connected_callback(self._on_p2p_peer_connected)
+            log.info("✅ P2P callbacks registered (ACK + peer_connected)")
         else:
             log.warning("❌ P2P TCP transport failed")
 
@@ -633,6 +635,18 @@ class MeshNode:
             log.info(f"PG message {ack_for_id[:8]} status → acknowledged (P2P ACK: {ack_type})")
         except Exception as e:
             log.error(f"Failed to update message status for ACK {ack_for_id[:8]}: {e}")
+
+    async def _on_p2p_peer_connected(self, peer_name: str):
+        """Callback when a P2P connection is established (including reconnects).
+        Registers the peer with the agent registry so it appears in the dashboard."""
+        if not self.peer_discovery:
+            return
+        peer = self.peer_discovery.get_peer(peer_name)
+        if peer:
+            log.info(f"P2P peer_connected callback: registering {peer_name} with agent registry")
+            self.peer_discovery._register_discovered_peer(peer)
+        else:
+            log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 
