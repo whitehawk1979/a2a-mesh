@@ -104,7 +104,8 @@ class AgentCard:
 def build_agent_card(node_name: str, registry: Any = None, 
                      health_score: float = 1.0, load: float = 0.0,
                      queue_size: int = 0, uptime: float = 0.0,
-                     base_url: str = "", mesh_address: str = "") -> AgentCard:
+                     base_url: str = "", mesh_address: str = "",
+                     config_skills: Optional[list] = None) -> AgentCard:
     """Build an agent card from the current node state.
     
     Args:
@@ -164,8 +165,23 @@ def build_agent_card(node_name: str, registry: Any = None,
         "multi_transport": True,
     })
     
-    # Add standard mesh skills
-    card.skills.extend([
+    # Add config-defined skills first (from YAML config or MeshConfig.skills)
+    existing_ids = set()
+    if config_skills:
+        for skill_data in config_skills:
+            if isinstance(skill_data, dict):
+                skill_id = skill_data.get("id", "")
+                if skill_id and skill_id not in existing_ids:
+                    card.skills.append(AgentSkill(
+                        id=skill_id,
+                        name=skill_data.get("name", skill_id),
+                        description=skill_data.get("description", ""),
+                        tags=skill_data.get("tags", []),
+                    ))
+                    existing_ids.add(skill_id)
+    
+    # Add standard mesh skills (skip if already provided via config_skills)
+    standard_skills = [
         AgentSkill(
             id="mesh_send",
             name="Send Message",
@@ -189,7 +205,25 @@ def build_agent_card(node_name: str, registry: Any = None,
             description="Get health status and metrics of this agent",
             tags=["health", "monitoring"],
         ),
-    ])
+        AgentSkill(
+            id="gdm",
+            name="Group Decision Making",
+            description="Coordinate multi-agent decisions with voting, consensus, and ranking protocols",
+            tags=["gdm", "decision", "voting", "consensus", "coordination"],
+        ),
+        AgentSkill(
+            id="task_execution",
+            name="Task Execution",
+            description="Execute delegated tasks and report results back to the coordinator",
+            tags=["task", "execution", "delegation"],
+        ),
+    ]
+    
+    # Add only skills not already present (dedup by id)
+    for skill in standard_skills:
+        if skill.id not in existing_ids:
+            card.skills.append(skill)
+            existing_ids.add(skill.id)
     
     return card
 

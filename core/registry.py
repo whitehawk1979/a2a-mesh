@@ -65,6 +65,7 @@ class AgentCard:
     """Agent capability card — describes what an agent can do."""
     name: str
     capabilities: List[str] = field(default_factory=list)  # ["web_search", "summarization@v2"]
+    skills: List[Dict] = field(default_factory=list)  # [{"id": "gdm", "name": "GDM", "tags": [...]}]
     version: str = "1.0.0"
     description: str = ""
     endpoint: str = ""       # e.g., "http://192.168.1.30:8651"
@@ -472,6 +473,7 @@ class AgentRegistry:
             agents_data[name] = {
                 "name": name,
                 "capabilities": card.capabilities,
+                "skills": card.skills if hasattr(card, 'skills') else [],
                 "version": card.version,
                 "endpoint": card.endpoint,
                 "health_score": round(health.health_score, 3),

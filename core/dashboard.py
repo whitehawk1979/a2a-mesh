@@ -2141,6 +2141,7 @@ class DashboardHandler:
             result.append({
                 "name": card.name,
                 "capabilities": card.capabilities,
+                "skills": card.skills if hasattr(card, 'skills') else [],
                 "version": card.version,
                 "description": card.description,
                 "endpoint": card.endpoint,
@@ -2170,6 +2171,7 @@ class DashboardHandler:
         return web.json_response({
             "name": card.name,
             "capabilities": card.capabilities,
+            "skills": card.skills if hasattr(card, 'skills') else [],
             "version": card.version,
             "description": card.description,
             "endpoint": card.endpoint,
@@ -2404,6 +2406,7 @@ class DashboardHandler:
             queue_size=queue_size,
             uptime=uptime,
             base_url=base_url,
+            config_skills=getattr(self.node.config, 'skills', None) if self.node else None,
         )
         
         return web.json_response(card.to_dict())

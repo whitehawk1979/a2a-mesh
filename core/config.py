@@ -4,7 +4,7 @@ import logging
 import os
 import yaml
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 log = logging.getLogger("a2a_mesh.config")
 
@@ -122,6 +122,42 @@ class MeshConfig:
         "registry",            # Agent registry (coordinator nodes)
         "dashboard",           # Web dashboard (coordinator nodes)
         "health_monitor",      # Health monitoring and scoring
+    ])
+
+    # Agent skills — fine-grained abilities that other agents can discover via P2P handshake
+    # Each skill has a name, description, and optional input/output schemas
+    # Skills are shared during P2P connection and registered in the Agent Registry
+    skills: List[Dict[str, Any]] = field(default_factory=lambda: [
+        {
+            "id": "mesh_send",
+            "name": "Send Message",
+            "description": "Send a message to another agent or broadcast to all",
+            "tags": ["messaging", "send"],
+        },
+        {
+            "id": "mesh_discover",
+            "name": "Discover Agents",
+            "description": "List all agents in the mesh and their capabilities",
+            "tags": ["discovery", "agents"],
+        },
+        {
+            "id": "mesh_health",
+            "name": "Health Check",
+            "description": "Get health status and metrics of this agent",
+            "tags": ["health", "monitoring"],
+        },
+        {
+            "id": "gdm",
+            "name": "Group Decision Making",
+            "description": "Coordinate multi-agent decisions with voting, consensus, and ranking protocols",
+            "tags": ["gdm", "decision", "voting", "consensus", "coordination"],
+        },
+        {
+            "id": "task_execution",
+            "name": "Task Execution",
+            "description": "Execute delegated tasks and report results back to the coordinator",
+            "tags": ["task", "execution", "delegation"],
+        },
     ])
 
     # Transport priority (first success wins for directed messages)
@@ -263,6 +299,12 @@ class MeshConfig:
         # Auth mode
         config.auth_mode = mesh.get('auth_mode', 'open')
         config.health_port = int(mesh.get('health_port', 8650))
+
+        # Skills and capabilities from YAML (override defaults)
+        if 'capabilities' in mesh:
+            config.capabilities = mesh['capabilities']
+        if 'skills' in mesh:
+            config.skills = mesh['skills']
 
         # Validate: P2P port must differ from health port to avoid conflicts
         # Convention: P2P port = health_port - 5 (e.g., 8650→8645) for consistency across nodes

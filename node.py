@@ -289,6 +289,34 @@ class MeshNode:
             self.memory_sync.handle_incoming_memory(payload)
             return
 
+        # Handle skills announcement — P2P auto-discovery of agent skills
+        if message.type == "skills_announcement":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            peer_skills = payload.get("skills", [])
+            peer_capabilities = payload.get("capabilities", [])
+            peer_name = message.sender
+            log.info(f"Skills announcement from {peer_name}: skills={[s.get('id','?') if isinstance(s, dict) else s for s in peer_skills]}, caps={peer_capabilities}")
+            # Update the peer's AgentCard in registry with their skills
+            if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry'):
+                card = self.dashboard.registry.get(peer_name)
+                if card:
+                    # Merge skills: keep existing + add new ones (by id)
+                    existing_ids = {s.get('id') if isinstance(s, dict) else s for s in (card.skills or [])}
+                    merged_skills = list(card.skills or [])
+                    for skill in peer_skills:
+                        skill_id = skill.get('id') if isinstance(skill, dict) else skill
+                        if skill_id not in existing_ids:
+                            merged_skills.append(skill)
+                            existing_ids.add(skill_id)
+                    card.skills = merged_skills
+                    # Also merge capabilities (union)
+                    if peer_capabilities:
+                        existing_caps = set(card.capabilities or [])
+                        merged_caps = list(existing_caps | set(peer_capabilities))
+                        card.capabilities = merged_caps
+                    log.info(f"Updated {peer_name} in registry: {len(merged_skills)} skills, {len(card.capabilities)} caps")
+            return
+
         for handler in self._handlers:
             try:
                 result = handler(message)
@@ -638,7 +666,8 @@ class MeshNode:
 
     async def _on_p2p_peer_connected(self, peer_name: str):
         """Callback when a P2P connection is established (including reconnects).
-        Registers the peer with the agent registry so it appears in the dashboard."""
+        Registers the peer with the agent registry and sends our skills to the peer
+        for auto-discovery. Skills are shared automatically on every P2P connect."""
         if not self.peer_discovery:
             return
         peer = self.peer_discovery.get_peer(peer_name)
@@ -647,6 +676,30 @@ class MeshNode:
             self.peer_discovery._register_discovered_peer(peer)
         else:
             log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
+
+        # P2P Skill Auto-Discovery: send our skills to the newly connected peer
+        skills = list(getattr(self.config, 'skills', []) or [])
+        if skills and self._p2p_transport and self._p2p_transport.is_available():
+            try:
+                from .core.message import A2AMessage
+                import json
+                import uuid
+                skills_msg = A2AMessage(
+                    id=str(uuid.uuid4()),
+                    sender=self.node_name,
+                    recipient=peer_name,
+                    payload={
+                        "type": "skills_announcement",
+                        "skills": skills,
+                        "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                    },
+                    type="skills_announcement",
+                    priority=5,
+                )
+                await self._p2p_transport.send(skills_msg)
+                log.info(f"P2P skill announcement sent to {peer_name}: {[s.get('id','?') for s in skills]}")
+            except Exception as e:
+                log.debug(f"Could not send skills announcement to {peer_name}: {e}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 
@@ -662,7 +715,7 @@ class MeshNode:
         capabilities = list(getattr(self.config, 'capabilities', []) or [
             "a2a_messaging", "file_transfer"
         ])
-
+        
         # Add role-based capabilities
         if self.role == NodeRole.COORDINATOR:
             capabilities.extend(["coordinator", "dashboard", "registry"])
@@ -682,11 +735,14 @@ class MeshNode:
         # Deduplicate
         capabilities = list(set(capabilities))
 
-        endpoint = f"http://{self.config.p2p.listen_host}:{self.config.health_port or 8650}"
+        # Load skills from config (auto-discovery: skills shared via P2P handshake)
+        skills = list(getattr(self.config, 'skills', []) or [])
 
+        endpoint = f"http://{self.config.p2p.listen_host}:{self.config.health_port or 8650}"
         card = AgentCard(
             name=self.node_name,
             capabilities=capabilities,
+            skills=skills,
             version=getattr(self.config, 'version', '0.7.3'),
             description=f"A2A Mesh node ({self.role.value})",
             endpoint=endpoint,
@@ -696,7 +752,7 @@ class MeshNode:
 
         if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry'):
             self.dashboard.registry.register(card, force=True)
-            log.info(f"Auto-registered self in registry: {self.node_name} caps={card.capabilities}")
+            log.info(f"Auto-registered self in registry: {self.node_name} caps={card.capabilities} skills={[s.get('id','?') for s in skills]}")
 
         # P0: Send PG NOTIFY for near-instant peer discovery
         self._notify_node_update("register")
