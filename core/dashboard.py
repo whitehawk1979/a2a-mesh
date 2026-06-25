@@ -2125,7 +2125,9 @@ class DashboardHandler:
         user, err = self._require_auth(request)
         if err:
             return err
-        return web.json_response(self.registry.get_stats())
+        stats = self.registry.get_stats()
+        stats["self_name"] = self.node.node_name if self.node else ""
+        return web.json_response(stats)
 
     async def _api_registry_list(self, request):
         """GET /api/registry/agents — List all registered agents with health."""
