@@ -70,7 +70,7 @@ class DashboardHandler:
         pg_dsn = None
         if hasattr(node, 'config') and hasattr(node.config, 'pg'):
             pg_conf = node.config.pg
-            pg_dsn = f"postgresql://{pg_conf.user}:{pg_conf.password}@{pg_conf.host}:{pg_conf.port}/{pg_conf.database}"
+            pg_dsn = f"postgresql://{pg_conf.user}:{pg_conf.password}@{pg_conf.host}:{pg_conf.port}/{pg_conf.dbname}"
         self.auth = AuthManager(pg_dsn=pg_dsn)
         # Sync existing users to PG on startup (bootstrap)
         if pg_dsn:
