@@ -514,6 +514,19 @@ class AgentRegistry:
         """
         if card.name in self.agents:
             log.info(f"Agent {card.name} already registered, updating")
+            # Merge capabilities: keep existing if new ones are fewer (PG has richer data)
+            existing = self.agents[card.name]
+            if len(card.capabilities) <= 1 and len(existing.capabilities) > 1:
+                # New registration has fewer caps (e.g. P2P handshake only sends a2a_messaging)
+                # Keep existing richer capabilities
+                merged_caps = list(set(existing.capabilities) | set(card.capabilities))
+                card = AgentCard(
+                    name=card.name,
+                    capabilities=merged_caps,
+                    endpoint=card.endpoint or existing.endpoint,
+                    description=card.description or existing.description,
+                    version=card.version or existing.version,
+                )
             self.agents[card.name] = card
             return "approved"
 
