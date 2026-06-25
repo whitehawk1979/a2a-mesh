@@ -25,6 +25,10 @@ except ImportError:
 
 DB_PATH = os.path.expanduser("~/.hermes/mesh_users.db")
 
+# PG-backed user sync — users are stored in mesh.mesh_users table
+# SQLite is used as local cache only; PG is the source of truth
+PG_USERS_TABLE = "mesh.mesh_users"
+
 # JWT-like token signing secret (generated once, stored in file)
 SECRET_PATH = os.path.expanduser("~/.hermes/mesh_auth_secret")
 
@@ -81,10 +85,15 @@ class AuthManager:
         - Rate limiting on login attempts
     """
 
-    def __init__(self, db_path: str = DB_PATH):
+    def __init__(self, db_path: str = DB_PATH, pg_dsn: str = None):
         self.db_path = db_path
+        self.pg_dsn = pg_dsn  # e.g. "postgresql://nova:nova_agent_2026@192.168.1.30:5432/agent_memory"
         self._rate_limits: dict = {}  # username -> [timestamp, ...]
         self._init_db()
+        # Create PG users table and sync
+        if self.pg_dsn:
+            self._init_pg_users()
+            self._sync_from_pg()
 
     def _init_db(self):
         """Create tables if they don't exist."""
@@ -123,6 +132,116 @@ class AuthManager:
             log.info("Default owner user 'zsolt' created")
 
         conn.close()
+
+    def _get_pg_conn(self):
+        """Get a PG connection for user sync."""
+        if not self.pg_dsn:
+            return None
+        try:
+            import psycopg2
+            conn = psycopg2.connect(self.pg_dsn)
+            conn.set_client_encoding('UTF8')
+            return conn
+        except Exception as e:
+            log.warning(f"PG user sync connection failed: {e}")
+            return None
+
+    def _init_pg_users(self):
+        """Create mesh.mesh_users table in PG if not exists."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mesh.mesh_users (
+                    username TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    salt TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    created_at REAL NOT NULL,
+                    last_login REAL DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    updated_at REAL NOT NULL DEFAULT 0
+                )
+            """)
+            conn.commit()
+            log.info("PG mesh_users table ready")
+        except Exception as e:
+            log.warning(f"PG init mesh_users failed: {e}")
+        finally:
+            conn.close()
+
+    def _sync_from_pg(self):
+        """Pull users from PG into local SQLite. PG is source of truth."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT username, display_name, password_hash, salt, role, created_at, last_login, is_active FROM mesh.mesh_users WHERE is_active = 1")
+            pg_users = cur.fetchall()
+            
+            # Sync each PG user into local SQLite
+            local_conn = sqlite3.connect(self.db_path)
+            for row in pg_users:
+                username, display_name, password_hash, salt, role, created_at, last_login, is_active = row
+                try:
+                    local_conn.execute(
+                        "INSERT OR REPLACE INTO users (user_id, username, display_name, password_hash, salt, role, created_at, last_login, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (username, username.lower(), display_name, password_hash, salt, role, created_at, last_login or 0, is_active)
+                    )
+                except Exception as e:
+                    log.debug(f"Sync user {username}: {e}")
+            local_conn.commit()
+            local_conn.close()
+            log.info(f"PG user sync: {len(pg_users)} users pulled from PG")
+        except Exception as e:
+            log.warning(f"PG user sync failed: {e}")
+        finally:
+            conn.close()
+
+    def _sync_to_pg(self, username: str, display_name: str, password_hash: str, salt: str, role: str, created_at: float):
+        """Push a user upsert to PG."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            import time
+            cur.execute("""
+                INSERT INTO mesh.mesh_users (username, display_name, password_hash, salt, role, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (username) DO UPDATE SET
+                    display_name = EXCLUDED.display_name,
+                    password_hash = EXCLUDED.password_hash,
+                    salt = EXCLUDED.salt,
+                    role = EXCLUDED.role,
+                    updated_at = EXCLUDED.updated_at
+            """, (username, display_name, password_hash, salt, role, created_at, time.time()))
+            conn.commit()
+            log.info(f"PG user sync: user '{username}' pushed to PG")
+        except Exception as e:
+            log.warning(f"PG user push failed for '{username}': {e}")
+        finally:
+            conn.close()
+
+    def sync_all_to_pg(self):
+        """Push all local users to PG (for initial bootstrap)."""
+        local_conn = sqlite3.connect(self.db_path)
+        local_conn.row_factory = sqlite3.Row
+        cur = local_conn.execute("SELECT * FROM users WHERE is_active = 1")
+        rows = cur.fetchall()
+        local_conn.close()
+        
+        for row in rows:
+            self._sync_to_pg(
+                row["username"], row["display_name"],
+                row["password_hash"], row["salt"],
+                row["role"], row["created_at"]
+            )
+        log.info(f"PG user sync: {len(rows)} users pushed to PG")
 
     def _hash_password(self, password: str, salt: Optional[str] = None) -> tuple:
         """Hash a password with salt. Returns (hash, salt)."""
@@ -168,13 +287,14 @@ class AuthManager:
 
         password_hash, salt = self._hash_password(password)
         user_id = uuid.uuid4().hex[:12]
+        created_at = time.time()
 
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
                 "INSERT INTO users (user_id, username, display_name, password_hash, salt, role, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user_id, username.lower(), display_name, password_hash, salt, role, time.time())
+                (user_id, username.lower(), display_name, password_hash, salt, role, created_at)
             )
             conn.commit()
         except sqlite3.IntegrityError:
@@ -182,12 +302,17 @@ class AuthManager:
             return None  # Username taken
 
         conn.close()
+
+        # Sync to PG (other nodes will pull from there)
+        if self.pg_dsn:
+            self._sync_to_pg(username.lower(), display_name, password_hash, salt, role, created_at)
+
         return DashboardUser(
             user_id=user_id,
             username=username.lower(),
             display_name=display_name,
             role=role,
-            created_at=time.time(),
+            created_at=created_at,
         )
 
     def login(self, username: str, password: str) -> Optional[dict]:
@@ -400,7 +525,16 @@ class AuthManager:
             (password_hash, salt, user_id)
         )
         conn.commit()
+        # Get username for PG sync
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT username, display_name, role, created_at FROM users WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
         conn.close()
+
+        # Sync password change to PG
+        if row and self.pg_dsn:
+            self._sync_to_pg(row["username"], row["display_name"], password_hash, salt, row["role"], row["created_at"])
+
         return True
 
     def delete_user(self, user_id: str) -> bool:

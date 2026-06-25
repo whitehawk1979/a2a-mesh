@@ -66,7 +66,19 @@ class DashboardHandler:
 
     def __init__(self, node):
         self.node = node
-        self.auth = AuthManager()
+        # Build PG DSN from node config for user sync
+        pg_dsn = None
+        if hasattr(node, 'config') and hasattr(node.config, 'pg'):
+            pg_conf = node.config.pg
+            pg_dsn = f"postgresql://{pg_conf.user}:{pg_conf.password}@{pg_conf.host}:{pg_conf.port}/{pg_conf.database}"
+        self.auth = AuthManager(pg_dsn=pg_dsn)
+        # Sync existing users to PG on startup (bootstrap)
+        if pg_dsn:
+            try:
+                self.auth.sync_all_to_pg()
+                log.info("Initial PG user sync (push) completed")
+            except Exception as e:
+                log.warning(f"Initial PG user sync failed: {e}")
         # Auto-approve known agents if topology.auto_approve_known_agents is True
         auto_approve = getattr(getattr(node.config, 'topology', None), 'auto_approve_known_agents', False)
         self.registry = AgentRegistry(auto_approve=auto_approve)
@@ -98,6 +110,9 @@ class DashboardHandler:
         app.router.add_post("/api/auth/logout", self._api_auth_logout)
         app.router.add_get("/api/auth/me", self._api_auth_me)
         app.router.add_get("/api/users", self._api_users)
+        # User sync endpoint — other nodes pull users from PG
+        app.router.add_post("/api/auth/sync", self._api_auth_sync)
+        app.router.add_get("/api/auth/sync", self._api_auth_sync_pull)
         # Admin routes — node approval
         app.router.add_get("/api/nodes/pending", self._api_nodes_pending)
         app.router.add_post("/api/nodes/{node_name}/approve", self._api_node_approve)
@@ -860,6 +875,45 @@ class DashboardHandler:
             "users": [u.to_dict() for u in users],
             "total": len(users),
         })
+
+    async def _api_auth_sync(self, request):
+        """Trigger user sync from PG. POST endpoint for manual sync."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        try:
+            self.auth._sync_from_pg()
+            users = self.auth.list_users()
+            return web.json_response({
+                "status": "synced",
+                "users_pulled": len(users),
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_auth_sync_pull(self, request):
+        """Pull users from PG into local SQLite. GET endpoint for other nodes."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        try:
+            self.auth._sync_from_pg()
+            users = self.auth.list_users()
+            return web.json_response({
+                "status": "synced",
+                "users": [u.to_dict() for u in users],
+                "total": len(users),
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     # ─── WebSocket handler ───
 
