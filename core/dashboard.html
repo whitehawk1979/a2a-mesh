@@ -194,6 +194,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="channel-section-title">Node-ok</div>
       <div id="allNodesList"></div>
     </div>
+
+    <!-- Quick Links -->
+    <div class="channel-section">
+      <div class="channel-section-title">Gyors Linkek</div>
+      <div class="channel-item" onclick="window.open(location.protocol+'//'+location.hostname+':3322/dashboard','_blank')">
+        <span class="icon">📊</span> Morzsa Dashboard
+      </div>
+      <div class="channel-item" onclick="window.open(location.protocol+'//'+location.hostname+':8650/topology','_blank')">
+        <span class="icon">🌐</span> Topológia Nézet
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="channel-section">
+      <div class="channel-section-title">Beállítások</div>
+      <div class="channel-item" onclick="showSettings()">
+        <span class="icon">⚙️</span> Mesh Beállítások
+      </div>
+    </div>
   </div>
 
   <!-- Chat area -->
