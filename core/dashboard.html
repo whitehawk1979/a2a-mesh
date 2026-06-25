@@ -195,15 +195,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div id="allNodesList"></div>
     </div>
 
-    <!-- Quick Links -->
-    <div class="channel-section">
+    <!-- Quick Links — dynamically populated from registry -->
+    <div class="channel-section" id="quickLinksSection">
       <div class="channel-section-title">Gyors Linkek</div>
-      <div class="channel-item" onclick="window.open(location.protocol+'//'+location.hostname+':3322/dashboard','_blank')">
-        <span class="icon">📊</span> Morzsa Dashboard
-      </div>
-      <div class="channel-item" onclick="window.open(location.protocol+'//'+location.hostname+':8650/topology','_blank')">
-        <span class="icon">🌐</span> Topológia Nézet
-      </div>
+      <div id="quickLinksList"></div>
     </div>
 
     <!-- Settings -->
@@ -887,6 +882,70 @@ function checkAdminPanel() {
   document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
   if (isAdmin) loadPendingNodes();
   loadAllNodes();
+  loadQuickLinks();
+}
+
+// ─── Quick Links — dynamic node dashboard links ──────────
+function loadQuickLinks() {
+  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("quickLinksList");
+      if (!el) return;
+      var agents = d.agents || {};
+      var html = "";
+
+      // Topology view — this node
+      html += '<div class="channel-item" onclick="window.open(\'/topology\',\'_blank\')">';
+      html += '<span class="icon">🌐</span> Topológia Nézet';
+      html += '</div>';
+
+      // Dashboard links for each connected agent that has 'dashboard' capability
+      var selfName = (d.self_name || nodeId || "").toLowerCase();
+      Object.keys(agents).forEach(function(name) {
+        var info = agents[name];
+        var caps = info.capabilities || [];
+        var hasDash = caps.some(function(c) { return c.toLowerCase() === "dashboard"; });
+        if (!hasDash) return;
+
+        var ep = info.endpoint || "";
+        // endpoint may be "http://0.0.0.0:8650" or "192.168.1.30:8645"
+        var host, port;
+        if (ep.indexOf("://") >= 0) {
+          var parts = ep.split("://")[1].split(":");
+          host = parts[0];
+          port = parts[1] || "8650";
+        } else {
+          var parts2 = ep.split(":");
+          host = parts2[0];
+          port = parts2[1] || "8650";
+        }
+
+        // Skip 0.0.0.0 — use this server's hostname instead
+        if (host === "0.0.0.0" || host === "0.0.0.0") {
+          host = location.hostname;
+          port = "8650";
+        }
+
+        // Dashboard runs on health_port (8650), not p2p_port
+        var dashUrl = location.protocol + "//" + host + ":8650/dashboard";
+        var label = name.charAt(0).toUpperCase() + name.slice(1) + " Dashboard";
+        var isSelf = (name.toLowerCase() === selfName);
+        var icon = isSelf ? "🏠" : "📊";
+
+        html += '<div class="channel-item" onclick="window.open(\'' + dashUrl + '\',\'_blank\')">';
+        html += '<span class="icon">' + icon + '</span> ' + label;
+        html += '</div>';
+      });
+
+      // If no agents have dashboard capability, show a placeholder
+      if (html.indexOf("Dashboard") === -1 && Object.keys(agents).length > 0) {
+        html += '<div style="font-size:12px;color:var(--text3);padding:8px 16px;">Nincs elérhető dashboard</div>';
+      }
+
+      el.innerHTML = html;
+    })
+    .catch(function() {});
 }
 
 // ─── Recipient select changes channel ──────────────────
