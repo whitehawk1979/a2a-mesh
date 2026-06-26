@@ -678,28 +678,56 @@ class MeshNode:
             log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
 
         # P2P Skill Auto-Discovery: send our skills to the newly connected peer
+        # Try P2P first, fall back to PG NOTIFY (guaranteed delivery)
         skills = list(getattr(self.config, 'skills', []) or [])
-        if skills and self._p2p_transport and self._p2p_transport.is_available():
-            try:
-                from .core.message import A2AMessage
-                import json
-                import uuid
-                skills_msg = A2AMessage(
-                    id=str(uuid.uuid4()),
-                    sender=self.node_name,
-                    recipient=peer_name,
-                    payload={
-                        "type": "skills_announcement",
-                        "skills": skills,
-                        "capabilities": list(getattr(self.config, 'capabilities', []) or []),
-                    },
-                    type="skills_announcement",
-                    priority=5,
-                )
-                await self._p2p_transport.send(skills_msg)
-                log.info(f"P2P skill announcement sent to {peer_name}: {[s.get('id','?') for s in skills]}")
-            except Exception as e:
-                log.debug(f"Could not send skills announcement to {peer_name}: {e}")
+        if skills:
+            sent_via = []
+            # Try P2P transport
+            if self._p2p_transport and self._p2p_transport.is_available():
+                try:
+                    from .core.message import A2AMessage
+                    import uuid
+                    skills_msg = A2AMessage(
+                        id=str(uuid.uuid4()),
+                        sender=self.node_name,
+                        recipient=peer_name,
+                        payload={
+                            "type": "skills_announcement",
+                            "skills": skills,
+                            "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                        },
+                        type="skills_announcement",
+                        priority=5,
+                    )
+                    await self._p2p_transport.send(skills_msg)
+                    sent_via.append("p2p")
+                    log.info(f"P2P skill announcement sent to {peer_name}: {[s.get('id','?') for s in skills]}")
+                except Exception as e:
+                    log.debug(f"P2P skills announcement failed for {peer_name}: {e}")
+            # Always send via PG NOTIFY as backup (guaranteed delivery)
+            if hasattr(self, '_pg_transport') and self._pg_transport and self._pg_transport.is_available():
+                try:
+                    from .core.message import A2AMessage
+                    import uuid
+                    pg_skills_msg = A2AMessage(
+                        id=str(uuid.uuid4()),
+                        sender=self.node_name,
+                        recipient=peer_name,
+                        payload={
+                            "type": "skills_announcement",
+                            "skills": skills,
+                            "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                        },
+                        type="skills_announcement",
+                        priority=5,
+                    )
+                    await self._pg_transport.send(pg_skills_msg)
+                    sent_via.append("pg")
+                    log.info(f"PG skill announcement sent to {peer_name}: {[s.get('id','?') for s in skills]}")
+                except Exception as e:
+                    log.debug(f"PG skills announcement failed for {peer_name}: {e}")
+            if sent_via:
+                log.info(f"Skills announcement sent to {peer_name} via {sent_via}: {[s.get('id','?') for s in skills]}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 
