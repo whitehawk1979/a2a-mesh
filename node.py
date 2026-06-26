@@ -292,7 +292,7 @@ class MeshNode:
             self.memory_sync.handle_incoming_memory(payload)
             return
 
-        # Handle skills announcement — P2P auto-discovery of agent skills
+# Handle skills announcement — P2P auto-discovery of agent skills
         if message.type == "skills_announcement":
             payload = message.payload if isinstance(message.payload, dict) else {}
             peer_skills = payload.get("skills", [])
@@ -300,6 +300,8 @@ class MeshNode:
             peer_name = message.sender
             log.info(f"Skills announcement from {peer_name}: skills={[s.get('id','?') if isinstance(s, dict) else s for s in peer_skills]}, caps={peer_capabilities}")
             # Update the peer's AgentCard in registry with their skills
+            merged_skills = list(peer_skills)
+            merged_caps = list(peer_capabilities)
             if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry'):
                 card = self.dashboard.registry.get(peer_name)
                 if card:
@@ -318,6 +320,19 @@ class MeshNode:
                         merged_caps = list(existing_caps | set(peer_capabilities))
                         card.capabilities = merged_caps
                     log.info(f"Updated {peer_name} in registry: {len(merged_skills)} skills, {len(card.capabilities)} caps")
+            # Sync skills & capabilities to DB
+            try:
+                if self._pg_conn:
+                    cur = self._pg_conn.cursor()
+                    cur.execute(
+                        "UPDATE mesh.mesh_nodes SET skills = %s, capabilities = %s WHERE node_name = %s",
+                        (json.dumps(merged_skills), json.dumps(merged_caps), peer_name)
+                    )
+                    self._pg_conn.commit()
+                    cur.close()
+                    log.info(f"Synced {peer_name} skills/caps to DB")
+            except Exception as e:
+                log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
             return
 
         for handler in self._handlers:
@@ -1204,6 +1219,11 @@ class MeshNode:
                                 else:
                                     # P1-6: queued backlog processing
                                     await self.router.enqueue(msg)
+
+                            # Process broadcast messages that were "forwarded" by the router
+                            # (e.g., skills_announcement with recipient="*" is forwarded, not processed)
+                            if result.status == "forwarded" and msg.type == "skills_announcement":
+                                await self._handle_message(msg)
 
                     except Exception as e:
                         log.debug(f"Receive error on {transport_name}: {e}")
