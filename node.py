@@ -990,6 +990,8 @@ class MeshNode:
                 password=self.config.pg.password,
             )
             self._pg_conn.autocommit = True
+            # Fix: Set client_encoding to match SQL_ASCII database encoding
+            self._pg_conn.set_client_encoding("SQL_ASCII")
             log.info("PG write connection established")
             return True
         except Exception as e:

@@ -518,6 +518,24 @@ class AgentRegistry:
             log.info(f"Agent {card.name} already registered, updating")
             # Merge capabilities: keep existing if new ones are fewer (PG has richer data)
             existing = self.agents[card.name]
+            # Preserve existing skills if new card has none (P2P handshake doesn't include skills)
+            existing_skills = getattr(existing, 'skills', None) or []
+            new_skills = getattr(card, 'skills', None) or []
+            final_skills = list(set([s.id if hasattr(s, 'id') else s for s in (existing_skills if existing_skills else [])] + [s.id if hasattr(s, 'id') else s for s in (new_skills if new_skills else [])])) if (existing_skills or new_skills) else []
+            # Rebuild skill objects from IDs if we only have IDs
+            if final_skills and all(isinstance(s, str) for s in final_skills):
+                # Map IDs back to original skill objects from existing
+                skill_map = {}
+                for s in (existing_skills or []):
+                    sid = s.id if hasattr(s, 'id') else s
+                    skill_map[sid] = s if hasattr(s, 'id') else s
+                for s in (new_skills or []):
+                    sid = s.id if hasattr(s, 'id') else s
+                    skill_map[sid] = s if hasattr(s, 'id') else s
+                final_skills_list = list(skill_map.values())
+            else:
+                final_skills_list = existing_skills or new_skills or []
+
             if len(card.capabilities) <= 1 and len(existing.capabilities) > 1:
                 # New registration has fewer caps (e.g. P2P handshake only sends a2a_messaging)
                 # Keep existing richer capabilities
@@ -528,7 +546,19 @@ class AgentRegistry:
                     endpoint=card.endpoint or existing.endpoint,
                     description=card.description or existing.description,
                     version=card.version or existing.version,
+                    skills=final_skills_list if final_skills_list else None,
                 )
+            else:
+                # Even if caps are fine, preserve existing skills if new card has none
+                if not new_skills and existing_skills:
+                    card = AgentCard(
+                        name=card.name,
+                        capabilities=list(set(existing.capabilities) | set(card.capabilities)) if card.capabilities else existing.capabilities,
+                        endpoint=card.endpoint or existing.endpoint,
+                        description=card.description or existing.description,
+                        version=card.version or existing.version,
+                        skills=final_skills_list if final_skills_list else None,
+                    )
             self.agents[card.name] = card
             return "approved"
 

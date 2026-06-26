@@ -3195,6 +3195,7 @@ class DashboardHandler:
                         existing_caps = existing.get("capabilities", []) or []
                         # Prefer registry data for skills/caps, fall back to peer data
                         final_caps = existing_caps if existing_caps else peer_caps
+                        existing_skills = existing.get("skills", []) or []
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),
@@ -3205,10 +3206,13 @@ class DashboardHandler:
                             "health_score": existing.get("health_score", 1.0),
                             "capabilities": final_caps,
                             "version": existing.get("version", "1.0.0"),
-                            "skills": existing.get("skills", []) or [],
+                            "skills": existing_skills if existing_skills else [],
                             "uptime_seconds": existing.get("uptime_seconds", 0),
                             "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
                             "message_count": existing.get("message_count", 0),
+                            "p2p_available": p2p_available,
+                            "http_available": existing.get("http_available", False),
+                            "pg_available": existing.get("pg_available", False),
                         }
                 if hasattr(pd, '_backoff_until') and pd._backoff_until:
                     backoff_peers = {k: str(v) for k, v in pd._backoff_until.items()}
