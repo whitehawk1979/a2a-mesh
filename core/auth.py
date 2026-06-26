@@ -31,17 +31,84 @@ PG_USERS_TABLE = "mesh.mesh_users"
 
 # JWT-like token signing secret (generated once, stored in file)
 SECRET_PATH = os.path.expanduser("~/.hermes/mesh_auth_secret")
-
+SECRET_PATH = os.path.expanduser("~/.hermes/mesh_auth_secret")
 
 def _get_secret() -> str:
-    """Get or generate the signing secret for tokens."""
+    """Get or generate the signing secret for tokens.
+    
+    Priority:
+    1. Local file (if exists — may have been synced from PG)
+    2. PG mesh_auth_secret table (shared across all nodes)
+    3. Generate new and store in local file + PG
+    """
+    # 1. Try local file first
     if os.path.exists(SECRET_PATH):
         with open(SECRET_PATH, "r") as f:
-            return f.read().strip()
+            secret = f.read().strip()
+            if secret:
+                return secret
+    
+    # 2. Try PG (shared secret across mesh)
+    try:
+        pg_dsn = os.environ.get("A2A_MESH_PG_DSN")
+        if pg_dsn:
+            import psycopg2
+            conn = psycopg2.connect(pg_dsn)
+            conn.set_client_encoding('UTF8')
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mesh.mesh_secrets (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0
+                )
+            """)
+            cur.execute("SELECT value FROM mesh.mesh_secrets WHERE key = 'signing_secret'")
+            row = cur.fetchone()
+            if row:
+                secret = row[0]
+                # Cache locally
+                os.makedirs(os.path.dirname(SECRET_PATH), exist_ok=True)
+                with open(SECRET_PATH, "w") as f:
+                    f.write(secret)
+                conn.close()
+                return secret
+            conn.close()
+    except Exception:
+        pass
+    
+    # 3. Generate new secret
     secret = uuid.uuid4().hex + uuid.uuid4().hex
     os.makedirs(os.path.dirname(SECRET_PATH), exist_ok=True)
     with open(SECRET_PATH, "w") as f:
         f.write(secret)
+    
+    # Store in PG for other nodes
+    try:
+        pg_dsn = os.environ.get("A2A_MESH_PG_DSN")
+        if pg_dsn:
+            import psycopg2, time
+            conn = psycopg2.connect(pg_dsn)
+            conn.set_client_encoding('UTF8')
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS mesh.mesh_secrets (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at REAL NOT NULL DEFAULT 0
+                )
+            """)
+            cur.execute("""
+                INSERT INTO mesh.mesh_secrets (key, value, updated_at)
+                VALUES ('signing_secret', %s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+            """, (secret, time.time()))
+            conn.commit()
+            conn.close()
+            log.info(f"Signing secret stored in PG for mesh-wide sync")
+    except Exception as e:
+        log.warning(f"Could not store signing secret in PG: {e}")
+    
     return secret
 
 
