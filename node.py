@@ -775,7 +775,7 @@ class MeshNode:
                 await self._pg_transport.send(pg_msg)
                 log.info(f"PG skills announcement broadcast on peer discovery: {[s.get('id','?') for s in skills]}")
             except Exception as e:
-                log.debug(f"PG skills announcement broadcast failed on peer discovery: {e}")
+                log.warning(f"PG skills announcement broadcast failed on peer discovery: {e}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 

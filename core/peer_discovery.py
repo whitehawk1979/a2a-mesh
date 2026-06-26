@@ -169,7 +169,7 @@ class PeerDiscovery:
                     asyncio.create_task(self._on_peer_discovered(peer.name))
                     log.info(f"Triggered on_peer_discovered callback for {peer.name}")
                 except Exception as e:
-                    log.debug(f"Could not trigger on_peer_discovered callback: {e}")
+                    log.warning(f"Could not trigger on_peer_discovered callback: {e}")
         else:
             log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
