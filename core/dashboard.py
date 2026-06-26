@@ -2028,11 +2028,70 @@ class DashboardHandler:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _api_nodes_list(self, request):
-        """List all nodes (all statuses)."""
+        """List all nodes — merges registry (live) data with PG (persistent) data."""
         from aiohttp import web
+        import time as _time
         user, err = self._require_auth(request)
         if err:
             return err
+        nodes = {}  # name -> node_dict
+
+        # 1. Registry data (live, in-memory — always up-to-date)
+        reg = self.registry
+        if reg:
+            try:
+                for card, health in reg.list_agents():
+                    name = card.name
+                    nodes[name] = {
+                        "node_name": name,
+                        "role": getattr(card, 'metadata', {}).get('role', 'agent') if hasattr(card, 'metadata') and card.metadata else 'agent',
+                        "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
+                        "p2p_port": getattr(card, 'metadata', {}).get('p2p_port', 8645) if hasattr(card, 'metadata') and card.metadata else 8645,
+                        "health_port": int(card.endpoint.split(":")[-1]) if card.endpoint and ":" in card.endpoint else 8650,
+                        "pg_available": True,  # in registry = PG works
+                        "p2p_available": False,  # will be enriched from P2P below
+                        "http_available": True,
+                        "status": "active",
+                        "skills": list(card.skills) if card.skills else [],
+                        "capabilities": list(card.capabilities) if card.capabilities else [],
+                        "health_score": round(health.health_score, 3),
+                        "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
+                        "last_seen": health.last_health_check or 0,
+                        "message_count": health.total_requests,
+                        "version": card.version or "1.0.0",
+                    }
+            except Exception as e:
+                log.warning(f"Nodes list: registry lookup failed: {e}")
+
+        # 2. P2P peer data (live connection status)
+        pd = getattr(self.node, 'peer_discovery', None)
+        if pd and hasattr(pd, '_peers'):
+            for name, peer in pd._peers.items():
+                p2p_available = getattr(peer, 'p2p_available', False)
+                if name in nodes:
+                    nodes[name]["p2p_available"] = p2p_available
+                    nodes[name]["status"] = "connected" if p2p_available else nodes[name].get("status", "registered")
+                else:
+                    nodes[name] = {
+                        "node_name": name,
+                        "role": getattr(peer, 'role', 'router'),
+                        "host": getattr(peer, 'host', ''),
+                        "p2p_port": getattr(peer, 'p2p_port', 8645),
+                        "health_port": getattr(peer, 'health_port', 8650),
+                        "pg_available": getattr(peer, 'pg_available', False),
+                        "p2p_available": p2p_available,
+                        "http_available": getattr(peer, 'http_available', False),
+                        "status": "connected" if p2p_available else "disconnected",
+                        "skills": [],
+                        "capabilities": list(getattr(peer, 'capabilities', []) or []),
+                        "health_score": 1.0,
+                        "uptime_seconds": 0,
+                        "last_seen": getattr(peer, 'last_seen', 0),
+                        "message_count": 0,
+                        "version": "1.0.0",
+                    }
+
+        # 3. PG data (persistent — fills gaps for offline/pending nodes)
         try:
             import psycopg2
             conn = psycopg2.connect(
@@ -2045,25 +2104,49 @@ class DashboardHandler:
             cur.execute("""
                 SELECT node_name, role, host, p2p_port, health_port,
                        pg_available, p2p_available, http_available,
-                       status, joined_at, last_heartbeat
+                       status, joined_at, last_heartbeat, skills, capabilities
                 FROM mesh.mesh_nodes
                 ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, joined_at
             """)
-            nodes = []
             for row in cur.fetchall():
-                nodes.append({
-                    "node_name": row[0], "role": row[1], "host": row[2],
-                    "p2p_port": row[3], "health_port": row[4],
-                    "pg_available": row[5], "p2p_available": row[6], "http_available": row[7],
-                    "status": row[8],
-                    "joined_at": row[9].isoformat() if row[9] else None,
-                    "last_heartbeat": row[10].isoformat() if row[10] else None,
-                })
+                name = row[0]
+                pg_status = row[8]
+                if name not in nodes:
+                    # Not in registry/P2P — offline or pending
+                    nodes[name] = {
+                        "node_name": name,
+                        "role": row[1],
+                        "host": row[2],
+                        "p2p_port": row[3],
+                        "health_port": row[4],
+                        "pg_available": row[5],
+                        "p2p_available": row[6],
+                        "http_available": row[7],
+                        "status": pg_status or "unknown",
+                        "skills": row[11] if isinstance(row[11], list) else (json.loads(row[11]) if isinstance(row[11], str) else []),
+                        "capabilities": row[12] if isinstance(row[12], list) else (json.loads(row[12]) if isinstance(row[12], str) else []),
+                        "health_score": 1.0,
+                        "uptime_seconds": 0,
+                        "last_seen": row[10].isoformat() if row[10] else None,
+                        "message_count": 0,
+                        "version": "1.0.0",
+                        "joined_at": row[9].isoformat() if row[9] else None,
+                    }
+                else:
+                    # Enrich with PG data for fields not in registry
+                    if not nodes[name].get("joined_at") and row[9]:
+                        nodes[name]["joined_at"] = row[9].isoformat()
+                    if pg_status == "pending" and nodes[name].get("status") not in ("connected", "active", "registered"):
+                        nodes[name]["status"] = "pending"
             cur.close()
             conn.close()
-            return web.json_response({"nodes": nodes})
         except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+            log.warning(f"Nodes list: PG lookup failed: {e}")
+
+        # Sort: connected > active > registered > pending > others
+        status_order = {"connected": 0, "active": 1, "registered": 2, "pending": 3}
+        sorted_nodes = sorted(nodes.values(), key=lambda n: status_order.get(n.get("status", ""), 99))
+        return web.json_response({"nodes": sorted_nodes})
 
     async def _api_memory_get(self, request):
         """Get local mesh memory cache."""
@@ -3038,6 +3121,21 @@ class DashboardHandler:
             # ── Self node info ──────────────────────────────────────────
             cfg = self.node.config
             self_uptime = now - self.node._start_time if hasattr(self.node, '_start_time') and self.node._start_time else 0
+            # Gather self skills from registry if available
+            self_skills = []
+            self_caps = list(getattr(cfg, 'capabilities', []) or [])
+            reg = self.registry  # Dashboard has its own registry (self.registry), not node.registry
+            if reg:
+                try:
+                    for card, health in reg.list_agents():
+                        if card.name == self.node.node_name:
+                            self_skills = list(card.skills) if hasattr(card, 'skills') and card.skills else []
+                            if card.capabilities:
+                                self_caps = list(card.capabilities)
+                            break
+                except Exception:
+                    pass
+
             self_info = {
                 "name": self.node.node_name,
                 "host": getattr(cfg, 'listen_host', '0.0.0.0') or '0.0.0.0',
@@ -3046,9 +3144,9 @@ class DashboardHandler:
                 "role": getattr(getattr(cfg, 'topology', None), 'node_role', 'router') or 'router',
                 "status": "online",
                 "health_score": 1.0,
-                "capabilities": list(getattr(cfg, 'capabilities', []) or []),
+                "capabilities": self_caps,
                 "version": getattr(cfg, 'version', '1.0.0') or '1.0.0',
-                "skills": [],
+                "skills": self_skills,
                 "uptime_seconds": round(self_uptime, 1),
                 "last_seen": now,
                 "message_count": 0,
@@ -3056,7 +3154,8 @@ class DashboardHandler:
             nodes[self.node.node_name] = self_info
 
             # ── Registry info (ALL registered agents first) ─────────────
-            reg = getattr(self.node, 'registry', None)
+            # Use self.registry (DashboardHandler's own registry), not node.registry
+            reg = self.registry
             reg_agents = {}  # name -> (AgentCard, HealthRecord)
             if reg:
                 try:
@@ -3078,10 +3177,10 @@ class DashboardHandler:
                             "last_seen": health.last_health_check or 0,
                             "message_count": health.total_requests,
                         }
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning(f"Topology: registry list_agents failed: {e}")
 
-            # ── P2P peer info (overrides/enriches registry data) ─────────
+            # ── P2P peer info (enriches registry data with live status) ─────
             pd = getattr(self.node, 'peer_discovery', None)
             p2p_peers = []
             backoff_peers = {}
@@ -3090,8 +3189,12 @@ class DashboardHandler:
                     for name, peer in pd._peers.items():
                         p2p_peers.append(name)
                         p2p_available = getattr(peer, 'p2p_available', False)
-                        # Merge: keep registry data, override with live peer data
+                        # Merge: keep registry skills/caps, enrich with live peer data
                         existing = nodes.get(name, {})
+                        peer_caps = getattr(peer, 'capabilities', None) or []
+                        existing_caps = existing.get("capabilities", []) or []
+                        # Prefer registry data for skills/caps, fall back to peer data
+                        final_caps = existing_caps if existing_caps else peer_caps
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),
@@ -3100,9 +3203,9 @@ class DashboardHandler:
                             "role": getattr(peer, 'role', '') or existing.get("role", "router"),
                             "status": "connected" if p2p_available else "disconnected",
                             "health_score": existing.get("health_score", 1.0),
-                            "capabilities": existing.get("capabilities", []) or [],
+                            "capabilities": final_caps,
                             "version": existing.get("version", "1.0.0"),
-                            "skills": existing.get("skills", []),
+                            "skills": existing.get("skills", []) or [],
                             "uptime_seconds": existing.get("uptime_seconds", 0),
                             "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
                             "message_count": existing.get("message_count", 0),

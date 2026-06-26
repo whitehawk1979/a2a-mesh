@@ -336,7 +336,7 @@ class MeshNode:
                     cur = self._pg_conn.cursor()
                     cur.execute(
                         "UPDATE mesh.mesh_nodes SET skills = %s, capabilities = %s WHERE node_name = %s",
-                        (json.dumps(merged_skills, ensure_ascii=True), json.dumps(merged_caps, ensure_ascii=True), peer_name)
+                        (json.dumps(merged_skills), json.dumps(merged_caps), peer_name)
                     )
                     self._pg_conn.commit()
                     cur.close()
@@ -728,7 +728,6 @@ class MeshNode:
         peer = self.peer_discovery.get_peer(peer_name)
         if peer:
             log.info(f"P2P peer_connected callback: registering {peer_name} with agent registry")
-            peer.p2p_available = True
             self.peer_discovery._register_discovered_peer(peer)
         else:
             log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
@@ -1096,7 +1095,7 @@ class MeshNode:
                 bool(self._pg_conn),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
-                json.dumps(capabilities, ensure_ascii=True),
+                json.dumps(capabilities),
             ))
             cur.close()
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
@@ -1156,7 +1155,7 @@ class MeshNode:
                         bool(self._pg_conn),
                         self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                         self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
-                        json.dumps(capabilities, ensure_ascii=True),
+                        json.dumps(capabilities),
                     ))
                     cur.close()
                     log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")

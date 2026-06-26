@@ -403,7 +403,6 @@ class PeerDiscovery:
                 continue
             # CRITICAL: Skip peers that already have an active P2P connection
             if self.p2p_transport and peer.name in self.p2p_transport._peers:
-                peer.p2p_available = True
                 already_connected += 1
                 continue
             # Skip peers still in backoff (on the P2P transport)

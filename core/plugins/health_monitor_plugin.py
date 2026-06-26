@@ -134,20 +134,21 @@ class HealthMonitorPlugin(MeshPlugin):
         if self._node and hasattr(self._node, 'dashboard'):
             registry = getattr(self._node.dashboard, 'registry', None)
             if registry:
-                all_peers = registry.list_all()
-                for peer_name, peer_info in all_peers.items():
+                all_agents = registry.list_agents()
+                for card, health in all_agents:
+                    peer_name = card.name
                     if peer_name == self._node.node_name:
                         continue  # Skip self
 
-                    last_seen = peer_info.get("last_seen", 0)
-                    health = peer_info.get("health", 1.0)
+                    last_seen = health.last_health_check or 0
+                    health_val = health.health_score
 
                     # Update tracking
                     if peer_name not in self._peer_health:
                         self._peer_health[peer_name] = {"alerts_sent": 0}
 
                     self._peer_health[peer_name]["last_seen"] = last_seen
-                    self._peer_health[peer_name]["health"] = health
+                    self._peer_health[peer_name]["health"] = health_val
 
                     # Check if peer is offline
                     time_since = now - last_seen if last_seen else 999999
