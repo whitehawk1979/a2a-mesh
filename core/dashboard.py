@@ -97,6 +97,7 @@ class DashboardHandler:
         app.router.add_get("/dashboard", self._dashboard_page)
         app.router.add_get("/api/status", self._api_status)
         app.router.add_get("/api/messages", self._api_messages)
+        app.router.add_get("/api/messages/incoming", self._api_messages_incoming)
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_post("/api/send", self._api_send)
         app.router.add_post("/api/send-file", self._api_send_file)
@@ -426,6 +427,75 @@ class DashboardHandler:
         except Exception as e:
             log.error(f"Error in _api_messages: {e}\n{tb.format_exc()}")
             return web.json_response({"error": str(e), "traceback": tb.format_exc()}, status=500)
+
+    async def _api_messages_incoming(self, request):
+        """GET /api/messages/incoming — Return messages from other mesh agents.
+
+        Query params:
+          since: Unix timestamp — only return messages after this time (default: 0)
+          limit: Max messages to return (default: 50, max: 200)
+          sender: Filter by sender name (optional)
+        """
+        from aiohttp import web
+        import time as _time
+        try:
+            since = float(request.query.get("since", 0))
+            limit = min(int(request.query.get("limit", 50)), 200)
+            sender_filter = request.query.get("sender", None)
+
+            messages = []
+            for m in self._message_history:
+                try:
+                    if not isinstance(m, dict):
+                        continue
+                    # Only include messages FROM other agents (not from self)
+                    msg_sender = m.get("sender", "")
+                    msg_recipient = m.get("recipient", "")
+                    msg_time = m.get("timestamp", 0)
+                    if isinstance(msg_time, str):
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(msg_time.replace("Z", "+00:00"))
+                            msg_time = dt.timestamp()
+                        except Exception:
+                            msg_time = 0
+
+                    # Filter by time
+                    if msg_time and msg_time < since:
+                        continue
+
+                    # Filter by sender
+                    if sender_filter and msg_sender != sender_filter:
+                        continue
+
+                    # Only include messages from other mesh nodes (not from self or web_user)
+                    local_name = self.node.node_name
+                    if msg_sender == local_name or msg_sender == "web_user":
+                        continue
+                    if msg_sender in ("system", ""):
+                        continue
+
+                    safe_msg = {}
+                    for k, v in m.items():
+                        if v is None:
+                            safe_msg[k] = None
+                        elif isinstance(v, (bool, int, float, str)):
+                            safe_msg[k] = v
+                        else:
+                            safe_msg[k] = str(v)
+
+                    safe_msg["sender"] = msg_sender
+                    safe_msg["recipient"] = msg_recipient
+                    safe_msg["timestamp"] = msg_time
+                    messages.append(safe_msg)
+                except Exception:
+                    continue
+
+            messages = messages[-limit:]
+            return web.json_response({"messages": messages, "count": len(messages)})
+        except Exception as e:
+            from aiohttp import web
+            return web.json_response({"error": str(e)}, status=500)
 
     async def _api_agents(self, request):
         """Return list of known agents with consistent transport format."""
