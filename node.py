@@ -1222,11 +1222,16 @@ class MeshNode:
 
                             # Process broadcast messages that were "forwarded" by the router
                             # (e.g., skills_announcement with recipient="*" is forwarded, not processed)
-                            if result.status == "forwarded" and msg.type == "skills_announcement":
-                                log.info(f"Processing forwarded skills_announcement from {msg.sender}: {[s.get('id','?') if isinstance(s,dict) else s for s in msg.payload.get('skills',[])]}")
-                                await self._handle_message(msg)
-                            elif result.status == "forwarded" and msg.recipient == "*":
-                                log.debug(f"Skipping forwarded broadcast msg type={msg.type} from {msg.sender}")
+                            if result.status == "forwarded":
+                                if msg.type == "skills_announcement":
+                                    log.info(f"Processing forwarded skills_announcement from {msg.sender}: {[s.get('id','?') if isinstance(s,dict) else s for s in msg.payload.get('skills',[])]}")
+                                    try:
+                                        await self._dispatch_to_handlers(msg)
+                                        log.info(f"Successfully processed skills_announcement from {msg.sender}")
+                                    except Exception as e:
+                                        log.error(f"Error processing skills_announcement from {msg.sender}: {e}", exc_info=True)
+                                elif msg.recipient == "*":
+                                    log.debug(f"Skipping forwarded broadcast msg type={msg.type} from {msg.sender}")
 
                     except Exception as e:
                         log.debug(f"Receive error on {transport_name}: {e}")
