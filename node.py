@@ -712,7 +712,7 @@ class MeshNode:
                     pg_skills_msg = A2AMessage(
                         id=str(uuid.uuid4()),
                         sender=self.node_name,
-                        recipient=peer_name,
+                        recipient="*",
                         payload={
                             "type": "skills_announcement",
                             "skills": skills,
