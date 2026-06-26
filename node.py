@@ -292,9 +292,15 @@ class MeshNode:
             self.memory_sync.handle_incoming_memory(payload)
             return
 
-# Handle skills announcement — P2P auto-discovery of agent skills
+        # Handle skills announcement — P2P auto-discovery of agent skills
         if message.type == "skills_announcement":
             payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
             peer_skills = payload.get("skills", [])
             peer_capabilities = payload.get("capabilities", [])
             peer_name = message.sender
@@ -1223,8 +1229,9 @@ class MeshNode:
                             # Process broadcast messages that were "forwarded" by the router
                             # (e.g., skills_announcement with recipient="*" is forwarded, not processed)
                             if result.status == "forwarded":
+                                log.info(f"Forwarded msg: id={msg.id[:8]} type='{msg.type}' sender={msg.sender} recipient={msg.recipient}")
                                 if msg.type == "skills_announcement":
-                                    log.info(f"Processing forwarded skills_announcement from {msg.sender}: {[s.get('id','?') if isinstance(s,dict) else s for s in msg.payload.get('skills',[])]}")
+                                    log.info(f"Processing forwarded skills_announcement from {msg.sender}")
                                     try:
                                         await self._dispatch_to_handlers(msg)
                                         log.info(f"Successfully processed skills_announcement from {msg.sender}")
