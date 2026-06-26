@@ -162,6 +162,24 @@ class PeerDiscovery:
         status = self.registry.request_registration(card)
         if status == "approved":
             log.info(f"Auto-approved discovered peer: {peer.name} caps={capabilities}")
+            # Send skills announcement to newly discovered peer via P2P
+            if self._p2p_transport and hasattr(self._p2p_transport, '_peers') and peer.name in self._p2p_transport._peers:
+                try:
+                    from .node import A2AMessage
+                    skills_payload = {
+                        "skills": self._node.config.skills if hasattr(self._node, 'config') and hasattr(self._node.config, 'skills') else [],
+                        "capabilities": self._node.config.capabilities if hasattr(self._node, 'config') and hasattr(self._node.config, 'capabilities') else [],
+                    }
+                    skills_msg = A2AMessage(
+                        sender=self._node.node_name,
+                        recipient=peer.name,
+                        message_type="skills_announcement",
+                        payload=skills_payload,
+                    )
+                    asyncio.create_task(self._p2p_transport.send(skills_msg))
+                    log.info(f"Skills announcement sent to {peer.name} on discovery: {[s.get('id','?') if isinstance(s,dict) else s for s in skills_payload.get('skills',[])]}")
+                except Exception as e:
+                    log.debug(f"Could not send skills announcement to {peer.name}: {e}")
         else:
             log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
