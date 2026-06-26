@@ -227,6 +227,40 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div class="channel-section" id="quickLinksSection">
       <div class="channel-section-title">Gyors Linkek</div>
       <div id="quickLinksList"></div>
+      <!-- Directives — quick action buttons -->
+      <div class="channel-section-title" style="margin-top:8px;">Direktívák</div>
+      <div class="channel-item" onclick="sendDirective('wake')">
+        <span class="icon">⚡</span> Ébresztés (Wake)
+      </div>
+      <div class="channel-item" onclick="sendDirective('status')">
+        <span class="icon">📊</span> Státusz Lekérdezés
+      </div>
+      <div class="channel-item" onclick="sendDirective('ping')">
+        <span class="icon">📡</span> Ping Teszt
+      </div>
+      <div class="channel-item" onclick="sendDirective('health')">
+        <span class="icon">❤️</span> Egészség Jelentés
+      </div>
+      <div class="channel-item" onclick="sendDirective('skills')">
+        <span class="icon">🛠️</span> Skills Lekérdezés
+      </div>
+      <div class="channel-item" onclick="sendDirective('discover')">
+        <span class="icon">🔍</span> Agent Felfedezés
+      </div>
+      <!-- Priority presets -->
+      <div class="channel-section-title" style="margin-top:8px;">Prioritás Gyorsbeállítás</div>
+      <div class="channel-item" onclick="setPriority(10)" style="color:var(--danger)">
+        <span class="icon">🔴</span> P10 Sürgős
+      </div>
+      <div class="channel-item" onclick="setPriority(7)" style="color:var(--warning)">
+        <span class="icon">🟡</span> P7 Magas
+      </div>
+      <div class="channel-item" onclick="setPriority(5)" style="color:var(--text2)">
+        <span class="icon">⚪</span> P5 Normál
+      </div>
+      <div class="channel-item" onclick="setPriority(1)" style="color:var(--success)">
+        <span class="icon">🟢</span> P1 Alacsony
+      </div>
     </div>
 
     <!-- Settings -->
@@ -1107,6 +1141,89 @@ function loadQuickLinks() {
       el.innerHTML = html;
     })
     .catch(function() {});
+}
+
+// ─── Directive & Priority quick actions ────────────────
+function sendDirective(type) {
+  var recipient = document.getElementById("recipientSelect").value || "";
+  var payload = {};
+  var content = "";
+  var pri = 5;
+
+  switch(type) {
+    case "wake":
+      content = "⚡ Ébresztés — kérlek jelentsd a státuszodat!";
+      payload = {action: "wake", request: "status_report"};
+      pri = 7;
+      break;
+    case "status":
+      content = "📊 Státusz lekérdezés — küldd el a rendszerállapotod!";
+      payload = {action: "status", request: "full_status"};
+      pri = 5;
+      break;
+    case "ping":
+      content = "📡 Ping teszt — válaszolj ha élsz!";
+      payload = {action: "ping"};
+      pri = 3;
+      break;
+    case "health":
+      content = "❤️ Egészség jelentés — küldd el a health check adataidat!";
+      payload = {action: "health_check", request: "health_report"};
+      pri = 7;
+      break;
+    case "skills":
+      content = "🛠️ Skills lekérdezés — listázd a képességeid!";
+      payload = {action: "skills_query", request: "skills_list"};
+      pri = 3;
+      break;
+    case "discover":
+      content = "🔍 Agent felfedezés — derítsd fel a hálózat tagjait!";
+      payload = {action: "discover", request: "network_discovery"};
+      pri = 5;
+      break;
+    default:
+      content = "Direktíva: " + type;
+      payload = {action: type};
+  }
+
+  // Send as a directive message
+  var msg = {
+    sender: nodeId || authUser.display_name,
+    recipient: recipient || "broadcast",
+    content: content,
+    type: "directive",
+    priority: pri,
+    payload: payload,
+    timestamp: new Date().toISOString(),
+    source: "web_dashboard"
+  };
+
+  // POST to /api/send
+  fetch("/api/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")
+    },
+    body: JSON.stringify(msg)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    // Also display locally
+    addMessageToDOM(msg);
+    scrollToBottom();
+  })
+  .catch(function(e) {
+    console.error("Directive send failed:", e);
+  });
+}
+
+function setPriority(level) {
+  document.getElementById("prioritySelect").value = level;
+  // Visual feedback
+  var sel = document.getElementById("prioritySelect");
+  sel.style.borderColor = level >= 7 ? "var(--danger)" : level >= 4 ? "var(--warning)" : "var(--success)";
+  setTimeout(function() { sel.style.borderColor = ""; }, 1500);
 }
 
 // ─── Recipient select changes channel ──────────────────
