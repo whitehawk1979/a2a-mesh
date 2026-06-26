@@ -257,6 +257,19 @@ class P2PTransport(TransportAdapter):
                         await self._incoming_queue.put((message, "p2p"))
                         continue
 
+                    # On first message from a peer, fire peer_connected callback (for incoming connections)
+                    if connected_peer_name is None and message.sender and message.sender != getattr(self.config, 'node_name', ''):
+                        connected_peer_name = message.sender
+                        # Register writer for this peer so future messages route correctly
+                        self._peers[connected_peer_name] = (reader, writer)
+                        self._writer_to_peer[id(writer)] = connected_peer_name
+                        log.info(f"Incoming P2P connection identified as peer: {connected_peer_name}")
+                        if self._peer_connected_callback:
+                            try:
+                                asyncio.create_task(self._peer_connected_callback(connected_peer_name))
+                            except Exception as e:
+                                log.debug(f"Peer connected callback error for incoming {connected_peer_name}: {e}")
+
                     # Auto-ACK: send ACK back for non-heartbeat messages via P2P
                     if message.sender != getattr(self.config, 'node_name', ''):
                         asyncio.create_task(self._send_ack(message, writer, connected_peer_name))
