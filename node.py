@@ -180,6 +180,9 @@ class MeshNode:
 
         # Link registry to peer discovery (after dashboard init)
         self.peer_discovery.registry = self.dashboard.registry
+        
+        # Set callback for peer discovery → triggers skills announcement via PG broadcast
+        self.peer_discovery._on_peer_discovered = self._on_peer_discovered
 
         # Initialize node authenticator
         auth_config = AuthConfig(
@@ -728,6 +731,36 @@ class MeshNode:
                     log.debug(f"PG skills announcement failed for {peer_name}: {e}")
             if sent_via:
                 log.info(f"Skills announcement sent to {peer_name} via {sent_via}: {[s.get('id','?') for s in skills]}")
+
+    async def _on_peer_discovered(self, peer_name: str):
+        """Callback when a new peer is discovered (via PG or static config).
+        Sends our skills announcement via PG broadcast so all nodes receive it."""
+        skills = list(getattr(self.config, 'skills', []) or [])
+        if not skills:
+            return
+        capabilities = list(getattr(self.config, 'capabilities', []) or [])
+        
+        # Always send via PG NOTIFY as broadcast (guaranteed delivery to all nodes)
+        if hasattr(self, '_pg_transport') and self._pg_transport and self._pg_transport.is_available():
+            try:
+                from .core.message import A2AMessage
+                import uuid
+                pg_msg = A2AMessage(
+                    id=str(uuid.uuid4()),
+                    sender=self.node_name,
+                    recipient="*",
+                    payload={
+                        "type": "skills_announcement",
+                        "skills": skills,
+                        "capabilities": capabilities,
+                    },
+                    type="skills_announcement",
+                    priority=5,
+                )
+                await self._pg_transport.send(pg_msg)
+                log.info(f"PG skills announcement broadcast on peer discovery: {[s.get('id','?') for s in skills]}")
+            except Exception as e:
+                log.debug(f"PG skills announcement broadcast failed on peer discovery: {e}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 

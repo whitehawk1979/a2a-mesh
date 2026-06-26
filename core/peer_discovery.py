@@ -93,6 +93,7 @@ class PeerDiscovery:
         self.p2p_transport = p2p_transport
         self._pg_conn = pg_conn
         self.registry = registry  # AgentRegistry for auto-registration
+        self._on_peer_discovered = None  # Callback: async fn(peer_name) called when peer auto-approved
 
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
@@ -162,32 +163,13 @@ class PeerDiscovery:
         status = self.registry.request_registration(card)
         if status == "approved":
             log.info(f"Auto-approved discovered peer: {peer.name} caps={capabilities}")
-            # Send skills announcement via PG broadcast (guaranteed delivery to all nodes)
-            if hasattr(self, 'node') and self.node and hasattr(self.node, 'config'):
+            # Notify node that a new peer was discovered (triggers skills announcement)
+            if self._on_peer_discovered:
                 try:
-                    skills = list(getattr(self.node.config, 'skills', []) or [])
-                    capabilities = list(getattr(self.node.config, 'capabilities', []) or [])
-                    if skills:
-                        # Use PG broadcast for guaranteed delivery
-                        if hasattr(self.node, '_pg_transport') and self.node._pg_transport and self.node._pg_transport.is_available():
-                            from .message import A2AMessage
-                            import uuid
-                            pg_msg = A2AMessage(
-                                id=str(uuid.uuid4()),
-                                sender=self.node.node_name,
-                                recipient="*",
-                                payload={
-                                    "type": "skills_announcement",
-                                    "skills": skills,
-                                    "capabilities": capabilities,
-                                },
-                                type="skills_announcement",
-                                priority=5,
-                            )
-                            asyncio.create_task(self.node._pg_transport.send(pg_msg))
-                            log.info(f"PG skills announcement broadcast on discovery: {[s.get('id','?') if isinstance(s,dict) else s for s in skills]}")
+                    asyncio.create_task(self._on_peer_discovered(peer.name))
+                    log.info(f"Triggered on_peer_discovered callback for {peer.name}")
                 except Exception as e:
-                    log.debug(f"Could not send skills announcement on discovery: {e}")
+                    log.debug(f"Could not trigger on_peer_discovered callback: {e}")
         else:
             log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
