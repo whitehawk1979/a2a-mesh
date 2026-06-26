@@ -39,6 +39,7 @@ from .transports.http_transport import HTTPTransport
 from .transports.ble_transport import BLETransport
 from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
+from .core.plugin_loader import PluginLoader
 
 log = logging.getLogger("a2a_mesh.node")
 
@@ -183,6 +184,9 @@ class MeshNode:
         
         # Set callback for peer discovery → triggers skills announcement via PG broadcast
         self.peer_discovery._on_peer_discovered = self._on_peer_discovered
+
+        # Initialize plugin loader
+        self.plugin_loader = PluginLoader(self)
 
         # Initialize node authenticator
         auth_config = AuthConfig(
@@ -341,6 +345,15 @@ class MeshNode:
                 log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
             return
 
+        # Dispatch to plugins first (they can intercept/transform messages)
+        if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
+            plugin_response = await self.plugin_loader.dispatch_message_received(message)
+            if plugin_response is not None:
+                # Plugin handled the message, optionally send response
+                if isinstance(plugin_response, A2AMessage):
+                    asyncio.create_task(self.router.send(plugin_response))
+                return  # Plugin consumed the message
+
         for handler in self._handlers:
             try:
                 result = handler(message)
@@ -448,6 +461,17 @@ class MeshNode:
         # Start health endpoint
         self._tasks.append(asyncio.create_task(self._run_health_server()))
 
+        # Load and start plugins
+        plugin_configs = getattr(self.config, 'plugins', {}) or {}
+        try:
+            loaded = await self.plugin_loader.load_all(config=plugin_configs)
+            if loaded:
+                log.info(f"✅ {len(loaded)} plugin(s) loaded: {list(loaded.keys())}")
+            else:
+                log.info("No plugins loaded")
+        except Exception as e:
+            log.warning(f"Plugin loading failed (non-fatal): {e}")
+
         # Auto-register self in the agent registry
         self._auto_register_self()
 
@@ -466,6 +490,13 @@ class MeshNode:
             return  # Already stopped, avoid double-stop
         log.info(f"Stopping mesh node '{self.node_name}'")
         self._running = False
+
+        # Stop plugins first (they may need mesh to send final messages)
+        try:
+            await self.plugin_loader.stop_all()
+            log.info("All plugins stopped")
+        except Exception as e:
+            log.warning(f"Plugin shutdown error (non-fatal): {e}")
 
         # Stop ACK manager
         await self.ack_manager.stop()
@@ -700,6 +731,10 @@ class MeshNode:
             self.peer_discovery._register_discovered_peer(peer)
         else:
             log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
+
+        # Notify plugins about peer connection
+        if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
+            asyncio.create_task(self.plugin_loader.dispatch_peer_connected(peer_name, peer or {}))
 
         # P2P Skill Auto-Discovery: send our skills to the newly connected peer
         # Try P2P first, fall back to PG NOTIFY (guaranteed delivery)

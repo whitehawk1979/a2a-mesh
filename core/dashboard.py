@@ -169,6 +169,9 @@ class DashboardHandler:
         app.router.add_post("/api/settings", self._api_settings_update)
         app.router.add_get("/api/mesh/topology", self._api_mesh_topology)
         app.router.add_get("/topology", self._api_topology_page)
+        # Plugin API
+        app.router.add_get("/api/plugins", self._api_plugins)
+        app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
 
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
@@ -3161,3 +3164,63 @@ class DashboardHandler:
         except FileNotFoundError:
             log.warning(f"Dashboard HTML not found at {html_path}")
             return '<html><body><h1>A2A Mesh Dashboard</h1><p>HTML not found.</p></body></html>'
+
+    # ─── Plugin API ────────────────────────────────────────────────
+
+    async def _api_plugins(self, request):
+        """GET /api/plugins — List all loaded plugins and their status."""
+        from aiohttp import web
+        try:
+            user, err = self._require_auth(request)
+            if err:
+                return err
+
+            if not hasattr(self.node, 'plugin_loader'):
+                return web.json_response({"plugins": {}, "total_plugins": 0})
+
+            status = self.node.plugin_loader.get_status()
+            return web.json_response(status)
+        except Exception as e:
+            log.error(f"Plugins API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_plugin_detail(self, request):
+        """GET /api/plugins/{plugin_name} — Get detailed status of a specific plugin."""
+        from aiohttp import web
+        try:
+            user, err = self._require_auth(request)
+            if err:
+                return err
+
+            plugin_name = request.match_info.get("plugin_name", "")
+            if not hasattr(self.node, 'plugin_loader'):
+                return web.json_response({"error": "No plugin loader"}, status=404)
+
+            plugin = self.node.plugin_loader.get_plugin(plugin_name)
+            if not plugin:
+                return web.json_response({"error": f"Plugin '{plugin_name}' not found"}, status=404)
+
+            # Get plugin-specific status if available
+            detail = {
+                "name": plugin.name,
+                "version": plugin.version,
+                "description": plugin.description,
+                "author": plugin.author,
+                "capabilities": plugin.capabilities,
+                "running": plugin._running,
+                "config": {k: v for k, v in plugin._config.items()
+                           if not k.endswith(('_token', '_secret', '_password', '_key'))},
+            }
+
+            # Add plugin-specific status methods
+            if hasattr(plugin, 'get_gateway_status'):
+                detail["gateway_status"] = plugin.get_gateway_status()
+            elif hasattr(plugin, 'get_notification_status'):
+                detail["notification_status"] = plugin.get_notification_status()
+            elif hasattr(plugin, 'get_health_status'):
+                detail["health_monitor_status"] = plugin.get_health_status()
+
+            return web.json_response(detail)
+        except Exception as e:
+            log.error(f"Plugin detail API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)

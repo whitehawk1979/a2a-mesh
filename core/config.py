@@ -190,6 +190,10 @@ class MeshConfig:
     # Health endpoint
     health_port: int = 8650
 
+    # Plugin config — each key is a plugin name, value is its config dict
+    # Example: {"gateway": {"enabled": True, "platforms": {...}}, "notification": {...}}
+    plugins: Dict[str, Any] = field(default_factory=dict)
+
     # Log file
     log_file: str = os.path.expanduser("~/.hermes/logs/a2a_mesh.log")
 
@@ -305,6 +309,10 @@ class MeshConfig:
             config.capabilities = mesh['capabilities']
         if 'skills' in mesh:
             config.skills = mesh['skills']
+
+        # Plugin config
+        if 'plugins' in mesh:
+            config.plugins = mesh['plugins']
 
         # Validate: P2P port must differ from health port to avoid conflicts
         # Convention: P2P port = health_port - 5 (e.g., 8650→8645) for consistency across nodes
