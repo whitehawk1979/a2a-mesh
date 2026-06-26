@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import time
 import uuid
 from typing import Dict, List, Optional
@@ -111,6 +112,10 @@ class DashboardHandler:
         app.router.add_post("/api/auth/logout", self._api_auth_logout)
         app.router.add_get("/api/auth/me", self._api_auth_me)
         app.router.add_get("/api/users", self._api_users)
+        # User management endpoints (owner only)
+        app.router.add_get("/api/auth/users", self._api_auth_users)
+        app.router.add_delete("/api/auth/users/{username}", self._api_auth_delete_user)
+        app.router.add_put("/api/auth/users/{username}/password", self._api_auth_change_password)
         # User sync endpoint — other nodes pull users from PG
         app.router.add_post("/api/auth/sync", self._api_auth_sync)
         app.router.add_get("/api/auth/sync", self._api_auth_sync_pull)
@@ -875,6 +880,98 @@ class DashboardHandler:
         return web.json_response({
             "users": [u.to_dict() for u in users],
             "total": len(users),
+        })
+
+    async def _api_auth_users(self, request):
+        """List all users for management UI (owner only). Returns extended info."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        users = self.auth.list_users()
+        users_data = []
+        for u in users:
+            d = u.to_dict()
+            # Don't expose password hash, but include activity info
+            d.pop("password_hash", None)
+            users_data.append(d)
+        return web.json_response({
+            "users": users_data,
+            "total": len(users_data),
+        })
+
+    async def _api_auth_delete_user(self, request):
+        """Delete (deactivate) a user by username (owner only)."""
+        from aiohttp import web
+        caller, err = self._require_auth(request)
+        if err:
+            return err
+        if caller.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        username = request.match_info.get("username", "")
+        if not username:
+            return web.json_response({"error": "Username required"}, status=400)
+
+        # Prevent deleting yourself
+        if username.lower() == caller.username.lower():
+            return web.json_response({"error": "Cannot delete your own account"}, status=400)
+
+        # Find the user by username
+        target = self.auth.get_user_by_username(username)
+        if not target:
+            return web.json_response({"error": f"User '{username}' not found"}, status=404)
+
+        # Deactivate the user
+        self.auth.delete_user(target.user_id)
+        log.info(f"Owner '{caller.username}' deleted user '{username}'")
+
+        return web.json_response({
+            "status": "deleted",
+            "username": username.lower(),
+        })
+
+    async def _api_auth_change_password(self, request):
+        """Change a user's password (owner only)."""
+        from aiohttp import web
+        caller, err = self._require_auth(request)
+        if err:
+            return err
+        if caller.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        username = request.match_info.get("username", "")
+        if not username:
+            return web.json_response({"error": "Username required"}, status=400)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        new_password = data.get("new_password", "")
+        if not new_password:
+            return web.json_response({"error": "new_password is required"}, status=400)
+        if len(new_password) < 6:
+            return web.json_response({"error": "Password must be at least 6 characters"}, status=400)
+
+        # Find the user by username
+        target = self.auth.get_user_by_username(username)
+        if not target:
+            return web.json_response({"error": f"User '{username}' not found"}, status=404)
+
+        try:
+            self.auth.change_password(target.user_id, new_password)
+            log.info(f"Owner '{caller.username}' changed password for user '{username}'")
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+        return web.json_response({
+            "status": "password_changed",
+            "username": username.lower(),
         })
 
     async def _api_auth_sync(self, request):
@@ -2859,12 +2956,15 @@ class DashboardHandler:
     async def _api_mesh_topology(self, request):
         """GET /api/mesh/topology — Star topology visualization data."""
         from aiohttp import web
+        import time as _time
         try:
             nodes = {}
             connections = []
-            
-            # Self node info
+            now = _time.time()
+
+            # ── Self node info ──────────────────────────────────────────
             cfg = self.node.config
+            self_uptime = now - self.node._start_time if hasattr(self.node, '_start_time') and self.node._start_time else 0
             self_info = {
                 "name": self.node.node_name,
                 "host": getattr(cfg, 'listen_host', '0.0.0.0') or '0.0.0.0',
@@ -2874,10 +2974,41 @@ class DashboardHandler:
                 "status": "online",
                 "health_score": 1.0,
                 "capabilities": list(getattr(cfg, 'capabilities', []) or []),
+                "version": getattr(cfg, 'version', '1.0.0') or '1.0.0',
+                "skills": [],
+                "uptime_seconds": round(self_uptime, 1),
+                "last_seen": now,
+                "message_count": 0,
             }
             nodes[self.node.node_name] = self_info
-            
-            # P2P peer info
+
+            # ── Registry info (ALL registered agents first) ─────────────
+            reg = getattr(self.node, 'registry', None)
+            reg_agents = {}  # name -> (AgentCard, HealthRecord)
+            if reg:
+                try:
+                    for card, health in reg.list_agents():
+                        name = card.name
+                        reg_agents[name] = (card, health)
+                        nodes[name] = {
+                            "name": name,
+                            "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
+                            "port": int(card.endpoint.split(":")[-1]) + 1 if card.endpoint and ":" in card.endpoint else 8650,
+                            "p2p_port": 8645,
+                            "role": getattr(card, 'metadata', {}).get('role', 'agent'),
+                            "status": "registered",
+                            "health_score": round(health.health_score, 3),
+                            "capabilities": list(card.capabilities) if card.capabilities else [],
+                            "version": card.version or "1.0.0",
+                            "skills": list(card.skills) if card.skills else [],
+                            "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
+                            "last_seen": health.last_health_check or 0,
+                            "message_count": health.total_requests,
+                        }
+                except Exception:
+                    pass
+
+            # ── P2P peer info (overrides/enriches registry data) ─────────
             pd = getattr(self.node, 'peer_discovery', None)
             p2p_peers = []
             backoff_peers = {}
@@ -2886,45 +3017,30 @@ class DashboardHandler:
                     for name, peer in pd._peers.items():
                         p2p_peers.append(name)
                         p2p_available = getattr(peer, 'p2p_available', False)
+                        # Merge: keep registry data, override with live peer data
+                        existing = nodes.get(name, {})
                         nodes[name] = {
                             "name": name,
-                            "host": getattr(peer, 'host', ''),
+                            "host": getattr(peer, 'host', '') or existing.get("host", ""),
                             "port": getattr(peer, 'health_port', 8650),
                             "p2p_port": getattr(peer, 'p2p_port', 8645),
-                            "role": getattr(peer, 'role', 'router'),
+                            "role": getattr(peer, 'role', '') or existing.get("role", "router"),
                             "status": "connected" if p2p_available else "disconnected",
-                            "health_score": 1.0,
-                            "capabilities": [],
+                            "health_score": existing.get("health_score", 1.0),
+                            "capabilities": existing.get("capabilities", []) or [],
+                            "version": existing.get("version", "1.0.0"),
+                            "skills": existing.get("skills", []),
+                            "uptime_seconds": existing.get("uptime_seconds", 0),
+                            "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
+                            "message_count": existing.get("message_count", 0),
                         }
                 if hasattr(pd, '_backoff_until') and pd._backoff_until:
                     backoff_peers = {k: str(v) for k, v in pd._backoff_until.items()}
-            
-            # Registry info (merge capabilities)
-            reg = getattr(self.node, 'registry', None)
-            if reg:
-                try:
-                    for agent in reg.list_agents():
-                        name = agent.get("name", agent.get("node_name", ""))
-                        if name and name not in nodes:
-                            nodes[name] = {
-                                "name": name,
-                                "host": agent.get("host", ""),
-                                "port": agent.get("health_port", 8650),
-                                "p2p_port": agent.get("p2p_port", 8645),
-                                "role": agent.get("role", "router"),
-                                "status": agent.get("status", "unknown"),
-                                "health_score": agent.get("health_score", 1.0),
-                                "capabilities": agent.get("capabilities", []),
-                            }
-                        elif name in nodes:
-                            nodes[name]["capabilities"] = agent.get("capabilities", nodes[name].get("capabilities", []))
-                            nodes[name]["health_score"] = agent.get("health_score", nodes[name].get("health_score", 1.0))
-                except Exception:
-                    pass
-            
-            # Build P2P connections
+
+            # ── Build P2P connections ─────────────────────────────────────
             for peer_name in p2p_peers:
-                is_connected = peer_name in (getattr(self.node, '_p2p_status', lambda: {})() or {}).get("peers", [])
+                peer_node = nodes.get(peer_name, {})
+                is_connected = peer_node.get("status") == "connected"
                 in_backoff = peer_name in backoff_peers
                 status = "connected" if is_connected else ("backoff" if in_backoff else "disconnected")
                 connections.append({
@@ -2934,24 +3050,23 @@ class DashboardHandler:
                     "status": status,
                     "backoff": backoff_peers.get(peer_name),
                 })
-            
-            # PG connections (all registered agents)
+
+            # ── PG connections (all registered agents not on P2P) ────────
             for name in list(nodes.keys()):
-                if name != self.node.node_name:
+                if name != self.node.node_name and name not in p2p_peers:
                     connections.append({
                         "source": self.node.node_name,
                         "target": name,
                         "transport": "pg",
                         "status": "active",
                     })
-            
-            import time
+
             return web.json_response({
                 "nodes": nodes,
                 "connections": connections,
                 "topology": "star",
                 "local_node": self.node.node_name,
-                "timestamp": time.time(),
+                "timestamp": now,
             })
         except Exception as e:
             log.error(f"Topology API error: {e}", exc_info=True)

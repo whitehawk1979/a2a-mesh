@@ -546,6 +546,27 @@ class AuthManager:
             is_active=bool(row["is_active"]),
         )
 
+    def get_user_by_username(self, username: str) -> Optional[DashboardUser]:
+        """Get a user by username (case-insensitive). Returns active user only."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT * FROM users WHERE username = ? AND is_active = 1", (username.lower(),))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return None
+
+        return DashboardUser(
+            user_id=row["user_id"],
+            username=row["username"],
+            display_name=row["display_name"],
+            role=row["role"],
+            created_at=row["created_at"],
+            last_login=row["last_login"] or 0,
+            is_active=bool(row["is_active"]),
+        )
+
     def list_users(self) -> list:
         """List all users (owner only)."""
         conn = sqlite3.connect(self.db_path)

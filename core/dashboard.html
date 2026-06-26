@@ -117,6 +117,34 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 ::-webkit-scrollbar-thumb:hover{background:var(--text3)}
 .mobile-sidebar-toggle{display:none;background:var(--primary);color:#fff;border:none;border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer;margin:8px}
 .sidebar-close{display:none;position:absolute;top:8px;right:8px;background:var(--border);color:var(--text);border:none;border-radius:6px;padding:4px 10px;font-size:16px;cursor:pointer}
+
+/* Node detail expandable section */
+.node-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;overflow:hidden;transition:border-color .2s}
+.node-card:hover{border-color:var(--primary-dim)}
+.node-card-header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;cursor:default}
+.node-card-header .node-name{font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px}
+.node-card-header .node-meta{font-size:11px;color:var(--text3);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.node-card-header .node-transports{display:flex;gap:4px}
+.node-card-header .transport-tag{background:var(--primary-dim);color:var(--primary);padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600}
+.node-card-header .transport-tag.offline{background:rgba(239,68,68,.15);color:var(--danger)}
+.node-detail-toggle{background:none;border:1px solid var(--border);color:var(--primary);padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;transition:all .15s}
+.node-detail-toggle:hover{background:var(--primary);color:#fff}
+.node-detail-toggle.open{background:var(--primary);color:#fff}
+.node-detail-content{display:none;padding:0 12px 12px 12px;border-top:1px solid var(--border)}
+.node-detail-content.visible{display:block}
+.node-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.node-detail-item{background:var(--surface);border-radius:6px;padding:8px 10px}
+.node-detail-item .dlabel{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
+.node-detail-item .dvalue{font-size:13px;font-weight:600;color:var(--text)}
+.node-detail-item .dvalue.green{color:var(--success)}
+.node-detail-item .dvalue.amber{color:var(--warning)}
+.node-detail-item .dvalue.red{color:var(--danger)}
+.node-detail-item .dvalue.blue{color:var(--primary)}
+.node-detail-skills{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.node-detail-skills .skill-tag{background:rgba(79,140,255,.15);color:var(--primary);padding:2px 7px;border-radius:4px;font-size:10px}
+.health-bar{background:var(--border);border-radius:3px;height:6px;overflow:hidden;margin-top:4px}
+.health-bar .health-fill{height:100%;border-radius:3px;transition:width .4s}
+
 @media(max-width:900px){
   .channel-sidebar{position:fixed;left:-260px;top:0;height:100vh;z-index:50;transition:left .3s ease;width:240px}
   .channel-sidebar.open{left:0}
@@ -386,6 +414,64 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <label style="font-size:12px;color:var(--text3)">Gyógyulás faktor</label>
           <input type="number" id="settingsRecoveryFactor" min="0.01" max="0.5" step="0.01" value="0.05" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
         </div>
+      </div>
+    </div>
+
+    <!-- Users Management -->
+    <div id="usersSection" style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px;display:none">
+      <h3 style="margin:0 0 8px 0;font-size:14px">👥 Felhasználók</h3>
+      <div style="margin-bottom:12px;overflow-x:auto">
+        <table id="usersTable" style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:6px 8px">Felhasználónév</th>
+              <th style="text-align:left;padding:6px 8px">Megjelenítendő név</th>
+              <th style="text-align:left;padding:6px 8px">Szerepkör</th>
+              <th style="text-align:left;padding:6px 8px">Utolsó bejelentkezés</th>
+              <th style="text-align:right;padding:6px 8px">Műveletek</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody"></tbody>
+        </table>
+      </div>
+      <!-- Add user form -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
+        <h4 style="margin:0 0 8px 0;font-size:13px">➕ Új felhasználó hozzáadása</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end">
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Felhasználónév</label>
+            <input type="text" id="newUserUsername" placeholder="felhasznalo" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-top:2px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Megjelenítendő név</label>
+            <input type="text" id="newUserDisplayName" placeholder="Megjelenítendő név" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-top:2px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Jelszó</label>
+            <input type="password" id="newUserPassword" placeholder="Min. 6 karakter" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-top:2px">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <select id="newUserRole" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)">
+            <option value="user">Felhasználó</option>
+            <option value="owner">Tulajdonos</option>
+          </select>
+          <button class="btn btn-sm" style="background:var(--success)" onclick="addUser()">➕ Hozzáadás</button>
+          <span id="addUserError" style="font-size:12px;color:var(--danger);min-height:16px"></span>
+        </div>
+      </div>
+      <!-- Change password form -->
+      <div id="changePasswordForm" style="display:none;background:var(--surface);border:1px solid var(--warning);border-radius:8px;padding:12px">
+        <h4 style="margin:0 0 8px 0;font-size:13px;color:var(--warning)">🔑 Jelszó módosítása: <span id="changePasswordUser"></span></h4>
+        <div style="display:flex;gap:8px;align-items:end">
+          <div style="flex:1">
+            <label style="font-size:11px;color:var(--text3)">Új jelszó</label>
+            <input type="password" id="changePasswordNewPw" placeholder="Min. 6 karakter" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text);margin-top:2px">
+          </div>
+          <button class="btn btn-sm" style="background:var(--warning)" onclick="submitChangePassword()">💾 Mentés</button>
+          <button class="btn btn-sm" onclick="cancelChangePassword()">Mégsem</button>
+        </div>
+        <span id="changePasswordError" style="font-size:12px;color:var(--danger);min-height:16px;display:block;margin-top:4px"></span>
       </div>
     </div>
 
@@ -863,18 +949,93 @@ function loadAllNodes() {
       document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
       el.innerHTML = d.nodes.map(function(n) {
         var statusIcon = n.status === "active" ? "🟢" : n.status === "pending" ? "🟡" : "🔴";
+        var statusText = n.status === "active" ? "Aktív" : n.status === "pending" ? "Függő" : "Inaktív";
         var transports = [];
-        if (n.pg_available) transports.push("PG");
-        if (n.p2p_available) transports.push("P2P");
-        if (n.http_available) transports.push("HTTP");
-        return '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:4px;font-size:12px;">' +
-          statusIcon + ' <b>' + escapeHtml(n.node_name) + '</b>' +
-          ' <span style="color:var(--text3)">(' + escapeHtml(n.role || "—") + ')</span>' +
-          ' <span style="color:var(--text3)">· ' + escapeHtml(n.host || "?") + ':' + (n.p2p_port || "?") + '</span>' +
-          (transports.length ? ' <span style="color:var(--primary)">[' + transports.join(", ") + ']</span>' : '') +
+        if (n.pg_available) transports.push({name:"PG", on: !!n.pg_available});
+        if (n.p2p_available) transports.push({name:"P2P", on: !!n.p2p_available});
+        if (n.http_available) transports.push({name:"HTTP", on: !!n.http_available});
+        if (n.ble_available) transports.push({name:"BLE", on: !!n.ble_available});
+        var transportHtml = transports.map(function(t) {
+          return '<span class="transport-tag' + (t.on ? '' : ' offline') + '">' + t.name + '</span>';
+        }).join('');
+        // Build detail section data
+        var detailId = "nodeDetail_" + escapeHtml(n.node_name).replace(/[^a-zA-Z0-9]/g, "_");
+        var uptimeVal = n.uptime_seconds != null ? formatUptime(n.uptime_seconds) : "—";
+        var lastSeenVal = n.last_seen ? formatTimeAgo(n.last_seen) : "—";
+        var healthScore = n.health_score != null ? n.health_score : null;
+        var msgCount = n.message_count != null ? n.message_count : (n.messages_sent != null ? n.messages_sent : "—");
+        var version = n.version || "—";
+        var skills = n.skills || n.capabilities || [];
+        var skillsHtml = "";
+        if (skills.length > 0) {
+          skillsHtml = '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Képességek / Skillek</div><div class="node-detail-skills">' +
+            skills.map(function(s) { return '<span class="skill-tag">' + escapeHtml(s) + '</span>'; }).join('') +
+          '</div></div>';
+        }
+        var healthHtml = "";
+        if (healthScore !== null) {
+          var pct = Math.round(healthScore * 100);
+          var hColor = pct >= 80 ? "green" : pct >= 50 ? "amber" : "red";
+          healthHtml = '<div class="node-detail-item"><div class="dlabel">Egészség (Health)</div><div class="dvalue ' + hColor + '">' + pct + '%</div><div class="health-bar"><div class="health-fill" style="width:' + pct + '%;background:var(--' + hColor + ')"></div></div></div>';
+        }
+        var p2pStatus = n.p2p_available ? '<span class="dvalue green">✓ Aktív</span>' : '<span class="dvalue red">✗ Inaktív</span>';
+        return '<div class="node-card">' +
+          '<div class="node-card-header">' +
+            '<div class="node-name">' + statusIcon + ' ' + escapeHtml(n.node_name) + '</div>' +
+            '<div class="node-meta">' +
+              '<span style="color:var(--text3)">(' + escapeHtml(n.role || "—") + ')</span>' +
+              '<span class="node-transports">' + transportHtml + '</span>' +
+              '<button class="node-detail-toggle" onclick="toggleNodeDetail(\'' + detailId + '\', this)">Részletek</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="node-detail-content" id="' + detailId + '">' +
+            '<div class="node-detail-grid">' +
+              '<div class="node-detail-item"><div class="dlabel">Verzió</div><div class="dvalue blue">' + escapeHtml(version) + '</div></div>' +
+              '<div class="node-detail-item"><div class="dlabel">Szerep (Role)</div><div class="dvalue">' + escapeHtml(n.role || "—") + '</div></div>' +
+              '<div class="node-detail-item"><div class="dlabel">Futásidő (Uptime)</div><div class="dvalue">' + uptimeVal + '</div></div>' +
+              '<div class="node-detail-item"><div class="dlabel">P2P Státusz</div>' + p2pStatus + '</div>' +
+              '<div class="node-detail-item"><div class="dlabel">Utoljára aktív</div><div class="dvalue">' + lastSeenVal + '</div></div>' +
+              '<div class="node-detail-item"><div class="dlabel">Üzenetek száma</div><div class="dvalue blue">' + msgCount + '</div></div>' +
+              healthHtml +
+              skillsHtml +
+              '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Cím</div><div class="dvalue" style="font-size:11px;font-weight:400;color:var(--text3)">' + escapeHtml(n.host || "?") + ':' + (n.p2p_port || "?") + '</div></div>' +
+            '</div>' +
+          '</div>' +
         '</div>';
       }).join('');
     }).catch(function() {});
+}
+
+function toggleNodeDetail(detailId, btn) {
+  var el = document.getElementById(detailId);
+  if (!el) return;
+  if (el.classList.contains("visible")) {
+    el.classList.remove("visible");
+    btn.classList.remove("open");
+    btn.textContent = "Részletek";
+  } else {
+    el.classList.add("visible");
+    btn.classList.add("open");
+    btn.textContent = "Rejtés";
+  }
+}
+
+function formatUptime(seconds) {
+  if (seconds < 60) return seconds + " mp";
+  if (seconds < 3600) return Math.floor(seconds / 60) + " p " + (seconds % 60) + " mp";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + " ó " + Math.floor((seconds % 3600) / 60) + " p";
+  return Math.floor(seconds / 86400) + " nap " + Math.floor((seconds % 86400) / 3600) + " ó";
+}
+
+function formatTimeAgo(ts) {
+  if (!ts) return "—";
+  var date = new Date(ts);
+  var now = new Date();
+  var diff = Math.floor((now - date) / 1000);
+  if (diff < 60) return "most";
+  if (diff < 3600) return Math.floor(diff / 60) + " perce";
+  if (diff < 86400) return Math.floor(diff / 3600) + " órája";
+  return Math.floor(diff / 86400) + " napja";
 }
 
 function checkAdminPanel() {
@@ -1226,6 +1387,7 @@ document.getElementById("messageInput").addEventListener("keydown", function(e) 
 function showSettings() {
   document.getElementById('settingsModal').style.display = 'flex';
   loadSettings();
+  loadUsers();
 }
 
 function loadSettings() {
@@ -1348,6 +1510,144 @@ function saveSettings() {
 document.getElementById("settingsAutoApprove").addEventListener("change", function() {
   document.getElementById("settingsAutoApproveLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
 });
+
+// ─── User Management Functions ──────────────────────────────────
+var _changePasswordUsername = "";
+
+function loadUsers() {
+  // Only show for owners
+  if (!authUser || authUser.role !== "owner") {
+    document.getElementById("usersSection").style.display = "none";
+    return;
+  }
+  document.getElementById("usersSection").style.display = "block";
+  fetch("/api/auth/users", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var tbody = document.getElementById("usersTableBody");
+      if (d.error) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger)">' + d.error + '</td></tr>';
+        return;
+      }
+      if (!d.users || d.users.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text3)">Nincs felhasználó</td></tr>';
+        return;
+      }
+      tbody.innerHTML = d.users.map(function(u) {
+        var isSelf = u.username === authUser.username;
+        var roleBadge = u.role === "owner"
+          ? '<span class="role-badge owner">tulajdonos</span>'
+          : '<span class="role-badge user">felhasználó</span>';
+        var lastLogin = u.last_login ? new Date(u.last_login * 1000).toLocaleString("hu-HU") : "Soha";
+        var actions = "";
+        if (!isSelf) {
+          actions += '<button class="btn btn-sm" style="background:var(--warning);margin-right:4px" onclick="showChangePassword(\'' + escapeHtml(u.username) + '\')">🔑</button>';
+          actions += '<button class="btn btn-sm" style="background:var(--danger)" onclick="deleteUser(\'' + escapeHtml(u.username) + '\')">🗑️</button>';
+        } else {
+          actions = '<span style="font-size:11px;color:var(--text3)">Jelenlegi</span>';
+        }
+        return '<tr style="border-bottom:1px solid var(--border)">' +
+          '<td style="padding:8px"><b>' + escapeHtml(u.username) + '</b></td>' +
+          '<td style="padding:8px">' + escapeHtml(u.display_name || u.username) + '</td>' +
+          '<td style="padding:8px">' + roleBadge + '</td>' +
+          '<td style="padding:8px;font-size:12px;color:var(--text3)">' + lastLogin + '</td>' +
+          '<td style="padding:8px;text-align:right">' + actions + '</td>' +
+        '</tr>';
+      }).join('');
+    })
+    .catch(function(e) {
+      document.getElementById("usersTableBody").innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--danger)">Hiba a felhasználók betöltésekor</td></tr>';
+    });
+}
+
+function addUser() {
+  var username = document.getElementById("newUserUsername").value.trim().toLowerCase();
+  var displayName = document.getElementById("newUserDisplayName").value.trim() || username;
+  var password = document.getElementById("newUserPassword").value;
+  var role = document.getElementById("newUserRole").value;
+  var errEl = document.getElementById("addUserError");
+  errEl.textContent = "";
+
+  if (!username || !password) {
+    errEl.textContent = "Felhasználónév és jelszó kötelező!";
+    return;
+  }
+  if (password.length < 6) {
+    errEl.textContent = "A jelszó legalább 6 karakter!";
+    return;
+  }
+
+  fetch("/api/auth/register", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify({username: username, display_name: displayName, password: password, role: role})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error) {
+      errEl.textContent = d.error;
+    } else {
+      errEl.style.color = "var(--success)";
+      errEl.textContent = "✅ Felhasználó '" + d.user.username + "' létrehozva!";
+      document.getElementById("newUserUsername").value = "";
+      document.getElementById("newUserDisplayName").value = "";
+      document.getElementById("newUserPassword").value = "";
+      loadUsers();
+      setTimeout(function() { errEl.style.color = ""; errEl.textContent = ""; }, 3000);
+    }
+  }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+}
+
+function deleteUser(username) {
+  if (!confirm("Biztosan törlöd '" + username + "' felhasználót? Ez a fiók deaktiválódik.")) return;
+  fetch("/api/auth/users/" + encodeURIComponent(username), {
+    method: "DELETE",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "deleted") {
+      alert("✅ '" + username + "' felhasználó törölve!");
+      loadUsers();
+    } else {
+      alert("❌ Hiba: " + (d.error || "Ismeretlen hiba"));
+    }
+  }).catch(function() { alert("Hálózati hiba"); });
+}
+
+function showChangePassword(username) {
+  _changePasswordUsername = username;
+  document.getElementById("changePasswordUser").textContent = username;
+  document.getElementById("changePasswordForm").style.display = "block";
+  document.getElementById("changePasswordNewPw").value = "";
+  document.getElementById("changePasswordError").textContent = "";
+  document.getElementById("changePasswordNewPw").focus();
+}
+
+function cancelChangePassword() {
+  _changePasswordUsername = "";
+  document.getElementById("changePasswordForm").style.display = "none";
+}
+
+function submitChangePassword() {
+  var newPassword = document.getElementById("changePasswordNewPw").value;
+  var errEl = document.getElementById("changePasswordError");
+  errEl.textContent = "";
+
+  if (!newPassword || newPassword.length < 6) {
+    errEl.textContent = "Az új jelszó legalább 6 karakter!";
+    return;
+  }
+
+  fetch("/api/auth/users/" + encodeURIComponent(_changePasswordUsername) + "/password", {
+    method: "PUT",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify({new_password: newPassword})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "password_changed") {
+      alert("✅ '" + _changePasswordUsername + "' jelszava sikeresen módosítva!");
+      cancelChangePassword();
+    } else {
+      errEl.textContent = d.error || "Ismeretlen hiba";
+    }
+  }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+}
 </script>
 </body>
 </html>
