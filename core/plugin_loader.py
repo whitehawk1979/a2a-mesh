@@ -20,7 +20,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type
 
 from .plugin_base import MeshPlugin, PluginInfo
 
