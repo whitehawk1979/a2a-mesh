@@ -873,8 +873,8 @@ class MeshNode:
         if "health_monitor" not in capabilities:
             capabilities.append("health_monitor")
         
-        # Deduplicate
-        capabilities = list(set(capabilities))
+        # Deduplicate (filter out non-hashable items like dicts)
+        capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
         # Load skills from config (auto-discovery: skills shared via P2P handshake)
         skills = list(getattr(self.config, 'skills', []) or [])
@@ -909,7 +909,7 @@ class MeshNode:
                 "node": self.node_name,
                 "action": action,
                 "endpoint": f"{self.config.p2p.listen_host}:{self.config.p2p.listen_port}",
-                "capabilities": list(set(getattr(self.config, 'capabilities', []) or ["a2a_messaging"])),
+                "capabilities": list(set(c for c in (getattr(self.config, 'capabilities', []) or ["a2a_messaging"]) if isinstance(c, (str, int, float, tuple)))),
             })
             cur = self._pg_conn.cursor()
             cur.execute(f"NOTIFY mesh_node_update, '{payload}'")
@@ -1070,7 +1070,7 @@ class MeshNode:
         ])
         if self.role == NodeRole.COORDINATOR:
             capabilities.extend(["coordinator", "dashboard", "registry"])
-        capabilities = list(set(capabilities))
+        capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
         # Determine host address for other nodes to connect to
         import socket
