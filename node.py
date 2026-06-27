@@ -1239,7 +1239,9 @@ class MeshNode:
                                 log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             else:
                                 log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
-                            if result.status in ("processed", "forwarded"):
+                            # Skip internal mesh protocol messages for dashboard notification
+                            # (ACK, heartbeat, skills_announcement are not user-facing)
+                            if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
                                 # Forwarded messages are replies to dashboard users that need to be displayed
                                 try:
@@ -1248,8 +1250,11 @@ class MeshNode:
                                     log.debug(f"Dashboard notification failed: {e}")
 
                             if result.status == "processed":
-                                # Always wake the local agent for incoming messages
-                                asyncio.create_task(self._trigger_webhook(msg))
+                                # Wake the local agent for incoming messages, but NOT for
+                                # ACK, heartbeat, or skills_announcement — these are internal
+                                # mesh protocol messages that don't need agent processing
+                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
+                                    asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Auto-steer classification and dispatch
                                 action = await self.auto_steer.process_message(msg)

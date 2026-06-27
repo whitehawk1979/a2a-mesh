@@ -1217,8 +1217,8 @@ class DashboardHandler:
         """
         msg_type = message.type if hasattr(message, "type") else message.message_type
 
-        # Skip heartbeat and system messages — they flood the chat
-        if msg_type in ("heartbeat", "memory_sync"):
+        # Skip heartbeat, ACK, and system messages — they flood the chat
+        if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement"):
             return
 
         # Extract display text from payload — handle both dict and JSON string payloads
