@@ -311,55 +311,32 @@ class MeshNode:
             log.info(f"Skills announcement from {peer_name}: skills={[s.get('id','?') if isinstance(s, dict) else s for s in peer_skills]}, caps={peer_capabilities}")
             # Update the peer's AgentCard in registry with their skills
             merged_skills = list(peer_skills)
-            merged_caps = [c for c in peer_capabilities if isinstance(c, (str, int, float, tuple))]
-            if not merged_caps:
-                merged_caps = ["a2a_messaging"]
+            merged_caps = list(peer_capabilities)
             if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry'):
                 card = self.dashboard.registry.get(peer_name)
                 if card:
                     # Merge skills: keep existing + add new ones (by id)
-                    existing_ids = set()
-                    for s in (card.skills or []):
-                        sid = s.get('id') if isinstance(s, dict) else s
-                        if isinstance(sid, (str, int, float, tuple)):
-                            existing_ids.add(sid)
+                    existing_ids = {s.get('id') if isinstance(s, dict) else s for s in (card.skills or [])}
                     merged_skills = list(card.skills or [])
                     for skill in peer_skills:
                         skill_id = skill.get('id') if isinstance(skill, dict) else skill
-                        if skill_id not in existing_ids and isinstance(skill_id, (str, int, float, tuple)):
+                        if skill_id not in existing_ids:
                             merged_skills.append(skill)
                             existing_ids.add(skill_id)
                     card.skills = merged_skills
-                    # Also merge capabilities (union) — filter non-hashable items
+                    # Also merge capabilities (union)
                     if peer_capabilities:
-                        existing_caps = set(c for c in (card.capabilities or []) if isinstance(c, (str, int, float, tuple)))
-                        new_caps = set(c for c in peer_capabilities if isinstance(c, (str, int, float, tuple)))
-                        merged_caps = list(existing_caps | new_caps)
-                        if not merged_caps:
-                            merged_caps = ["a2a_messaging"]
+                        existing_caps = set(card.capabilities or [])
+                        merged_caps = list(existing_caps | set(peer_capabilities))
                         card.capabilities = merged_caps
                     log.info(f"Updated {peer_name} in registry: {len(merged_skills)} skills, {len(card.capabilities)} caps")
             # Sync skills & capabilities to DB
-            # Convert dict skills to string IDs for SQL_ASCII compatibility
             try:
                 if self._pg_conn:
-                    # Normalize skills: convert dicts to their id string, keep strings as-is
-                    db_skills = []
-                    for s in (merged_skills or []):
-                        if isinstance(s, dict):
-                            db_skills.append(s.get('id', str(s)))
-                        elif isinstance(s, str):
-                            db_skills.append(s)
-                        elif isinstance(s, (int, float)):
-                            db_skills.append(str(s))
-                    # Normalize caps: only keep hashable types
-                    db_caps = [c for c in (merged_caps or []) if isinstance(c, (str, int, float, tuple))]
-                    if not db_caps:
-                        db_caps = ["a2a_messaging"]
                     cur = self._pg_conn.cursor()
                     cur.execute(
                         "UPDATE mesh.mesh_nodes SET skills = %s, capabilities = %s WHERE node_name = %s",
-                        (json.dumps(db_skills, ensure_ascii=True), json.dumps(db_caps, ensure_ascii=True), peer_name)
+                        (json.dumps(merged_skills, ensure_ascii=True), json.dumps(merged_caps, ensure_ascii=True), peer_name)
                     )
                     self._pg_conn.commit()
                     cur.close()
@@ -1013,8 +990,6 @@ class MeshNode:
                 password=self.config.pg.password,
             )
             self._pg_conn.autocommit = True
-            # Fix: Set client_encoding to match SQL_ASCII database encoding
-            self._pg_conn.set_client_encoding("SQL_ASCII")
             log.info("PG write connection established")
             return True
         except Exception as e:
@@ -1262,9 +1237,7 @@ class MeshNode:
                                 log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             else:
                                 log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
-                            # Skip internal mesh protocol messages for dashboard notification
-                            # (ACK, heartbeat, skills_announcement are not user-facing)
-                            if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
+                            if result.status in ("processed", "forwarded"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
                                 # Forwarded messages are replies to dashboard users that need to be displayed
                                 try:
@@ -1273,11 +1246,8 @@ class MeshNode:
                                     log.debug(f"Dashboard notification failed: {e}")
 
                             if result.status == "processed":
-                                # Wake the local agent for incoming messages, but NOT for
-                                # ACK, heartbeat, or skills_announcement — these are internal
-                                # mesh protocol messages that don't need agent processing
-                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
-                                    asyncio.create_task(self._trigger_webhook(msg))
+                                # Always wake the local agent for incoming messages
+                                asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Auto-steer classification and dispatch
                                 action = await self.auto_steer.process_message(msg)

@@ -521,7 +521,18 @@ class AgentRegistry:
             # Preserve existing skills if new card has none (P2P handshake doesn't include skills)
             existing_skills = getattr(existing, 'skills', None) or []
             new_skills = getattr(card, 'skills', None) or []
-            final_skills = list(set([s.id if hasattr(s, 'id') else s for s in (existing_skills if existing_skills else [])] + [s.id if hasattr(s, 'id') else s for s in (new_skills if new_skills else [])])) if (existing_skills or new_skills) else []
+            # Extract skill IDs, handling both Skill objects, strings, and dicts (unhashable)
+            def _skill_id(s):
+                if hasattr(s, 'id'):
+                    return s.id
+                if isinstance(s, dict):
+                    return s.get('id', str(s))
+                if isinstance(s, (str, int, float, tuple)):
+                    return s
+                return str(s)
+            _existing = [_skill_id(s) for s in (existing_skills if existing_skills else []) if isinstance(_skill_id(s), (str, int, float, tuple))]
+            _new = [_skill_id(s) for s in (new_skills if new_skills else []) if isinstance(_skill_id(s), (str, int, float, tuple))]
+            final_skills = list(set(_existing + _new)) if (_existing or _new) else []
             # Rebuild skill objects from IDs if we only have IDs
             if final_skills and all(isinstance(s, str) for s in final_skills):
                 # Map IDs back to original skill objects from existing

@@ -135,7 +135,11 @@ class PeerDiscovery:
         from .registry import AgentCard
         
         # Use peer capabilities if available (from PG discovery), else try PG query, else default
-        capabilities = list(peer.capabilities) if peer.capabilities else ["a2a_messaging"]
+        # Filter out non-hashable items (dicts) from capabilities to prevent TypeError
+        _raw_caps = list(peer.capabilities) if peer.capabilities else ["a2a_messaging"]
+        capabilities = [c for c in _raw_caps if isinstance(c, (str, int, float, tuple))]
+        if not capabilities:
+            capabilities = ["a2a_messaging"]
         
         if not peer.capabilities and self._pg_conn and not self._pg_conn.closed:
             try:
@@ -150,7 +154,10 @@ class PeerDiscovery:
                     import json
                     caps = json.loads(row[0]) if isinstance(row[0], str) else row[0]
                     if isinstance(caps, list) and len(caps) > 0:
-                        capabilities = caps
+                        # Filter out non-hashable items (dicts) from PG capabilities
+                        capabilities = [c for c in caps if isinstance(c, (str, int, float, tuple))]
+                        if not capabilities:
+                            capabilities = ["a2a_messaging"]
             except Exception as e:
                 log.debug(f"Could not load capabilities from PG for {peer.name}: {e}")
         
@@ -275,6 +282,8 @@ class PeerDiscovery:
                     caps = _json.loads(capabilities) if isinstance(capabilities, str) else capabilities
                     if not isinstance(caps, list):
                         caps = []
+                    # Filter out non-hashable items (dicts) from capabilities
+                    caps = [c for c in caps if isinstance(c, (str, int, float, tuple))]
 
                 if name in self._peers:
                     # Update existing peer

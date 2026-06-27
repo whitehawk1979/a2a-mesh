@@ -82,7 +82,7 @@ class NotificationPlugin(MeshPlugin):
         priority = getattr(message, 'priority', 5)
         msg_type = getattr(message, 'type', 'directive')
         sender = getattr(message, 'sender', 'unknown')
-        content = getattr(message, 'content', '')
+        content = message.payload.get("text", "") if hasattr(message, "payload") else getattr(message, "content", "")
 
         # Throttle check
         if not self._check_throttle():
@@ -124,7 +124,7 @@ class NotificationPlugin(MeshPlugin):
 
     async def _action_broadcast(self, rule: Dict, message):
         """Broadcast a notification to all mesh nodes."""
-        content = f"⚠️ Alert: {message.content[:200]}"
+        content = f"⚠️ Alert: {content[:200]}"
         priority = rule.get("broadcast_priority", 7)
         await self.broadcast_message(
             content=content,
@@ -135,7 +135,7 @@ class NotificationPlugin(MeshPlugin):
     async def _action_mesh_message(self, rule: Dict, message):
         """Send a notification to a specific mesh node."""
         recipient = rule.get("recipient", "broadcast")
-        content = f"📋 Notification: {message.content[:200]}"
+        content = f"📋 Notification: {content[:200]}"
         priority = rule.get("message_priority", 5)
         await self.send_message(
             recipient=recipient,
@@ -153,7 +153,7 @@ class NotificationPlugin(MeshPlugin):
 
         payload = {
             "sender": message.sender,
-            "content": message.content[:500],
+            "content": content[:500],
             "priority": message.priority,
             "type": message.type,
             "rule": rule.get("name", ""),
@@ -182,7 +182,7 @@ class NotificationPlugin(MeshPlugin):
         self.log.info(
             f"NOTIFICATION [{rule.get('name', '')}]: "
             f"P{message.priority} from {message.sender}: "
-            f"{message.content[:100]}"
+            f"{content[:100]}"
         )
 
     # ── Throttle ─────────────────────────────────────────────────
