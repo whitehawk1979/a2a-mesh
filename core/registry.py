@@ -538,11 +538,29 @@ class AgentRegistry:
                 # Map IDs back to original skill objects from existing
                 skill_map = {}
                 for s in (existing_skills or []):
-                    sid = s.id if hasattr(s, 'id') else s
-                    skill_map[sid] = s if hasattr(s, 'id') else s
+                    if hasattr(s, 'id'):
+                        sid = s.id
+                    elif isinstance(s, dict):
+                        sid = s.get('id', str(s))
+                    elif isinstance(s, (str, int, float, tuple)):
+                        sid = s
+                    else:
+                        sid = str(s)
+                    # Only use hashable keys
+                    if isinstance(sid, (str, int, float, tuple)):
+                        skill_map[sid] = s if hasattr(s, 'id') else s
                 for s in (new_skills or []):
-                    sid = s.id if hasattr(s, 'id') else s
-                    skill_map[sid] = s if hasattr(s, 'id') else s
+                    if hasattr(s, 'id'):
+                        sid = s.id
+                    elif isinstance(s, dict):
+                        sid = s.get('id', str(s))
+                    elif isinstance(s, (str, int, float, tuple)):
+                        sid = s
+                    else:
+                        sid = str(s)
+                    # Only use hashable keys
+                    if isinstance(sid, (str, int, float, tuple)):
+                        skill_map[sid] = s if hasattr(s, 'id') else s
                 final_skills_list = list(skill_map.values())
             else:
                 final_skills_list = existing_skills or new_skills or []
