@@ -140,25 +140,36 @@ class HealthMonitorPlugin(MeshPlugin):
                     if peer_name == self._node.node_name:
                         continue  # Skip self
 
-                    last_seen = health.last_health_check or 0
+                    last_seen_raw = health.last_health_check
                     health_val = health.health_score
+
+                    # Handle "never seen" case: None, 0, or negative values
+                    never_seen = not last_seen_raw or last_seen_raw <= 0
 
                     # Update tracking
                     if peer_name not in self._peer_health:
                         self._peer_health[peer_name] = {"alerts_sent": 0}
 
-                    self._peer_health[peer_name]["last_seen"] = last_seen
+                    self._peer_health[peer_name]["last_seen"] = last_seen_raw or 0
                     self._peer_health[peer_name]["health"] = health_val
 
                     # Check if peer is offline
-                    time_since = now - last_seen if last_seen else 999999
-                    if time_since > offline_threshold:
+                    if never_seen:
+                        time_since = None  # never seen
+                        is_offline = True
+                        time_desc = "never"
+                    else:
+                        time_since = now - last_seen_raw
+                        is_offline = time_since > offline_threshold
+                        time_desc = f"{int(time_since)}s"
+
+                    if is_offline:
                         peers_offline += 1
                         alerts_sent = self._peer_health[peer_name].get("alerts_sent", 0)
                         # Only alert once per offline period (max every 5 minutes)
                         if alerts_sent == 0 or (now - self._peer_health[peer_name].get("last_alert", 0)) > 300:
                             await self._send_alert(
-                                f"🔴 OFFLINE: {peer_name} not seen for {int(time_since)}s",
+                                f"🔴 OFFLINE: {peer_name} not seen for {time_desc}",
                                 priority=10,
                             )
                             self._peer_health[peer_name]["alerts_sent"] = alerts_sent + 1
