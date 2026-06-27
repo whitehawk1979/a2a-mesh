@@ -167,13 +167,16 @@ class MeshPlugin(ABC):
             return None
 
         from .message import A2AMessage
+        # Merge content into payload dict (A2AMessage.create only accepts payload, not content)
+        msg_payload = payload or {}
+        if content and "text" not in msg_payload:
+            msg_payload["text"] = content
         msg = A2AMessage.create(
             sender=self._node.node_name,
             recipient=recipient,
             msg_type=msg_type,
-            content=content,
             priority=priority,
-            payload=payload or {},
+            payload=msg_payload,
         )
         result = await self._node.router.send(msg)
         return result

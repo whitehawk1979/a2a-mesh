@@ -536,10 +536,14 @@ class AgentRegistry:
             else:
                 final_skills_list = existing_skills or new_skills or []
 
+            # Merge capabilities — filter out unhashable types (dicts) to prevent TypeError
+            existing_caps_set = set(c for c in existing.capabilities if isinstance(c, (str, int, float, tuple)))
+            new_caps_set = set(c for c in card.capabilities if isinstance(c, (str, int, float, tuple)))
+
             if len(card.capabilities) <= 1 and len(existing.capabilities) > 1:
                 # New registration has fewer caps (e.g. P2P handshake only sends a2a_messaging)
                 # Keep existing richer capabilities
-                merged_caps = list(set(existing.capabilities) | set(card.capabilities))
+                merged_caps = list(existing_caps_set | new_caps_set)
                 card = AgentCard(
                     name=card.name,
                     capabilities=merged_caps,
@@ -553,7 +557,7 @@ class AgentRegistry:
                 if not new_skills and existing_skills:
                     card = AgentCard(
                         name=card.name,
-                        capabilities=list(set(existing.capabilities) | set(card.capabilities)) if card.capabilities else existing.capabilities,
+                        capabilities=list(existing_caps_set | new_caps_set) if card.capabilities else existing.capabilities,
                         endpoint=card.endpoint or existing.endpoint,
                         description=card.description or existing.description,
                         version=card.version or existing.version,
