@@ -172,7 +172,10 @@ class DashboardHandler:
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
-
+        # Queue management endpoints
+        app.router.add_post("/api/queue/flush", self._api_queue_flush)
+        app.router.add_post("/api/queue/cleanup", self._api_queue_cleanup)
+        app.router.add_get("/api/queue/stats", self._api_queue_stats)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -3330,4 +3333,150 @@ class DashboardHandler:
             return web.json_response(detail)
         except Exception as e:
             log.error(f"Plugin detail API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+    # ─── Queue Management API ──────────────────────────────────────
+
+    async def _api_queue_flush(self, request):
+        """Flush (mark as synced) all pending outbound messages in local_store.
+        
+        POST /api/queue/flush
+        Body (optional): {"older_than_hours": 1}  — only flush messages older than N hours
+        """
+        from aiohttp import web
+        try:
+            older_than_hours = 0  # default: flush all
+            try:
+                body = await request.json()
+                older_than_hours = body.get("older_than_hours", 0)
+            except Exception:
+                pass
+            
+            if self.node and self.node.local_store:
+                import time
+                cutoff = time.time() - (older_than_hours * 3600) if older_than_hours > 0 else time.time() + 999999999
+                
+                # Mark all pending unsynced as synced
+                conn = self.node.local_store._conn
+                if older_than_hours > 0:
+                    result = conn.execute(
+                        "UPDATE outbound_queue SET pg_synced = 1 WHERE status = 'pending' AND pg_synced = 0 AND created_at < ?",
+                        (cutoff,)
+                    )
+                else:
+                    result = conn.execute(
+                        "UPDATE outbound_queue SET pg_synced = 1 WHERE status = 'pending' AND pg_synced = 0"
+                    )
+                conn.commit()
+                flushed = result.rowcount
+                
+                return web.json_response({
+                    "status": "ok",
+                    "flushed": flushed,
+                    "message": f"Marked {flushed} pending outbound messages as synced"
+                })
+            else:
+                return web.json_response({"error": "local_store not available"}, status=503)
+        except Exception as e:
+            log.error(f"Queue flush API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_queue_cleanup(self, request):
+        """Cleanup old messages from local_store and optionally PG.
+        
+        POST /api/queue/cleanup
+        Body (optional): {
+            "local_max_age_hours": 1,        — remove synced local messages older than N hours
+            "pg_ack_max_age_days": 3,        — remove acknowledged PG messages older than N days
+            "pg_sent_max_age_days": 7,       — remove sent PG messages older than N days
+            "pg_expired": true               — remove all expired PG messages
+        }
+        """
+        from aiohttp import web
+        try:
+            local_max_age_hours = 1
+            pg_ack_max_age_days = 3
+            pg_sent_max_age_days = 7
+            pg_expired = True
+            
+            try:
+                body = await request.json()
+                local_max_age_hours = body.get("local_max_age_hours", 1)
+                pg_ack_max_age_days = body.get("pg_ack_max_age_days", 3)
+                pg_sent_max_age_days = body.get("pg_sent_max_age_days", 7)
+                pg_expired = body.get("pg_expired", True)
+            except Exception:
+                pass
+            
+            results = {}
+            
+            # Local store cleanup
+            if self.node and self.node.local_store:
+                cleaned = self.node.local_store.cleanup_outbound(max_age_hours=local_max_age_hours)
+                results["local_cleaned"] = cleaned
+            
+            # PG cleanup
+            try:
+                import psycopg2
+                pg_config = getattr(self.node.config, 'pg', None) or getattr(self.node.config, 'transport_config', None)
+                if hasattr(self.node, 'config') and pg_config:
+                    conn = psycopg2.connect(
+                        host=pg_config.host,
+                        port=pg_config.port,
+                        dbname=pg_config.dbname,
+                        user=pg_config.user,
+                        password=pg_config.password
+                    )
+                    conn.autocommit = True
+                    cur = conn.cursor()
+                    
+                    # Delete acknowledged messages older than N days
+                    cur.execute(
+                        "DELETE FROM mesh.mesh_messages WHERE status='acknowledged' AND created_at < NOW() - INTERVAL '%s days'" % pg_ack_max_age_days
+                    )
+                    results["pg_ack_deleted"] = cur.rowcount
+                    
+                    # Delete sent messages older than N days
+                    cur.execute(
+                        "DELETE FROM mesh.mesh_messages WHERE status='sent' AND created_at < NOW() - INTERVAL '%s days'" % pg_sent_max_age_days
+                    )
+                    results["pg_sent_deleted"] = cur.rowcount
+                    
+                    # Delete expired messages
+                    if pg_expired:
+                        cur.execute("DELETE FROM mesh.mesh_messages WHERE status='expired'")
+                        results["pg_expired_deleted"] = cur.rowcount
+                    
+                    cur.execute("SELECT COUNT(*) FROM mesh.mesh_messages")
+                    results["pg_remaining"] = cur.fetchone()[0]
+                    
+                    cur.close()
+                    conn.close()
+            except Exception as e:
+                results["pg_error"] = str(e)
+            
+            return web.json_response({"status": "ok", "results": results})
+        except Exception as e:
+            log.error(f"Queue cleanup API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_queue_stats(self, request):
+        """Get queue statistics from local_store and PG.
+        
+        GET /api/queue/stats
+        """
+        from aiohttp import web
+        try:
+            stats = {}
+            
+            # Local store stats
+            if self.node and self.node.local_store:
+                stats["local_store"] = self.node.local_store.get_stats()
+            
+            # Auto-steer stats
+            if self.node and hasattr(self.node, 'auto_steer'):
+                stats["auto_steer"] = self.node.auto_steer.get_stats()
+            
+            return web.json_response(stats)
+        except Exception as e:
+            log.error(f"Queue stats API error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)

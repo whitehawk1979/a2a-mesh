@@ -28,6 +28,7 @@ class P2PConfig:
     listen_port: int = 8645
     max_connections: int = 50
     idle_timeout: int = 300  # seconds
+    reconnect_interval: int = 5  # base retry interval in seconds (exponential backoff)
     tls_enabled: bool = False
     tls_cert: str = ""       # Path to TLS certificate (PEM)
     tls_key: str = ""        # Path to TLS private key (PEM)
@@ -246,6 +247,7 @@ class MeshConfig:
                 listen_port=p2p_data.get('listen_port', config.p2p.listen_port),
                 max_connections=p2p_data.get('max_connections', config.p2p.max_connections),
                 idle_timeout=p2p_data.get('idle_timeout', config.p2p.idle_timeout),
+                reconnect_interval=p2p_data.get('reconnect_interval', config.p2p.reconnect_interval),
                 tls_enabled=p2p_data.get('tls_enabled', config.p2p.tls_enabled),
                 tls_cert=p2p_data.get('tls_cert', config.p2p.tls_cert),
                 tls_key=p2p_data.get('tls_key', config.p2p.tls_key),

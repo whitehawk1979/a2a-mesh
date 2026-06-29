@@ -977,7 +977,7 @@ async def cmd_broadcast(msg_type: str, payload_str: str, priority: int = 5):
         await node.stop()
 
 
-async def cmd_run(name: str, port: int, config_path: str):
+async def cmd_run(name: str, port: int, config_path: str, tls: bool = False, tls_cert: str = "", tls_key: str = "", tls_ca: str = "", tls_verify: bool = False):
     """Run the mesh node interactively."""
     config_file = os.path.expanduser(config_path)
     if os.path.exists(config_file):
@@ -992,6 +992,18 @@ async def cmd_run(name: str, port: int, config_path: str):
     if config.p2p.listen_port == 8645:
         # Default — keep it, don't override with dashboard port
         pass
+
+    # Apply TLS CLI overrides
+    if tls:
+        config.p2p.tls_enabled = True
+        if tls_cert:
+            config.p2p.tls_cert = os.path.expanduser(tls_cert)
+        if tls_key:
+            config.p2p.tls_key = os.path.expanduser(tls_key)
+        if tls_ca:
+            config.p2p.tls_ca = os.path.expanduser(tls_ca)
+        if tls_verify:
+            config.p2p.tls_verify_peer = True
 
     node = MeshNode(config)
 
@@ -1038,6 +1050,11 @@ def main():
     start_parser.add_argument("--name", "-n", default=os.environ.get("A2A_NODE_NAME", "nova"))
     start_parser.add_argument("--port", "-p", type=int, default=8645)
     start_parser.add_argument("--config", "-c", default="~/.hermes/mesh_config.yaml")
+    start_parser.add_argument("--tls", action="store_true", default=False, help="Enable TLS for P2P transport")
+    start_parser.add_argument("--tls-cert", default="", help="Path to TLS certificate (PEM)")
+    start_parser.add_argument("--tls-key", default="", help="Path to TLS private key (PEM)")
+    start_parser.add_argument("--tls-ca", default="", help="Path to CA certificate for peer verification")
+    start_parser.add_argument("--tls-verify", action="store_true", default=False, help="Verify peer TLS certificates")
 
     # send
     send_parser = subparsers.add_parser("send", help="Send a message")
@@ -1109,7 +1126,10 @@ def main():
     args = parser.parse_args()
 
     if args.command == "start":
-        asyncio.run(cmd_run(args.name, args.port, args.config))
+        asyncio.run(cmd_run(args.name, args.port, args.config,
+                            tls=args.tls, tls_cert=args.tls_cert,
+                            tls_key=args.tls_key, tls_ca=args.tls_ca,
+                            tls_verify=args.tls_verify))
     elif args.command == "send":
         asyncio.run(cmd_send(args.to, args.type, args.payload, args.priority))
     elif args.command == "broadcast":

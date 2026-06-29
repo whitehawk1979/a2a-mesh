@@ -49,7 +49,7 @@ class P2PTransport(TransportAdapter):
         self._listen_port = config.p2p.listen_port
         self._message_callback = None
         self._max_retries = config.p2p.max_connections  # reuse as max reconnect attempts
-        self._reconnect_interval = config.p2p.idle_timeout  # base retry interval in seconds
+        self._reconnect_interval = max(5, getattr(config.p2p, 'reconnect_interval', 5))  # base retry: 5s (not idle_timeout)
         self._ssl_context: Optional[ssl.SSLContext] = None  # TLS server context (for incoming connections)
         self._ssl_client_context: Optional[ssl.SSLContext] = None  # TLS client context (for outgoing connections)
 
@@ -263,7 +263,10 @@ class P2PTransport(TransportAdapter):
                         # Register writer for this peer so future messages route correctly
                         self._peers[connected_peer_name] = (reader, writer)
                         self._writer_to_peer[id(writer)] = connected_peer_name
-                        log.info(f"Incoming P2P connection identified as peer: {connected_peer_name}")
+                        # FIX: Clear backoff and retry count for incoming connections too
+                        self._peer_backoff.pop(connected_peer_name, None)
+                        self._peer_retry_count[connected_peer_name] = 0
+                        log.info(f"Incoming P2P connection identified as peer: {connected_peer_name} (backoff cleared)")
                         if self._peer_connected_callback:
                             try:
                                 asyncio.create_task(self._peer_connected_callback(connected_peer_name))
@@ -574,6 +577,11 @@ class P2PTransport(TransportAdapter):
                     if name not in self._peers:
                         # Peer is disconnected — check backoff
                         next_retry = self._peer_backoff.get(name, 0)
+                        # FIX: Handle stale/negative backoff values — treat as expired
+                        if next_retry < 0:
+                            log.warning(f"P2P backoff for {name} is negative ({next_retry:.0f}s), resetting to now")
+                            self._peer_backoff.pop(name, None)
+                            next_retry = 0
                         if now >= next_retry:
                             host, port_str = address.rsplit(":", 1)
                             port = int(port_str)

@@ -427,7 +427,7 @@ class PeerDiscovery:
         return connected
 
     async def start(self):
-        """Start periodic peer discovery and PG NOTIFY listener (P0: real-time discovery)."""
+        """Start periodic peer discovery, PG NOTIFY listener, and mDNS discovery."""
         self._running = True
         self._discover_task = asyncio.create_task(self._discover_loop())
 
@@ -438,6 +438,22 @@ class PeerDiscovery:
                 log.info("PG NOTIFY peer discovery listener started")
             except Exception as e:
                 log.warning(f"Could not start PG NOTIFY listener: {e}")
+
+        # mDNS service discovery (if enabled in config)
+        mdns_config = getattr(self.config, 'discovery', None)
+        mdns_enabled = False
+        if mdns_config:
+            mdns_data = getattr(mdns_config, 'mdns', None)
+            if isinstance(mdns_data, dict):
+                mdns_enabled = mdns_data.get('enabled', False)
+            elif hasattr(mdns_data, 'enabled'):
+                mdns_enabled = mdns_data.enabled
+        if mdns_enabled:
+            try:
+                self._start_mdns()
+                log.info("mDNS peer discovery started")
+            except Exception as e:
+                log.warning(f"Could not start mDNS discovery: {e}")
 
         log.info(f"Peer discovery started (interval: {self._discover_interval}s)")
 
@@ -459,7 +475,137 @@ class PeerDiscovery:
         # P0: Cleanup shared HTTP session
         if self._http_session and not self._http_session.closed:
             await self._http_session.close()
+        # mDNS cleanup
+        if hasattr(self, '_mdns_zeroconf') and self._mdns_zeroconf:
+            try:
+                self._mdns_zeroconf.unregister_service(self._mdns_service_info)
+            except Exception:
+                pass
+            self._mdns_zeroconf.close()
+            self._mdns_zeroconf = None
         log.info("Peer discovery stopped")
+
+    # ─── mDNS Service Discovery ────────────────────────────────────────
+
+    def _start_mdns(self):
+        """Register this node as an mDNS service and browse for peers.
+
+        Advertises _a2a._tcp on the local network so other mesh nodes
+        can discover each other automatically without static config or PG.
+        """
+        try:
+            from zeroconf import Zeroconf, ServiceInfo, ServiceBrowser
+        except ImportError:
+            log.warning("zeroconf not installed — mDNS discovery disabled. Run: pip install zeroconf")
+            return
+
+        mdns_config = getattr(self.config, 'discovery', None)
+        mdns_data = getattr(mdns_config, 'mdns', None) if mdns_config else {}
+        if isinstance(mdns_data, dict):
+            service_type = mdns_data.get('service', '_a2a._tcp')
+            mdns_port = mdns_data.get('port', 8645)
+        elif hasattr(mdns_data, 'service'):
+            service_type = getattr(mdns_data, 'service', '_a2a._tcp')
+            mdns_port = getattr(mdns_data, 'port', 8645)
+        else:
+            service_type = '_a2a._tcp'
+            mdns_port = 8645
+
+        # Use the actual P2P listen port, not the config mdns port
+        if hasattr(self.config, 'p2p') and hasattr(self.config.p2p, 'listen_port'):
+            mdns_port = self.config.p2p.listen_port
+
+        self._mdns_zeroconf = Zeroconf()
+        self._mdns_service_type = service_type
+
+        # Register this node
+        import socket
+        local_ip = socket.gethostbyname(socket.gethostname())
+        # Prefer the configured host if available
+        if hasattr(self.config, 'p2p') and hasattr(self.config.p2p, 'listen_host'):
+            host = self.config.p2p.listen_host
+            if host and host != '0.0.0.0':
+                local_ip = host
+
+        # Build TXT records with node metadata
+        txt_records = {
+            'node_name': self.node_name.encode('utf-8'),
+            'role': getattr(self.config, 'node_role', 'router').encode('utf-8'),
+            'health_port': str(getattr(self.config, 'health_port', 8650)).encode('utf-8'),
+        }
+
+        self._mdns_service_info = ServiceInfo(
+            service_type,
+            name=f"{self.node_name}.{service_type}",
+            addresses=[socket.inet_aton(local_ip)],
+            port=mdns_port,
+            properties=txt_records,
+        )
+
+        self._mdns_zeroconf.register_service(self._mdns_service_info)
+        log.info(f"mDNS: Registered {self.node_name} at {local_ip}:{mdns_port} as {service_type}")
+
+        # Browse for other mesh nodes
+        self._mdns_browser = ServiceBrowser(self._mdns_zeroconf, service_type, handlers=[self._on_mdns_service_state_change])
+        log.info(f"mDNS: Browsing for {service_type} services on local network")
+
+    def _on_mdns_service_state_change(self, zeroconf, service_type, name, state_change):
+        """Handle mDNS service discovery events.
+
+        When a new A2A mesh node appears on the network, add it as a peer
+        and attempt P2P connection.
+        """
+        from zeroconf import ServiceStateChange
+        if state_change == ServiceStateChange.Added:
+            # Resolve service info to get IP and port
+            info = zeroconf.get_service_info(service_type, name)
+            if info is None:
+                return
+
+            # Extract node name from service name (e.g., "morzsa._a2a._tcp.local.")
+            peer_name = name.split('.')[0]
+            if peer_name == self.node_name:
+                return  # Skip self
+
+            # Get IP address
+            addresses = info.addresses
+            if not addresses:
+                return
+            import socket
+            peer_host = socket.inet_ntoa(addresses[0])
+
+            # Get port and metadata from TXT records
+            peer_port = info.port
+            peer_role = 'router'
+            peer_health_port = 8650
+            if info.properties:
+                peer_role = info.properties.get(b'role', b'router').decode('utf-8', errors='ignore')
+                peer_health_port = int(info.properties.get(b'health_port', b'8650').decode('utf-8', errors='ignore'))
+
+            # Add as peer if not already known
+            if peer_name not in self._peers:
+                peer = self.add_peer(
+                    name=peer_name,
+                    host=peer_host,
+                    p2p_port=peer_port,
+                    role=peer_role,
+                    health_port=peer_health_port,
+                )
+                log.info(f"mDNS: Discovered new peer {peer_name} at {peer_host}:{peer_port} (role={peer_role})")
+            else:
+                # Update existing peer address if changed
+                existing = self._peers[peer_name]
+                if existing.host != peer_host or existing.p2p_port != peer_port:
+                    existing.host = peer_host
+                    existing.p2p_port = peer_port
+                    existing.port = peer_port
+                    log.info(f"mDNS: Updated peer {peer_name} address to {peer_host}:{peer_port}")
+
+        elif state_change == ServiceStateChange.Removed:
+            peer_name = name.split('.')[0]
+            if peer_name != self.node_name and peer_name in self._peers:
+                log.info(f"mDNS: Peer {peer_name} removed from network")
+                # Don't remove — let health check handle it
 
     async def _listen_pg_notifications(self):
         """Listen for PG NOTIFY on mesh_node_update channel for real-time peer discovery.

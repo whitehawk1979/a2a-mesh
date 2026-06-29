@@ -951,9 +951,10 @@ class MeshNode:
                 "peer_discovery": self.peer_discovery.get_stats(),
                 "p2p": {
                     "listen_port": self._p2p_transport._listen_port,
+                    "tls_enabled": self._p2p_transport._ssl_context is not None,
                     "peers": list(self._p2p_transport._peers.keys()),
                     "peer_addresses": dict(self._p2p_transport._peer_addresses),
-                    "backoff_peers": {k: f"{v - time.time():.0f}s" for k, v in self._p2p_transport._peer_backoff.items()},
+                    "backoff_peers": {k: f"{max(0, v - time.time()):.0f}s" for k, v in self._p2p_transport._peer_backoff.items()},
                     "incoming_queue": self._p2p_transport._incoming_queue.qsize(),
                 },
                 "dashboard": self.dashboard.get_stats(),
@@ -1481,6 +1482,8 @@ class MeshNode:
                 self.auto_steer.cleanup_old_steers(max_age_seconds=3600)
                 # Cleanup old outbound messages from local_store (pg_synced > 1h old)
                 self.local_store.cleanup_outbound(max_age_hours=1)
+                # Cleanup old mesh_messages (retention: 7 days)
+                await self._cleanup_old_messages(max_age_days=7)
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1506,6 +1509,41 @@ class MeshNode:
             cur.close()
         except Exception as e:
             log.debug(f"Stats update failed: {e}")
+
+    async def _cleanup_old_messages(self, max_age_days: int = 7):
+        """Delete old mesh_messages and vacuum to reclaim space.
+        Runs every 60s from _stats_update_loop. Only coordinator runs cleanup
+        to avoid race conditions.
+        """
+        # Only coordinator should run DB cleanup to avoid races
+        if self.role != "coordinator":
+            return
+        try:
+            conn = self._pg_transport._write_conn or self._pg_transport._conn
+            if not conn or conn.closed:
+                return
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM mesh.mesh_messages WHERE created_at < now() - interval '%s days'" % max_age_days
+            )
+            deleted = cur.rowcount
+            conn.commit()
+            if deleted > 0:
+                log.info(f"Message cleanup: deleted {deleted} messages older than {max_age_days} days")
+                # Vacuum to reclaim space (cannot run inside transaction)
+                old_autocommit = conn.autocommit
+                conn.autocommit = True
+                try:
+                    cur2 = conn.cursor()
+                    cur2.execute("VACUUM mesh.mesh_messages")
+                    cur2.close()
+                except Exception:
+                    pass  # VACUUM is best-effort
+                finally:
+                    conn.autocommit = old_autocommit
+            cur.close()
+        except Exception as e:
+            log.debug(f"Message cleanup failed: {e}")
 
     # ─── Webhook Trigger ─────────────────────────────────────────────
 
