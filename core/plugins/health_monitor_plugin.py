@@ -124,7 +124,7 @@ class HealthMonitorPlugin(MeshPlugin):
             await asyncio.sleep(interval)
 
     async def _run_health_check(self):
-        """Run a single health check cycle."""
+        """Run a single health check cycle — actively probes peers via HTTP/P2P."""
         self._stats["checks_run"] += 1
         offline_threshold = self._config.get("offline_threshold", 300)
         now = time.time()
@@ -139,6 +139,17 @@ class HealthMonitorPlugin(MeshPlugin):
                     peer_name = card.name
                     if peer_name == self._node.node_name:
                         continue  # Skip self
+
+                    # Active health check: probe peer via HTTP/P2P to update last_health_check
+                    try:
+                        await registry.check_agent_health(peer_name)
+                    except Exception as e:
+                        self.log.debug(f"Health monitor: active check failed for {peer_name}: {e}")
+
+                    # Re-fetch updated health record after active check
+                    updated_health = registry.health_records.get(peer_name)
+                    if updated_health:
+                        health = updated_health
 
                     last_seen_raw = health.last_health_check
                     health_val = health.health_score

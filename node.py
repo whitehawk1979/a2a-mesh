@@ -884,7 +884,7 @@ class MeshNode:
             name=self.node_name,
             capabilities=capabilities,
             skills=skills,
-            version=getattr(self.config, 'version', '0.7.3'),
+            version=getattr(self.config, 'version', '1.0.0'),
             description=f"A2A Mesh node ({self.role.value})",
             endpoint=endpoint,
             health_endpoint="/api/status",
