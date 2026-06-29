@@ -43,3 +43,16 @@ htmlcov/
 
 # Incoming file transfers
 incoming_files/
+
+# Config with secrets
+mesh_config.yaml
+mesh_config.yml
+
+# Bleve index (binary)
+docs/index.bleve
+
+# Node state files
+mesh.mesh_nodes
+
+# Backup files
+*.bak
