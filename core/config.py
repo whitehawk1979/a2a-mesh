@@ -20,6 +20,22 @@ class PGConfig:
         "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel"
     ])
 
+    @classmethod
+    def from_dsn(cls, dsn: str) -> "PGConfig":
+        """Parse a PostgreSQL DSN string (postgresql://user:pass@host:port/dbname)."""
+        import re
+        m = re.match(r'postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)', dsn)
+        if m:
+            return cls(host=m.group(3), port=int(m.group(4)),
+                       dbname=m.group(5), user=m.group(1), password=m.group(2))
+        # Try without port
+        m = re.match(r'postgresql://([^:]+):([^@]+)@([^/]+)/(.+)', dsn)
+        if m:
+            return cls(host=m.group(3), dbname=m.group(4),
+                       user=m.group(1), password=m.group(2))
+        log.warning(f"Could not parse DSN: {dsn[:30]}...")
+        return cls()
+
 
 @dataclass
 class P2PConfig:
@@ -227,9 +243,18 @@ class MeshConfig:
         mesh = data.get('mesh', {})
         config.node_name = mesh.get('node_name', config.node_name)
 
-        # PG config
+        # PG config — support A2A_MESH_PG_DSN env var for easy setup
+        pg_dsn = os.environ.get("A2A_MESH_PG_DSN", "")
         pg_data = mesh.get('transports', {}).get('pg_notify', {})
-        if pg_data:
+        if pg_dsn:
+            # DSN env var takes priority (easiest for new nodes)
+            config.pg = PGConfig.from_dsn(pg_dsn)
+            # Override with YAML values if present
+            if pg_data:
+                config.pg.host = pg_data.get('host', config.pg.host)
+                config.pg.port = pg_data.get('port', config.pg.port)
+                config.pg.channels = pg_data.get('channels', config.pg.channels)
+        elif pg_data:
             config.pg = PGConfig(
                 host=pg_data.get('host', config.pg.host),
                 port=pg_data.get('port', config.pg.port),

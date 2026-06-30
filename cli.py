@@ -1093,6 +1093,8 @@ def main():
     start_parser.add_argument("--name", "-n", default=os.environ.get("A2A_NODE_NAME", "nova"))
     start_parser.add_argument("--port", "-p", type=int, default=8645)
     start_parser.add_argument("--config", "-c", default="~/.hermes/mesh_config.yaml")
+    start_parser.add_argument("--pg-dsn", default=os.environ.get("A2A_MESH_PG_DSN", ""),
+                              help="PostgreSQL DSN: postgresql://user:pass@host:port/dbname")
     start_parser.add_argument("--tls", action="store_true", default=False, help="Enable TLS for P2P transport")
     start_parser.add_argument("--tls-cert", default="", help="Path to TLS certificate (PEM)")
     start_parser.add_argument("--tls-key", default="", help="Path to TLS private key (PEM)")
@@ -1169,6 +1171,9 @@ def main():
     args = parser.parse_args()
 
     if args.command == "start":
+        # Set A2A_MESH_PG_DSN env var from --pg-dsn CLI arg (if provided)
+        if hasattr(args, 'pg_dsn') and args.pg_dsn:
+            os.environ["A2A_MESH_PG_DSN"] = args.pg_dsn
         asyncio.run(cmd_run(args.name, args.port, args.config,
                             tls=args.tls, tls_cert=args.tls_cert,
                             tls_key=args.tls_key, tls_ca=args.tls_ca,

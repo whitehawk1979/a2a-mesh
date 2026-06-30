@@ -84,7 +84,14 @@ A2A Mesh enables autonomous AI agents to communicate, coordinate, and execute co
 ```bash
 # Clone and run — dependencies install automatically
 git clone <repo-url> a2a_mesh && cd a2a_mesh
-python3 cli.py start --name nova --port 8650
+
+# Start with PG DSN (easiest — no config editing needed)
+python3 cli.py start --name mynode --port 8650 \
+  --pg-dsn 'postgresql://nova:mypassword@192.168.1.30:5432/agent_memory'
+
+# Or with A2A_MESH_PG_DSN env var:
+export A2A_MESH_PG_DSN='postgresql://nova:mypassword@192.168.1.30:5432/agent_memory'
+python3 cli.py start --name mynode --port 8650
 # 📦 Missing deps are auto-installed on first run
 ```
 
