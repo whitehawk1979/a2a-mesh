@@ -44,7 +44,14 @@ def _check_and_install_deps():
         return  # All deps available
 
     print(f"📦 Installing {len(missing)} missing dependencies...")
+
+    # Try strategies in order: venv pip → --user → --break-system-packages
     pip_cmd = [sys.executable, "-m", "pip", "install", "--quiet"]
+    # Check if we're in a venv
+    in_venv = hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix)
+    if not in_venv:
+        pip_cmd.append("--user")  # Install to user site-packages when not in venv
+
     for pip_spec in missing.values():
         pip_cmd.append(pip_spec)
 
@@ -52,9 +59,29 @@ def _check_and_install_deps():
         result = subprocess.run(pip_cmd, capture_output=True, text=True, timeout=120)
         if result.returncode == 0:
             print(f"✅ Installed: {', '.join(missing.keys())}")
+            # Re-import after install
+            for mod in missing:
+                try:
+                    __import__(mod)
+                except ImportError:
+                    pass  # Will fail below if still missing
+            return
+        # PEP 668: --user failed, try --break-system-packages as last resort
+        if "externally-managed" in result.stderr:
+            print("⚠️  PEP 668: System Python is externally managed. Using --break-system-packages...")
+            pip_cmd_fallback = [sys.executable, "-m", "pip", "install", "--quiet", "--break-system-packages"]
+            for pip_spec in missing.values():
+                pip_cmd_fallback.append(pip_spec)
+            result2 = subprocess.run(pip_cmd_fallback, capture_output=True, text=True, timeout=120)
+            if result2.returncode == 0:
+                print(f"✅ Installed (system): {', '.join(missing.keys())}")
+                return
+            else:
+                print(f"⚠️  Install failed: {result2.stderr.strip()}")
         else:
             print(f"⚠️  pip install failed: {result.stderr.strip()}")
-            print("   Try running: ./install.sh")
+        print("   Try: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt")
+        print("   Or: ./install.sh")
     except (subprocess.TimeoutExpired, FileNotFoundError):
         print("⚠️  Could not auto-install dependencies.")
         print("   Please run: ./install.sh")
