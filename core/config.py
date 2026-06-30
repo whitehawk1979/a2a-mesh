@@ -52,6 +52,7 @@ class DiscoveryConfig:
     udp_broadcast_enabled: bool = True
     udp_broadcast_port: int = 8646  # Convention: p2p_port + 1
     udp_broadcast_interval: int = 15  # seconds between announcements
+    tailscale_interface: str = ""  # Tailscale IP for cross-subnet discovery
     static_nodes: List[Dict] = field(default_factory=list)
 
 
@@ -276,6 +277,7 @@ class MeshConfig:
                 udp_broadcast_enabled=disc_data.get('udp_broadcast', {}).get('enabled', True),
                 udp_broadcast_port=disc_data.get('udp_broadcast', {}).get('port', 8646),
                 udp_broadcast_interval=disc_data.get('udp_broadcast', {}).get('interval', 15),
+                tailscale_interface=disc_data.get('tailscale_interface', ''),
                 static_nodes=static_nodes,
             )
 

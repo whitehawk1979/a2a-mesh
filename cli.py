@@ -14,11 +14,54 @@ Usage:
 import asyncio
 import json
 import os
+import subprocess
 import sys
 import time
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# ─── Auto-install dependencies on first run ───
+REQUIRED_PACKAGES = {
+    "aiohttp": "aiohttp>=3.9.0",
+    "msgpack": "msgpack>=1.0.7",
+    "psycopg2": "psycopg2-binary>=2.9.9",
+    "yaml": "PyYAML>=6.0",
+    "zeroconf": "zeroconf>=0.130.0",
+}
+
+def _check_and_install_deps():
+    """Check for missing dependencies and auto-install them."""
+    missing = {}
+    for mod, pip_spec in REQUIRED_PACKAGES.items():
+        try:
+            __import__(mod)
+        except ImportError:
+            missing[mod] = pip_spec
+
+    if not missing:
+        return  # All deps available
+
+    print(f"📦 Installing {len(missing)} missing dependencies...")
+    pip_cmd = [sys.executable, "-m", "pip", "install", "--quiet"]
+    for pip_spec in missing.values():
+        pip_cmd.append(pip_spec)
+
+    try:
+        result = subprocess.run(pip_cmd, capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            print(f"✅ Installed: {', '.join(missing.keys())}")
+        else:
+            print(f"⚠️  pip install failed: {result.stderr.strip()}")
+            print("   Try running: ./install.sh")
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        print("⚠️  Could not auto-install dependencies.")
+        print("   Please run: ./install.sh")
+        print("   Or: pip install -r requirements.txt")
+
+_check_and_install_deps()
+# ─── End auto-install ───
 
 from a2a_mesh.core.config import MeshConfig
 from a2a_mesh.core.message import A2AMessage, MSG_TYPE_DIRECTIVE

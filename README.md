@@ -79,15 +79,47 @@ A2A Mesh enables autonomous AI agents to communicate, coordinate, and execute co
 
 ## Quick Start
 
+### Option 1: Auto-install (recommended)
+
 ```bash
-# Install dependencies
+# Clone and run — dependencies install automatically
+git clone <repo-url> a2a_mesh && cd a2a_mesh
+python3 cli.py start --name nova --port 8650
+# 📦 Missing deps are auto-installed on first run
+```
+
+### Option 2: Full install script
+
+```bash
+# Clone, install deps, generate certs, guided setup
+git clone <repo-url> a2a_mesh && cd a2a_mesh
+chmod +x install.sh
+./install.sh          # Interactive — creates venv, installs deps, generates certs
+
+# Or non-interactive:
+./install.sh --skip-start --no-certs
+```
+
+### Option 3: Manual setup
+
+```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Start a node
 .venv/bin/python3 cli.py start --name nova --port 8650
+```
 
-# Send a message
+### With TLS encryption
+
+```bash
+python3 cli.py start --name nova --port 8650 --tls
+# Or with custom certs:
+python3 cli.py start --name nova --port 8650 --tls \
+  --tls-cert certs/nova.crt --tls-key certs/nova.key --tls-ca certs/a2a-mesh-ca.crt
+```
+
+### Send a message
 curl -X POST http://localhost:8650/api/send \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \

@@ -445,11 +445,14 @@ class MeshNode:
                 log.warning("❌ mDNS discovery failed")
 
         # 5. UDP broadcast discovery (works on local network + Tailscale)
+        tailscale_if = self.config.discovery.tailscale_interface
+        udp_interfaces = [tailscale_if] if tailscale_if else None
         self._udp_discovery = UDPBroadcastDiscovery(
             node_name=self.node_name,
             p2p_port=self.config.p2p.listen_port,
             health_port=self.config.health_port or 8650,
             discovery_port=self.config.discovery.udp_broadcast_port,
+            interfaces=udp_interfaces,
         )
         self._udp_discovery.on_discover(self._on_mdns_discover)  # Same handler for both
         udp_ok = await self._udp_discovery.start()
