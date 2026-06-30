@@ -398,19 +398,13 @@ class MeshNode:
         await self._register_node()
 
         # Start transports in priority order
+        # P2P is now primary — PG is optional fallback
         results = {}
 
-        # 1. PG NOTIFY (primary)
-        results["pg_notify"] = await self._pg_transport.start()
-        if results["pg_notify"]:
-            log.info("✅ PG NOTIFY transport started")
-        else:
-            log.warning("❌ PG NOTIFY transport failed")
-
-        # 2. P2P TCP (secondary)
+        # 1. P2P TCP (primary — always try first)
         results["p2p"] = await self._p2p_transport.start()
         if results["p2p"]:
-            log.info("✅ P2P TCP transport started")
+            log.info("✅ P2P TCP transport started (primary)")
             # Wire up P2P ACK callback — updates PG message status when ACK received
             self._p2p_transport.set_ack_callback(self._on_p2p_ack)
             # Wire up P2P peer connected callback — registers peer with agent registry on connect/reconnect
@@ -418,6 +412,13 @@ class MeshNode:
             log.info("✅ P2P callbacks registered (ACK + peer_connected)")
         else:
             log.warning("❌ P2P TCP transport failed")
+
+        # 2. PG NOTIFY (optional fallback — gracefully degrades if unavailable)
+        results["pg_notify"] = await self._pg_transport.start()
+        if results["pg_notify"]:
+            log.info("✅ PG NOTIFY transport started (fallback)")
+        else:
+            log.warning("⚠️ PG NOTIFY transport unavailable — running in P2P-only mode")
 
         # 3. HTTP/MCP (tertiary)
         results["http"] = await self._http_transport.start()

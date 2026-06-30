@@ -7,6 +7,7 @@ This is the primary (fastest) transport for agents on the same PG instance.
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Optional
 
@@ -40,7 +41,16 @@ class PGTransport(TransportAdapter):
         self._max_reconnects = 5
 
     async def start(self) -> bool:
-        """Start PG LISTEN connection."""
+        """Start PG LISTEN connection.
+        
+        PG is optional — if no password or DB unreachable, gracefully degrade to P2P-only mode.
+        """
+        # Skip PG if no password configured (P2P-only mode)
+        if not self.config.pg.password and not os.environ.get("A2A_MESH_PG_DSN"):
+            log.info("PG transport disabled — no password configured (P2P-only mode)")
+            self._available = False
+            return False
+        
         try:
             import psycopg2
             import psycopg2.extensions

@@ -179,8 +179,9 @@ class MeshConfig:
     ])
 
     # Transport priority (first success wins for directed messages)
+    # P2P first — PG is optional fallback for nodes without direct P2P connectivity
     transport_priority: List[str] = field(default_factory=lambda: [
-        "pg_notify", "p2p", "http"
+        "p2p", "pg_notify", "http"
     ])
 
     # Sub-configs
