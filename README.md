@@ -145,6 +145,11 @@ Environment variables:
 
 | Version | Date | Highlights |
 |---------|------|-----------|
+| v0.10.5 | 2026-07-02 | P2 enhancements: peer_address_resolver, reconnect loop peer_discovery-aware, connection pooling (50 max, 1h age), retry queue dedup, LaunchAgent auto-restart |
+| v0.10.4 | 2026-07-01 | P2P-first transport priority, PG optional (no-password mode), auto-install deps (PEP 668) |
+| v0.10.0 | 2026-06-29 | Dashboard v2, mDNS/UDP discovery, TLS encryption, static nodes config |
+| v0.9.6 | 2026-06-26 | Health Scorer, API endpoints, StreamMux |
+| v0.9.0 | 2026-06-25 | Workflow DAG v2: FanIn, Consensus, Budget, Timeout |
 | v0.8.3 | 2026-06-23 | Workflow DAG v2: FanIn, Consensus, Budget, Timeout |
 | v0.8.2 | 2026-06-23 | Health Scorer, API endpoints |
 | v0.8.1 | 2026-06-23 | Versioned binary framing, GossipSub |
