@@ -42,6 +42,7 @@ class P2PTransport(TransportAdapter):
         self._peer_addresses: Dict[str, str] = {}  # peer_name → host:port
         self._peer_backoff: Dict[str, float] = {}  # peer_name → next retry timestamp
         self._peer_retry_count: Dict[str, int] = {}  # peer_name → consecutive failure count
+        self._peer_connected_at: Dict[str, float] = {}  # P2: peer_name → connection start timestamp (for age tracking)
         self._reconnect_task: Optional[asyncio.Task] = None
         self._incoming_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
@@ -50,6 +51,8 @@ class P2PTransport(TransportAdapter):
         self._message_callback = None
         self._max_retries = config.p2p.max_connections  # reuse as max reconnect attempts
         self._reconnect_interval = max(5, getattr(config.p2p, 'reconnect_interval', 5))  # base retry: 5s (not idle_timeout)
+        self._max_connections = min(getattr(config.p2p, 'max_connections', 50), 100)  # Cap at 100 peers
+        self._connection_age_limit = 3600  # Max connection age in seconds (1 hour), then reconnect
         self._ssl_context: Optional[ssl.SSLContext] = None  # TLS server context (for incoming connections)
         self._ssl_client_context: Optional[ssl.SSLContext] = None  # TLS client context (for outgoing connections)
 
@@ -316,6 +319,7 @@ class P2PTransport(TransportAdapter):
                 if pw is writer:
                     removed = self._peers.pop(pname, None)
                     self._writer_to_peer.pop(id(writer), None)
+                    self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
                     log.info(f"Peer {pname} disconnected, removed from peers dict")
                     break
             if removed is None:
@@ -382,9 +386,14 @@ class P2PTransport(TransportAdapter):
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
         """Connect to a known peer with exponential backoff.
-        P1: Sets TCP keepalive on the socket for faster dead-connection detection."""
+        P1: Sets TCP keepalive on the socket for faster dead-connection detection.
+        P2: Tracks connection age and enforces max_connections limit."""
         import socket
         try:
+            # P2: Enforce max connections limit
+            if len(self._peers) >= self._max_connections and name not in self._peers:
+                log.warning(f"P2P max connections ({self._max_connections}) reached, cannot connect to {name}")
+                return
             # Use TLS ssl_context for client connections if configured
             ssl_ctx = self._ssl_client_context or self._ssl_context
             # P2: Add connection timeout (10s) to prevent hanging on unreachable peers
@@ -411,6 +420,8 @@ class P2PTransport(TransportAdapter):
             self._peers[name] = (reader, writer)
             self._peer_addresses[name] = f"{host}:{port}"
             self._writer_to_peer[id(writer)] = name
+            # P2: Track connection start time for age-based reconnection
+            self._peer_connected_at[name] = time.time()
             # Reset retry count on success
             self._peer_retry_count[name] = 0
             self._peer_backoff.pop(name, None)
@@ -583,14 +594,19 @@ class P2PTransport(TransportAdapter):
         return messages
 
     async def discover(self) -> list:
-        """Return connected peer info."""
+        """Return connected peer info with P2 connection age metrics."""
         from .base import TransportStatus
+        now = time.time()
         peers = []
         for name, (reader, writer) in self._peers.items():
+            connected_at = self._peer_connected_at.get(name, 0)
+            age = now - connected_at if connected_at else 0
             peers.append({
                 "name": name,
                 "address": self._peer_addresses.get(name, "unknown"),
                 "transport": "p2p",
+                "connected_s": round(age, 1),
+                "max_age_s": self._connection_age_limit,
             })
         return peers
 
@@ -670,6 +686,27 @@ class P2PTransport(TransportAdapter):
                     addr_port = int(addr_port_str)
                     log.info(f"Reconnecting to peer {name} at {address}")
                     await self._connect_to_peer(name, addr_host, addr_port)
+
+                # P2: Check connection age — reconnect stale connections
+                now = time.time()
+                for name in list(self._peer_connected_at.keys()):
+                    if name not in self._peers:
+                        self._peer_connected_at.pop(name, None)
+                        continue
+                    connected_at = self._peer_connected_at[name]
+                    age = now - connected_at
+                    if age > self._connection_age_limit:
+                        log.info(f"P2P connection to {name} is {age:.0f}s old (limit: {self._connection_age_limit}s) — reconnecting")
+                        # Close old connection — reconnect loop will re-establish
+                        peer_data = self._peers.pop(name, None)
+                        self._peer_connected_at.pop(name, None)
+                        if peer_data:
+                            _, old_writer = peer_data
+                            try:
+                                old_writer.close()
+                                await old_writer.wait_closed()
+                            except Exception:
+                                pass
 
                 # Process retry queue: try sending queued messages if any peers are connected
                 if self._retry_queue and self._peers:
