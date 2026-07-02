@@ -613,7 +613,11 @@ class P2PTransport(TransportAdapter):
         return len(self._retry_queue)
 
     async def _reconnect_loop(self):
-        """Periodically check for disconnected peers and attempt reconnection."""
+        """Periodically check for disconnected peers and attempt reconnection.
+
+        P2: Also resolves peers via peer_address_resolver for peers that were
+        discovered but never connected (e.g., via PG/mDNS discovery).
+        """
         while self._running:
             try:
                 await asyncio.sleep(10)  # Check every 10 seconds for reconnect
@@ -621,20 +625,51 @@ class P2PTransport(TransportAdapter):
                     break
 
                 now = time.time()
-                for name, address in list(self._peer_addresses.items()):
-                    if name not in self._peers:
-                        # Peer is disconnected — check backoff
-                        next_retry = self._peer_backoff.get(name, 0)
-                        # FIX: Handle stale/negative backoff values — treat as expired
-                        if next_retry < 0:
-                            log.warning(f"P2P backoff for {name} is negative ({next_retry:.0f}s), resetting to now")
-                            self._peer_backoff.pop(name, None)
-                            next_retry = 0
-                        if now >= next_retry:
-                            host, port_str = address.rsplit(":", 1)
-                            port = int(port_str)
-                            log.info(f"Reconnecting to peer {name} at {address}")
-                            await self._connect_to_peer(name, host, port)
+
+                # P2: Collect all known peers that should be reconnected
+                # Start with known addresses (previously connected)
+                peers_to_check = set(self._peer_addresses.keys())
+
+                # P2: Also check peers known via peer_discovery (resolver)
+                if self._peer_address_resolver:
+                    try:
+                        all_peers = self._peer_address_resolver.__self__.get_all_peers() if hasattr(self._peer_address_resolver, '__self__') else {}
+                        for pname in all_peers:
+                            if pname != getattr(self.config, 'node_name', ''):
+                                peers_to_check.add(pname)
+                    except Exception:
+                        pass
+
+                for name in peers_to_check:
+                    if name in self._peers:
+                        continue  # Already connected
+                    if name in self._connecting_peers:
+                        continue  # Connection attempt in progress
+
+                    # Check backoff
+                    next_retry = self._peer_backoff.get(name, 0)
+                    if next_retry < 0:
+                        log.warning(f"P2P backoff for {name} is negative ({next_retry:.0f}s), resetting to now")
+                        self._peer_backoff.pop(name, None)
+                        next_retry = 0
+                    if now < next_retry:
+                        continue  # Not time yet
+
+                    # Get address: try known addresses first, then resolver
+                    address = self._peer_addresses.get(name)
+                    if not address and self._peer_address_resolver:
+                        resolved = self._peer_address_resolver(name)
+                        if resolved:
+                            r_host, r_port = resolved
+                            address = f"{r_host}:{r_port}"
+                    
+                    if not address:
+                        continue  # No address available
+
+                    addr_host, addr_port_str = address.rsplit(":", 1)
+                    addr_port = int(addr_port_str)
+                    log.info(f"Reconnecting to peer {name} at {address}")
+                    await self._connect_to_peer(name, addr_host, addr_port)
 
                 # Process retry queue: try sending queued messages if any peers are connected
                 if self._retry_queue and self._peers:
