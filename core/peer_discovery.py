@@ -219,6 +219,39 @@ class PeerDiscovery:
         """Get a peer by name."""
         return self._peers.get(name)
 
+    def resolve_peer_address(self, name: str) -> Optional[Tuple[str, int]]:
+        """Resolve a peer name to (host, p2p_port) for direct P2P connection.
+
+        P2: Used by P2PTransport.send() to dynamically connect to a peer
+        that is not currently connected but known via peer_discovery.
+
+        Returns:
+            (host, p2p_port) if peer is known and available, None otherwise.
+        """
+        peer = self._peers.get(name)
+        if peer is None:
+            log.debug(f"Peer address resolver: peer '{name}' not found in discovery")
+            return None
+
+        # Check if peer was seen recently (within 10 minutes)
+        if peer.last_seen > 0 and (time.time() - peer.last_seen) > 600:
+            log.debug(f"Peer address resolver: peer '{name}' last seen {time.time() - peer.last_seen:.0f}s ago (stale)")
+            return None
+
+        host = peer.host
+        port = peer.p2p_port
+
+        # Use health_port as fallback for P2P port if p2p_port not set
+        if not port and peer.health_port:
+            port = peer.health_port
+
+        if not host or not port:
+            log.debug(f"Peer address resolver: peer '{name}' has no address (host={host}, port={port})")
+            return None
+
+        log.info(f"Peer address resolver: {name} → {host}:{port}")
+        return (host, port)
+
     def approve_peer(self, name: str) -> bool:
         """Auto-approve a discovered peer for P2P connection."""
         peer = self._peers.get(name)

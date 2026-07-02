@@ -476,6 +476,9 @@ class MeshNode:
         # Start peer discovery (link P2P transport and PG conn for auto-connect)
         self.peer_discovery.p2p_transport = self._p2p_transport
         self.peer_discovery._pg_conn = self._pg_conn
+        # P2: Wire up peer address resolver — P2P transport can now dynamically
+        # connect to peers it hasn't connected to yet, using peer_discovery data
+        self._p2p_transport._peer_address_resolver = self.peer_discovery.resolve_peer_address
         self.memory_sync.set_pg_conn(self._pg_conn)
         await self.peer_discovery.start()
 

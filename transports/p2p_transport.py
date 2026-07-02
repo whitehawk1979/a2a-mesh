@@ -64,6 +64,14 @@ class P2PTransport(TransportAdapter):
         # so the agent registry can be updated
         self._peer_connected_callback = None  # Callable[[str], Awaitable[None]] (peer_name)
 
+        # P2: Peer address resolver — resolves peer_name → (host, port) via peer_discovery
+        # Set by node.py: self._p2p_transport.peer_address_resolver = peer_discovery.resolve_peer_address
+        self._peer_address_resolver = None  # Callable[[str], Optional[Tuple[str, int]]]
+
+        # P2: Dynamic connection cache — tracks peers we're currently trying to connect to
+        # to avoid duplicate connection attempts for the same peer
+        self._connecting_peers: Set[str] = set()
+
         # Reverse-lookup: map writer → peer_name for incoming ACK routing
         self._writer_to_peer: Dict[int, str] = {}  # id(writer) → peer_name
 
@@ -438,7 +446,11 @@ class P2PTransport(TransportAdapter):
             log.warning(f"Failed to connect to {name} at {host}:{port} (retry #{retry_count}, next in {backoff:.0f}s): {e}")
 
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send message to peer(s) via TCP."""
+        """Send message to peer(s) via TCP.
+
+        P2: If the recipient is not currently connected, attempt dynamic connection
+        via peer_address_resolver (which queries peer_discovery for known addresses).
+        """
         if not self._available:
             return SendResult(transport="p2p", success=False, error="not started")
 
@@ -446,19 +458,55 @@ class P2PTransport(TransportAdapter):
         payload = encode_frame(data)
 
         # If directed message, send to specific peer
-        if not message.is_broadcast() and message.recipient in self._peers:
-            _, writer = self._peers[message.recipient]
-            try:
-                writer.write(payload)
-                await writer.drain()
-                return SendResult(transport="p2p", success=True, latency_ms=1.0)
-            except Exception as e:
-                log.warning(f"Failed to send to {message.recipient}: {e}")
-                # Remove broken connection
-                self._peers.pop(message.recipient, None)
-                # Queue for retry
-                self._enqueue_for_retry(message)
-                return SendResult(transport="p2p", success=False, error=str(e))
+        if not message.is_broadcast():
+            recipient = message.recipient
+
+            # P2: If recipient is connected, send directly
+            if recipient in self._peers:
+                _, writer = self._peers[recipient]
+                try:
+                    writer.write(payload)
+                    await writer.drain()
+                    return SendResult(transport="p2p", success=True, latency_ms=1.0)
+                except Exception as e:
+                    log.warning(f"Failed to send to {recipient}: {e}")
+                    # Remove broken connection
+                    self._peers.pop(recipient, None)
+                    # Queue for retry
+                    self._enqueue_for_retry(message)
+                    return SendResult(transport="p2p", success=False, error=str(e))
+
+            # P2: Recipient not connected — try dynamic connection via peer_address_resolver
+            if self._peer_address_resolver and recipient not in self._connecting_peers:
+                addr = self._peer_address_resolver(recipient)
+                if addr:
+                    host, port = addr
+                    log.info(f"P2 dynamic connect: resolving {recipient} → {host}:{port}")
+                    self._connecting_peers.add(recipient)
+                    try:
+                        await self._connect_to_peer(recipient, host, port)
+                    except Exception as e:
+                        log.warning(f"P2 dynamic connect to {recipient} failed: {e}")
+                        self._enqueue_for_retry(message)
+                        return SendResult(transport="p2p", success=False, error=f"dynamic connect failed: {e}")
+                    finally:
+                        self._connecting_peers.discard(recipient)
+                    # After successful connect, try to send
+                    if recipient in self._peers:
+                        _, writer = self._peers[recipient]
+                        try:
+                            writer.write(payload)
+                            await writer.drain()
+                            return SendResult(transport="p2p", success=True, latency_ms=5.0)
+                        except Exception as e:
+                            log.warning(f"Send after dynamic connect to {recipient} failed: {e}")
+                            self._peers.pop(recipient, None)
+                            self._enqueue_for_retry(message)
+                            return SendResult(transport="p2p", success=False, error=str(e))
+
+            # No address resolver or address not found — queue for retry
+            self._enqueue_for_retry(message)
+            return SendResult(transport="p2p", success=False, error=f"peer {recipient} not connected, no address")
 
         # Broadcast: send to all connected peers
         successes = 0
