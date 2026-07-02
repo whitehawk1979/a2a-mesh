@@ -718,19 +718,28 @@ class P2PTransport(TransportAdapter):
                 log.error(f"Reconnect loop error: {e}")
 
     async def _process_retry_queue(self):
-        """Try to resend queued messages to any available peer."""
+        """Try to resend queued messages to any available peer.
+        
+        P2 fix: Skip messages already in the queue (dedup by message ID)
+        to prevent exponential growth when send() re-enqueues.
+        """
         if not self._retry_queue:
             return
         queue = self._retry_queue
         self._retry_queue = []
+        seen_ids = set()  # P2: dedup — don't retry if already re-queued
         for msg, queued_at in queue:
             age = time.time() - queued_at
             # Don't retry messages older than 1 hour
             if age > 3600:
                 log.warning(f"Discarding queued message {msg.id[:8]} (too old: {age:.0f}s)")
                 continue
+            if msg.id in seen_ids:
+                continue  # P2: already re-queued in this cycle
             result = await self.send(msg)
             if not result.success:
                 log.debug(f"Retry still failing for {msg.id[:8]}: {result.error}")
-                # Re-queue for next cycle
-                self._retry_queue.append((msg, queued_at))
+                # Re-queue for next cycle (only if not already queued by send())
+                if msg.id not in {m.id for m, _ in self._retry_queue}:
+                    self._retry_queue.append((msg, queued_at))
+                    seen_ids.add(msg.id)
