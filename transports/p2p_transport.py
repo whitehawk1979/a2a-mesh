@@ -540,12 +540,19 @@ class P2PTransport(TransportAdapter):
         return SendResult(transport="p2p", success=False, error="no peers connected")
 
     def _enqueue_for_retry(self, message: A2AMessage):
-        """Add a message to the retry queue for later delivery."""
+        """Add a message to the retry queue for later delivery.
+        
+        P2 fix: Dedup by message ID to prevent exponential queue growth.
+        """
         # Don't queue heartbeats or ACKs
         if message.type in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
             return
+        # P2 dedup: skip if message is already in the queue
+        for existing_msg, _ in self._retry_queue:
+            if existing_msg.id == message.id:
+                return
         self._retry_queue.append((message, time.time()))
-        log.info(f"Queued message {message.id[:8]} for retry ({len(self._retry_queue)} queued)")
+        log.debug(f"Queued message {message.id[:8]} for retry ({len(self._retry_queue)} queued)")
 
     def _flush_retry_queue_for_peer(self, peer_name: str):
         """Attempt to resend queued messages to a newly connected peer."""
