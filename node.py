@@ -262,6 +262,8 @@ class MeshNode:
             self.ack_manager.process_ack(message)
             return
 
+        log.debug(f"_dispatch_to_handlers: msg id={message.id[:8]} type={message.type} sender={message.sender}")
+
         # Handle file transfer messages
         if message.type == "file_transfer":
             # Parse payload
@@ -1281,6 +1283,7 @@ class MeshNode:
                                     log.debug(f"Dashboard notification failed: {e}")
 
                             if result.status == "processed":
+                                log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender}")
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
@@ -1290,6 +1293,7 @@ class MeshNode:
                                 # Critical mesh protocol messages must always go to handlers
                                 # regardless of priority level (file_transfer, memory_sync)
                                 if msg.type in ("file_transfer", "memory_sync"):
+                                    log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:
                                     # Auto-steer classification and dispatch
