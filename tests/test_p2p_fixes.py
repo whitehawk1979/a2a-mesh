@@ -35,6 +35,7 @@ class MockConfig:
         self.p2p.listen_host = "127.0.0.1"
         self.p2p.listen_port = 18765  # Test port
         self.p2p.max_connections = 5
+        self.p2p.reconnect_interval = 5
         self.p2p.idle_timeout = 5
         self.p2p.tls_enabled = False
         self.p2p.tls_cert = ""

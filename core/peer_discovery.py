@@ -97,6 +97,8 @@ class PeerDiscovery:
 
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
+        # Thread-safe event queue for PG NOTIFY → async loop communication
+        self._pg_event_queue: asyncio.Queue = asyncio.Queue()
 
         # Load static peers from config
         for node in config.discovery.static_nodes:
@@ -219,6 +221,37 @@ class PeerDiscovery:
         """Get a peer by name."""
         return self._peers.get(name)
 
+    @staticmethod
+    def _detect_local_ip() -> str:
+        """Detect the primary LAN IP address robustly.
+        
+        Uses UDP socket trick: create a connection to a public IP without sending data,
+        then read the local address. This returns the actual LAN IP instead of
+        127.0.1.1 which gethostbyname(gethostname()) returns on many Linux systems.
+        """
+        import socket
+        try:
+            # Create a UDP socket and "connect" to a public IP (no data sent)
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(2)
+            # Use Google's public DNS as target — we don't actually send anything
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            if local_ip and not local_ip.startswith('127.'):
+                return local_ip
+        except (OSError, socket.timeout):
+            pass
+        # Fallback: try gethostname
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+            if ip and not ip.startswith('127.'):
+                return ip
+        except (socket.gaierror, OSError):
+            pass
+        # Last resort
+        return '0.0.0.0'
+
     def resolve_peer_address(self, name: str) -> Optional[Tuple[str, int]]:
         """Resolve a peer name to (host, p2p_port) for direct P2P connection.
 
@@ -240,10 +273,9 @@ class PeerDiscovery:
 
         host = peer.host
         port = peer.p2p_port
-
-        # Use health_port as fallback for P2P port if p2p_port not set
-        if not port and peer.health_port:
-            port = peer.health_port
+        # P2 SECURITY: Do NOT fall back to health_port for P2P connections
+        # P2P (binary TCP framing) and health (HTTP) are different protocols
+        # Connecting P2P client to an HTTP port causes protocol mismatch/hang
 
         if not host or not port:
             log.debug(f"Peer address resolver: peer '{name}' has no address (host={host}, port={port})")
@@ -464,6 +496,9 @@ class PeerDiscovery:
         self._running = True
         self._discover_task = asyncio.create_task(self._discover_loop())
 
+        # P2 FIX: Process PG NOTIFY events in the async loop (thread-safe)
+        self._pg_event_task = asyncio.create_task(self._pg_event_processor())
+
         # P0: PG NOTIFY for near-instant peer discovery (replaces 30s polling)
         if self._pg_conn:
             try:
@@ -553,7 +588,8 @@ class PeerDiscovery:
 
         # Register this node
         import socket
-        local_ip = socket.gethostbyname(socket.gethostname())
+        # P2 FIX: Robust IP detection — gethostbyname(gethostname()) often returns 127.0.1.1 on Linux
+        local_ip = self._detect_local_ip()
         # Prefer the configured host if available
         if hasattr(self.config, 'p2p') and hasattr(self.config.p2p, 'listen_host'):
             host = self.config.p2p.listen_host
@@ -713,9 +749,12 @@ class PeerDiscovery:
                                             except Exception:
                                                 pass  # Will be discovered on next periodic cycle
                                     elif action in ("deregister", "offline"):
-                                        if node_name in self._peers:
-                                            del self._peers[node_name]
-                                            log.info(f"Removed offline peer: {node_name}")
+                                        # P2 FIX: Thread-safe event instead of direct dict mutation
+                                        # Old code: del self._peers[node_name] (race condition!)
+                                        try:
+                                            self._pg_event_queue.put_nowait(("deregister", node_name))
+                                        except Exception:
+                                            log.debug(f"PG event queue full, skipping deregister for {node_name}")
                                 except _json.JSONDecodeError:
                                     log.warning(f"Invalid PG NOTIFY payload: {msg.payload}")
                     except Exception as e:
@@ -735,6 +774,28 @@ class PeerDiscovery:
         listener_thread = threading.Thread(target=_listen_sync, daemon=True, name="pg-notify-listener")
         listener_thread.start()
         log.info("PG NOTIFY listener thread started")
+
+    async def _pg_event_processor(self):
+        """Process PG NOTIFY events from the thread-safe queue.
+        
+        This replaces direct _peers mutations from the PG thread,
+        eliminating race conditions with the async event loop.
+        """
+        while self._running:
+            try:
+                event_type, node_name = await asyncio.wait_for(
+                    self._pg_event_queue.get(), timeout=5.0
+                )
+                if event_type == "deregister":
+                    if node_name in self._peers:
+                        del self._peers[node_name]
+                        log.info(f"Removed offline peer (PG event): {node_name}")
+                # Future: add more event types (register, update, etc.)
+            except asyncio.TimeoutError:
+                continue  # No events, loop again
+            except Exception as e:
+                log.error(f"PG event processor error: {e}")
+                await asyncio.sleep(1)
 
     async def _discover_loop(self):
         """Periodic peer discovery loop."""

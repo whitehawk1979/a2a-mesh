@@ -206,3 +206,10 @@ class PGTransportError(TransportError):
 class P2PTransportError(TransportError):
     """P2P transport error."""
     pass
+
+
+# ─── Configuration Errors ──────────────────────────────────────────
+
+class ConfigurationError(MeshError):
+    """Configuration is invalid or incomplete."""
+    pass

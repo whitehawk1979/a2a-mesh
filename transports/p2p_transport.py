@@ -14,6 +14,8 @@ import logging
 import time
 from typing import Dict, List, Optional, Set, Tuple, Any
 
+from core.exceptions import ConfigurationError
+
 from .base import TransportAdapter, TransportStatus
 from ..core.message import A2AMessage, SendResult, MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT
 from ..core.framing import encode_frame, read_frame, FRAME_VERSION, V1_MARKER
@@ -53,12 +55,14 @@ class P2PTransport(TransportAdapter):
         self._reconnect_interval = max(5, getattr(config.p2p, 'reconnect_interval', 5))  # base retry: 5s (not idle_timeout)
         self._max_connections = min(getattr(config.p2p, 'max_connections', 50), 100)  # Cap at 100 peers
         self._connection_age_limit = 3600  # Max connection age in seconds (1 hour), then reconnect
+        self._connection_tasks: Dict[str, asyncio.Task] = {}  # P2: Track per-peer connection tasks
         self._ssl_context: Optional[ssl.SSLContext] = None  # TLS server context (for incoming connections)
         self._ssl_client_context: Optional[ssl.SSLContext] = None  # TLS client context (for outgoing connections)
 
         # Retry queue: messages that failed to send, will be retried on reconnect
         self._retry_queue: List[Tuple[A2AMessage, float]] = []  # (message, queued_at)
         self._retry_interval = 10  # seconds between retry attempts
+        self._max_retry_queue_size = 1000  # P2: cap to prevent unbounded memory growth
 
         # ACK callback: called when an ACK message is received, so sender can update PG
         self._ack_callback = None  # Callable[[str, str], Awaitable[None]] (ack_for_id, ack_type)
@@ -130,7 +134,12 @@ class P2PTransport(TransportAdapter):
                 print(f"[P2P] TLS init FAILED: {e}", flush=True)
                 self._ssl_context = None
         elif tls_enabled:
-            log.warning("P2P TLS enabled but no cert/key configured — falling back to plain TCP")
+            # P2 SECURITY: fail-closed — do NOT fall back to plain TCP
+            log.error("P2P TLS enabled but no cert/key configured — REFUSING to start without TLS")
+            print("[P2P] TLS enabled but no cert/key configured — REFUSING to start without TLS", flush=True)
+            raise ConfigurationError("TLS is enabled but no certificate/key files are configured. "
+                                     "Refusing to fall back to plain TCP. "
+                                     "Either configure TLS cert/key or set tls_enabled=false.")
 
     async def start(self) -> bool:
         """Start TCP server and connect to known peers."""
@@ -320,6 +329,8 @@ class P2PTransport(TransportAdapter):
                     removed = self._peers.pop(pname, None)
                     self._writer_to_peer.pop(id(writer), None)
                     self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
+                    # P2: Clean up connection task tracking
+                    self._connection_tasks.pop(pname, None)
                     log.info(f"Peer {pname} disconnected, removed from peers dict")
                     break
             if removed is None:
@@ -435,7 +446,12 @@ class P2PTransport(TransportAdapter):
                     log.debug(f"Peer connected callback error for {name}: {e}")
 
             # Start reading from this peer
-            asyncio.create_task(self._handle_connection(reader, writer))
+            # P2 FIX: Cancel any existing connection task for this peer to prevent duplicates
+            old_task = self._connection_tasks.get(name)
+            if old_task and not old_task.done():
+                old_task.cancel()
+                log.debug(f"Cancelled existing connection task for {name}")
+            self._connection_tasks[name] = asyncio.create_task(self._handle_connection(reader, writer))
 
             # Flush retry queue: resend any queued messages to this peer
             self._flush_retry_queue_for_peer(name)
@@ -543,10 +559,15 @@ class P2PTransport(TransportAdapter):
         """Add a message to the retry queue for later delivery.
         
         P2 fix: Dedup by message ID to prevent exponential queue growth.
+        P2 fix: Cap queue size to prevent unbounded memory growth.
         """
         # Don't queue heartbeats or ACKs
         if message.type in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
             return
+        # P2 cap: drop oldest if queue is full
+        if len(self._retry_queue) >= self._max_retry_queue_size:
+            oldest_msg, oldest_age = self._retry_queue.pop(0)
+            log.warning(f"Retry queue full ({self._max_retry_queue_size}), dropping oldest {oldest_msg.id[:8]}")
         # P2 dedup: skip if message is already in the queue
         for existing_msg, _ in self._retry_queue:
             if existing_msg.id == message.id:
@@ -746,7 +767,7 @@ class P2PTransport(TransportAdapter):
             result = await self.send(msg)
             if not result.success:
                 log.debug(f"Retry still failing for {msg.id[:8]}: {result.error}")
-                # Re-queue for next cycle (only if not already queued by send())
-                if msg.id not in {m.id for m, _ in self._retry_queue}:
-                    self._retry_queue.append((msg, queued_at))
-                    seen_ids.add(msg.id)
+                # P2 FIX: Use _enqueue_for_retry() which handles dedup and cap
+                # Old code manually appended, causing duplicates with send() re-enqueue
+                self._enqueue_for_retry(msg)
+                seen_ids.add(msg.id)
