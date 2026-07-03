@@ -1283,7 +1283,7 @@ class MeshNode:
                                     log.debug(f"Dashboard notification failed: {e}")
 
                             if result.status == "processed":
-                                log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender}")
+                                log.info(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
