@@ -1287,18 +1287,23 @@ class MeshNode:
                                 if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
-                                # Auto-steer classification and dispatch
-                                action = await self.auto_steer.process_message(msg)
-
-                                if action in ("interrupt", "steer_interrupt"):
-                                    # P10+: immediate handler dispatch
-                                    await self._dispatch_to_handlers(msg)
-                                elif action in ("high", "steer_queued"):
-                                    # P7-9: handler dispatch
+                                # Critical mesh protocol messages must always go to handlers
+                                # regardless of priority level (file_transfer, memory_sync)
+                                if msg.type in ("file_transfer", "memory_sync"):
                                     await self._dispatch_to_handlers(msg)
                                 else:
-                                    # P1-6: queued backlog processing
-                                    await self.router.enqueue(msg)
+                                    # Auto-steer classification and dispatch
+                                    action = await self.auto_steer.process_message(msg)
+
+                                    if action in ("interrupt", "steer_interrupt"):
+                                        # P10+: immediate handler dispatch
+                                        await self._dispatch_to_handlers(msg)
+                                    elif action in ("high", "steer_queued"):
+                                        # P7-9: handler dispatch
+                                        await self._dispatch_to_handlers(msg)
+                                    else:
+                                        # P1-6: queued backlog processing
+                                        await self.router.enqueue(msg)
 
                             # Process broadcast messages that were "forwarded" by the router
                             # (e.g., skills_announcement with recipient="*" is forwarded, not processed)
