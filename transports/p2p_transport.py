@@ -64,6 +64,12 @@ class P2PTransport(TransportAdapter):
         self._retry_interval = 10  # seconds between retry attempts
         self._max_retry_queue_size = 1000  # P2: cap to prevent unbounded memory growth
 
+        # Priority send queues: per-peer async priority queues for ordered delivery
+        # Priority: 1=heartbeat, 2=ACK, 3=control, 5=data, 7=file_chunk
+        self._send_queues: Dict[str, asyncio.PriorityQueue] = {}
+        self._send_tasks: Dict[str, asyncio.Task] = {}
+        self._send_seq: int = 0  # Monotonically increasing sequence counter for FIFO
+
         # ACK callback: called when an ACK message is received, so sender can update PG
         self._ack_callback = None  # Callable[[str, str], Awaitable[None]] (ack_for_id, ack_type)
 
@@ -203,6 +209,13 @@ class P2PTransport(TransportAdapter):
         """Shutdown TCP server and close all connections."""
         self._running = False
 
+        # Cancel all send loop tasks
+        for peer_name, task in list(self._send_tasks.items()):
+            if not task.done():
+                task.cancel()
+        self._send_tasks.clear()
+        self._send_queues.clear()
+
         # Close all peer connections
         for peer_name, (reader, writer) in list(self._peers.items()):
             try:
@@ -286,6 +299,8 @@ class P2PTransport(TransportAdapter):
                         # FIX: Clear backoff and retry count for incoming connections too
                         self._peer_backoff.pop(connected_peer_name, None)
                         self._peer_retry_count[connected_peer_name] = 0
+                        # Start priority send queue for this peer
+                        self._ensure_send_queue(connected_peer_name)
                         log.info(f"Incoming P2P connection identified as peer: {connected_peer_name} (backoff cleared)")
                         if self._peer_connected_callback:
                             try:
@@ -331,6 +346,11 @@ class P2PTransport(TransportAdapter):
                     self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
                     # P2: Clean up connection task tracking
                     self._connection_tasks.pop(pname, None)
+                    # Clean up priority send queue for disconnected peer
+                    send_task = self._send_tasks.pop(pname, None)
+                    if send_task and not send_task.done():
+                        send_task.cancel()
+                    self._send_queues.pop(pname, None)
                     log.info(f"Peer {pname} disconnected, removed from peers dict")
                     break
             if removed is None:
@@ -436,6 +456,8 @@ class P2PTransport(TransportAdapter):
             # Reset retry count on success
             self._peer_retry_count[name] = 0
             self._peer_backoff.pop(name, None)
+            # Start priority send queue for this peer
+            self._ensure_send_queue(name)
             log.info(f"Connected to peer {name} at {host}:{port}")
 
             # Notify peer_discovery that a peer connected (for registry registration)
@@ -472,8 +494,125 @@ class P2PTransport(TransportAdapter):
             self._peer_backoff[name] = next_retry
             log.warning(f"Failed to connect to {name} at {host}:{port} (retry #{retry_count}, next in {backoff:.0f}s): {e}")
 
+    # ─── Priority Send Queue ────────────────────────────────────────
+
+    # Message priority mapping (lower = higher priority, sent first)
+    MSG_PRIORITY = {
+        MSG_TYPE_HEARTBEAT: 1,   # Heartbeats must go first
+        MSG_TYPE_ACK: 2,        # ACKs second (delivery confirmations)
+        "discovery": 3,          # Discovery/registry
+        "election": 3,           # Leader election
+        "mesh": 3,               # Mesh control
+        "chat": 5,               # Normal data messages
+        "directive": 5,
+        "task": 5,
+        "result": 5,
+        "a2a_message": 5,
+        "delegation": 5,
+        "context": 5,
+        "broadcast": 5,
+        "agent_reply": 5,
+        "steer": 5,
+        "skills_announcement": 5,
+        "file_transfer": 7,      # File chunks lowest priority (bulk data)
+    }
+    DEFAULT_PRIORITY = 5
+
+    @classmethod
+    def _message_priority(cls, message: A2AMessage) -> int:
+        """Get send priority for a message (lower = higher priority)."""
+        # Use message.priority if explicitly set and not default
+        if hasattr(message, 'priority') and message.priority is not None:
+            # Map message.priority (1-10 scale) to send priority
+            # Lower message.priority = more important = lower send priority number
+            if message.priority <= 2:
+                return 1  # Critical: heartbeats, ACKs
+            elif message.priority <= 4:
+                return 3  # High: control messages
+            elif message.priority <= 6:
+                return 5  # Normal: data messages
+            else:
+                return 7  # Low: bulk data (file chunks)
+        # Fall back to type-based priority
+        return cls.MSG_PRIORITY.get(message.type, cls.DEFAULT_PRIORITY)
+
+    def _ensure_send_queue(self, peer_name: str):
+        """Create a send queue for a peer if it doesn't exist."""
+        if peer_name not in self._send_queues:
+            self._send_queues[peer_name] = asyncio.PriorityQueue()
+            task = asyncio.create_task(self._send_loop(peer_name))
+            self._send_tasks[peer_name] = task
+            log.debug(f"Created priority send queue for peer {peer_name}")
+
+    async def _send_loop(self, peer_name: str):
+        """Background task: continuously send messages from the peer's priority queue.
+
+        This ensures ordered delivery per-priority-tier while allowing
+        high-priority messages (heartbeats, ACKs) to preempt bulk data.
+        """
+        queue = self._send_queues.get(peer_name)
+        if queue is None:
+            return
+
+        seq = 0  # Sequence counter for FIFO ordering within same priority
+        while self._running:
+            try:
+                # Wait for next message with timeout (check running flag periodically)
+                try:
+                    priority, _seq, message = await asyncio.wait_for(
+                        queue.get(), timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    continue
+
+                # Get writer for this peer
+                peer = self._peers.get(peer_name)
+                if peer is None:
+                    # Peer disconnected — put message back in retry queue
+                    self._enqueue_for_retry(message)
+                    continue
+
+                _, writer = peer
+                try:
+                    data = message.to_bytes()
+                    payload = encode_frame(data)
+                    writer.write(payload)
+                    await writer.drain()
+                    log.debug(f"Sent msg {message.id[:8]} type={message.type} pri={priority} to {peer_name}")
+                except Exception as e:
+                    log.warning(f"Failed to send msg {message.id[:8]} to {peer_name}: {e}")
+                    # Remove broken connection
+                    self._peers.pop(peer_name, None)
+                    self._writer_to_peer.pop(id(writer), None)
+                    # Queue for retry
+                    self._enqueue_for_retry(message)
+                    break  # Exit send loop for this peer — _handle_connection cleanup will handle
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Send loop error for {peer_name}: {e}")
+                await asyncio.sleep(1)
+
+        log.debug(f"Send loop ended for peer {peer_name}")
+
+    def _enqueue_send(self, peer_name: str, message: A2AMessage):
+        """Enqueue a message for priority-based sending to a peer.
+
+        Thread-safe: can be called from any asyncio task.
+        """
+        self._ensure_send_queue(peer_name)
+        priority = self._message_priority(message)
+        # Monotonically increasing sequence number for FIFO within same priority
+        self._send_seq += 1
+        self._send_queues[peer_name].put_nowait((priority, self._send_seq, message))
+
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send message to peer(s) via TCP.
+        """Send message to peer(s) via priority queue.
+
+        Uses per-peer priority queues to ensure heartbeats and ACKs are sent
+        before bulk data (file chunks). Messages are enqueued and a background
+        send loop delivers them in priority order.
 
         P2: If the recipient is not currently connected, attempt dynamic connection
         via peer_address_resolver (which queries peer_discovery for known addresses).
@@ -481,27 +620,14 @@ class P2PTransport(TransportAdapter):
         if not self._available:
             return SendResult(transport="p2p", success=False, error="not started")
 
-        data = message.to_bytes()
-        payload = encode_frame(data)
-
-        # If directed message, send to specific peer
+        # If directed message, enqueue to specific peer's priority queue
         if not message.is_broadcast():
             recipient = message.recipient
 
-            # P2: If recipient is connected, send directly
+            # P2: If recipient is connected, enqueue to their priority queue
             if recipient in self._peers:
-                _, writer = self._peers[recipient]
-                try:
-                    writer.write(payload)
-                    await writer.drain()
-                    return SendResult(transport="p2p", success=True, latency_ms=1.0)
-                except Exception as e:
-                    log.warning(f"Failed to send to {recipient}: {e}")
-                    # Remove broken connection
-                    self._peers.pop(recipient, None)
-                    # Queue for retry
-                    self._enqueue_for_retry(message)
-                    return SendResult(transport="p2p", success=False, error=str(e))
+                self._enqueue_send(recipient, message)
+                return SendResult(transport="p2p", success=True, latency_ms=1.0)
 
             # P2: Recipient not connected — try dynamic connection via peer_address_resolver
             if self._peer_address_resolver and recipient not in self._connecting_peers:
@@ -518,39 +644,24 @@ class P2PTransport(TransportAdapter):
                         return SendResult(transport="p2p", success=False, error=f"dynamic connect failed: {e}")
                     finally:
                         self._connecting_peers.discard(recipient)
-                    # After successful connect, try to send
+                    # After successful connect, enqueue to priority queue
                     if recipient in self._peers:
-                        _, writer = self._peers[recipient]
-                        try:
-                            writer.write(payload)
-                            await writer.drain()
-                            return SendResult(transport="p2p", success=True, latency_ms=5.0)
-                        except Exception as e:
-                            log.warning(f"Send after dynamic connect to {recipient} failed: {e}")
-                            self._peers.pop(recipient, None)
-                            self._enqueue_for_retry(message)
-                            return SendResult(transport="p2p", success=False, error=str(e))
+                        self._enqueue_send(recipient, message)
+                        return SendResult(transport="p2p", success=True, latency_ms=5.0)
 
             # No address resolver or address not found — queue for retry
             self._enqueue_for_retry(message)
             return SendResult(transport="p2p", success=False, error=f"peer {recipient} not connected, no address")
 
-        # Broadcast: send to all connected peers
-        successes = 0
-        for peer_name, (reader, writer) in list(self._peers.items()):
-            try:
-                writer.write(payload)
-                await writer.drain()
-                successes += 1
-            except Exception as e:
-                log.warning(f"Failed to send to {peer_name}: {e}")
-                self._peers.pop(peer_name, None)
+        # Broadcast: enqueue to all connected peers' priority queues
+        peer_names = list(self._peers.keys())
+        for peer_name in peer_names:
+            self._enqueue_send(peer_name, message)
 
-        if successes > 0:
+        if peer_names:
             return SendResult(transport="p2p", success=True, latency_ms=2.0)
 
         # No peers connected — queue for retry only if NOT a broadcast
-        # (broadcast already succeeded via PG, don't queue duplicates)
         if not message.is_broadcast():
             self._enqueue_for_retry(message)
         return SendResult(transport="p2p", success=False, error="no peers connected")
@@ -576,14 +687,13 @@ class P2PTransport(TransportAdapter):
         log.debug(f"Queued message {message.id[:8]} for retry ({len(self._retry_queue)} queued)")
 
     def _flush_retry_queue_for_peer(self, peer_name: str):
-        """Attempt to resend queued messages to a newly connected peer."""
+        """Attempt to resend queued messages to a newly connected peer via priority queue."""
         if not self._retry_queue:
             return
 
-        # Get writer for this peer
+        # Only flush if peer is actually connected
         if peer_name not in self._peers:
             return
-        _, writer = self._peers[peer_name]
 
         # Filter messages for this peer (directed to this peer, or broadcasts)
         to_resend = []
@@ -596,22 +706,12 @@ class P2PTransport(TransportAdapter):
 
         self._retry_queue = remaining
 
-        if to_resend:
-            async def _resend():
-                for msg, queued_at in to_resend:
-                    try:
-                        data = msg.to_bytes()
-                        writer.write(encode_frame(data))
-                        await writer.drain()
-                        age = time.time() - queued_at
-                        log.info(f"Retry: sent queued message {msg.id[:8]} to {peer_name} (was queued {age:.0f}s ago)")
-                    except Exception as e:
-                        log.warning(f"Retry failed for {msg.id[:8]} to {peer_name}: {e}")
-                        # Re-queue if still failing
-                        self._enqueue_for_retry(msg)
-                        break
-
-            asyncio.create_task(_resend())
+        # Enqueue all matching messages into the peer's priority queue
+        # The send loop will handle actual delivery
+        for msg, queued_at in to_resend:
+            age = time.time() - queued_at
+            log.info(f"Retry: enqueuing queued message {msg.id[:8]} to {peer_name} (was queued {age:.0f}s ago)")
+            self._enqueue_send(peer_name, msg)
 
     async def receive(self) -> list:
         """Get received messages from the queue."""
