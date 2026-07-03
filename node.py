@@ -1054,6 +1054,7 @@ class MeshNode:
                 self.mesh_address.short if self.mesh_address else None,
                 None,  # dst_addr resolved later
             ))
+            self._pg_conn.commit()
             cur.close()
         except Exception as e:
             log.error(f"Failed to persist message {message.id[:8]}: {e}")
@@ -1133,6 +1134,7 @@ class MeshNode:
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
             ))
+            self._pg_conn.commit()
             cur.close()
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
         except Exception as e:
@@ -1193,6 +1195,7 @@ class MeshNode:
                         self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                         json.dumps(capabilities, ensure_ascii=True),
                     ))
+                    self._pg_conn.commit()
                     cur.close()
                     log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")
                 except Exception as retry_e:
@@ -1211,6 +1214,7 @@ class MeshNode:
                 UPDATE mesh.mesh_nodes SET status = 'offline', last_heartbeat = NOW()
                 WHERE node_name = %s
             """, (self.node_name,))
+            self._pg_conn.commit()
             cur.close()
             log.info(f"Deregistered node {self.node_name}")
         except Exception as e:
@@ -1237,6 +1241,7 @@ class MeshNode:
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
             ))
+            self._pg_conn.commit()
             cur.close()
         except Exception as e:
             log.error(f"Heartbeat PG update failed: {e}")
