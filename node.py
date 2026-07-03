@@ -1095,8 +1095,9 @@ class MeshNode:
         p2p_port = self.config.p2p.listen_port
         health_port = getattr(self.config, 'health_port', 8650)
 
-        # Coordinator auto-approves itself; other nodes start as 'pending'
-        initial_status = 'active' if self.role == NodeRole.COORDINATOR else 'pending'
+        # All nodes start as 'active' — they've authenticated via TLS
+        # and are connected to the mesh, so they're trusted.
+        initial_status = 'active'
 
         try:
             cur = self._pg_conn.cursor()
