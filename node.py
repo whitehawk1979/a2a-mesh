@@ -1257,9 +1257,6 @@ class MeshNode:
                         if messages:
                             log.debug(f"Receive loop got {len(messages)} messages from {transport_name}")
                         for msg, from_transport in messages:
-                            # Debug: log raw message type for file_transfer debugging
-                            if msg.type in ("file_transfer", "chat") or (isinstance(msg.payload, dict) and msg.payload.get("transfer_type") in ("file_offer", "file_accept", "file_chunk", "file_complete")):
-                                log.info(f"RAW RECV: id={msg.id[:8]} type={msg.type} sender={msg.sender} recipient={msg.recipient} pri={msg.priority} payload_keys={list(msg.payload.keys()) if isinstance(msg.payload, dict) else 'N/A'} via={from_transport}")
                             # Skip own messages (loop prevention)
                             if msg.sender == self.node_name:
                                 continue
@@ -1286,7 +1283,7 @@ class MeshNode:
                                     log.debug(f"Dashboard notification failed: {e}")
 
                             if result.status == "processed":
-                                log.info(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
+                                log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
