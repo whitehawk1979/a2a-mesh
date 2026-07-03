@@ -263,13 +263,23 @@ class PGTransport(TransportAdapter):
                 # instead of A2AMessage.create() which generates a new UUID.
                 # This is critical for dedup — the message ID must match across
                 # all transports to prevent duplicate processing.
+                # Parse payload JSON string — PG stores it as TEXT, not JSONB
+                payload_data = row[5]
+                if isinstance(payload_data, str):
+                    try:
+                        payload_data = json.loads(payload_data)
+                    except (json.JSONDecodeError, TypeError):
+                        log.warning(f"Failed to parse payload JSON for message {msg_id}: {payload_data[:80] if payload_data else 'empty'}")
+                        payload_data = {}
+                elif not payload_data:
+                    payload_data = {}
                 msg_data = {
                     "id": row[0],           # Preserve original ID!
                     "sender": row[1],
                     "recipient": row[2],
                     "type": row[3],
                     "priority": row[4],
-                    "payload": row[5] if row[5] else {},
+                    "payload": payload_data,
                     "routing_mode": row[6] if row[6] else "hybrid",
                     "src_address": row[7],
                     "dst_address": row[8],
