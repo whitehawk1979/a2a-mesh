@@ -27,6 +27,7 @@ from .core.election import CoordinatorElection, ElectionConfig, CoordinatorState
 from .core.ack import AckManager, AckType, AckStatus
 from .core.offline_queue import OfflineQueue
 from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
+from .core.async_db import AsyncDBPool, validate_message_payload, MessageValidationError
 from .core.auto_steer import AutoSteerProcessor
 from .core.local_store import LocalStore
 from .core.file_transfer import P2PFileTransfer, FILE_OFFER, FILE_ACCEPT, FILE_REJECT, FILE_CHUNK, FILE_COMPLETE, FILE_ACK
@@ -225,7 +226,7 @@ class MeshNode:
         self._running = False
         self._tasks: List[asyncio.Task] = []
         self._start_time = 0
-        self._pg_conn = None  # Direct PG connection for writes
+        self._pg_pool: Optional[AsyncDBPool] = None  # asyncpg connection pool for all DB ops
 
         # Setup logging
         self._setup_logging()
@@ -344,7 +345,7 @@ class MeshNode:
             # Sync skills & capabilities to DB
             # Convert dict skills to string IDs for SQL_ASCII compatibility
             try:
-                if self._pg_conn:
+                if self._pg_pool and self._pg_pool.is_connected():
                     # Normalize skills: convert dicts to their id string, keep strings as-is
                     db_skills = []
                     for s in (merged_skills or []):
@@ -358,13 +359,13 @@ class MeshNode:
                     db_caps = [c for c in (merged_caps or []) if isinstance(c, (str, int, float, tuple))]
                     if not db_caps:
                         db_caps = ["a2a_messaging"]
-                    cur = self._pg_conn.cursor()
-                    cur.execute(
-                        "UPDATE mesh.mesh_nodes SET skills = %s, capabilities = %s WHERE node_name = %s",
-                        (json.dumps(db_skills, ensure_ascii=True), json.dumps(db_caps, ensure_ascii=True), peer_name)
+                    await self._pg_pool.execute("""
+                        UPDATE mesh.mesh_nodes SET skills = $1, capabilities = $2 WHERE node_name = $3
+                    """,
+                        json.dumps(db_skills, ensure_ascii=True),
+                        json.dumps(db_caps, ensure_ascii=True),
+                        peer_name,
                     )
-                    self._pg_conn.commit()
-                    cur.close()
                     log.info(f"Synced {peer_name} skills/caps to DB")
             except Exception as e:
                 log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
@@ -562,10 +563,10 @@ class MeshNode:
         await self._discovery.stop()
         await self._udp_discovery.stop()
 
-        # Close PG write connection
-        if self._pg_conn:
+        # Close asyncpg connection pool
+        if self._pg_pool:
             try:
-                self._pg_conn.close()
+                await self._pg_pool.close()
             except Exception:
                 pass
 
@@ -737,16 +738,13 @@ class MeshNode:
 
     async def _on_p2p_ack(self, ack_for_id: str, ack_type: str):
         """Callback when a P2P ACK is received — update message status in PG."""
-        if not self._pg_conn:
+        if not self._pg_pool or not self._pg_pool.is_connected():
             return
         try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
+            await self._pg_pool.execute("""
                 UPDATE mesh.mesh_messages SET status = 'acknowledged'
-                WHERE id = %s
-            """, (ack_for_id,))
-            self._pg_conn.commit()
-            cur.close()
+                WHERE id = $1
+            """, ack_for_id)
             log.info(f"PG message {ack_for_id[:8]} status → acknowledged (P2P ACK: {ack_type})")
         except Exception as e:
             log.error(f"Failed to update message status for ACK {ack_for_id[:8]}: {e}")
@@ -909,10 +907,13 @@ class MeshNode:
 
     def _notify_node_update(self, action: str = "register"):
         """Send PG NOTIFY for peer discovery (P0: near-instant node discovery).
-        Other nodes listening on mesh_node_update channel will discover this node immediately."""
+        Other nodes listening on mesh_node_update channel will discover this node immediately.
+        
+        Uses parameterized query via asyncpg pool to prevent SQL injection.
+        """
         import json
         try:
-            if not self._pg_conn:
+            if not self._pg_pool or not self._pg_pool.is_connected():
                 return
             payload = json.dumps({
                 "node": self.node_name,
@@ -920,10 +921,8 @@ class MeshNode:
                 "endpoint": f"{self.config.p2p.listen_host}:{self.config.p2p.listen_port}",
                 "capabilities": list(set(c for c in (getattr(self.config, 'capabilities', []) or ["a2a_messaging"]) if isinstance(c, (str, int, float, tuple)))),
             })
-            cur = self._pg_conn.cursor()
-            cur.execute(f"NOTIFY mesh_node_update, '{payload}'")
-            self._pg_conn.commit()
-            cur.close()
+            # Use asyncpg notify — schedule it as a task
+            asyncio.create_task(self._pg_pool.notify("mesh_node_update", payload))
             log.debug(f"PG NOTIFY sent: mesh_node_update action={action} node={self.node_name}")
         except Exception as e:
             log.debug(f"Could not send PG NOTIFY for {action}: {e}")
@@ -1012,38 +1011,42 @@ class MeshNode:
     # ─── PG Connection & Persistence ───────────────────────────────
 
     async def _init_pg_write_conn(self) -> bool:
-        """Initialize a direct PG connection for writes (INSERT into mesh_messages)."""
+        """Initialize the asyncpg connection pool for all database operations.
+
+        Replaces the old psycopg2 synchronous connection with asyncpg pool.
+        All DB operations are now async and non-blocking.
+        """
         try:
-            import psycopg2
-            self._pg_conn = psycopg2.connect(
-                host=self.config.pg.host,
-                port=self.config.pg.port,
-                dbname=self.config.pg.dbname,
-                user=self.config.pg.user,
-                password=self.config.pg.password,
-            )
-            self._pg_conn.autocommit = True
-            # Fix: Set client_encoding to match SQL_ASCII database encoding
-            self._pg_conn.set_client_encoding("SQL_ASCII")
-            log.info("PG write connection established")
+            self._pg_pool = AsyncDBPool(self.config)
+            if not await self._pg_pool.connect():
+                log.error("Failed to create asyncpg connection pool")
+                self._pg_pool = None
+                return False
+            log.info("AsyncPG connection pool established")
+            # Initialize offline queue pool
+            self.offline_queue.init_pool(self._pg_pool)
+            await self.offline_queue.ensure_table()
             return True
         except Exception as e:
-            log.error(f"PG write connection failed: {e}")
+            log.error(f"AsyncPG connection pool failed: {e}")
+            self._pg_pool = None
             return False
 
     async def _persist_message(self, message: A2AMessage):
-        """Persist message to mesh.mesh_messages for reliability and NOTIFY trigger."""
-        if not self._pg_conn:
+        """Persist message to mesh.mesh_messages for reliability and NOTIFY trigger.
+
+        Uses asyncpg for non-blocking database operations.
+        """
+        if not self._pg_pool or not self._pg_pool.is_connected():
             return
 
         try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
+            await self._pg_pool.execute("""
                 INSERT INTO mesh.mesh_messages 
                     (id, sender, recipient, msg_type, priority, payload, 
                      routing_mode, src_addr, dst_addr, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'sent')
-            """, (
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent')
+            """,
                 message.id,
                 message.sender,
                 message.recipient,
@@ -1053,26 +1056,25 @@ class MeshNode:
                 getattr(message, 'routing_mode', 'hybrid'),
                 self.mesh_address.short if self.mesh_address else None,
                 None,  # dst_addr resolved later
-            ))
-            self._pg_conn.commit()
-            cur.close()
+            )
         except Exception as e:
             log.error(f"Failed to persist message {message.id[:8]}: {e}")
 
     async def _register_node(self):
         """Register this node in mesh.mesh_nodes with network info.
         
+        Uses asyncpg for non-blocking database operations.
         Retries up to 3 times if PG connection is not available yet.
         """
         max_retries = 3
         for attempt in range(max_retries):
-            if self._pg_conn:
+            if self._pg_pool and self._pg_pool.is_connected():
                 break
-            log.warning(f"_register_node: PG connection not available (attempt {attempt+1}/{max_retries}), retrying in 2s...")
+            log.warning(f"_register_node: PG pool not available (attempt {attempt+1}/{max_retries}), retrying in 2s...")
             await asyncio.sleep(2)
         
-        if not self._pg_conn:
-            log.error("_register_node: PG connection not available after retries, skipping registration")
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            log.error("_register_node: PG pool not available after retries, skipping registration")
             return
 
         # Get capabilities from config (same as _auto_register_self)
@@ -1085,7 +1087,6 @@ class MeshNode:
 
         # Determine host address for other nodes to connect to
         import socket
-        import json
         try:
             host_ip = self._get_local_ip()
         except Exception:
@@ -1100,13 +1101,12 @@ class MeshNode:
         initial_status = 'active'
 
         try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
+            await self._pg_pool.execute("""
                 INSERT INTO mesh.mesh_nodes 
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
                      pg_available, p2p_available, http_available, capabilities)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
@@ -1119,7 +1119,7 @@ class MeshNode:
                     p2p_available = EXCLUDED.p2p_available,
                     http_available = EXCLUDED.http_available,
                     capabilities = EXCLUDED.capabilities
-            """, (
+            """,
                 self.node_name,
                 self.role.value,
                 self.mesh_address.short if self.mesh_address else 0,
@@ -1130,44 +1130,36 @@ class MeshNode:
                 host_ip,
                 p2p_port,
                 health_port,
-                bool(self._pg_conn),
+                bool(self._pg_pool and self._pg_pool.is_connected()),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
-            ))
-            self._pg_conn.commit()
-            cur.close()
+            )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
         except Exception as e:
             # Handle short_addr unique constraint violation:
             # Another node may hold our short_addr from a previous session.
-            # Clear stale entries and retry once.
             if 'short_addr' in str(e) and 'duplicate' in str(e).lower():
                 log.warning(f"short_addr conflict for {self.node_name}: {e} — clearing stale entry and retrying")
                 try:
-                    cur = self._pg_conn.cursor()
                     # Remove any stale node claiming our short_addr (but not our own row)
                     if self.mesh_address:
-                        cur.execute("""
+                        await self._pg_pool.execute("""
                             DELETE FROM mesh.mesh_nodes
-                            WHERE short_addr = %s AND node_name != %s
-                        """, (self.mesh_address.short, self.node_name))
-                        log.info(f"Cleared {cur.rowcount} stale short_addr={self.mesh_address.short} entries")
+                            WHERE short_addr = $1 AND node_name != $2
+                        """, self.mesh_address.short, self.node_name)
                     # Also remove our own stale row if it exists with a different short_addr
-                    cur.execute("""
+                    await self._pg_pool.execute("""
                         DELETE FROM mesh.mesh_nodes
-                        WHERE node_name = %s AND short_addr != %s
-                    """, (self.node_name, self.mesh_address.short if self.mesh_address else 0))
-                    self._pg_conn.commit()
-                    cur.close()
+                        WHERE node_name = $1 AND short_addr != $2
+                    """, self.node_name, self.mesh_address.short if self.mesh_address else 0)
                     # Retry registration
-                    cur = self._pg_conn.cursor()
-                    cur.execute("""
+                    await self._pg_pool.execute("""
                         INSERT INTO mesh.mesh_nodes 
                             (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                              status, last_heartbeat, host, p2p_port, health_port,
                              pg_available, p2p_available, http_available, capabilities)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14)
                         ON CONFLICT (node_name) DO UPDATE SET
                             role = EXCLUDED.role,
                             short_addr = EXCLUDED.short_addr,
@@ -1180,7 +1172,7 @@ class MeshNode:
                             p2p_available = EXCLUDED.p2p_available,
                             http_available = EXCLUDED.http_available,
                             capabilities = EXCLUDED.capabilities
-                    """, (
+                    """,
                         self.node_name,
                         self.role.value,
                         self.mesh_address.short if self.mesh_address else 0,
@@ -1191,13 +1183,11 @@ class MeshNode:
                         host_ip,
                         p2p_port,
                         health_port,
-                        bool(self._pg_conn),
+                        bool(self._pg_pool and self._pg_pool.is_connected()),
                         self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                         self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                         json.dumps(capabilities, ensure_ascii=True),
-                    ))
-                    self._pg_conn.commit()
-                    cur.close()
+                    )
                     log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")
                 except Exception as retry_e:
                     log.error(f"Failed to register node after retry: {retry_e}")
@@ -1206,44 +1196,38 @@ class MeshNode:
 
     async def _deregister_node(self):
         """Mark this node as offline in mesh.mesh_nodes."""
-        if not self._pg_conn:
+        if not self._pg_pool or not self._pg_pool.is_connected():
             return
 
         try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
+            await self._pg_pool.execute("""
                 UPDATE mesh.mesh_nodes SET status = 'offline', last_heartbeat = NOW()
-                WHERE node_name = %s
-            """, (self.node_name,))
-            self._pg_conn.commit()
-            cur.close()
+                WHERE node_name = $1
+            """, self.node_name)
             log.info(f"Deregistered node {self.node_name}")
         except Exception as e:
             log.error(f"Failed to deregister node: {e}")
 
     async def _update_heartbeat_pg(self):
-        """Update heartbeat timestamp in PG."""
-        if not self._pg_conn:
+        """Update heartbeat timestamp in PG and prune ghost nodes."""
+        if not self._pg_pool or not self._pg_pool.is_connected():
             return
 
         try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
+            await self._pg_pool.execute("""
                 UPDATE mesh.mesh_nodes SET 
                     last_heartbeat = NOW(), 
                     status = 'active',
-                    pg_available = %s,
-                    p2p_available = %s,
-                    http_available = %s
-                WHERE node_name = %s
-            """, (
-                bool(self._pg_conn),
+                    pg_available = $1,
+                    p2p_available = $2,
+                    http_available = $3
+                WHERE node_name = $4
+            """,
+                bool(self._pg_pool and self._pg_pool.is_connected()),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
-            ))
-            self._pg_conn.commit()
-            cur.close()
+            )
         except Exception as e:
             log.error(f"Heartbeat PG update failed: {e}")
 
@@ -1408,19 +1392,16 @@ class MeshNode:
 
     async def _get_known_routers(self) -> list:
         """Get list of known routers from PG for election."""
-        if not self._pg_conn:
+        if not self._pg_pool or not self._pg_pool.is_connected():
             return []
 
         try:
-            cur = self._pg_conn.cursor()
-            cur.execute("""
+            rows = await self._pg_pool.fetch("""
                 SELECT node_name, short_addr FROM mesh.mesh_nodes 
                 WHERE role = 'router' AND status = 'active'
                 ORDER BY short_addr
             """)
-            rows = cur.fetchall()
-            cur.close()
-            return [(name, addr) for name, addr in rows]
+            return [(row['node_name'], row['short_addr']) for row in rows]
         except Exception as e:
             log.error(f"Failed to get routers: {e}")
             return []

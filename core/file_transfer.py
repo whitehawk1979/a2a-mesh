@@ -38,6 +38,31 @@ FILE_ACK = "file_ack"
 # P2P message max is 10MB, so this leaves plenty of room
 CHUNK_SIZE = 512 * 1024
 
+# ── File Transfer Tuning ──────────────────────────────────────────────
+# Adaptive chunk sizing: for large files, use smaller chunks to reduce
+# memory pressure and improve resume granularity
+ADAPTIVE_CHUNK_SIZES = {
+    # file_size_threshold: chunk_size
+    10 * 1024 * 1024: 256 * 1024,   # Files >10MB: 256KB chunks
+    50 * 1024 * 1024: 128 * 1024,   # Files >50MB: 128KB chunks  
+    100 * 1024 * 1024: 64 * 1024,   # Files >100MB: 64KB chunks
+}
+DEFAULT_CHUNK_SIZE = CHUNK_SIZE  # 512KB for small/medium files
+
+
+def get_chunk_size(file_size: int) -> int:
+    """Determine optimal chunk size based on file size.
+    
+    Smaller chunks for large files improve:
+    - Resume granularity (less data lost on failure)
+    - Memory pressure (smaller per-chunk allocations)
+    - Fairness (don't monopolize the P2P link)
+    """
+    for threshold, chunk_size in sorted(ADAPTIVE_CHUNK_SIZES.items()):
+        if file_size > threshold:
+            return chunk_size
+    return DEFAULT_CHUNK_SIZE
+
 
 class P2PFileTransfer:
     """Direct file transfer over P2P channel.
@@ -68,6 +93,8 @@ class P2PFileTransfer:
         """Create a FILE_OFFER message for a file.
 
         Returns (message, file_id).
+        
+        Uses adaptive chunk sizing based on file size for optimal transfer.
         """
         file_path = os.path.expanduser(file_path)
         if not os.path.exists(file_path):
@@ -78,23 +105,25 @@ class P2PFileTransfer:
 
         # Calculate SHA-256 of entire file
         sha256 = hashlib.sha256()
+        chunk_size = get_chunk_size(file_size)
         with open(file_path, 'rb') as f:
-            while chunk := f.read(CHUNK_SIZE):
+            while chunk := f.read(chunk_size):
                 sha256.update(chunk)
         file_hash = sha256.hexdigest()
 
-        # Calculate chunk count
-        chunk_count = (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
+        # Calculate chunk count based on adaptive chunk size
+        chunk_count = (file_size + chunk_size - 1) // chunk_size
 
         file_id = hashlib.md5(f"{filename}:{file_size}:{time.time()}".encode()).hexdigest()[:16]
 
-        # Store outgoing transfer state
+        # Store outgoing transfer state with actual chunk_size used
         self._outgoing[file_id] = {
             "file_path": file_path,
             "filename": filename,
             "file_size": file_size,
             "file_hash": file_hash,
             "chunk_count": chunk_count,
+            "chunk_size": chunk_size,  # Actual chunk size used (adaptive)
             "current_chunk": 0,
             "recipient": recipient,
             "started_at": time.time(),
@@ -119,11 +148,11 @@ class P2PFileTransfer:
                 "file_size": file_size,
                 "file_hash": file_hash,
                 "chunk_count": chunk_count,
-                "chunk_size": CHUNK_SIZE,
+                "chunk_size": chunk_size,  # Include chunk_size in offer for receiver
             }
         )
 
-        log.info(f"FILE_OFFER: {filename} ({file_size}B, {chunk_count} chunks) → {recipient}")
+        log.info(f"FILE_OFFER: {filename} ({file_size}B, {chunk_count} chunks, chunk_size={chunk_size}) → {recipient}")
         return msg, file_id
 
     def create_chunk_message(self, file_id: str, chunk_index: int,
@@ -131,6 +160,7 @@ class P2PFileTransfer:
         """Create a FILE_CHUNK message for a specific chunk.
 
         Reads the chunk from disk and encodes it as base64 in the payload.
+        Uses the adaptive chunk_size from the transfer state.
         """
         transfer = self._outgoing.get(file_id)
         if not transfer:
@@ -138,12 +168,13 @@ class P2PFileTransfer:
             return None
 
         file_path = transfer["file_path"]
-        offset = chunk_index * CHUNK_SIZE
+        chunk_size = transfer.get("chunk_size", CHUNK_SIZE)
+        offset = chunk_index * chunk_size
 
         try:
             with open(file_path, 'rb') as f:
                 f.seek(offset)
-                chunk_data = f.read(CHUNK_SIZE)
+                chunk_data = f.read(chunk_size)
         except Exception as e:
             log.error(f"Failed to read chunk {chunk_index} of {file_id}: {e}")
             return None
@@ -223,6 +254,7 @@ class P2PFileTransfer:
         file_size = payload.get("file_size", 0)
         file_hash = payload.get("file_hash", "")
         chunk_count = payload.get("chunk_count", 0)
+        chunk_size = payload.get("chunk_size", CHUNK_SIZE)  # Use sender's chunk_size
 
         # Check disk space (need at least 2x file_size)
         stat = os.statvfs(self.incoming_dir)
@@ -247,6 +279,7 @@ class P2PFileTransfer:
             "file_size": file_size,
             "file_hash": file_hash,
             "chunk_count": chunk_count,
+            "chunk_size": chunk_size,  # Store for chunk verification
             "chunks_received": set(),
             "chunks_data": {},
             "sender": message.sender,

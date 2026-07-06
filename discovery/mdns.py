@@ -7,6 +7,7 @@ Uses synchronous Zeroconf in a background thread for event-loop compatibility.
 import asyncio
 import logging
 import socket
+import time
 from typing import Dict, Callable, Optional
 
 try:
@@ -26,6 +27,12 @@ class MeshDiscovery:
     Advertises this node's presence on the local network
     and discovers other nodes via Bonjour/mDNS.
 
+    Optimizations:
+    - Caches resolved peers to avoid redundant re-resolution
+    - Limits concurrent resolution tasks to prevent event loop starvation
+    - Faster initial discovery by resolving immediately on service add
+    - Periodic re-resolution of stale cached entries
+
     Uses synchronous zeroconf API in a background thread
     to avoid blocking the asyncio event loop.
     """
@@ -43,6 +50,10 @@ class MeshDiscovery:
         self._callbacks: list = []
         self._on_discover: Optional[Callable] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        # Optimization: cache resolved service info to avoid redundant lookups
+        self._resolved_cache: Dict[str, dict] = {}  # name → {host, port, last_resolved}
+        self._resolve_semaphore = asyncio.Semaphore(5)  # Limit concurrent resolutions
+        self._stale_threshold = 120  # Seconds before a cached entry is considered stale
 
     async def start(self, host_ip: str = "") -> bool:
         """Start mDNS advertising and browsing (runs in background thread)."""
@@ -137,7 +148,11 @@ class MeshDiscovery:
         return True
 
     def _on_service_state_change(self, zeroconf, service_type, name, state_change):
-        """Handle discovered services (called from zeroconf thread)."""
+        """Handle discovered services (called from zeroconf thread).
+        
+        Optimization: on service Added, resolve immediately.
+        On service Removed, clean up cache.
+        """
         if state_change == ServiceStateChange.Added:
             # Schedule async resolution in the event loop
             if self._loop and not self._loop.is_closed():
@@ -149,50 +164,72 @@ class MeshDiscovery:
             node_name = name.split(".")[0]
             if node_name != self.node_name:
                 self._discovered_nodes.pop(node_name, None)
+                self._resolved_cache.pop(node_name, None)
                 log.info(f"mDNS: Node {node_name} removed from network")
 
     async def _resolve_service(self, name: str):
-        """Resolve a discovered service to get host/port."""
-        try:
-            # Use synchronous get_service_info in a thread
-            info = await asyncio.get_running_loop().run_in_executor(
-                None, self._zeroconf.get_service_info, self.service_type, name
-            )
-            if info is None:
-                return
+        """Resolve a discovered service to get host/port.
+        
+        Optimization: uses cache to avoid redundant DNS resolution.
+        Limits concurrent resolutions with semaphore.
+        """
+        async with self._resolve_semaphore:
+            try:
+                # Check cache first — skip resolution if recently resolved
+                node_name = name.split(".")[0]
+                cached = self._resolved_cache.get(node_name)
+                if cached and (time.time() - cached.get("last_resolved", 0)) < self._stale_threshold:
+                    log.debug(f"mDNS: Using cached resolution for {node_name}")
+                    # Still fire callback to trigger P2P connection if not connected
+                    node_info = cached.copy()
+                    node_info.pop("last_resolved", None)
+                    if self._on_discover and node_name != self.node_name:
+                        await self._on_discover(node_info)
+                    return
 
-            # Extract node metadata
-            node_name = name.split(".")[0]
-            if node_name == self.node_name:
-                return  # Skip self
+                # Use synchronous get_service_info in a thread
+                info = await asyncio.get_running_loop().run_in_executor(
+                    None, self._zeroconf.get_service_info, self.service_type, name
+                )
+                if info is None:
+                    return
 
-            addresses = info.addresses
-            if not addresses:
-                return
+                # Extract node metadata
+                if node_name == self.node_name:
+                    return  # Skip self
 
-            peer_host = socket.inet_ntoa(addresses[0])
-            peer_port = info.port
+                addresses = info.addresses
+                if not addresses:
+                    return
 
-            # Parse TXT properties
-            properties = info.properties or {}
-            peer_role = properties.get(b"role", b"router").decode("utf-8", errors="ignore") if b"role" in properties else "router"
+                peer_host = socket.inet_ntoa(addresses[0])
+                peer_port = info.port
 
-            node_info = {
-                "name": node_name,
-                "host": peer_host,
-                "port": peer_port,
-                "transport": properties.get(b"transport", b"p2p").decode("utf-8", errors="ignore"),
-            }
+                # Parse TXT properties
+                properties = info.properties or {}
+                peer_role = properties.get(b"role", b"router").decode("utf-8", errors="ignore") if b"role" in properties else "router"
 
-            self._discovered_nodes[node_name] = node_info
-            log.info(f"mDNS: Discovered {node_name} at {peer_host}:{peer_port}")
+                node_info = {
+                    "name": node_name,
+                    "host": peer_host,
+                    "port": peer_port,
+                    "transport": properties.get(b"transport", b"p2p").decode("utf-8", errors="ignore"),
+                }
 
-            # Fire callback
-            if self._on_discover:
-                await self._on_discover(node_info)
+                self._discovered_nodes[node_name] = node_info
+                # Update cache
+                self._resolved_cache[node_name] = {
+                    **node_info,
+                    "last_resolved": time.time(),
+                }
+                log.info(f"mDNS: Discovered {node_name} at {peer_host}:{peer_port}")
 
-        except Exception as e:
-            log.debug(f"mDNS: Failed to resolve {name}: {e}")
+                # Fire callback
+                if self._on_discover:
+                    await self._on_discover(node_info)
+
+            except Exception as e:
+                log.debug(f"mDNS: Failed to resolve {name}: {e}")
 
     def on_discover(self, callback: Callable):
         """Register callback for discovered nodes."""

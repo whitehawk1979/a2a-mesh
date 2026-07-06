@@ -144,7 +144,11 @@ class MeshRouter:
     async def send(self, message: A2AMessage) -> SendResult:
         """Send a message via best available transport with fallback.
 
-        Priority order: PG → P2P → HTTP (configurable)
+        Priority order: P2P → PG → HTTP (configurable via transport_priority)
+        
+        Key optimization: For directed messages to a known peer,
+        P2P is always preferred (direct connection = lower latency).
+        PG NOTIFY is used as fallback when P2P is not connected to that peer.
         If a transport fails, automatically falls back to the next.
         Messages are also stored in LocalStore for offline resilience.
         Enforces protocol version for compatibility.
@@ -192,7 +196,34 @@ class MeshRouter:
             return await self._send_broadcast(message)
 
         # Directed: try transports in priority order with fallback
-        priority = self.config.transport_priority if self.config else ["pg_notify", "p2p", "http"]
+        # P2P optimization: if P2P transport is connected to the recipient,
+        # prefer P2P directly and skip PG for latency-sensitive messages.
+        priority = self.config.transport_priority if self.config else ["p2p", "pg_notify", "http"]
+        
+        # ── P2P shortcut: check if P2P has a direct connection to the recipient ──
+        p2p_transport = self.transports.get("p2p")
+        if p2p_transport and p2p_transport.is_available():
+            recipient = message.recipient
+            # If P2P has a direct peer connection, try it first regardless of config order
+            if recipient and hasattr(p2p_transport, '_peers') and recipient in p2p_transport._peers:
+                try:
+                    result = await p2p_transport.send(message)
+                    if result.success:
+                        self._stats["sent"] += 1
+                        self._health_scorer.record_success(
+                            recipient,
+                            latency_ms=result.latency_ms if hasattr(result, 'latency_ms') else 0.0
+                        )
+                        # Mark as PG-synced if PG transport exists (P2P delivered, no PG needed)
+                        if self.local_store:
+                            try:
+                                self.local_store.mark_outbound_pg_synced(message.id)
+                            except Exception:
+                                pass
+                        return result
+                except Exception as e:
+                    log.debug(f"P2P direct send to {recipient} failed: {e}, trying fallback transports")
+
         failures = []
         for transport_name in priority:
             transport = self.transports.get(transport_name)
