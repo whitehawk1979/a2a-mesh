@@ -954,7 +954,7 @@ class MeshNode:
                 },
                 "election": self.election.get_status() if self.election else {},
                 "ack": self.ack_manager.get_stats(),
-                "offline_queue": self.offline_queue.get_stats(),
+                "offline_queue": await self.offline_queue.get_stats(),
                 "auto_steer": self.auto_steer.get_stats(),
                 "local_store": self.local_store.get_stats(),
                 "file_transfer": self.file_transfer.get_transfer_stats(),
