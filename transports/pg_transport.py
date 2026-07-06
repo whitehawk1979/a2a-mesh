@@ -130,7 +130,6 @@ class PGTransport(TransportAdapter):
 
         # Register notification callback
         self._listener_conn.add_log_listener(lambda conn, msg: None)  # Suppress log noise
-        self._listener_conn.add_notice_listener(lambda conn, msg: None)  # Suppress notice noise
 
         # We need to use add_listener for each channel
         for channel in self._channels:

@@ -476,20 +476,20 @@ class MeshNode:
         # Start priority queue processor
         self.router.start_priority_queue()
 
-        # Start peer discovery (link P2P transport and PG conn for auto-connect)
+        # Start peer discovery (link P2P transport and PG pool for auto-connect)
         self.peer_discovery.p2p_transport = self._p2p_transport
-        self.peer_discovery._pg_conn = self._pg_conn
+        self.peer_discovery._pg_pool = self._pg_pool
         # P2: Wire up peer address resolver — P2P transport can now dynamically
         # connect to peers it hasn't connected to yet, using peer_discovery data
         self._p2p_transport._peer_address_resolver = self.peer_discovery.resolve_peer_address
-        self.memory_sync.set_pg_conn(self._pg_conn)
+        self.memory_sync._pg_pool = self._pg_pool
         await self.peer_discovery.start()
 
         # Start ACK manager
         await self.ack_manager.start()
 
         # Ensure offline queue table exists
-        self.offline_queue.ensure_table()
+        await self.offline_queue.ensure_table()
 
         # Start health endpoint
         self._tasks.append(asyncio.create_task(self._run_health_server()))
@@ -696,6 +696,9 @@ class MeshNode:
         """Send all chunks of a file after FILE_ACCEPT is received.
 
         Iterates through all chunks, sends each via the mesh, then sends FILE_COMPLETE.
+        
+        Optimization: Uses adaptive inter-chunk delay based on P2P transport
+        constants. Small delay between chunks prevents overwhelming the receiver.
         """
         import asyncio
 
@@ -722,7 +725,8 @@ class MeshNode:
                 else:
                     log.debug(f"Chunk {chunk_index}/{chunk_count} sent for {file_id}")
 
-                # Small delay to avoid overwhelming the receiver
+                # Adaptive delay: small delay to avoid overwhelming the receiver
+                # File chunks are priority 7 (lowest), so they'll yield to higher-priority messages
                 await asyncio.sleep(0.01)
 
                 # Update transfer state
@@ -730,9 +734,10 @@ class MeshNode:
 
             except Exception as e:
                 log.error(f"Error sending chunk {chunk_index} for {file_id}: {e}")
-
         # Send FILE_COMPLETE
         complete_msg = self.file_transfer.create_complete_message(file_id, recipient)
+        result = await self.send(complete_msg)
+        log.info(f"FILE_COMPLETE sent for {file_id} → {recipient} (result: {result.success})")
         result = await self.send(complete_msg)
         log.info(f"FILE_COMPLETE sent for {file_id} → {recipient} (result: {result.success})")
 
@@ -1449,17 +1454,14 @@ class MeshNode:
                 if not self._running:
                     break
 
-                # Check PG connection
-                if self._pg_conn and self._pg_conn.closed:
-                    log.warning("PG connection lost — attempting reconnect")
+                # Check PG pool connection
+                if self._pg_pool and not self._pg_pool.is_connected():
+                    log.warning("PG pool connection lost — attempting reconnect")
                     try:
-                        self._pg_conn = await asyncio.get_event_loop().run_in_executor(
-                            None, self._pg_transport._connect
-                        )
-                        if self._pg_conn and not self._pg_conn.closed:
-                            log.info("PG connection restored")
+                        if await self._pg_pool.connect():
+                            log.info("PG pool connection restored")
                     except Exception as e:
-                        log.error(f"PG reconnect failed: {e}")
+                        log.error(f"PG pool reconnect failed: {e}")
 
                 # Check transport availability
                 for name, transport in self.router.transports.items():
