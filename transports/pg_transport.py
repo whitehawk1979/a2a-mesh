@@ -101,6 +101,11 @@ class PGTransport(TransportAdapter):
                 pass
         if self._listener_conn:
             try:
+                # Remove listeners before releasing connection back to pool
+                try:
+                    self._listener_conn.remove_log_listener(self._log_listener)
+                except Exception:
+                    pass
                 await self._pool._pool.release(self._listener_conn)
             except Exception:
                 pass
@@ -128,8 +133,9 @@ class PGTransport(TransportAdapter):
             except RuntimeError:
                 pass  # Event loop closed during shutdown
 
-        # Register notification callback
-        self._listener_conn.add_log_listener(lambda conn, msg: None)  # Suppress log noise
+        # Register notification callback — store reference for cleanup
+        self._log_listener = lambda conn, msg: None  # Suppress log noise
+        self._listener_conn.add_log_listener(self._log_listener)
 
         # We need to use add_listener for each channel
         for channel in self._channels:

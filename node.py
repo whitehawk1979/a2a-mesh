@@ -488,9 +488,6 @@ class MeshNode:
         # Start ACK manager
         await self.ack_manager.start()
 
-        # Ensure offline queue table exists
-        await self.offline_queue.ensure_table()
-
         # Start health endpoint
         self._tasks.append(asyncio.create_task(self._run_health_server()))
 
