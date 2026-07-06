@@ -101,11 +101,6 @@ class OfflineQueue:
         except Exception as e:
             log.error(f"Failed to create offline queue table: {e}")
 
-    # Keep sync method for backward compatibility (used during __init__ before pool available)
-    def ensure_table(self):
-        """Sync stub — callers should use await ensure_table() instead."""
-        log.warning("OfflineQueue.ensure_table() called synchronously — use await ensure_table() instead")
-
     async def enqueue(self, message: A2AMessage, ttl_days: int = DEFAULT_TTL_DAYS) -> bool:
         """Queue a message for later delivery to an offline node."""
         if not self._pool or not self._pool.is_connected():
