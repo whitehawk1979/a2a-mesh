@@ -476,9 +476,13 @@ class PeerDiscovery:
                 # P2P keepalive is sufficient; no need for HTTP health check
                 peer.p2p_available = True
                 peer.last_seen = time.time()
-                # If peer is in PG mesh_nodes, infer PG is available for them
-                if self._pg_conn and not self._pg_conn.closed:
+                # If we have PG connection, infer peer also has PG (same PG instance)
+                pg_conn = self._pg_conn
+                if not pg_conn and self.local_store and hasattr(self.local_store, '_pg_conn'):
+                    pg_conn = self.local_store._pg_conn
+                if pg_conn and not pg_conn.closed:
                     peer.pg_available = True
+                    log.debug(f"Discovery: {peer.name} P2P-connected, set pg_available=True (shared PG)")
                 continue
             await self.check_peer_health(peer)
 
