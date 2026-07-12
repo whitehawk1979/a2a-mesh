@@ -200,6 +200,10 @@ class MeshNode:
         # Health endpoint
         self._health_server: Optional[asyncio.AbstractServer] = None
         self._health_port = getattr(self.config, 'health_port', 8650)
+        # Safety: ensure health_port differs from p2p_port to avoid bind conflict
+        if self._health_port == self.config.p2p.listen_port:
+            self._health_port = self.config.p2p.listen_port + 5
+            log.warning(f"health_port == p2p_port ({self.config.p2p.listen_port}), auto-corrected to {self._health_port}")
 
         # Initialize transports
         self._pg_transport = PGTransport(self.config)
@@ -597,7 +601,7 @@ class MeshNode:
             port=port,
             role="router",
             p2p_port=port,
-            health_port=port + 5,  # Convention: health_port = p2p_port + 5
+            health_port=self.config.health_port,  # Use configured health_port instead of hardcoded convention
         )
 
         # Auto-approve discovered peer

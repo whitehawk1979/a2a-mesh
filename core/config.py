@@ -350,6 +350,10 @@ class MeshConfig:
         if config.p2p.listen_port == config.health_port:
             config.p2p.listen_port = config.health_port - 5
             log.info(f"P2P port == health port, setting P2P port to {config.p2p.listen_port} (health_port - 5)")
+        # Also check reverse: if health_port conflicts with p2p_port after CLI override
+        if config.health_port == config.p2p.listen_port:
+            config.health_port = config.p2p.listen_port + 5
+            log.warning(f"health_port == p2p_port after config load, auto-corrected health_port to {config.health_port}")
 
         # Heartbeat config
         hb_data = mesh.get('heartbeat', {})
