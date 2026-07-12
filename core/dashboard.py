@@ -541,10 +541,17 @@ class DashboardHandler:
         })
         # Known peers
         for name, peer in self.node.peer_discovery.get_all_peers().items():
+            # Determine peer status: online = P2P + PG, available = P2P only, offline = neither
+            if peer.p2p_available and peer.pg_available:
+                peer_status = "online"
+            elif peer.p2p_available:
+                peer_status = "available"
+            else:
+                peer_status = "offline"
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
-                "status": "available" if peer.p2p_available else "offline",
+                "status": peer_status,
                 "host": peer.host,
                 "p2p_port": peer.p2p_port,
                 "health_port": peer.health_port,
@@ -2071,9 +2078,18 @@ class DashboardHandler:
         if pd and hasattr(pd, '_peers'):
             for name, peer in pd._peers.items():
                 p2p_available = getattr(peer, 'p2p_available', False)
+                pg_available = getattr(peer, 'pg_available', False)
+                # Status: online (P2P+PG) > connected (P2P only) > registered/disconnected
+                if p2p_available and pg_available:
+                    peer_status = "online"
+                elif p2p_available:
+                    peer_status = "connected"
+                else:
+                    peer_status = "disconnected"
                 if name in nodes:
                     nodes[name]["p2p_available"] = p2p_available
-                    nodes[name]["status"] = "connected" if p2p_available else nodes[name].get("status", "registered")
+                    nodes[name]["pg_available"] = pg_available
+                    nodes[name]["status"] = peer_status if p2p_available else nodes[name].get("status", "registered")
                 else:
                     nodes[name] = {
                         "node_name": name,
@@ -2081,10 +2097,10 @@ class DashboardHandler:
                         "host": getattr(peer, 'host', ''),
                         "p2p_port": getattr(peer, 'p2p_port', 8645),
                         "health_port": getattr(peer, 'health_port', 8650),
-                        "pg_available": getattr(peer, 'pg_available', False),
+                        "pg_available": pg_available,
                         "p2p_available": p2p_available,
                         "http_available": getattr(peer, 'http_available', False),
-                        "status": "connected" if p2p_available else "disconnected",
+                        "status": peer_status,
                         "skills": [],
                         "capabilities": list(getattr(peer, 'capabilities', []) or []),
                         "health_score": 1.0,
@@ -2146,8 +2162,8 @@ class DashboardHandler:
         except Exception as e:
             log.warning(f"Nodes list: PG lookup failed: {e}")
 
-        # Sort: connected > active > registered > pending > others
-        status_order = {"connected": 0, "active": 1, "registered": 2, "pending": 3}
+        # Sort: online > connected > active > registered > pending > others
+        status_order = {"online": 0, "connected": 1, "active": 2, "registered": 3, "pending": 4}
         sorted_nodes = sorted(nodes.values(), key=lambda n: status_order.get(n.get("status", ""), 99))
         return web.json_response({"nodes": sorted_nodes})
 

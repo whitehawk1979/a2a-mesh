@@ -16,6 +16,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .user-badge:hover{background:var(--primary);color:#fff}
 .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:4px}
 .status-dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
+.status-dot.connected{background:#22d3ee;box-shadow:0 0 6px #22d3ee}
+.status-dot.available{background:var(--warning);box-shadow:0 0 6px var(--warning)}
 .status-dot.offline{background:var(--danger)}
 .main{display:flex;flex:1;overflow:hidden}
 
@@ -978,8 +980,8 @@ function loadAllNodes() {
       isAdmin = authUser && authUser.role === "owner";
       document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
       el.innerHTML = d.nodes.map(function(n) {
-        var statusIcon = n.status === "active" ? "🟢" : n.status === "pending" ? "🟡" : "🔴";
-        var statusText = n.status === "active" ? "Aktív" : n.status === "pending" ? "Függő" : "Inaktív";
+        var statusIcon = (n.status === "online" || n.status === "connected" || n.status === "active") ? "🟢" : n.status === "available" ? "🟡" : n.status === "pending" ? "🟡" : "🔴";
+        var statusText = n.status === "online" ? "Online" : n.status === "connected" ? "Csatlakozott" : n.status === "active" ? "Aktív" : n.status === "available" ? "Elérhető" : n.status === "pending" ? "Függő" : "Inaktív";
         var transports = [];
         if (n.pg_available) transports.push({name:"PG", on: !!n.pg_available});
         if (n.p2p_available) transports.push({name:"P2P", on: !!n.p2p_available});

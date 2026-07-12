@@ -464,8 +464,14 @@ class PeerDiscovery:
 
         # 2. Health check known peers (but don't reconnect if already connected)
         for peer in list(self._peers.values()):
-            # Skip health check for already-connected peers — P2P transport handles keepalive
             if self.p2p_transport and peer.name in self.p2p_transport._peers:
+                # Already connected via P2P — update status from local knowledge
+                # P2P keepalive is sufficient; no need for HTTP health check
+                peer.p2p_available = True
+                peer.last_seen = time.time()
+                # If peer is in PG mesh_nodes, infer PG is available for them
+                if self._pg_conn and not self._pg_conn.closed:
+                    peer.pg_available = True
                 continue
             await self.check_peer_health(peer)
 
