@@ -1064,7 +1064,7 @@ class MeshNode:
         except asyncio.CancelledError:
             pass
         except OSError as e:
-            if "address already in use" in str(e).lower() or getattr(e, 'errno', None) in (48, 98):
+            if "address already in use" in str(e).lower() or getattr(e, 'errno', None) in (48, 98, 10048):
                 log.info(f"Health endpoint port {self._health_port} already in use — dashboard handles it")
             else:
                 log.error(f"Health endpoint failed: {e}")
@@ -1731,6 +1731,10 @@ async def main():
 
     config.node_name = args.name
     config.p2p.listen_port = args.port
+    # Ensure health_port != P2P port (convention: health_port = p2p_port + 5)
+    if config.health_port == config.p2p.listen_port:
+        config.health_port = config.p2p.listen_port + 5
+        log.info(f"Health port synced to p2p_port+5: {config.health_port}")
 
     if args.verbose:
         logging.getLogger("a2a_mesh").setLevel(logging.DEBUG)
