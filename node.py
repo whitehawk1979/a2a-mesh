@@ -939,13 +939,23 @@ class MeshNode:
 
         async def health_handler(request):
             """Return node health status as JSON."""
+            from core.auto_updater import AutoUpdater
             uptime = time.time() - self._start_time if self._start_time else 0
+            updater_status = {}
+            try:
+                updater = AutoUpdater(node=self)
+                updater_status = updater.get_status()
+                await updater.close()
+            except Exception:
+                pass
             status = {
                 "status": "running" if self._running else "stopped",
                 "node": self.node_name,
                 "role": self.role.value,
                 "address": f"0x{self.mesh_address.short:04X}" if self.mesh_address else "pending",
                 "uptime_seconds": round(uptime, 1),
+                "version": getattr(self.config, 'version', '1.0.0'),
+                "updater": updater_status,
                 "transports": {
                     "pg": self._pg_transport.is_available(),
                     "p2p": self._p2p_transport.is_available(),
@@ -982,6 +992,62 @@ class MeshNode:
         app = web.Application()
         app.router.add_get("/health", health_handler)
         app.router.add_get("/ready", ready_handler)
+
+        # Update API endpoints
+        async def update_check_handler(request):
+            """Check for available updates."""
+            from core.auto_updater import AutoUpdater
+            updater = AutoUpdater(node=self)
+            try:
+                latest = await updater.check_for_update()
+                current = updater.current_version
+                await updater.close()
+                if latest:
+                    return web.json_response({
+                        "update_available": True,
+                        "current_version": current,
+                        "latest_version": latest.lstrip("v"),
+                        "latest_tag": latest,
+                    })
+                return web.json_response({
+                    "update_available": False,
+                    "current_version": current,
+                })
+            except Exception as e:
+                await updater.close()
+                return web.json_response({"error": str(e)}, status=500)
+
+        async def update_apply_handler(request):
+            """Apply an update."""
+            from core.auto_updater import AutoUpdater
+            version = request.query.get("version")
+            updater = AutoUpdater(node=self)
+            try:
+                result = await updater.apply_update(version)
+                await updater.close()
+                return web.json_response({
+                    "success": result.success,
+                    "previous_version": result.previous_version,
+                    "new_version": result.new_version,
+                    "error": result.error,
+                    "rollback_performed": result.rollback_performed,
+                    "state": result.state.value,
+                })
+            except Exception as e:
+                await updater.close()
+                return web.json_response({"error": str(e)}, status=500)
+
+        async def update_status_handler(request):
+            """Get updater status."""
+            from core.auto_updater import AutoUpdater
+            updater = AutoUpdater(node=self)
+            status = updater.get_status()
+            await updater.close()
+            return web.json_response(status)
+
+        app.router.add_get("/update/check", update_check_handler)
+        app.router.add_post("/update/apply", update_apply_handler)
+        app.router.add_get("/update/status", update_status_handler)
 
         # Register dashboard routes
         self.dashboard.register_routes(app)

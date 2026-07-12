@@ -1192,6 +1192,15 @@ def main():
     health_parser.add_argument("--port", type=int, default=8650, help="Health endpoint port")
     health_parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
+    # update
+    update_parser = subparsers.add_parser("update", help="Auto-update mesh node")
+    update_sub = update_parser.add_subparsers(dest="update_action", help="Update actions")
+    update_sub.add_parser("check", help="Check for available updates")
+    update_apply = update_sub.add_parser("apply", help="Apply available update")
+    update_apply.add_argument("--version", "-v", default=None, help="Target version (e.g. v0.13.0)")
+    update_sub.add_parser("rollback", help="Rollback to previous version")
+    update_sub.add_parser("status", help="Show updater status")
+
     # test
     subparsers.add_parser("test", help="Run self-tests")
 
@@ -1231,6 +1240,18 @@ def main():
         cmd_keygen()
     elif args.command == "health":
         cmd_health(port=args.port, output_json=args.json)
+    elif args.command == "update":
+        from core.auto_updater import cli_check, cli_apply, cli_rollback, cli_status
+        if args.update_action == "check":
+            asyncio.run(cli_check())
+        elif args.update_action == "apply":
+            asyncio.run(cli_apply(args.version))
+        elif args.update_action == "rollback":
+            asyncio.run(cli_rollback())
+        elif args.update_action == "status":
+            asyncio.run(cli_status())
+        else:
+            print("Usage: python3 cli.py update [check|apply|rollback|status]")
     elif args.command == "test":
         cmd_test()
     else:

@@ -129,6 +129,7 @@ class MeshConfig:
     node_name: str = "nova"
     node_id: str = ""
     public_key: str = ""
+    version: str = "0.13.0"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
