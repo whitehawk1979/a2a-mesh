@@ -3142,8 +3142,8 @@ class DashboardHandler:
             self_info = {
                 "name": self.node.node_name,
                 "host": getattr(cfg, 'listen_host', '0.0.0.0') or '0.0.0.0',
-                "port": getattr(cfg, 'listen_port', 8650),
-                "p2p_port": getattr(cfg, 'p2p_port', 8645),
+                "port": getattr(cfg, 'health_port', 8650),
+                "p2p_port": getattr(cfg.p2p, 'listen_port', 8645),
                 "role": getattr(getattr(cfg, 'topology', None), 'node_role', 'router') or 'router',
                 "status": "online",
                 "health_score": 1.0,
