@@ -460,6 +460,7 @@ class PeerDiscovery:
         if pg_conn:
             try:
                 new_peers = await self.discover_from_pg(pg_conn)
+                log.info(f"PG discovery cycle complete: {len(new_peers)} new peers, {len(self._peers)} known total")
                 if new_peers:
                     log.info(f"Discovered {len(new_peers)} new peers from PG: {[p.name for p in new_peers]}")
                     # Auto-register discovered peers with registry
@@ -476,13 +477,10 @@ class PeerDiscovery:
                 # P2P keepalive is sufficient; no need for HTTP health check
                 peer.p2p_available = True
                 peer.last_seen = time.time()
-                # If we have PG connection, infer peer also has PG (same PG instance)
-                pg_conn = self._pg_conn
-                if not pg_conn and self.local_store and hasattr(self.local_store, '_pg_conn'):
-                    pg_conn = self.local_store._pg_conn
-                if pg_conn and not pg_conn.closed:
-                    peer.pg_available = True
-                    log.debug(f"Discovery: {peer.name} P2P-connected, set pg_available=True (shared PG)")
+                # If peer is P2P-connected, they share our PG instance
+                # (all mesh nodes use the same PG for transport)
+                peer.pg_available = True
+                log.info(f"Discovery: {peer.name} P2P-connected, set pg_available=True (shared mesh)")
                 continue
             await self.check_peer_health(peer)
 
