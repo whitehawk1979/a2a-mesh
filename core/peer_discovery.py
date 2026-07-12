@@ -351,14 +351,21 @@ class PeerDiscovery:
                     caps = [c for c in caps if isinstance(c, (str, int, float, tuple))]
 
                 if name in self._peers:
-                    # Update existing peer
+                    # Update existing peer — but preserve live status if peer is connected
+                    # PG data may be stale; live P2P connection is ground truth for p2p_available
                     self._peers[name].host = host
                     self._peers[name].port = p2p_port  # Keep port in sync with p2p_port
                     self._peers[name].p2p_port = p2p_port
                     self._peers[name].health_port = health_port
                     self._peers[name].last_seen = time.time()
-                    self._peers[name].pg_available = pg_avail
-                    self._peers[name].p2p_available = p2p_avail
+                    # Only downgrade PG status from PG data if we don't have a live P2P connection
+                    # If peer is P2P-connected, PG is reachable (we share the same PG)
+                    if self.p2p_transport and name in self.p2p_transport._peers:
+                        self._peers[name].p2p_available = True
+                        self._peers[name].pg_available = True  # Same PG = PG available
+                    else:
+                        self._peers[name].pg_available = pg_avail
+                        self._peers[name].p2p_available = p2p_avail
                     self._peers[name].http_available = http_avail
                     self._peers[name].capabilities = caps
                     # Re-register with registry to keep dashboard in sync
