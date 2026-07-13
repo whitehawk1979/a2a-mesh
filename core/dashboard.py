@@ -223,7 +223,12 @@ class DashboardHandler:
                 return {k: sanitize(v) for k, v in obj.items()}
             elif isinstance(obj, (list, tuple)):
                 return [sanitize(v) for v in obj]
-            elif isinstance(obj, (str, int, float, bool, type(None))):
+            elif isinstance(obj, float):
+                # JSON doesn't support Infinity/-Infinity/NaN — replace with None
+                if obj != obj or obj == float('inf') or obj == float('-inf'):
+                    return None
+                return obj
+            elif isinstance(obj, (str, int, bool, type(None))):
                 return obj
             elif hasattr(obj, '__dataclass_fields__'):
                 return sanitize(obj.__dict__)
