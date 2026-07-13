@@ -2095,6 +2095,9 @@ class DashboardHandler:
                     nodes[name]["p2p_available"] = p2p_available
                     nodes[name]["pg_available"] = pg_available
                     nodes[name]["status"] = peer_status if p2p_available else nodes[name].get("status", "registered")
+                    # P2P-connected peers are healthy by definition
+                    if p2p_available:
+                        nodes[name]["health_score"] = 1.0
                 else:
                     nodes[name] = {
                         "node_name": name,
