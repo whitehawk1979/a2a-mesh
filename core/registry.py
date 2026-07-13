@@ -213,7 +213,11 @@ class HealthScorer:
         success_rate = health.success_rate
 
         # Availability score (from health checks)
-        availability_score = health.uptime_pct / 100.0
+        # If no health checks have been performed, assume healthy (1.0)
+        if health._health_checks_total == 0:
+            availability_score = 1.0
+        else:
+            availability_score = health.uptime_pct / 100.0
 
         # Weighted composite
         w = self.weights
