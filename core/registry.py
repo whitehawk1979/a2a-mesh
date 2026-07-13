@@ -414,6 +414,13 @@ class AgentRegistry:
         if self._peer_discovery:
             peer = self._peer_discovery.get_peer(agent_name)
             if peer:
+                # P2P-connected peer: check if the connection is alive
+                p2p_available = getattr(peer, 'p2p_available', False)
+                if p2p_available:
+                    # P2P connection is alive → peer is healthy
+                    self.health_scorer.record_health_check(health, True)
+                    return health.status
+                # P2P not available — try HTTP health endpoint
                 is_healthy = await self._peer_discovery.check_peer_health(peer)
                 self.health_scorer.record_health_check(health, is_healthy)
                 return health.status
