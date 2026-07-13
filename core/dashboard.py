@@ -2179,8 +2179,8 @@ class DashboardHandler:
                 node["health_score"] = 0.0
             # Self-node: mark P2P available if P2P transport is running
             if name == self_name and self.node:
-                p2p_transport = getattr(self.node, 'p2p_transport', None)
-                if p2p_transport and getattr(p2p_transport, 'running', False):
+                p2p_transport = getattr(self.node, '_p2p_transport', None)
+                if p2p_transport and getattr(p2p_transport, '_running', False):
                     node["p2p_available"] = True
                     # Self-node with P2P is online
                     if node.get("status") == "active":
