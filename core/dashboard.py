@@ -2172,10 +2172,19 @@ class DashboardHandler:
 
         # Sort: online > connected > active > registered > pending > others
         status_order = {"online": 0, "connected": 1, "active": 2, "registered": 3, "pending": 4}
-        # Fix health_score for offline/disconnected nodes
+        # Fix health_score and P2P for self-node and offline nodes
+        self_name = self.node.node_name if self.node else ""
         for name, node in nodes.items():
             if node.get("status") in ("disconnected", "offline", "unknown"):
                 node["health_score"] = 0.0
+            # Self-node: mark P2P available if P2P transport is running
+            if name == self_name and self.node:
+                p2p_transport = getattr(self.node, 'p2p_transport', None)
+                if p2p_transport and getattr(p2p_transport, 'running', False):
+                    node["p2p_available"] = True
+                    # Self-node with P2P is online
+                    if node.get("status") == "active":
+                        node["status"] = "online"
         sorted_nodes = sorted(nodes.values(), key=lambda n: status_order.get(n.get("status", ""), 99))
         return web.json_response({"nodes": sorted_nodes})
 
