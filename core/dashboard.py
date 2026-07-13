@@ -2172,6 +2172,10 @@ class DashboardHandler:
 
         # Sort: online > connected > active > registered > pending > others
         status_order = {"online": 0, "connected": 1, "active": 2, "registered": 3, "pending": 4}
+        # Fix health_score for offline/disconnected nodes
+        for name, node in nodes.items():
+            if node.get("status") in ("disconnected", "offline", "unknown"):
+                node["health_score"] = 0.0
         sorted_nodes = sorted(nodes.values(), key=lambda n: status_order.get(n.get("status", ""), 99))
         return web.json_response({"nodes": sorted_nodes})
 
