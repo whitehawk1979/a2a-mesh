@@ -255,6 +255,9 @@ class MeshConfig:
             if pg_data:
                 config.pg.host = pg_data.get('host', config.pg.host)
                 config.pg.port = pg_data.get('port', config.pg.port)
+                config.pg.dbname = pg_data.get('dbname', config.pg.dbname)
+                config.pg.user = pg_data.get('user', config.pg.user)
+                config.pg.password = pg_data.get('password', config.pg.password)
                 config.pg.channels = pg_data.get('channels', config.pg.channels)
         elif pg_data:
             config.pg = PGConfig(
