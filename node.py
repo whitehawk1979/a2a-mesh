@@ -420,7 +420,9 @@ class MeshNode:
             self._p2p_transport.set_ack_callback(self._on_p2p_ack)
             # Wire up P2P peer connected callback — registers peer with agent registry on connect/reconnect
             self._p2p_transport.set_peer_connected_callback(self._on_p2p_peer_connected)
-            log.info("✅ P2P callbacks registered (ACK + peer_connected)")
+            # Wire up P2P peer disconnect callback — broadcasts offline notification to mesh
+            self._p2p_transport.set_peer_disconnect_callback(self._on_p2p_peer_disconnected)
+            log.info("✅ P2P callbacks registered (ACK + peer_connected + peer_disconnected)")
         else:
             log.warning("❌ P2P TCP transport failed")
 
@@ -841,6 +843,46 @@ class MeshNode:
                     log.debug(f"PG skills announcement failed for {peer_name}: {e}")
             if sent_via:
                 log.info(f"Skills announcement sent to {peer_name} via {sent_via}: {[s.get('id','?') for s in skills]}")
+
+    async def _on_p2p_peer_disconnected(self, peer_name: str):
+        """Callback when a P2P peer disconnects. Broadcasts offline notification to the mesh.
+
+        When a peer disconnects from us, we broadcast a 'peer_offline' message so other
+        nodes can update their routing tables and health scorers.
+        """
+        log.warning(f"Peer {peer_name} disconnected from P2P — broadcasting offline notification")
+
+        # Record failure in health scorer
+        if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
+            self.router._health_scorer.record_failure(peer_name)
+
+        # Broadcast peer_offline to the mesh
+        try:
+            from .core.message import A2AMessage
+            import uuid
+            offline_msg = A2AMessage(
+                id=str(uuid.uuid4()),
+                sender=self.node_name,
+                recipient="broadcast",
+                payload={
+                    "type": "peer_offline",
+                    "peer_name": peer_name,
+                    "source": self.node_name,
+                    "timestamp": time.time(),
+                },
+                msg_type="peer_offline",
+                priority=7,  # High priority — routing info needs fast propagation
+            )
+            await self.router.send(offline_msg)
+            log.info(f"Broadcast peer_offline for {peer_name}")
+        except Exception as e:
+            log.error(f"Failed to broadcast peer_offline for {peer_name}: {e}")
+
+        # Update peer discovery status
+        if self.peer_discovery and peer_name in self.peer_discovery._peers:
+            peer = self.peer_discovery._peers[peer_name]
+            peer.p2p_available = False
+            log.info(f"Marked peer {peer_name} as P2P unavailable in discovery")
 
     async def _on_peer_discovered(self, peer_name: str):
         """Callback when a new peer is discovered (via PG or static config).

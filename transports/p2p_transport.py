@@ -100,6 +100,8 @@ class P2PTransport(TransportAdapter):
 
         # Peer connected callback
         self._peer_connected_callback = None  # Callable[[str], Awaitable[None]]
+        # Peer disconnect callback (for mesh-wide offline broadcast)
+        self._on_peer_disconnect = None  # Callable[[str], Awaitable[None]]
 
         # Peer address resolver (set by node.py)
         self._peer_address_resolver = None  # Callable[[str], Optional[Tuple[str, int]]]
@@ -387,6 +389,12 @@ class P2PTransport(TransportAdapter):
                         send_task.cancel()
                     self._send_queues.pop(pname, None)
                     log.info(f"Peer {pname} disconnected, removed from peers dict")
+                    # Notify node about peer disconnect for mesh-wide broadcast
+                    if self._on_peer_disconnect:
+                        try:
+                            await self._on_peer_disconnect(pname)
+                        except Exception as e:
+                            log.warning(f"Peer disconnect callback error for {pname}: {e}")
                     break
             if removed is None:
                 log.debug(f"Connection from {peer_addr} closed (was not in peers dict)")
@@ -449,6 +457,14 @@ class P2PTransport(TransportAdapter):
         Callback signature: async def callback(peer_name: str)
         """
         self._peer_connected_callback = callback
+
+    def set_peer_disconnect_callback(self, callback):
+        """Set callback invoked when a P2P peer disconnects.
+
+        Callback signature: async def callback(peer_name: str)
+        Used for mesh-wide offline notification broadcast.
+        """
+        self._on_peer_disconnect = callback
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
         """Connect to a known peer with exponential backoff + jitter.
