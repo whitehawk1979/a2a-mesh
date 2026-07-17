@@ -192,6 +192,8 @@ class MeshNode:
 
         # Initialize topology tuner (health-score-based auto-tuning)
         self.topology_tuner = TopologyTuner(self, config=self.config)
+        # Debounce peer offline broadcasts — prevent broadcast storms during P2P flapping
+        self._peer_offline_debounce: dict[str, float] = {}  # peer_name -> last_broadcast_time
 
         # Initialize node authenticator
         auth_config = AuthConfig(
@@ -849,7 +851,23 @@ class MeshNode:
 
         When a peer disconnects from us, we broadcast a 'peer_offline' message so other
         nodes can update their routing tables and health scorers.
+        
+        Debounced: only broadcasts if 60 seconds have passed since the last broadcast
+        for this peer, preventing broadcast storms during P2P connection flapping.
         """
+        import time
+        
+        # Debounce: skip if we broadcast for this peer recently (within 60s)
+        now = time.time()
+        last_broadcast = self._peer_offline_debounce.get(peer_name, 0)
+        if now - last_broadcast < 60:
+            log.info(f"Peer {peer_name} disconnected — debouncing offline broadcast (last was {now - last_broadcast:.0f}s ago)")
+            # Still mark as P2P unavailable in discovery even when debouncing
+            if self.peer_discovery and peer_name in self.peer_discovery._peers:
+                self.peer_discovery._peers[peer_name].p2p_available = False
+            return
+        
+        self._peer_offline_debounce[peer_name] = now
         log.warning(f"Peer {peer_name} disconnected from P2P — broadcasting offline notification")
 
         # Record failure in health scorer
