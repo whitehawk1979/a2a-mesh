@@ -858,19 +858,16 @@ class MeshNode:
 
         # Broadcast peer_offline to the mesh
         try:
-            from .core.message import A2AMessage
-            import uuid
-            offline_msg = A2AMessage(
-                id=str(uuid.uuid4()),
+            offline_msg = A2AMessage.create(
                 sender=self.node_name,
                 recipient="broadcast",
+                msg_type="peer_offline",
                 payload={
                     "type": "peer_offline",
                     "peer_name": peer_name,
                     "source": self.node_name,
                     "timestamp": time.time(),
                 },
-                msg_type="peer_offline",
                 priority=7,  # High priority — routing info needs fast propagation
             )
             await self.router.send(offline_msg)
