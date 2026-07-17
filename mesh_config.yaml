@@ -5,8 +5,8 @@ mesh:
   node_id: ""
   
   transport_priority:
-    - pg_notify
     - p2p
+    - pg_notify
     - http
   
   webhook_port: 8644
@@ -53,7 +53,7 @@ mesh:
   
   discovery:
     mdns:
-      enabled: false
+      enabled: true
       service: _a2a._tcp
       port: 8645
     static:
@@ -108,3 +108,14 @@ mesh:
     coordinator_heartbeat_interval: 10
     enable_route_cache: true
     route_cache_ttl: 300
+
+  # Health-score-based topology auto-tuning
+  topology_tuning:
+    enabled: true
+    check_interval: 300        # seconds between evaluations (5 min)
+    promote_threshold: 0.9     # health score to promote end_device → router
+    demote_threshold: 0.3      # health score to demote router → end_device
+    coordinator_threshold: 0.5  # health score below which coordinator handover is suggested
+    min_observations: 10       # minimum requests before making recommendations
+    cooldown: 600              # seconds between role changes for the same node
+    auto_apply: false           # safety: only recommend, don't auto-apply

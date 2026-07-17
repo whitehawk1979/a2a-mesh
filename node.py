@@ -41,6 +41,7 @@ from .transports.ble_transport import BLETransport
 from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
 from .core.plugin_loader import PluginLoader
+from .core.topology_tuner import TopologyTuner
 
 log = logging.getLogger("a2a_mesh.node")
 
@@ -188,6 +189,9 @@ class MeshNode:
 
         # Initialize plugin loader
         self.plugin_loader = PluginLoader(self)
+
+        # Initialize topology tuner (health-score-based auto-tuning)
+        self.topology_tuner = TopologyTuner(self, config=self.config)
 
         # Initialize node authenticator
         auth_config = AuthConfig(
@@ -509,6 +513,12 @@ class MeshNode:
         # Auto-register self in the agent registry
         self._auto_register_self()
 
+        # Start topology tuner (health-score-based auto-tuning)
+        try:
+            await self.topology_tuner.start()
+        except Exception as e:
+            log.warning(f"Topology tuner start failed (non-fatal): {e}")
+
         # At least one transport must be working
         any_ok = any(results.values())
         if any_ok:
@@ -531,6 +541,13 @@ class MeshNode:
             log.info("All plugins stopped")
         except Exception as e:
             log.warning(f"Plugin shutdown error (non-fatal): {e}")
+
+        # Stop topology tuner
+        try:
+            await self.topology_tuner.stop()
+            log.info("Topology tuner stopped")
+        except Exception as e:
+            log.warning(f"Topology tuner stop error (non-fatal): {e}")
 
         # Stop ACK manager
         await self.ack_manager.stop()
@@ -1505,6 +1522,7 @@ class MeshNode:
             "file_transfer": self.file_transfer.get_transfer_stats(),
             "peer_discovery": self.peer_discovery.get_stats(),
             "coordinator": self.election.get_status() if self.election else None,
+            "topology_tuner": self.topology_tuner.stats if hasattr(self, 'topology_tuner') else None,
         }
         if self.mesh_address:
             status["address"] = f"0x{self.mesh_address.short:04X}"
