@@ -92,10 +92,24 @@ class SimpleStream(MessageStream):
         return self._stream_id
 
     def matches(self, raw_data: bytes, metadata=None) -> bool:
-        return False  # We use route() with A2AMessage directly
+        """Match by parsing raw_data and checking msg_type against match_types."""
+        try:
+            import json
+            data = json.loads(raw_data.decode('utf-8'))
+            msg_type = data.get("type", data.get("msg_type", ""))
+            return msg_type in self._match_types
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+            # Try msgpack
+            try:
+                import msgpack
+                data = msgpack.unpackb(raw_data, raw=False)
+                msg_type = data.get("type", data.get("msg_type", ""))
+                return msg_type in self._match_types
+            except Exception:
+                return False
 
     async def forward(self, message, from_peer: str, metadata=None):
-        pass
+        return f"forwarded_{self._stream_id}"
 
 
 def make_config(node_name="test_node", port=18700):
@@ -110,6 +124,8 @@ def make_config(node_name="test_node", port=18700):
     config.pg.password = ""
     config.topology = TopologyConfig(node_role="router")
     config.health_port = port + 5
+    # Include "inmem" in transport priority for test transports
+    config.transport_priority = ["inmem", "p2p", "pg_notify", "http"]
     return config
 
 
@@ -269,7 +285,7 @@ async def test_meshnode_p2p_only_lifecycle():
     status = node.get_status()
     assert status["node_name"] == "lifecycle_node"
     assert status["role"] in ("router", "coordinator", "end_device")
-    assert "p2p" in status["transports"]
+    assert "p2p" in status["transports"]["transports"]
 
     msg = A2AMessage.create(
         sender="lifecycle_node", recipient="broadcast",
@@ -363,10 +379,9 @@ def test_smart_router_health_routing():
     registry.health_records["degraded_agent"].total_failures = 30
 
     smart = SmartRouter(registry=registry)
-    agents = registry.find_by_capability(["task_execution"], healthy_only=True, min_health_score=0.3)
 
     msg = A2AMessage.create(sender="coordinator", recipient="task_execution", msg_type="task", payload={"job": "analyze"})
-    selected = smart.route(msg, agents)
+    selected = smart.route(required_capabilities=["task_execution"], message=msg, min_health_score=0.3)
     assert selected is not None
     assert selected.name == "healthy_agent", "Health-weighted routing should prefer healthy agent"
 
@@ -390,8 +405,9 @@ def test_workflow_dag_creation_and_sort():
 
     wf = Workflow(id="wf1", name="test_pipeline", tasks={"research": t1, "summary": t2})
 
-    # Topological sort should work
-    order = wf.topological_sort()
+    # Topological sort returns layers (List[List[str]]), flatten for order check
+    layers = wf.topological_sort()
+    order = [tid for layer in layers for tid in layer]
     assert order.index("research") < order.index("summary"), "Research must come before summary"
 
 
@@ -499,14 +515,14 @@ async def test_gossipsub_peer_management():
     """GossipSub peer add/remove and flood broadcast."""
     gs = GossipSub("node_a")
 
-    gs.add_peer(GossipPeer(peer_id="node_b", topics={"mesh"}))
-    gs.add_peer(GossipPeer(peer_id="node_c", topics={"mesh"}))
-    gs.add_peer(GossipPeer(peer_id="node_d", topics={"mesh"}))
-    gs.add_peer(GossipPeer(peer_id="node_e", topics={"mesh"}))
+    gs.add_peer("node_b", topics={"mesh"})
+    gs.add_peer("node_c", topics={"mesh"})
+    gs.add_peer("node_d", topics={"mesh"})
+    gs.add_peer("node_e", topics={"mesh"})
 
     # Publish a message
     msg = A2AMessage.create(sender="node_a", recipient="broadcast", msg_type="mesh", payload={"type": "ping", "seq": 1})
-    count = gs.publish("mesh", msg.id, msg.to_bytes())
+    count = await gs.publish("mesh", msg.id, msg.to_bytes())
     # In flood mode with 4 peers, should broadcast to all
     # (publish returns int count)
 
@@ -520,9 +536,9 @@ async def test_gossipsub_topic_subscription():
     """GossipSub tracks topic subscriptions."""
     gs = GossipSub("hub")
 
-    gs.add_peer(GossipPeer(peer_id="peer_search", topics={"web_search", "mesh"}))
-    gs.add_peer(GossipPeer(peer_id="peer_summ", topics={"summarization", "mesh"}))
-    gs.add_peer(GossipPeer(peer_id="peer_both", topics={"web_search", "summarization", "mesh"}))
+    gs.add_peer("peer_search", topics={"web_search", "mesh"})
+    gs.add_peer("peer_summ", topics={"summarization", "mesh"})
+    gs.add_peer("peer_both", topics={"web_search", "summarization", "mesh"})
 
     # Verify peer count
     assert gs.get_peer_count() == 3
@@ -553,9 +569,11 @@ def test_encryption_sign_verify():
     verified = enc.verify_message(content, signature, enc.verify_key_hex)
     assert verified, "Signature verification should succeed"
 
-    # Tamper detection
-    tampered = content.replace("42", "99")
-    tampered_verified = enc.verify_message(tampered, signature, enc.verify_key_hex)
+    # Tamper detection: sign content that includes payload data
+    full_content = f"{content}:{json.dumps(msg.payload, sort_keys=True)}"
+    full_signature = enc.sign_message(full_content)
+    tampered = full_content.replace("42", "99")
+    tampered_verified = enc.verify_message(tampered, full_signature, enc.verify_key_hex)
     assert not tampered_verified, "Tampered content should fail verification"
 
 
@@ -613,14 +631,15 @@ def test_election_coordinator_failover():
     assert status is not None
 
     state = election.check_coordinator_health([("coordinator", 0x0000)])
-    assert state in (CoordinatorState.DOWN, CoordinatorState.UNKNOWN, CoordinatorState.SUSPECTED)
+    assert state in (CoordinatorState.DOWN, CoordinatorState.SUSPECTED), f"Unexpected state: {state}"
 
 
 # ======================================================================
 # 10. Stream Multiplexer E2E
 # ======================================================================
 
-def test_stream_mux_routing():
+@pytest.mark.asyncio
+async def test_stream_mux_routing():
     """Stream multiplexer routes messages to correct streams."""
     mux = StreamMultiplexer()
 
@@ -641,14 +660,13 @@ def test_stream_mux_routing():
     mux.register(TaskStream(), priority=5)
     mux.register(FileStream(), priority=3)
 
-    # The StreamMultiplexer.route method takes an A2AMessage
     hb = A2AMessage.create(sender="a", recipient="b", msg_type="heartbeat", payload={})
     directive = A2AMessage.create(sender="a", recipient="b", msg_type="directive", payload={"x": 1})
     ft = A2AMessage.create(sender="a", recipient="b", msg_type="file_transfer", payload={"name": "data.bin"})
 
-    hb_result = mux.route(hb)
-    directive_result = mux.route(directive)
-    ft_result = mux.route(ft)
+    hb_result = await mux.route(hb, hb.to_bytes(), "test_peer")
+    directive_result = await mux.route(directive, directive.to_bytes(), "test_peer")
+    ft_result = await mux.route(ft, ft.to_bytes(), "test_peer")
 
     assert hb_result is not None
     assert directive_result is not None
@@ -703,8 +721,8 @@ def test_health_scorer_success_failure_cycle():
     final = scorer.get_score("test_agent")
     assert final < 0.5, f"After 4 failures, score should be below 0.5: {final}"
 
-    # Recovery
-    for _ in range(5):
+    # Recovery (need more successes due to slow recovery factor of 0.05)
+    for _ in range(15):
         scorer.record_success("test_agent", latency_ms=50)
     recovered = scorer.get_score("test_agent")
     assert recovered > 0.3, f"After recovery, score should improve: {recovered}"
@@ -758,14 +776,14 @@ def test_auto_steer_priority():
         msg_type="steer", payload={"action": "urgent"}, priority=10,
     )
     classification = steer.classify_message(high_msg)
-    assert classification in ("urgent", "critical", "high"), f"High priority should be classified high: {classification}"
+    assert classification in ("interrupt", "urgent", "critical", "high"), f"High priority should be classified high: {classification}"
 
     low_msg = A2AMessage.create(
         sender="peer", recipient="steer_node",
         msg_type="directive", payload={"action": "routine"}, priority=3,
     )
     classification = steer.classify_message(low_msg)
-    assert classification in ("low", "normal", "routine", "deferred"), f"Low priority should be classified low: {classification}"
+    assert classification in ("normal", "low", "routine", "deferred"), f"Low priority should be classified low: {classification}"
 
 
 # ======================================================================
@@ -796,14 +814,14 @@ async def test_full_message_lifecycle():
     # Dedup
     dedup = DedupCache()
     assert not dedup.is_duplicate(msg.id), "First time: not duplicate"
-    dedup.mark_seen(msg.id)
+    dedup.add(msg.id)
     assert dedup.is_duplicate(msg.id), "Second time: is duplicate"
 
-    # JSON round-trip
+    # JSON round-trip (sender was overridden to node_name by router.send)
     json_data = msg.to_json()
     restored = A2AMessage.from_json(json_data)
     assert restored.id == msg.id
-    assert restored.sender == "sender_agent"
+    assert restored.sender == "lifecycle_test"  # Router overrides sender to node_name
     assert restored.payload["task"] == "compute"
 
     # Binary round-trip

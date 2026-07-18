@@ -169,6 +169,10 @@ class GossipSub:
         self._peer_scores[peer_id] = max(-100, min(100, 
             self._peer_scores.get(peer_id, 0.0) + delta))
     
+    def get_peer_count(self) -> int:
+        """Return the number of connected peers."""
+        return len(self._peers)
+    
     async def publish(self, topic: str, msg_id: str, payload: bytes) -> int:
         """Publish a message to a topic.
         
