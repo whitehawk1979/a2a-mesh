@@ -116,8 +116,13 @@ class MeshNode:
             self.mesh_address = self.address_manager.assign_address(
                 self.node_name, NodeRole.COORDINATOR
             )
+            # Use deterministic short_addr for coordinator too (avoid short_addr=0 conflict)
+            import hashlib
+            name_hash = int(hashlib.md5(self.node_name.encode()).hexdigest(), 16)
+            deterministic_addr = (name_hash % 0xFFFE) + 1  # 1-65535, avoid 0
+            self.mesh_address.short = deterministic_addr
+            log.info(f"Coordinator mode: address={self.mesh_address} (deterministic short={deterministic_addr})")
             self.tree_router = TreeRouter(self.mesh_address, self.address_manager)
-            log.info(f"Coordinator mode: address={self.mesh_address}")
         elif self.role == NodeRole.ROUTER:
             # Router joins network, gets address from coordinator
             # If coordinator not reachable, assign self as first router
@@ -463,6 +468,7 @@ class MeshNode:
             log.info("✅ P2P callbacks registered (ACK + peer_connected + peer_disconnected)")
         else:
             log.warning("❌ P2P TCP transport failed")
+            await self.debug_log("ERROR", "transport", "P2P TCP transport failed to start")
 
         # 2. PG NOTIFY (optional fallback — gracefully degrades if unavailable)
         results["pg_notify"] = await self._pg_transport.start()
@@ -470,6 +476,7 @@ class MeshNode:
             log.info("✅ PG NOTIFY transport started (fallback)")
         else:
             log.warning("⚠️ PG NOTIFY transport unavailable — running in P2P-only mode")
+            await self.debug_log("WARNING", "transport", "PG NOTIFY transport unavailable — running in P2P-only mode")
 
         # 3. HTTP/MCP (tertiary)
         results["http"] = await self._http_transport.start()
@@ -477,6 +484,7 @@ class MeshNode:
             log.info("✅ HTTP/MCP transport started")
         else:
             log.warning("❌ HTTP/MCP transport failed")
+            await self.debug_log("ERROR", "transport", "HTTP/MCP transport failed to start")
 
         # Start BLE transport
         results["ble"] = await self._ble_transport.start()
@@ -484,6 +492,7 @@ class MeshNode:
             log.info("✅ BLE transport started")
         else:
             log.warning("❌ BLE transport failed (non-critical)")
+            await self.debug_log("WARNING", "transport", "BLE transport failed (non-critical, bleak not installed)")
 
         # 4. mDNS discovery (linked to peer_discovery for auto-connect)
         if self.config.discovery.mdns_enabled:
@@ -495,6 +504,7 @@ class MeshNode:
                 log.info("✅ mDNS discovery started")
             else:
                 log.warning("❌ mDNS discovery failed")
+                await self.debug_log("WARNING", "transport", "mDNS discovery failed (zeroconf not installed or multicast unavailable)")
 
         # 5. UDP broadcast discovery (works on local network + Tailscale)
         tailscale_if = self.config.discovery.tailscale_interface
@@ -1981,6 +1991,7 @@ echo "Status: ok"
             # Another node may hold our short_addr from a previous session.
             if 'short_addr' in str(e) and 'duplicate' in str(e).lower():
                 log.warning(f"short_addr conflict for {self.node_name}: {e} — clearing stale entry and retrying")
+                await self.debug_log("WARNING", "election", f"short_addr conflict for {self.node_name}: {e}")
                 try:
                     # Remove any stale node claiming our short_addr (but not our own row)
                     if self.mesh_address:
