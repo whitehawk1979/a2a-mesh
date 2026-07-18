@@ -51,6 +51,8 @@ class InMemoryPool:
                 "priority": args[6],
                 "expires_at": args[7],
                 "assigned_agent": args[8] if len(args) > 8 else None,
+                "max_retries": args[9] if len(args) > 9 else 2,
+                "retry_count": 0,
                 "result": None,
                 "result_file": None,
                 "completed_at": None,
@@ -114,6 +116,18 @@ class InMemoryPool:
                 if task_id in self.delegations:
                     self.delegations[task_id]["status"] = args[0]
                     self.delegations[task_id]["assigned_agent"] = args[1]
+                    return "UPDATE 1"
+                return "UPDATE 0"
+
+            # Retry update: SET status = , retry_count = , assigned_agent = NULL, result = NULL, completed_at = NULL WHERE task_id = 
+            if "retry_count" in query_lower and "assigned_agent" in query_lower and "result" in query_lower:
+                task_id = args[2]
+                if task_id in self.delegations:
+                    self.delegations[task_id]["status"] = args[0]
+                    self.delegations[task_id]["retry_count"] = args[1]
+                    self.delegations[task_id]["assigned_agent"] = None
+                    self.delegations[task_id]["result"] = None
+                    self.delegations[task_id]["completed_at"] = None
                     return "UPDATE 1"
                 return "UPDATE 0"
 
@@ -287,6 +301,7 @@ class TestDelegationHandler:
             to_agent="test_agent", subject="Will fail",
             description=json.dumps({"type": "failing", "description": "Test", "context": {}}),
             task_type="failing",
+            max_retries=0,
         )
         task = pool.delegations[task_id]
         task["from_agent"] = "coordinator"
