@@ -406,8 +406,13 @@ class PeerDiscovery:
                 if resp.status == 200:
                     data = await resp.json()
                     peer.last_seen = time.time()
-                    peer.p2p_available = data.get("transports", {}).get("p2p", False)
-                    peer.pg_available = data.get("transports", {}).get("pg", False)
+                    # P2 FIX: If peer is P2P-connected to us, PG is available (shared mesh)
+                    # Don't downgrade pg_available from True based on peer's internal health
+                    p2p_from_health = data.get("transports", {}).get("p2p", False)
+                    pg_from_health = data.get("transports", {}).get("pg", False)
+                    is_p2p_connected = self.p2p_transport and peer.name in self.p2p_transport._peers
+                    peer.p2p_available = bool(p2p_from_health or (is_p2p_connected and peer.p2p_available))
+                    peer.pg_available = bool(pg_from_health or (is_p2p_connected and peer.pg_available) or peer.pg_available)
                     peer.http_available = data.get("transports", {}).get("http", False)
 
                     # Update local store
