@@ -147,8 +147,11 @@ class DashboardHandler:
         app.router.add_get("/api/router/stats", self._api_router_stats)
         # Health Scorer endpoint
         app.router.add_get("/api/health/scores", self._api_health_scores)
+        app.router.add_get("/api/health/nodes", self._api_health_nodes)
         app.router.add_post("/api/health/record-success/{name}", self._api_health_success)
         app.router.add_post("/api/health/record-failure/{name}", self._api_health_failure)
+        # Task cleanup endpoint
+        app.router.add_post("/api/tasks/cleanup", self._api_tasks_cleanup)
         # P2P management endpoints
         app.router.add_post("/api/p2p/reset-backoff", self._api_p2p_reset_backoff)
         app.router.add_post("/api/p2p/reconnect", self._api_p2p_reconnect)
@@ -2869,6 +2872,32 @@ class DashboardHandler:
             return web.json_response(scorer.stats)
         return web.json_response({"agent_count": 0, "agents": {}})
 
+    async def _api_health_nodes(self, request):
+        """GET /api/health/nodes — Real-time node health metrics (CPU, memory, disk)."""
+        from aiohttp import web
+        try:
+            pool = self.node._pg_pool
+            if not pool or not pool.is_connected():
+                return web.json_response({"error": "DB not connected", "nodes": [], "count": 0}, status=503)
+            rows = await pool.fetch(
+                "SELECT node_name, status, cpu_pct, memory_pct, disk_pct, last_seen, updated_at "
+                "FROM mesh_node_health ORDER BY node_name"
+            )
+            nodes = []
+            for r in rows:
+                nodes.append({
+                    "node_name": r["node_name"],
+                    "status": r["status"],
+                    "cpu_pct": float(r["cpu_pct"]),
+                    "memory_pct": float(r["memory_pct"]),
+                    "disk_pct": float(r["disk_pct"]),
+                    "last_seen": str(r["last_seen"]),
+                    "updated_at": str(r["updated_at"]),
+                })
+            return web.json_response({"nodes": nodes, "count": len(nodes)})
+        except Exception as e:
+            return web.json_response({"error": str(e), "nodes": [], "count": 0}, status=500)
+
     async def _api_health_success(self, request):
         """POST /api/health/record-success/{name}?latency_ms=0 — Record agent success."""
         from aiohttp import web
@@ -2889,6 +2918,26 @@ class DashboardHandler:
             score = scorer.record_failure(name)
             return web.json_response({"agent": name, "health_score": round(score, 3)})
         return web.json_response({"error": "health_scorer not available"}, status=503)
+
+    async def _api_tasks_cleanup(self, request):
+        """POST /api/tasks/cleanup?max_age_hours=24 — Remove completed/cancelled tasks older than max_age_hours."""
+        from aiohttp import web
+        try:
+            max_age_hours = int(request.query.get("max_age_hours", "24"))
+            pool = self.node._pg_pool
+            if not pool or not pool.is_connected():
+                return web.json_response({"error": "DB not connected"}, status=503)
+            result = await pool.execute(
+                "DELETE FROM shared_delegations "
+                "WHERE status IN ('completed', 'cancelled') "
+                "AND created_at < NOW() - ($1 || ' hours')::INTERVAL",
+                str(max_age_hours)
+            )
+            deleted = int(result.split()[-1]) if result else 0
+            return web.json_response({"deleted": deleted, "max_age_hours": max_age_hours})
+        except Exception as e:
+            from aiohttp import web
+            return web.json_response({"error": str(e)}, status=500)
 
     # ─── Smart Router API Handlers ─────────────────────────────────
 
