@@ -120,15 +120,22 @@ class MeshNode:
             log.info(f"Coordinator mode: address={self.mesh_address}")
         elif self.role == NodeRole.ROUTER:
             # Router joins network, gets address from coordinator
-            # If coordinator not reachable, assign self as first router (0x0001)
+            # If coordinator not reachable, assign self as first router
+            # Use deterministic short_addr based on node name to avoid conflicts
             self.address_manager = AddressManager(
                 max_children=topo.max_children,
                 max_routers=topo.max_routers,
                 max_depth=topo.max_depth,
             )
+            # Generate deterministic short_addr from node name hash
+            import hashlib
+            name_hash = int(hashlib.md5(self.node_name.encode()).hexdigest(), 16)
+            deterministic_addr = (name_hash % 0xFFFE) + 1  # 1-65535, avoid 0 (coordinator)
             self.mesh_address = self.address_manager.assign_address(
                 self.node_name, NodeRole.ROUTER
             )
+            # Override the sequential short_addr with deterministic one
+            self.mesh_address.short = deterministic_addr
             self.tree_router = TreeRouter(self.mesh_address, self.address_manager)
             log.info(f"Router mode: address={self.mesh_address}")
         else:
@@ -1848,7 +1855,7 @@ echo "Status: ok"
                 return False
             log.info("AsyncPG connection pool established")
             # Initialize offline queue pool
-            self.offline_queue.init_pool(self._pg_pool)
+            await self.offline_queue.init_pool(self._pg_pool)
             await self.offline_queue.ensure_table()
             return True
         except Exception as e:
