@@ -676,7 +676,7 @@ class MeshNode:
         lower = ''.join(c for c in nfkd if not unicodedata.combining(c))
 
         # --- Code generation (check BEFORE file/network/diagnostic) ---
-        if any(kw in lower for kw in ("kod", "code", "script", "python", "bash", "javascript", "generalj", "generate", "irj", "write")):
+        if any(kw in lower for kw in ("kod", "code", "script", "python", "bash", "javascript", "generalj", "generate", "irj", "write", "szamold", "szamol", "oldd", "hatarozd", "keszits", "csinalj", "compute", "calcul")):
             return await self._task_code_generation(node, now, subject, desc_text)
 
         # --- Generate HTML status page ---
@@ -687,13 +687,22 @@ class MeshNode:
         if any(kw in lower for kw in ("diagnosztika", "diagnostico", "diagnostic", "analysis", "elemzes", "rendszer", "system info", "bench", "benchmark")):
             return await self._task_system_analysis(node, now)
 
-        # --- File operations ---
-        if any(kw in lower for kw in ("fajl", "file", "listazd", "list", "konyvtar", "directory", "ls", "cat ", "head ", "read file")):
+        # --- File operations (only explicit file/list commands) ---
+        if any(kw in lower for kw in ("fajl", "file ops", "konyvtar", "directory listing", "ls -", "cat /", "head /", "read file", "show files", "list dir", "list files")):
             return await self._task_file_ops(node, now, desc_text)
 
         # --- Network check ---
         if any(kw in lower for kw in ("ping", "halozat", "network", "dns", "ip", "port", "curl", "wget", "connect")):
             return await self._task_network_check(node, now, desc_text)
+
+        # --- Fallback heuristic: if no keyword matched, try to guess from subject ---
+        # Verbs suggesting action → code generation, nouns suggesting data → diagnostics
+        verb_hints = ("create", "make", "build", "write", "generate", "comput", "calcul", "process", "irj", "generalj", "keszits", "csinalj", "szamol", "szamold", "oldd", "hatarozd")
+        data_hints = ("check", "test", "status", "info", "show", "list", "get", "read", "ell", "vizsgal", "mutat", "listaz", "keres", "monitor", "diag")
+        if any(h in lower for h in verb_hints):
+            return await self._task_code_generation(node, now, subject, desc_text)
+        if any(h in lower for h in data_hints):
+            return await self._task_system_analysis(node, now)
 
         # --- Default: acknowledge ---
         return {
