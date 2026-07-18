@@ -86,7 +86,7 @@ class DashboardHandler:
         self.registry = AgentRegistry(auto_approve=auto_approve)
         self.smart_router = SmartRouter(self.registry)
         self.workflow_coordinator = WorkflowCoordinator(self.registry, self.smart_router)
-        self.rate_limiter = RateLimiter()
+        self.rate_limiter = RateLimiter(max_requests=300, window_seconds=60)
         self._users: Dict[str, DashboardUser] = {}
         self._message_history: List[dict] = []
         self._max_history = 200

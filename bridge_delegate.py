@@ -59,8 +59,8 @@ class BridgeClient:
             self._login()
         return {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
     
-    def _request(self, method: str, path: str, data: dict = None) -> dict:
-        """Make an authenticated API request."""
+    def _request(self, method: str, path: str, data: dict = None, _retries: int = 1) -> dict:
+        """Make an authenticated API request with retry on 429."""
         url = f"{self.host}{path}"
         body = json.dumps(data).encode() if data else None
         req = urllib.request.Request(url, data=body, headers=self._headers(), method=method)
@@ -69,6 +69,12 @@ class BridgeClient:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
             error_body = e.read().decode() if e.fp else str(e)
+            # Retry on 429 (rate limit) with backoff
+            if e.code == 429 and _retries > 0:
+                time.sleep(2 * (2 - _retries + 1))  # 2s, 4s backoff
+                # Force re-login (token might be stale)
+                self._token = None
+                return self._request(method, path, data, _retries=_retries - 1)
             try:
                 return json.loads(error_body)
             except json.JSONDecodeError:
