@@ -874,7 +874,7 @@ def cmd_init():
 
 
 def cmd_topology():
-    """Show mesh topology tree."""
+    """Show mesh topology tree — with cycle detection and orphan handling."""
     config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
     if os.path.exists(config_file):
         config = MeshConfig.from_yaml(config_file)
@@ -900,34 +900,75 @@ def cmd_topology():
         print("No nodes in topology — run 'a2a-mesh init' first")
         return
 
-    # Build tree
+    # Build tree — skip self-parent (cycle), collect orphans
     from a2a_mesh.core.topology import NodeRole
+    role_icon_map = {"coordinator": "⭐", "router": "📡", "end_device": "📱"}
     nodes_by_parent = {}
+    all_nodes = {}
     root = None
+    orphans = []
+
     for name, role, short_addr, depth, parent_addr in rows:
+        # Self-parent detection: node claims itself as parent
+        if parent_addr is not None and parent_addr == short_addr:
+            orphans.append((short_addr, name, role))
+            parent_addr = None  # Detach — will be rehomed under coordinator or shown as orphan
+
         parent_key = parent_addr if parent_addr is not None else None
         if parent_key not in nodes_by_parent:
             nodes_by_parent[parent_key] = []
-        role_icon = {"coordinator": "⭐", "router": "📡", "end_device": "📱"}.get(role, "❓")
-        nodes_by_parent[parent_key].append((short_addr, name, role, role_icon))
+        icon = role_icon_map.get(role, "❓")
+        nodes_by_parent[parent_key].append((short_addr, name, role, icon))
+        all_nodes[short_addr] = (short_addr, name, role, icon)
         if role == "coordinator":
-            root = (short_addr, name, role, role_icon)
+            root = (short_addr, name, role, icon)
+
+    # Orphan parent cleanup: if a node's parent doesn't exist in all_nodes, rehome it
+    valid_parents = set(all_nodes.keys()) | {None, 0}
+    for parent_key in list(nodes_by_parent.keys()):
+        if parent_key not in valid_parents:
+            orphan_children = nodes_by_parent.pop(parent_key)
+            nodes_by_parent.setdefault(None, []).extend(orphan_children)
+            for c in orphan_children:
+                orphans.append((c[0], c[1], c[2]))
+
+    # Fallback root: if no coordinator, use the first router or first node
+    if root is None:
+        for role_pref in ("router", "coordinator"):
+            for addr, node in all_nodes.items():
+                if node[2] == role_pref:
+                    root = node
+                    break
+            if root:
+                break
+        if root is None and all_nodes:
+            root = next(iter(all_nodes.values()))
 
     if root:
         print("Mesh Topology")
         print("=" * 50)
         _print_tree(root, nodes_by_parent, indent=0)
     else:
-        print("No coordinator found!")
+        print("No nodes found!")
 
-def _print_tree(node, nodes_by_parent, indent=0):
-    """Recursively print topology tree."""
+    # Show orphans (self-parent or missing parent)
+    if orphans:
+        print(f"⚠ Orphan nodes (self-parent or missing parent): {', '.join(f'{n} (0x{a:04X})' for a, n, r in orphans)}")
+
+def _print_tree(node, nodes_by_parent, indent=0, visited=None):
+    """Recursively print topology tree — cycle-safe."""
+    if visited is None:
+        visited = set()
     short_addr, name, role, icon = node
+    if short_addr in visited:
+        print(f"{'  ' * indent}└─ ⚠ CYCLE: {name} (0x{short_addr:04X}, {role}) — already visited")
+        return
+    visited.add(short_addr)
     prefix = "  " * indent + ("└─ " if indent > 0 else "")
     print(f"{prefix}{icon} {name} (0x{short_addr:04X}, {role})")
     children = nodes_by_parent.get(short_addr, [])
     for child in children:
-        _print_tree(child, nodes_by_parent, indent + 1)
+        _print_tree(child, nodes_by_parent, indent + 1, visited)
 
 
 def cmd_join(role: str, name: str, parent: str = ""):

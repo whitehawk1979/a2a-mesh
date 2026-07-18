@@ -1122,8 +1122,55 @@ class DashboardHandler:
 
         log.info(f"Dashboard user connected: {username} ({user_id}) auth={'yes' if auth_user else 'no'}")
 
-        # Send initial data
+        # Send initial data — include agents list so frontend can populate DM channels immediately
         try:
+            # Build agents list for the connected message
+            agents_data = []
+            status = self.node.get_status()
+            raw_transports = status.get("transports", {})
+            transport_inner = raw_transports
+            if isinstance(raw_transports, dict) and "transports" in raw_transports:
+                transport_inner = raw_transports["transports"]
+            self_transports = {}
+            for key in ("p2p", "pg", "pg_notify", "http", "ble"):
+                val = transport_inner.get(key, False)
+                if isinstance(val, str) and "available=True" in val:
+                    self_transports[key] = True
+                elif isinstance(val, str) and "available=False" in val:
+                    self_transports[key] = False
+                elif isinstance(val, bool):
+                    self_transports[key] = val
+                elif hasattr(val, "available"):
+                    self_transports[key] = val.available
+                else:
+                    self_transports[key] = bool(val)
+            agents_data.append({
+                "name": self.node.node_name,
+                "role": self.node.config.topology.node_role,
+                "status": "online",
+                "transports": {
+                    "p2p": self_transports.get("p2p", False),
+                    "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
+                    "http": self_transports.get("http", False),
+                },
+            })
+            for name, peer in self.node.peer_discovery.get_all_peers().items():
+                if peer.p2p_available and peer.pg_available:
+                    peer_status = "online"
+                elif peer.p2p_available:
+                    peer_status = "available"
+                else:
+                    peer_status = "offline"
+                agents_data.append({
+                    "name": peer.name,
+                    "role": peer.role,
+                    "status": peer_status,
+                    "transports": {
+                        "p2p": peer.p2p_available,
+                        "pg": peer.pg_available,
+                        "http": peer.http_available,
+                    },
+                })
             await ws.send_json({
                 "type": "connected",
                 "user_id": user_id,
@@ -1131,8 +1178,9 @@ class DashboardHandler:
                 "node": self.node.node_name,
                 "authenticated": auth_user is not None,
                 "role": auth_user.role if auth_user else "guest",
+                "agents": agents_data,
             })
-            await ws.send_json({"type": "status", "data": self.node.get_status()})
+            await ws.send_json({"type": "status", "data": status})
         except Exception:
             pass
 

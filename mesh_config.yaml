@@ -1,25 +1,16 @@
-# A2A Mesh Configuration — Nova node
-
 mesh:
-  node_name: nova
-  node_id: ""
-  
+  node_name: morzsa
+  node_id: ''
   transport_priority:
-    - p2p
-    - pg_notify
-    - http
-  
+  - p2p
+  - pg_notify
+  - http
   webhook_port: 8644
   webhook_secret: ${WEBHOOK_SECRET}
-  
   telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
-  
   log_file: ~/a2a_mesh/a2a_mesh.log
-  
   auth_mode: open
-  
   health_port: 8650
-  
   transports:
     pg_notify:
       host: 192.168.1.30
@@ -28,11 +19,10 @@ mesh:
       user: nova
       password: nova_agent_2026
       channels:
-        - a2a_channel
-        - a2a_steer_channel
-        - delegation_channel
-        - mesh_channel
-    
+      - a2a_channel
+      - a2a_steer_channel
+      - delegation_channel
+      - mesh_channel
     p2p:
       enabled: true
       listen_host: 0.0.0.0
@@ -44,13 +34,11 @@ mesh:
       tls_key: ~/a2a_mesh/certs/runa.key
       tls_ca: ~/a2a_mesh/certs/a2a-mesh-ca.crt
       tls_verify_peer: false
-    
     http:
       url: http://192.168.1.30:8199
       health_url: http://192.168.1.30:8198/health
       timeout: 5
       retries: 3
-  
   discovery:
     mdns:
       enabled: true
@@ -75,28 +63,24 @@ mesh:
           transport: p2p
   
   security:
-    signing_key: ""
+    signing_key: ''
     trusted_keys: {}
     encryption: nacl
     transport_auth: hmac
-  
   loop_prevention:
     self_reference_filter: true
     not_for_me_filter: true
     re_chain_limit: 4
     dedup_cache_size: 5000
     dedup_ttl: 300
-  
   auto_steer:
     priority_threshold: 10
     queue_lower_priorities: true
-  
   heartbeat:
     interval: 300
     warning_threshold: 300
     critical_threshold: 900
     silent_on_success: true
-  
   topology:
     node_role: router
     routing_mode: hybrid
@@ -113,14 +97,12 @@ mesh:
     coordinator_heartbeat_interval: 10
     enable_route_cache: true
     route_cache_ttl: 300
-
-  # Health-score-based topology auto-tuning
   topology_tuning:
     enabled: true
-    check_interval: 300        # seconds between evaluations (5 min)
-    promote_threshold: 0.9     # health score to promote end_device → router
-    demote_threshold: 0.3      # health score to demote router → end_device
-    coordinator_threshold: 0.5  # health score below which coordinator handover is suggested
-    min_observations: 10       # minimum requests before making recommendations
-    cooldown: 600              # seconds between role changes for the same node
-    auto_apply: false           # safety: only recommend, don't auto-apply
+    check_interval: 300
+    promote_threshold: 0.9
+    demote_threshold: 0.3
+    coordinator_threshold: 0.5
+    min_observations: 10
+    cooldown: 600
+    auto_apply: false

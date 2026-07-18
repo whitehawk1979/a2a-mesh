@@ -999,7 +999,18 @@ function initWebSocket() {
   ws.onmessage = function(e) {
     var data = JSON.parse(e.data);
     switch(data.type) {
-      case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
+      case "connected":
+        nodeId = data.node;
+        document.getElementById("nodeName").textContent = data.node;
+        // Populate DM channels from agents list in connected message
+        if (data.agents && data.agents.length > 0) {
+          data.agents.forEach(function(a) {
+            if (a.name !== nodeId) {
+              addDMChannel(a.name, a.status);
+            }
+          });
+        }
+        break;
       case "status": updateStatus(data.data); break;
       case "new_message": addMessage(data.message); incrementMsgCount(); break;
       case "file_transfer":
