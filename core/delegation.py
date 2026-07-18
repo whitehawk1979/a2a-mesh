@@ -250,17 +250,40 @@ class DelegationManager:
             asyncio.create_task(self._execute_task(task_dict))
 
     async def _poll_available(self):
-        """Poll for available tasks that this node can claim."""
+        """Poll for available tasks that this node can claim.
+        Only claim tasks where: (a) we have a handler for the task_type,
+        and (b) the task was NOT sent by us (avoid claiming our own tasks)."""
         rows = await self.pg_pool.fetch(
             """SELECT * FROM shared_delegations 
                WHERE status = $1 AND (expires_at IS NULL OR expires_at > NOW())
-               ORDER BY priority DESC, created_at ASC LIMIT 3""",
+               ORDER BY priority DESC, created_at ASC LIMIT 5""",
             STATUS_AVAILABLE,
         )
 
         for task in rows:
             task_dict = dict(task)
             task_id = task_dict.get("task_id", "")
+            from_agent = task_dict.get("from_agent", "")
+            
+            # Don't claim our own tasks — let other agents handle them
+            if from_agent == self.node_name:
+                continue
+            
+            # Check if we have a handler for this task type
+            description_data = task_dict.get("description", "{}")
+            try:
+                if isinstance(description_data, str):
+                    desc = json.loads(description_data)
+                else:
+                    desc = description_data
+            except (json.JSONDecodeError, TypeError):
+                desc = {"type": "generic"}
+            task_type = desc.get("type", "generic")
+            
+            # Only claim if we have a handler (or it's a generic type)
+            if task_type not in self._handlers and "generic" not in self._handlers:
+                continue
+            
             # Try to claim it
             claimed = await self.claim_task(task_id)
             if claimed:
@@ -416,3 +439,58 @@ class DelegationManager:
             stats[r["status"]] = r["cnt"]
         stats["total"] = sum(stats.values())
         return stats
+
+    # ── Shared Context ──
+
+    async def set_context(self, key: str, value: str, value_type: str = "text", expires_minutes: int = 0) -> bool:
+        """Set a shared context value. Available to all agents."""
+        expires_at = None
+        if expires_minutes > 0:
+            from datetime import datetime, timedelta, timezone
+            expires_at = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+        await self.pg_pool.execute(
+            """INSERT INTO shared_context (agent, context_key, context_value, value_type, expires_at)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (context_key) DO UPDATE SET
+               context_value = EXCLUDED.context_value,
+               value_type = EXCLUDED.value_type,
+               agent = EXCLUDED.agent,
+               updated_at = NOW(),
+               expires_at = EXCLUDED.expires_at""",
+            self.node_name, key, value, value_type, expires_at,
+        )
+        return True
+
+    async def get_context(self, key: str) -> Optional[str]:
+        """Get a shared context value."""
+        # Clean expired entries
+        await self.pg_pool.execute(
+            "DELETE FROM shared_context WHERE expires_at IS NOT NULL AND expires_at < NOW()"
+        )
+        row = await self.pg_pool.fetchrow(
+            "SELECT context_value FROM shared_context WHERE context_key = $1", key
+        )
+        return row["context_value"] if row else None
+
+    async def get_all_context(self, prefix: str = "") -> List[Dict]:
+        """Get all context entries, optionally filtered by key prefix."""
+        await self.pg_pool.execute(
+            "DELETE FROM shared_context WHERE expires_at IS NOT NULL AND expires_at < NOW()"
+        )
+        if prefix:
+            rows = await self.pg_pool.fetch(
+                "SELECT * FROM shared_context WHERE context_key LIKE $1 ORDER BY updated_at DESC",
+                prefix + "%",
+            )
+        else:
+            rows = await self.pg_pool.fetch(
+                "SELECT * FROM shared_context ORDER BY updated_at DESC LIMIT 50"
+            )
+        return [dict(r) for r in rows]
+
+    async def delete_context(self, key: str) -> bool:
+        """Delete a shared context entry."""
+        result = await self.pg_pool.execute(
+            "DELETE FROM shared_context WHERE context_key = $1", key
+        )
+        return "DELETE 1" in result

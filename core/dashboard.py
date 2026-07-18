@@ -187,6 +187,11 @@ class DashboardHandler:
         app.router.add_post("/api/delegations/{task_id}/reassign", self._api_delegations_reassign)
         app.router.add_post("/api/delegations/{task_id}/note", self._api_delegations_note)
         app.router.add_post("/api/delegations/{task_id}/progress", self._api_delegations_progress)
+        # Shared context API
+        app.router.add_get("/api/context", self._api_context_list)
+        app.router.add_get("/api/context/{key}", self._api_context_get)
+        app.router.add_post("/api/context", self._api_context_set)
+        app.router.add_delete("/api/context/{key}", self._api_context_delete)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -3580,7 +3585,7 @@ class DashboardHandler:
     # ── Delegation API endpoints ──
 
     async def _api_delegations_list(self, request):
-        """List delegations. GET /api/delegations?status=pending&direction=sent"""
+        """List delegations. GET /api/delegations?status=pending&agent=nova&task_type=monitoring"""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
@@ -3588,6 +3593,8 @@ class DashboardHandler:
         try:
             status = request.query.get("status")
             direction = request.query.get("direction", "all")
+            agent = request.query.get("agent")
+            task_type = request.query.get("task_type")
             limit = int(request.query.get("limit", "50"))
             
             if not self.node or not self.node.delegation:
@@ -3599,6 +3606,14 @@ class DashboardHandler:
                 tasks = await self.node.delegation.get_assigned_tasks(status=status)
             else:
                 tasks = await self.node.delegation.get_all_delegations(limit=limit)
+            
+            # Client-side filtering by agent and task_type
+            if agent:
+                tasks = [t for t in tasks if t.get("from_agent") == agent or t.get("to_agent") == agent or t.get("assigned_agent") == agent]
+            if task_type:
+                tasks = [t for t in tasks if t.get("task_type") == task_type]
+            if status:
+                tasks = [t for t in tasks if t.get("status") == status]
             
             # Convert UUID and datetime to strings for JSON
             for t in tasks:
@@ -3831,4 +3846,89 @@ class DashboardHandler:
                 return web.json_response({"error": "Task not found"}, status=404)
         except Exception as e:
             log.error(f"Progress error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ── Shared Context API ──
+
+    async def _api_context_list(self, request):
+        """List all shared context entries. GET /api/context?prefix=task_"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            prefix = request.query.get("prefix", "")
+            entries = await self.node.delegation.get_all_context(prefix)
+            for e in entries:
+                for k, v in e.items():
+                    if hasattr(v, 'hex'):
+                        e[k] = str(v)
+                    elif hasattr(v, 'isoformat'):
+                        e[k] = v.isoformat()
+            return web.json_response({"context": entries, "count": len(entries)})
+        except Exception as e:
+            log.error(f"Context list error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_context_get(self, request):
+        """Get a specific context value. GET /api/context/{key}"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            key = request.match_info.get("key")
+            value = await self.node.delegation.get_context(key)
+            if value is None:
+                return web.json_response({"error": "Key not found"}, status=404)
+            return web.json_response({"key": key, "value": value})
+        except Exception as e:
+            log.error(f"Context get error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_context_set(self, request):
+        """Set a shared context value. POST /api/context
+        Body: {key, value, type?, expires_minutes?}
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            key = data.get("key")
+            value = data.get("value")
+            if not key or value is None:
+                return web.json_response({"error": "key and value required"}, status=400)
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            value_type = data.get("type", "text")
+            expires = int(data.get("expires_minutes", "0"))
+            await self.node.delegation.set_context(key, str(value), value_type, expires)
+            return web.json_response({"key": key, "value": value, "set_by": self.node.node_name})
+        except Exception as e:
+            log.error(f"Context set error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_context_delete(self, request):
+        """Delete a shared context entry. DELETE /api/context/{key}"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            key = request.match_info.get("key")
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            success = await self.node.delegation.delete_context(key)
+            if success:
+                return web.json_response({"deleted": key})
+            else:
+                return web.json_response({"error": "Key not found"}, status=404)
+        except Exception as e:
+            log.error(f"Context delete error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)

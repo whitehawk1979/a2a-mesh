@@ -520,14 +520,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div id="delStats" style="margin-bottom:12px;font-size:12px;color:var(--text3)"></div>
 
     <!-- Filter -->
-    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+    <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
       <select id="delFilterStatus" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
-        <option value="">Összes</option>
+        <option value="">Összes státusz</option>
+        <option value="available">🔄 Elérhető</option>
         <option value="pending">⏳ Függő</option>
         <option value="accepted">✅ Elfogadott</option>
         <option value="running">🔄 Futó</option>
         <option value="completed">✔️ Kész</option>
         <option value="failed">❌ Sikertelen</option>
+        <option value="cancelled">🚫 Törölt</option>
+      </select>
+      <select id="delFilterAgent" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
+        <option value="">Összes agent</option>
+        <option value="nova">Nova</option>
+        <option value="morzsa">Morzsa</option>
+        <option value="runa">Runa</option>
+      </select>
+      <select id="delFilterType" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
+        <option value="">Összes típus</option>
+        <option value="monitoring">📊 Monitoring</option>
+        <option value="generic">🔧 Általános</option>
+        <option value="research">🔍 Kutatás</option>
+        <option value="maintenance">🛠️ Karbantartás</option>
       </select>
       <button class="btn btn-sm" onclick="loadDelegations()">🔄 Frissítés</button>
     </div>
@@ -1810,8 +1825,12 @@ function populateDelegationTargets() {
 
 function loadDelegations() {
   var status = document.getElementById('delFilterStatus').value;
+  var agent = document.getElementById('delFilterAgent').value;
+  var taskType = document.getElementById('delFilterType').value;
   var url = "/api/delegations?limit=50";
   if (status) url += "&status=" + status;
+  if (agent) url += "&agent=" + agent;
+  if (taskType) url += "&task_type=" + taskType;
   fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
