@@ -112,6 +112,9 @@ class P2PTransport(TransportAdapter):
         # Reverse-lookup: writer → peer_name
         self._writer_to_peer: Dict[int, str] = {}
 
+        # Connection generation tracking — prevents stale finally from removing peer on dual-connect
+        self._peer_generation: Dict[str, int] = {}
+
         # Adaptive backoff state
         self._backoff_random = __import__('random').Random()  # Per-instance RNG for jitter
 
@@ -391,6 +394,10 @@ class P2PTransport(TransportAdapter):
                         # Register writer for this peer so future messages route correctly
                         self._peers[connected_peer_name] = (reader, writer)
                         self._writer_to_peer[id(writer)] = connected_peer_name
+                        # Bump generation for incoming (dedup) connection
+                        gen = self._peer_generation.get(connected_peer_name, 0) + 1
+                        self._peer_generation[connected_peer_name] = gen
+                        writer._a2a_gen = gen
                         # FIX: Clear backoff and retry count for incoming connections too
                         self._peer_backoff.pop(connected_peer_name, None)
                         self._peer_retry_count[connected_peer_name] = 0
@@ -433,14 +440,26 @@ class P2PTransport(TransportAdapter):
             except Exception:
                 pass
             # Remove dead peer from _peers dict so send() doesn't try to use it
+            # But only if this connection's generation matches the current one —
+            # a stale (dedup'd) connection should NOT remove the peer entry
             removed = None
             for pname, (pr, pw) in list(self._peers.items()):
                 if pw is writer:
+                    current_gen = self._peer_generation.get(pname, 0)
+                    our_gen = getattr(writer, '_a2a_gen', current_gen)
+                    if our_gen != current_gen:
+                        log.info(f"Stale connection for {pname} (gen {our_gen} != current {current_gen}), skipping peer removal")
+                        # Still clean up our writer mapping
+                        self._writer_to_peer.pop(id(writer), None)
+                        removed = True  # Mark as handled so we don't log "was not in peers dict"
+                        break
                     removed = self._peers.pop(pname, None)
                     self._writer_to_peer.pop(id(writer), None)
                     self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
                     # P2: Clean up connection task tracking
                     self._connection_tasks.pop(pname, None)
+                    # Clean up generation tracking
+                    self._peer_generation.pop(pname, None)
                     # Clean up priority send queue for disconnected peer
                     send_task = self._send_tasks.pop(pname, None)
                     if send_task and not send_task.done():
@@ -576,6 +595,10 @@ class P2PTransport(TransportAdapter):
             self._peers[name] = (reader, writer)
             self._peer_addresses[name] = f"{host}:{port}"
             self._writer_to_peer[id(writer)] = name
+            # Bump generation for outgoing connection
+            gen = self._peer_generation.get(name, 0) + 1
+            self._peer_generation[name] = gen
+            writer._a2a_gen = gen
             # P2: Track connection start time for age-based reconnection
             self._peer_connected_at[name] = time.time()
             # Reset retry count on success
