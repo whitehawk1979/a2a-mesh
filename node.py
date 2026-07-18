@@ -668,26 +668,31 @@ class MeshNode:
             desc_text = desc_raw if desc_raw else subject
 
         # ── Task dispatcher based on keywords ────────────────────────
-        lower = (subject + " " + desc_text).lower()
+        # Normalize: remove diacritics for matching (írj -> irj, fájl -> fajl)
+        import unicodedata
+        lower_raw = (subject + " " + desc_text).lower()
+        # Also create an ASCII-normalized version for matching
+        nfkd = unicodedata.normalize('NFKD', lower_raw)
+        lower = ''.join(c for c in nfkd if not unicodedata.combining(c))
+
+        # --- Code generation (check BEFORE file/network/diagnostic) ---
+        if any(kw in lower for kw in ("kod", "code", "script", "python", "bash", "javascript", "generalj", "generate", "irj", "write")):
+            return await self._task_code_generation(node, now, subject, desc_text)
 
         # --- Generate HTML status page ---
-        if any(kw in lower for kw in ("html", "weboldal", "web oldal", "státuszoldal", "status page", "statuszoldal")):
+        if any(kw in lower for kw in ("html", "weboldal", "web oldal", "statuszoldal", "status page")):
             return await self._task_html_status(node, now)
 
         # --- System analysis / diagnostics ---
-        if any(kw in lower for kw in ("diagnosztika", "diagnóstico", "diagnostic", "analysis", "elemzés", "rendszer", "system info", "bench", "benchmark")):
+        if any(kw in lower for kw in ("diagnosztika", "diagnostico", "diagnostic", "analysis", "elemzes", "rendszer", "system info", "bench", "benchmark")):
             return await self._task_system_analysis(node, now)
 
         # --- File operations ---
-        if any(kw in lower for kw in ("fájl", "file", "listázd", "list", "könyvtár", "directory", "ls", "cat ", "head ", "read file")):
+        if any(kw in lower for kw in ("fajl", "file", "listazd", "list", "konyvtar", "directory", "ls", "cat ", "head ", "read file")):
             return await self._task_file_ops(node, now, desc_text)
 
-        # --- Code generation ---
-        if any(kw in lower for kw in ("kód", "code", "script", "python", "bash", "javascript", "generálj", "generate", "írj", "write")):
-            return await self._task_code_generation(node, now, subject, desc_text)
-
         # --- Network check ---
-        if any(kw in lower for kw in ("ping", "hálózat", "network", "dns", "ip", "port", "curl", "wget", "connect")):
+        if any(kw in lower for kw in ("ping", "halozat", "network", "dns", "ip", "port", "curl", "wget", "connect")):
             return await self._task_network_check(node, now, desc_text)
 
         # --- Default: acknowledge ---
