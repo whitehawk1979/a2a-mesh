@@ -654,7 +654,7 @@ function addMessage(msg, scroll) {
   channelMessages[channel].push(msg);
   if (channelMessages[channel].length > 200) channelMessages[channel].shift();
 
-  // Show in current view if it matches
+  // Show in current view if it matches current channel
   if (channel === currentChannel) {
     addMessageToDOM(msg, scroll);
   } else {
@@ -724,6 +724,11 @@ function sendMessage() {
 function scrollToBottom() {
   var el = document.getElementById("messages");
   el.scrollTop = el.scrollHeight;
+}
+
+function incrementMsgCount() {
+  var el = document.getElementById("msgCount");
+  if (el) el.textContent = parseInt(el.textContent || "0") + 1;
 }
 
 function deleteMessage(msgId) {
@@ -844,7 +849,7 @@ function initWebSocket() {
     switch(data.type) {
       case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
       case "status": updateStatus(data.data); break;
-      case "new_message": addMessage(data.message); break;
+      case "new_message": addMessage(data.message); incrementMsgCount(); break;
       case "file_transfer":
         // Show file transfer notification in chat
         var ftMsg = {
@@ -889,6 +894,7 @@ function loadMessages() {
     channelMessages = {};
     channelMessages[currentChannel || "general"] = [];
     d.messages.reverse().forEach(function(m) { addMessage(m, false); });
+    document.getElementById("msgCount").textContent = d.total || d.messages.length;
     scrollToBottom();
   }).catch(function() {});
 }
