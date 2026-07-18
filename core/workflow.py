@@ -217,7 +217,7 @@ class WorkflowCoordinator:
                     workflow.status = TaskStatus.FAILED
                     return self._build_result(workflow)
 
-                log.info(f"  Layer {layer_idx}: {len(layer)} parallel tasks (remaining={remaining:.1f}s)")
+                log.info(f"  Layer {layer_idx}: {len(layer)} parallel tasks" + (f" (remaining={remaining:.1f}s)" if remaining is not None else ""))
 
                 # Fan-out: execute all tasks in this layer concurrently
                 try:
@@ -420,7 +420,8 @@ class WorkflowCoordinator:
 
             task.status = TaskStatus.COMPLETED
             task.completed_at = time.time()
-            log.info(f"Task '{task.name}' ({task.id}) completed in {task.duration_ms:.0f}ms via {task.assigned_agent}")
+            dur = f"{task.duration_ms:.0f}ms" if task.duration_ms is not None else "?ms"
+            log.info(f"Task '{task.name}' ({task.id}) completed in {dur} via {task.assigned_agent}")
 
         except asyncio.TimeoutError:
             task.status = TaskStatus.TIMEOUT
