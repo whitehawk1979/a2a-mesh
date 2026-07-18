@@ -299,11 +299,11 @@ class MeshConfig:
         # Discovery config
         disc_data = mesh.get('discovery', {})
         if disc_data:
-            static_nodes = disc_data.get('static', {}).get('nodes', [])
+            static_nodes = disc_data.get('static', {}).get('nodes', []) or disc_data.get('static_nodes', [])
             config.discovery = DiscoveryConfig(
-                mdns_enabled=disc_data.get('mdns', {}).get('enabled', True),
+                mdns_enabled=disc_data.get('mdns', {}).get('enabled', disc_data.get('mdns_enabled', True)),
                 mdns_service=disc_data.get('mdns', {}).get('service', '_a2a._tcp'),
-                mdns_port=disc_data.get('mdns', {}).get('port', 8645),
+                mdns_port=disc_data.get('mdns', {}).get('port', disc_data.get('mdns_port', 8645)),
                 udp_broadcast_enabled=disc_data.get('udp_broadcast', {}).get('enabled', True),
                 udp_broadcast_port=disc_data.get('udp_broadcast', {}).get('port', 8646),
                 udp_broadcast_interval=disc_data.get('udp_broadcast', {}).get('interval', 15),

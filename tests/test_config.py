@@ -156,3 +156,60 @@ mesh:
             os.unlink(f.name)
         finally:
             _restore_env(saved)
+
+    def test_from_yaml_discovery_static_nodes_nested(self):
+        """Test discovery.static.nodes (nested YAML format) is loaded."""
+        saved = _isolate_env()
+        try:
+            yaml_content = """
+mesh:
+  node_name: test_nested
+  discovery:
+    static:
+      nodes:
+        - name: nova
+          ip: 192.168.1.8
+          p2p_port: 8645
+        - name: runa
+          ip: 192.168.1.30
+          p2p_port: 8646
+"""
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                f.write(yaml_content)
+                f.flush()
+                config = MeshConfig.from_yaml(f.name)
+
+            assert len(config.discovery.static_nodes) == 2
+            assert config.discovery.static_nodes[0]['name'] == 'nova'
+            assert config.discovery.static_nodes[1]['name'] == 'runa'
+            os.unlink(f.name)
+        finally:
+            _restore_env(saved)
+
+    def test_from_yaml_discovery_static_nodes_flat(self):
+        """Test discovery.static_nodes (flat YAML format) is loaded — backward compat."""
+        saved = _isolate_env()
+        try:
+            yaml_content = """
+mesh:
+  node_name: test_flat
+  discovery:
+    static_nodes:
+      - name: nova
+        ip: 192.168.1.8
+        p2p_port: 8645
+      - name: runa
+        ip: 192.168.1.30
+        p2p_port: 8646
+"""
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+                f.write(yaml_content)
+                f.flush()
+                config = MeshConfig.from_yaml(f.name)
+
+            assert len(config.discovery.static_nodes) == 2
+            assert config.discovery.static_nodes[0]['name'] == 'nova'
+            assert config.discovery.static_nodes[1]['name'] == 'runa'
+            os.unlink(f.name)
+        finally:
+            _restore_env(saved)
