@@ -183,6 +183,7 @@ def main():
     parser.add_argument("--poll-interval", type=int, default=5, help="Poll interval in seconds")
     parser.add_argument("--available", action="store_true", help="Make task available for any agent to claim")
     parser.add_argument("--fan-out", type=int, default=0, help="Create N identical tasks (first to complete wins, others cancelled)")
+    parser.add_argument("--wait-all", action="store_true", help="For fan-out: wait for ALL tasks to complete and show aggregated results")
     parser.add_argument("--host", default=DEFAULT_HOST, help="A2A Mesh host URL")
     parser.add_argument("--user", default=DEFAULT_USER, help="Auth username")
     parser.add_argument("--password", default=DEFAULT_PASS, help="Auth password")
@@ -202,11 +203,35 @@ def main():
             context=ctx, available=args.available or to == "any",
             fan_out=getattr(args, 'fan_out', 0) or 0,
         )
-        # fan_out returns list of task_ids
-        if isinstance(result, list):
-            print(json.dumps(result, indent=2))
+        # fan_out returns dict with task_ids
+        task_ids = []
+        if isinstance(result, dict) and "task_ids" in result:
+            task_ids = result["task_ids"]
+            if args.wait_all and task_ids:
+                print(f"Waiting for {len(task_ids)} fan-out tasks to complete...", file=sys.stderr)
+                aggregated = []
+                for tid in task_ids:
+                    start = time.time()
+                    remaining = args.timeout
+                    while remaining > 0:
+                        s = client.status(tid)
+                        status = s.get("status", "unknown")
+                        if status in ("completed", "failed", "cancelled"):
+                            aggregated.append(s)
+                            break
+                        time.sleep(args.poll_interval)
+                        remaining = args.timeout - (time.time() - start)
+                    else:
+                        aggregated.append({"task_id": tid, "status": "timeout"})
+                # Summarize
+                completed = [a for a in aggregated if a.get("status") == "completed"]
+                failed = [a for a in aggregated if a.get("status") != "completed"]
+                print(f"\nFan-out results: {len(completed)} completed, {len(failed)} failed/timeout", file=sys.stderr)
+                print(json.dumps(aggregated, indent=2, ensure_ascii=False))
+            else:
+                print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
-            print(json.dumps(result, indent=2))
+            print(json.dumps(result, indent=2, ensure_ascii=False))
     
     elif args.command == "delegate":
         if not args.subject:

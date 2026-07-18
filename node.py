@@ -202,6 +202,9 @@ class MeshNode:
         self.topology_tuner = TopologyTuner(self, config=self.config)
         # Debounce peer offline broadcasts — prevent broadcast storms during P2P flapping
         self._peer_offline_debounce: dict[str, float] = {}  # peer_name -> last_broadcast_time
+        # Grace period tasks — delayed offline broadcasts cancelled on reconnect
+        self._peer_offline_grace_tasks: dict[str, asyncio.Task] = {}  # peer_name -> pending broadcast task
+        self._peer_offline_grace_seconds: int = 30  # wait before declaring peer offline
 
         # Rate limit skills announcements — min 60s between announcements to prevent flooding
         self._last_skills_announcement: float = 0
@@ -668,27 +671,41 @@ class MeshNode:
             desc_text = desc_raw if desc_raw else subject
 
         # ── Task dispatcher based on keywords ────────────────────────
-        lower = (subject + " " + desc_text).lower()
+        # Normalize: remove diacritics for matching (írj -> irj, fájl -> fajl)
+        import unicodedata
+        lower_raw = (subject + " " + desc_text).lower()
+        # Also create an ASCII-normalized version for matching
+        nfkd = unicodedata.normalize('NFKD', lower_raw)
+        lower = ''.join(c for c in nfkd if not unicodedata.combining(c))
+
+        # --- Code generation (check BEFORE file/network/diagnostic) ---
+        if any(kw in lower for kw in ("kod", "code", "script", "python", "bash", "javascript", "generalj", "generate", "irj", "write", "szamold", "szamol", "oldd", "hatarozd", "keszits", "csinalj", "compute", "calcul")):
+            return await self._task_code_generation(node, now, subject, desc_text)
 
         # --- Generate HTML status page ---
-        if any(kw in lower for kw in ("html", "weboldal", "web oldal", "státuszoldal", "status page", "statuszoldal")):
+        if any(kw in lower for kw in ("html", "weboldal", "web oldal", "statuszoldal", "status page")):
             return await self._task_html_status(node, now)
 
         # --- System analysis / diagnostics ---
-        if any(kw in lower for kw in ("diagnosztika", "diagnóstico", "diagnostic", "analysis", "elemzés", "rendszer", "system info", "bench", "benchmark")):
+        if any(kw in lower for kw in ("diagnosztika", "diagnostico", "diagnostic", "analysis", "elemzes", "rendszer", "system info", "bench", "benchmark")):
             return await self._task_system_analysis(node, now)
 
-        # --- File operations ---
-        if any(kw in lower for kw in ("fájl", "file", "listázd", "list", "könyvtár", "directory", "ls", "cat ", "head ", "read file")):
+        # --- File operations (only explicit file/list commands) ---
+        if any(kw in lower for kw in ("fajl", "file ops", "konyvtar", "directory listing", "ls -", "cat /", "head /", "read file", "show files", "list dir", "list files")):
             return await self._task_file_ops(node, now, desc_text)
 
-        # --- Code generation ---
-        if any(kw in lower for kw in ("kód", "code", "script", "python", "bash", "javascript", "generálj", "generate", "írj", "write")):
-            return await self._task_code_generation(node, now, subject, desc_text)
-
         # --- Network check ---
-        if any(kw in lower for kw in ("ping", "hálózat", "network", "dns", "ip", "port", "curl", "wget", "connect")):
+        if any(kw in lower for kw in ("ping", "halozat", "network", "dns", "ip", "port", "curl", "wget", "connect")):
             return await self._task_network_check(node, now, desc_text)
+
+        # --- Fallback heuristic: if no keyword matched, try to guess from subject ---
+        # Verbs suggesting action → code generation, nouns suggesting data → diagnostics
+        verb_hints = ("create", "make", "build", "write", "generate", "comput", "calcul", "process", "irj", "generalj", "keszits", "csinalj", "szamol", "szamold", "oldd", "hatarozd")
+        data_hints = ("check", "test", "status", "info", "show", "list", "get", "read", "ell", "vizsgal", "mutat", "listaz", "keres", "monitor", "diag")
+        if any(h in lower for h in verb_hints):
+            return await self._task_code_generation(node, now, subject, desc_text)
+        if any(h in lower for h in data_hints):
+            return await self._task_system_analysis(node, now)
 
         # --- Default: acknowledge ---
         return {
@@ -1238,6 +1255,12 @@ echo "Status: ok"
         else:
             log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
 
+        # Cancel pending grace-period offline broadcast — peer reconnected
+        pending_task = self._peer_offline_grace_tasks.pop(peer_name, None)
+        if pending_task and not pending_task.done():
+            pending_task.cancel()
+            log.info(f"Cancelled pending offline broadcast for {peer_name} — peer reconnected during grace period")
+
         # Notify plugins about peer connection
         if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
             asyncio.create_task(self.plugin_loader.dispatch_peer_connected(peer_name, peer or {}))
@@ -1317,57 +1340,82 @@ echo "Status: ok"
                 log.info(f"Skills announcement sent to {peer_name} via {sent_via}: {[s.get('id','?') for s in skills]}")
 
     async def _on_p2p_peer_disconnected(self, peer_name: str):
-        """Callback when a P2P peer disconnects. Broadcasts offline notification to the mesh.
+        """Callback when a P2P peer disconnects. Schedules a grace-period offline broadcast.
 
-        When a peer disconnects from us, we broadcast a 'peer_offline' message so other
-        nodes can update their routing tables and health scorers.
-        
-        Debounced: only broadcasts if 60 seconds have passed since the last broadcast
-        for this peer, preventing broadcast storms during P2P connection flapping.
+        Instead of immediately broadcasting peer_offline, we start a grace period
+        (default 30s). If the peer reconnects within the grace period, the pending
+        broadcast is cancelled — this eliminates false offline alerts during restarts
+        and brief connection drops. After the grace period, the offline broadcast
+        proceeds with the existing debounce logic.
         """
         import time
-        
-        # Debounce: skip if we broadcast for this peer recently (within 60s)
-        now = time.time()
-        last_broadcast = self._peer_offline_debounce.get(peer_name, 0)
-        if now - last_broadcast < 60:
-            log.info(f"Peer {peer_name} disconnected — debouncing offline broadcast (last was {now - last_broadcast:.0f}s ago)")
-            # Still mark as P2P unavailable in discovery even when debouncing
-            if self.peer_discovery and peer_name in self.peer_discovery._peers:
-                self.peer_discovery._peers[peer_name].p2p_available = False
-            return
-        
-        self._peer_offline_debounce[peer_name] = now
-        log.warning(f"Peer {peer_name} disconnected from P2P — broadcasting offline notification")
 
-        # Record failure in health scorer
-        if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
-            self.router._health_scorer.record_failure(peer_name)
-
-        # Broadcast peer_offline to the mesh
-        try:
-            offline_msg = A2AMessage.create(
-                sender=self.node_name,
-                recipient="broadcast",
-                msg_type="peer_offline",
-                payload={
-                    "type": "peer_offline",
-                    "peer_name": peer_name,
-                    "source": self.node_name,
-                    "timestamp": time.time(),
-                },
-                priority=7,  # High priority — routing info needs fast propagation
-            )
-            await self.router.send(offline_msg)
-            log.info(f"Broadcast peer_offline for {peer_name}")
-        except Exception as e:
-            log.error(f"Failed to broadcast peer_offline for {peer_name}: {e}")
-
-        # Update peer discovery status
+        # Mark P2P unavailable immediately (routing accuracy)
         if self.peer_discovery and peer_name in self.peer_discovery._peers:
-            peer = self.peer_discovery._peers[peer_name]
-            peer.p2p_available = False
-            log.info(f"Marked peer {peer_name} as P2P unavailable in discovery")
+            self.peer_discovery._peers[peer_name].p2p_available = False
+
+        # Cancel any existing grace task for this peer (shouldn't happen, but be safe)
+        existing_task = self._peer_offline_grace_tasks.get(peer_name)
+        if existing_task and not existing_task.done():
+            existing_task.cancel()
+
+        # Schedule delayed offline broadcast with grace period
+        grace_seconds = self._peer_offline_grace_seconds
+        log.info(f"Peer {peer_name} disconnected — scheduling offline broadcast after {grace_seconds}s grace period")
+
+        async def _grace_period_broadcast():
+            """Wait grace period, then broadcast peer_offline if not cancelled."""
+            try:
+                await asyncio.sleep(grace_seconds)
+            except asyncio.CancelledError:
+                log.info(f"Grace period cancelled for {peer_name} — peer reconnected, skipping offline broadcast")
+                self._peer_offline_debounce.pop(peer_name, None)
+                return
+
+            # Grace period expired — peer is genuinely offline
+            now = time.time()
+            last_broadcast = self._peer_offline_debounce.get(peer_name, 0)
+            if now - last_broadcast < 60:
+                log.info(f"Peer {peer_name} offline grace expired — debouncing (last broadcast {now - last_broadcast:.0f}s ago)")
+                self._peer_offline_grace_tasks.pop(peer_name, None)
+                return
+
+            self._peer_offline_debounce[peer_name] = now
+            log.warning(f"Peer {peer_name} offline grace expired — broadcasting offline notification")
+
+            # Record failure in health scorer
+            if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
+                self.router._health_scorer.record_failure(peer_name)
+
+            # Broadcast peer_offline to the mesh
+            try:
+                offline_msg = A2AMessage.create(
+                    sender=self.node_name,
+                    recipient="broadcast",
+                    msg_type="peer_offline",
+                    payload={
+                        "type": "peer_offline",
+                        "peer_name": peer_name,
+                        "source": self.node_name,
+                        "timestamp": time.time(),
+                    },
+                    priority=7,  # High priority — routing info needs fast propagation
+                )
+                await self.router.send(offline_msg)
+                log.info(f"Broadcast peer_offline for {peer_name}")
+            except Exception as e:
+                log.error(f"Failed to broadcast peer_offline for {peer_name}: {e}")
+
+            # Update peer discovery status
+            if self.peer_discovery and peer_name in self.peer_discovery._peers:
+                peer = self.peer_discovery._peers[peer_name]
+                peer.p2p_available = False
+                log.info(f"Marked peer {peer_name} as P2P unavailable in discovery")
+
+            self._peer_offline_grace_tasks.pop(peer_name, None)
+
+        task = asyncio.create_task(_grace_period_broadcast())
+        self._peer_offline_grace_tasks[peer_name] = task
 
     async def _on_peer_discovered(self, peer_name: str):
         """Callback when a new peer is discovered (via PG or static config).

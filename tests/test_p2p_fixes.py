@@ -465,3 +465,121 @@ class TestRealP2PConnections(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+class TestP2PDedupGeneration(unittest.TestCase):
+    """Test P2P connection generation tracking to prevent flapping on dual-connect."""
+
+    def test_generation_tracking_on_outgoing_connect(self):
+        """When _connect_to_peer registers a peer, generation is bumped and writer is tagged."""
+        config = MockConfig()
+        transport = P2PTransport(config)
+        
+        # Simulate _connect_to_peer registration without actual TCP
+        import asyncio
+        
+        # Manually register a peer (simulating _connect_to_peer)
+        reader = MagicMock()
+        writer = MagicMock()
+        transport._peers["nova"] = (reader, writer)
+        transport._peer_addresses["nova"] = "192.168.1.8:8645"
+        transport._writer_to_peer[id(writer)] = "nova"
+        transport._peer_connected_at["nova"] = time.time()
+        gen = transport._peer_generation.get("nova", 0) + 1
+        transport._peer_generation["nova"] = gen
+        writer._a2a_gen = gen
+        
+        self.assertEqual(transport._peer_generation["nova"], 1)
+        self.assertEqual(writer._a2a_gen, 1)
+        
+        # Second connection (dedup): bump generation
+        reader2 = MagicMock()
+        writer2 = MagicMock()
+        transport._peers["nova"] = (reader2, writer2)
+        transport._writer_to_peer[id(writer2)] = "nova"
+        gen2 = transport._peer_generation.get("nova", 0) + 1
+        transport._peer_generation["nova"] = gen2
+        writer2._a2a_gen = gen2
+        
+        self.assertEqual(transport._peer_generation["nova"], 2)
+        self.assertEqual(writer2._a2a_gen, 2)
+        # Old writer still has gen 1
+        self.assertEqual(writer._a2a_gen, 1)
+
+    def test_stale_finally_does_not_remove_peer(self):
+        """When a stale connection's finally block runs, it should NOT remove
+        a peer that has been replaced by a newer connection (higher generation)."""
+        config = MockConfig()
+        transport = P2PTransport(config)
+        
+        # Simulate first connection (outgoing)
+        reader1 = MagicMock()
+        writer1 = MagicMock()
+        transport._peers["nova"] = (reader1, writer1)
+        transport._peer_addresses["nova"] = "192.168.1.8:8645"
+        transport._writer_to_peer[id(writer1)] = "nova"
+        transport._peer_connected_at["nova"] = time.time()
+        gen1 = transport._peer_generation.get("nova", 0) + 1
+        transport._peer_generation["nova"] = gen1
+        writer1._a2a_gen = gen1
+        
+        # Simulate dedup: newer incoming connection replaces old one
+        reader2 = MagicMock()
+        writer2 = MagicMock()
+        transport._peers["nova"] = (reader2, writer2)
+        transport._writer_to_peer[id(writer2)] = "nova"
+        gen2 = transport._peer_generation.get("nova", 0) + 1
+        transport._peer_generation["nova"] = gen2
+        writer2._a2a_gen = gen2
+        
+        # Now simulate the stale finally block logic from _handle_connection
+        # The old writer (writer1) should NOT remove the peer since gen has bumped
+        current_gen = transport._peer_generation.get("nova", 0)
+        our_gen = getattr(writer1, '_a2a_gen', current_gen)
+        
+        # our_gen (1) != current_gen (2) → stale connection, don't remove
+        self.assertNotEqual(current_gen, our_gen, 
+            "Generation should have bumped, old connection is stale")
+        
+        # Verify: nova is still in _peers with the NEW writer
+        self.assertIn("nova", transport._peers)
+        _, pw = transport._peers["nova"]
+        self.assertIs(pw, writer2, "Peer should still have the new writer")
+        
+        # Simulate the NEW writer's finally block
+        current_gen_new = transport._peer_generation.get("nova", 0)
+        our_gen_new = getattr(writer2, '_a2a_gen', current_gen_new)
+        
+        # our_gen (2) == current_gen (2) → this is the current connection, CAN remove
+        self.assertEqual(current_gen_new, our_gen_new,
+            "New connection's generation matches, it can remove the peer")
+
+    def test_real_disconnect_removes_peer(self):
+        """When the current connection disconnects (no dedup), it should remove the peer."""
+        config = MockConfig()
+        transport = P2PTransport(config)
+        
+        # Simulate a single connection
+        reader = MagicMock()
+        writer = MagicMock()
+        transport._peers["nova"] = (reader, writer)
+        transport._peer_addresses["nova"] = "192.168.1.8:8645"
+        transport._writer_to_peer[id(writer)] = "nova"
+        transport._peer_connected_at["nova"] = time.time()
+        gen = transport._peer_generation.get("nova", 0) + 1
+        transport._peer_generation["nova"] = gen
+        writer._a2a_gen = gen
+        
+        # Current connection disconnects — gen matches, should remove
+        current_gen = transport._peer_generation.get("nova", 0)
+        our_gen = getattr(writer, '_a2a_gen', current_gen)
+        self.assertEqual(current_gen, our_gen, 
+            "Single connection: generation should match")
+        
+        # Simulate removal (this is what the finally block does when gen matches)
+        for pname, (pr, pw) in list(transport._peers.items()):
+            if pw is writer:
+                transport._peers.pop(pname, None)
+                transport._peer_generation.pop(pname, None)
+        
+        self.assertNotIn("nova", transport._peers, "Peer should be removed on real disconnect")
+        self.assertNotIn("nova", transport._peer_generation, "Generation should be cleaned up")

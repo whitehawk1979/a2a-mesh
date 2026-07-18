@@ -906,43 +906,27 @@ def cmd_topology():
     nodes_by_parent = {}
     all_nodes = {}
     root = None
-    orphans = []
-
+    all_addrs = set()
     for name, role, short_addr, depth, parent_addr in rows:
-        # Self-parent detection: node claims itself as parent
-        if parent_addr is not None and parent_addr == short_addr:
-            orphans.append((short_addr, name, role))
-            parent_addr = None  # Detach — will be rehomed under coordinator or shown as orphan
-
+        all_addrs.add(short_addr)
+    for name, role, short_addr, depth, parent_addr in rows:
+        # Skip self-referencing: node cannot be its own parent
+        if parent_addr == short_addr:
+            parent_addr = None
         parent_key = parent_addr if parent_addr is not None else None
+        # Skip orphan parent refs (parent doesn't exist in known nodes)
+        if parent_key is not None and parent_key not in all_addrs:
+            parent_key = None
         if parent_key not in nodes_by_parent:
             nodes_by_parent[parent_key] = []
         icon = role_icon_map.get(role, "❓")
         nodes_by_parent[parent_key].append((short_addr, name, role, icon))
         all_nodes[short_addr] = (short_addr, name, role, icon)
         if role == "coordinator":
-            root = (short_addr, name, role, icon)
-
-    # Orphan parent cleanup: if a node's parent doesn't exist in all_nodes, rehome it
-    valid_parents = set(all_nodes.keys()) | {None, 0}
-    for parent_key in list(nodes_by_parent.keys()):
-        if parent_key not in valid_parents:
-            orphan_children = nodes_by_parent.pop(parent_key)
-            nodes_by_parent.setdefault(None, []).extend(orphan_children)
-            for c in orphan_children:
-                orphans.append((c[0], c[1], c[2]))
-
-    # Fallback root: if no coordinator, use the first router or first node
-    if root is None:
-        for role_pref in ("router", "coordinator"):
-            for addr, node in all_nodes.items():
-                if node[2] == role_pref:
-                    root = node
-                    break
-            if root:
-                break
-        if root is None and all_nodes:
-            root = next(iter(all_nodes.values()))
+            root = (short_addr, name, role, role_icon)
+    # Fallback: if no coordinator, pick first node with no parent
+    if root is None and nodes_by_parent.get(None):
+        root = nodes_by_parent[None][0]
 
     if root:
         print("Mesh Topology")
@@ -951,17 +935,14 @@ def cmd_topology():
     else:
         print("No nodes found!")
 
-    # Show orphans (self-parent or missing parent)
-    if orphans:
-        print(f"⚠ Orphan nodes (self-parent or missing parent): {', '.join(f'{n} (0x{a:04X})' for a, n, r in orphans)}")
-
 def _print_tree(node, nodes_by_parent, indent=0, visited=None):
-    """Recursively print topology tree — cycle-safe."""
+    """Recursively print topology tree with cycle detection."""
     if visited is None:
         visited = set()
     short_addr, name, role, icon = node
     if short_addr in visited:
-        print(f"{'  ' * indent}└─ ⚠ CYCLE: {name} (0x{short_addr:04X}, {role}) — already visited")
+        prefix = "  " * indent + ("└─ " if indent > 0 else "")
+        print(f"{prefix}{icon} {name} (0x{short_addr:04X}, {role}) [CYCLE DETECTED]")
         return
     visited.add(short_addr)
     prefix = "  " * indent + ("└─ " if indent > 0 else "")

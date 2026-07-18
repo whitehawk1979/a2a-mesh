@@ -38,8 +38,15 @@ STATUS_EXPIRED = "expired"
 
 
 def _safe_ascii(text: str) -> str:
-    """Make text safe for SQL_ASCII databases — encode non-ASCII chars as \\uXXXX."""
-    return text.encode("ascii", "backslashreplace").decode("ascii")
+    """Make text safe for SQL_ASCII databases.
+    First normalizes diacritics (írj → irj, fájl → fajl),
+    then encodes remaining non-ASCII as \\uXXXX."""
+    import unicodedata
+    # Step 1: Normalize diacritics where possible (írj → irj)
+    nfkd = unicodedata.normalize('NFKD', text)
+    ascii_friendly = ''.join(c for c in nfkd if not unicodedata.combining(c))
+    # Step 2: Encode any remaining non-ASCII as \\uXXXX
+    return ascii_friendly.encode('ascii', 'backslashreplace').decode('ascii')
 
 
 class DelegationManager:
@@ -54,6 +61,8 @@ class DelegationManager:
         self._handlers: Dict[str, callable] = {}
         self._poll_interval = 5.0
         self._on_result_callback = None
+        # Fan-out dedup: track (from_agent, subject) combos we've already claimed
+        self._claimed_subjects: set = set()
 
     async def start(self):
         """Start polling for delegated tasks."""
@@ -284,15 +293,25 @@ class DelegationManager:
     async def _poll_available(self):
         """Poll for available tasks that this node can claim.
         Only claim tasks where: (a) we have a handler for the task_type,
-        and (b) the task was NOT sent by us (avoid claiming our own tasks).
+        (b) the task was NOT sent by us (avoid claiming our own tasks),
+        (c) we haven't already claimed a fan-out sibling with same from+subject.
         Priority-aware: high-priority tasks (7-10) only claimed if CPU load is low."""
         # Check our own load for priority-aware claiming
         cpu_load = 0.0
         try:
             import psutil
             cpu_load = psutil.cpu_percent(interval=0.1)
-        except Exception:
-            pass
+        except ImportError:
+            # Fallback: use os.getloadavg() if psutil not available
+            try:
+                import os
+                load1, _, _ = os.getloadavg()
+                # Approximate CPU% from load average (rough heuristic)
+                import multiprocessing
+                cpu_count = multiprocessing.cpu_count() or 1
+                cpu_load = min((load1 / cpu_count) * 100, 100.0)
+            except Exception:
+                cpu_load = 50.0  # Unknown load, assume moderate
 
         rows = await self.pg_pool.fetch(
             """SELECT * FROM shared_delegations 
@@ -309,6 +328,12 @@ class DelegationManager:
             
             # Don't claim our own tasks — let other agents handle them
             if from_agent == self.node_name:
+                continue
+            
+            # Fan-out dedup: don't claim a fan-out sibling we already claimed
+            subject_key = (from_agent, task_dict.get("subject", ""))
+            if subject_key in self._claimed_subjects:
+                log.debug(f"Skipping fan-out sibling {task_id}: already claimed same subject from {from_agent}")
                 continue
             
             # Priority-aware: skip high-priority tasks if we're overloaded
@@ -334,6 +359,8 @@ class DelegationManager:
             # Try to claim it
             claimed = await self.claim_task(task_id)
             if claimed:
+                # Track fan-out dedup: remember we claimed this (from_agent, subject)
+                self._claimed_subjects.add(subject_key)
                 log.info(f"Claimed available task {task_id}: {task_dict.get('subject', '?')} (P{priority}, CPU {cpu_load:.0f}%)")
                 asyncio.create_task(self._execute_task(task_dict))
 
