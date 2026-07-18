@@ -363,6 +363,12 @@ class PeerDiscovery:
                     if self.p2p_transport and name in self.p2p_transport._peers:
                         self._peers[name].p2p_available = True
                         self._peers[name].pg_available = True  # Same PG = PG available
+                    elif self._peers[name].p2p_available and not p2p_avail:
+                        # P2 FIX: Don't downgrade p2p_available from PG data if health check
+                        # already confirmed it. PG data can be stale; health check is live truth.
+                        # Only update pg_available from PG data (which reflects actual PG reachability)
+                        log.debug(f"Discovery: {name} p2p_available=True preserved (PG says False, but health check confirmed)")
+                        self._peers[name].pg_available = pg_avail
                     else:
                         self._peers[name].pg_available = pg_avail
                         self._peers[name].p2p_available = p2p_avail
@@ -413,9 +419,13 @@ class PeerDiscovery:
                             p2p_available=peer.p2p_available,
                         )
                     return True
-        except Exception:
+        except Exception as e:
+            log.warning(f"Health check failed for {peer.name} at {url}: {e}")
+            # P2 FIX: Don't immediately mark all transports as False on health check failure.
+            # The peer might be temporarily unreachable (network blip, firewall).
+            # Only mark p2p_available as False if we had it as True (was connected, now can't reach)
+            # Keep pg_available from PG data (already set by discover_from_pg)
             peer.p2p_available = False
-            peer.pg_available = False
             return False
 
     async def connect_to_peer(self, peer: PeerInfo) -> bool:

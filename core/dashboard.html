@@ -683,14 +683,27 @@ function addMessage(msg, scroll) {
   }
 }
 
-function addDMChannel(agentName) {
+var knownAgents = {};  // agent name -> status info for DM channel status dots
+
+function addDMChannel(agentName, status) {
+  // Track agent status
+  if (status) knownAgents[agentName] = status;
   var list = document.getElementById("dmList");
-  if (document.getElementById("ch-" + agentName)) return;
+  if (!list) return;
+  var existing = document.getElementById("ch-" + agentName);
+  var statusInfo = knownAgents[agentName] || "offline";
+  var statusIcon = (statusInfo === "online") ? "🟢" : (statusInfo === "available" || statusInfo === "connected") ? "🟡" : "🔴";
+  if (existing) {
+    // Update status dot in existing channel item
+    var iconSpan = existing.querySelector(".dm-status-dot");
+    if (iconSpan) iconSpan.textContent = statusIcon;
+    return;
+  }
   var div = document.createElement("div");
   div.className = "channel-item";
   div.id = "ch-" + agentName;
   div.onclick = function() { switchChannel(agentName); };
-  div.innerHTML = '<span class="icon">👤</span> ' + escapeHtml(agentName);
+  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">👤</span> ' + escapeHtml(agentName);
   list.appendChild(div);
 }
 
@@ -892,16 +905,52 @@ function loadAgents() {
         opt.value = a.name;
         opt.textContent = "👤 " + a.name + " (" + a.role + ")";
         sel.appendChild(opt);
-        // Also add DM channel
-        addDMChannel(a.name);
+        // Also add DM channel with status
+        addDMChannel(a.name, a.status);
       }
     });
   }).catch(function() {});
 }
 
 function renderAgents(agents) {
-  // Update DM channels
-  agents.forEach(function(a) { addDMChannel(a.name); });
+  // Update DM channels with status indicators
+  agents.forEach(function(a) { addDMChannel(a.name, a.status); });
+  // Also render agent status cards in the agent list area
+  var agentList = document.getElementById("agentListCards");
+  if (!agentList) {
+    // Create the agent list container if it doesn't exist
+    var section = document.getElementById("dmList");
+    if (section) {
+      // Render agent status directly in the DM list
+      var existingCards = document.getElementById("dmAgentStatusCards");
+      if (!existingCards) {
+        existingCards = document.createElement("div");
+        existingCards.id = "dmAgentStatusCards";
+        existingCards.style.cssText = "margin-top:4px;padding:0;";
+        section.parentNode.insertBefore(existingCards, section.nextSibling);
+      }
+      agentList = existingCards;
+    }
+  }
+  if (!agentList) return;
+
+  // Build status cards for each agent (excluding self)
+  var html = "";
+  agents.forEach(function(a) {
+    var statusIcon = (a.status === "online") ? "🟢" : (a.status === "available" || a.status === "connected") ? "🟡" : "🔴";
+    var statusText = (a.status === "online") ? "Online" : (a.status === "available") ? "Elérhető" : (a.status === "connected") ? "Csatlakozott" : "Inaktív";
+    var transports = a.transports || {};
+    var transportParts = [];
+    if (transports.p2p) transportParts.push("P2P✓");
+    if (transports.pg || transports.pg_notify) transportParts.push("PG✓");
+    if (transports.http) transportParts.push("HTTP✓");
+    var transportStr = transportParts.length > 0 ? transportParts.join(" ") : "—";
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;">' +
+      '<span>' + statusIcon + ' ' + escapeHtml(a.name) + '</span>' +
+      '<span style="color:var(--text3);font-size:10px;">' + transportStr + '</span>' +
+    '</div>';
+  });
+  agentList.innerHTML = html;
 }
 
 function updateStatus(data) {

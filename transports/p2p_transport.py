@@ -330,6 +330,28 @@ class P2PTransport(TransportAdapter):
                     # On first message from a peer, fire peer_connected callback (for incoming connections)
                     if connected_peer_name is None and message.sender and message.sender != getattr(self.config, 'node_name', ''):
                         connected_peer_name = message.sender
+                        # Gracefully close existing connection to this peer if one exists (dedup)
+                        # This prevents the flapping connect/disconnect cycle where both sides
+                        # connect to each other simultaneously
+                        old_peer_data = self._peers.get(connected_peer_name)
+                        if old_peer_data is not None:
+                            old_reader, old_writer = old_peer_data
+                            if old_writer is not writer:
+                                log.info(f"Peer {connected_peer_name} already connected — replacing old connection with incoming")
+                                # Close old connection gracefully (not via finally/disconnect callback)
+                                try:
+                                    old_writer.close()
+                                    await old_writer.wait_closed()
+                                except Exception:
+                                    pass
+                                # Clean up old connection task
+                                old_task = self._connection_tasks.pop(connected_peer_name, None)
+                                if old_task and not old_task.done():
+                                    old_task.cancel()
+                                # Remove old writer mapping
+                                self._writer_to_peer.pop(id(old_writer), None)
+                                # Don't fire disconnect callback — this is a replacement, not a real disconnect
+                                self._peer_connected_at.pop(connected_peer_name, None)
                         # Register writer for this peer so future messages route correctly
                         self._peers[connected_peer_name] = (reader, writer)
                         self._writer_to_peer[id(writer)] = connected_peer_name
