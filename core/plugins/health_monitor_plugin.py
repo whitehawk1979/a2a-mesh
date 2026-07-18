@@ -186,6 +186,10 @@ class HealthMonitorPlugin(MeshPlugin):
                         time_desc = f"{int(time_since)}s"
 
                     if is_offline:
+                        # Skip alert for "never seen" peers — likely config issue, not offline event
+                        if never_seen:
+                            self.log.debug(f"Health monitor: {peer_name} never seen — skipping offline alert (likely config issue)")
+                            continue
                         peers_offline += 1
                         alerts_sent = self._peer_health[peer_name].get("alerts_sent", 0)
                         # Only alert once per offline period (max every 5 minutes)

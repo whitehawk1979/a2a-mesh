@@ -109,10 +109,6 @@ class P2PTransport(TransportAdapter):
         # Dynamic connection cache — avoid duplicate attempts
         self._connecting_peers: Set[str] = set()
 
-        # Connection generation tracking — prevents stale finally blocks from removing
-        # a peer that has already been replaced by a newer connection (dedup)
-        self._peer_generation: Dict[str, int] = {}  # peer_name → monotonically increasing gen
-
         # Reverse-lookup: writer → peer_name
         self._writer_to_peer: Dict[int, str] = {}
 
@@ -395,12 +391,6 @@ class P2PTransport(TransportAdapter):
                         # Register writer for this peer so future messages route correctly
                         self._peers[connected_peer_name] = (reader, writer)
                         self._writer_to_peer[id(writer)] = connected_peer_name
-                        # P2 FIX: Bump generation so stale finally blocks from old connection
-                        # don't remove this peer entry (prevents ~17ms connect/disconnect flapping)
-                        gen = self._peer_generation.get(connected_peer_name, 0) + 1
-                        self._peer_generation[connected_peer_name] = gen
-                        # Tag writer with generation so the finally block can check staleness
-                        writer._a2a_gen = gen
                         # FIX: Clear backoff and retry count for incoming connections too
                         self._peer_backoff.pop(connected_peer_name, None)
                         self._peer_retry_count[connected_peer_name] = 0
@@ -443,27 +433,12 @@ class P2PTransport(TransportAdapter):
             except Exception:
                 pass
             # Remove dead peer from _peers dict so send() doesn't try to use it
-            # P2 FIX: Only remove if no newer connection has replaced this one.
-            # During dual-connect race conditions, both sides connect simultaneously.
-            # When the losing connection's finally block runs, it must NOT remove
-            # a peer that a newer connection has already taken over.
-            # We track this via _peer_generation — if it bumped since we started,
-            # a newer connection owns this peer slot now.
             removed = None
             for pname, (pr, pw) in list(self._peers.items()):
                 if pw is writer:
-                    # P2 FIX: Check generation — if newer connection replaced us, don't remove
-                    current_gen = self._peer_generation.get(pname, 0)
-                    our_gen = getattr(writer, '_a2a_gen', current_gen)
-                    if current_gen != our_gen:
-                        log.info(f"Peer {pname} stale connection closing (gen {our_gen} vs {current_gen}) — newer connection owns slot, not removing")
-                        # Still clean up our writer mapping
-                        self._writer_to_peer.pop(id(writer), None)
-                        break
                     removed = self._peers.pop(pname, None)
                     self._writer_to_peer.pop(id(writer), None)
                     self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
-                    self._peer_generation.pop(pname, None)
                     # P2: Clean up connection task tracking
                     self._connection_tasks.pop(pname, None)
                     # Clean up priority send queue for disconnected peer
@@ -558,22 +533,12 @@ class P2PTransport(TransportAdapter):
         - Connection timeout to prevent hanging on unreachable peers
         - Max connections enforced
         - Connection age tracked for periodic reconnection
-        - Dedup guard via _connecting_peers to prevent race conditions
         """
-        # P2 FIX: Dedup guard — skip if already connecting or connected
-        if name in self._connecting_peers:
-            log.debug(f"Already connecting to {name}, skipping duplicate attempt")
-            return
-        if name in self._peers:
-            log.debug(f"Already connected to {name}, skipping connect")
-            return
-        self._connecting_peers.add(name)
         import socket
         try:
             # Enforce max connections limit
             if len(self._peers) >= self._max_connections and name not in self._peers:
                 log.warning(f"P2P max connections ({self._max_connections}) reached, cannot connect to {name}")
-                self._connecting_peers.discard(name)
                 return
             # Use TLS ssl_context for client connections if configured
             ssl_ctx = self._ssl_client_context or self._ssl_context
@@ -613,11 +578,6 @@ class P2PTransport(TransportAdapter):
             self._writer_to_peer[id(writer)] = name
             # P2: Track connection start time for age-based reconnection
             self._peer_connected_at[name] = time.time()
-            # P2 FIX: Bump generation so stale finally blocks don't remove this peer
-            gen = self._peer_generation.get(name, 0) + 1
-            self._peer_generation[name] = gen
-            # Tag writer with generation so the finally block can check staleness
-            writer._a2a_gen = gen
             # Reset retry count on success
             self._peer_retry_count[name] = 0
             self._peer_backoff.pop(name, None)
@@ -643,8 +603,6 @@ class P2PTransport(TransportAdapter):
             # Flush retry queue: resend any queued messages to this peer
             self._flush_retry_queue_for_peer(name)
 
-            self._connecting_peers.discard(name)
-
         except asyncio.TimeoutError:
             retry_count = self._peer_retry_count.get(name, 0) + 1
             self._peer_retry_count[name] = retry_count
@@ -655,7 +613,6 @@ class P2PTransport(TransportAdapter):
             next_retry = time.time() + backoff
             self._peer_backoff[name] = next_retry
             log.warning(f"P2P connection to {name} at {host}:{port} TIMED OUT (retry #{retry_count}, next in {backoff:.1f}s)")
-            self._connecting_peers.discard(name)
         except Exception as e:
             retry_count = self._peer_retry_count.get(name, 0) + 1
             self._peer_retry_count[name] = retry_count
@@ -666,7 +623,6 @@ class P2PTransport(TransportAdapter):
             next_retry = time.time() + backoff
             self._peer_backoff[name] = next_retry
             log.warning(f"Failed to connect to {name} at {host}:{port} (retry #{retry_count}, next in {backoff:.1f}s): {e}")
-            self._connecting_peers.discard(name)
 
     # ─── Priority Send Queue ────────────────────────────────────────
 
