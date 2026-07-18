@@ -813,6 +813,21 @@ class MeshNode:
         if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
             asyncio.create_task(self.plugin_loader.dispatch_peer_connected(peer_name, peer or {}))
 
+        # Health recovery: record success on P2P reconnect to recover health score
+        # after temporary disconnects that drove the score to 0
+        if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
+            record = self.router._health_scorer.get_record(peer_name)
+            if record.health_score < 1.0:
+                # Boost recovery: record multiple successes proportional to damage
+                consecutive = record.consecutive_failures
+                # Each success recovers by recovery_factor (0.05 by default)
+                # We want to reach ~0.8 after reconnect, so compensate for past failures
+                successes_needed = min(max(consecutive, 3), 20)
+                old_score = record.health_score
+                for _ in range(successes_needed):
+                    self.router._health_scorer.record_success(peer_name, latency_ms=10.0)
+                log.info(f"Health recovery: {peer_name} P2P reconnected, boosted score from {old_score:.2f} to {record.health_score:.2f} with {successes_needed} successes")
+
         # P2P Skill Auto-Discovery: send our skills to the newly connected peer
         # Try P2P first, fall back to PG NOTIFY (guaranteed delivery)
         # Rate limited: max 1 announcement per 60s (same as _on_peer_discovered)
