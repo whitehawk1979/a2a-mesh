@@ -493,8 +493,8 @@ class DelegationManager:
         except Exception as e:
             log.error(f"Task {task_id} failed: {e}")
             # Check retry count — if under max_retries, re-queue for another node
-            retry_count = task.get("retry_count", 0) or 0
-            max_retries = task.get("max_retries", 2) or 2
+            retry_count = task.get("retry_count", 0) if task.get("retry_count") is not None else 0
+            max_retries = task.get("max_retries", 2) if task.get("max_retries") is not None else 2
             
             if retry_count < max_retries:
                 new_retry = retry_count + 1

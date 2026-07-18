@@ -205,6 +205,7 @@ async def test_router_inmemory_pipeline():
 
     shared_q = asyncio.Queue()
     transport = InMemoryTransport("test_node", shared_q)
+    config.transport_priority = ["inmem"]
     router.register_transport("inmem", transport)
 
     msg = A2AMessage.create(
@@ -218,7 +219,7 @@ async def test_router_inmemory_pipeline():
 
     # Message should appear in the shared queue
     sent_msg = await asyncio.wait_for(shared_q.get(), timeout=1.0)
-    assert sent_msg.sender == "remote_agent"
+    assert sent_msg.sender == "test_node"  # router overrides sender to node_name
     assert sent_msg.payload.get("task") == "analyze"
 
 
@@ -228,7 +229,7 @@ def test_router_dedup_prevents_duplicate():
     msg_id = "test-msg-001"
 
     assert not dedup.is_duplicate(msg_id), "First time: not duplicate"
-    dedup.mark_seen(msg_id)
+    dedup.add(msg_id)
     assert dedup.is_duplicate(msg_id), "Second time: is duplicate"
 
 

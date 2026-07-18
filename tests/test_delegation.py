@@ -96,6 +96,18 @@ class InMemoryPool:
                     return "UPDATE 1"
                 return "UPDATE 0"
 
+            # Retry update: SET status = $1, retry_count = $2, assigned_agent = NULL, ... WHERE task_id = $3
+            if "retry_count" in query_lower and "assigned_agent" in query_lower:
+                task_id = args[2]
+                if task_id in self.delegations:
+                    self.delegations[task_id]["status"] = args[0]
+                    self.delegations[task_id]["retry_count"] = args[1]
+                    self.delegations[task_id]["assigned_agent"] = None
+                    self.delegations[task_id]["result"] = None
+                    self.delegations[task_id]["completed_at"] = None
+                    return "UPDATE 1"
+                return "UPDATE 0"
+
             # Claim task: SET status = $1, assigned_agent = $2 WHERE task_id = $3
             if "assigned_agent" in query_lower:
                 task_id = args[2]
@@ -278,6 +290,7 @@ class TestDelegationHandler:
         )
         task = pool.delegations[task_id]
         task["from_agent"] = "coordinator"
+        task["max_retries"] = 0  # Skip retry, go straight to failed
         await mgr._execute_task(task)
 
         assert pool.delegations[task_id]["status"] == STATUS_FAILED
