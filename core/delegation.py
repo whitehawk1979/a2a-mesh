@@ -37,6 +37,11 @@ STATUS_CANCELLED = "cancelled"
 STATUS_EXPIRED = "expired"
 
 
+def _safe_ascii(text: str) -> str:
+    """Make text safe for SQL_ASCII databases — encode non-ASCII chars as \\uXXXX."""
+    return text.encode("ascii", "backslashreplace").decode("ascii")
+
+
 class DelegationManager:
     """Manages task delegation between mesh nodes via shared_delegations table."""
 
@@ -103,7 +108,15 @@ class DelegationManager:
         """
         task_id = str(uuid.uuid4())
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
-        desc_json = json.dumps({"type": task_type, "description": description, "context": context or {}})
+        # Parse description: if it's already a valid JSON with "type", use it as-is
+        try:
+            parsed_desc = json.loads(description) if isinstance(description, str) else description
+            if isinstance(parsed_desc, dict) and "type" in parsed_desc:
+                desc_json = json.dumps(parsed_desc)
+            else:
+                desc_json = json.dumps({"type": task_type, "description": description, "context": context or {}})
+        except (json.JSONDecodeError, TypeError):
+            desc_json = json.dumps({"type": task_type, "description": str(description), "context": context or {}})
         status = STATUS_AVAILABLE if available else STATUS_PENDING
         actual_to = "any" if available else to_agent
 
@@ -162,7 +175,7 @@ class DelegationManager:
         """Add a progress note to a task."""
         who = agent or self.node_name
         timestamp = datetime.now(timezone.utc).isoformat()
-        note_entry = json.dumps({"agent": who, "note": note, "time": timestamp})
+        note_entry = json.dumps({"agent": who, "note": _safe_ascii(note)[:500], "time": timestamp})
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations 
                SET notes = COALESCE(notes, '[]'::jsonb) || $1::jsonb
@@ -292,7 +305,7 @@ class DelegationManager:
 
     async def _execute_task(self, task: Dict):
         """Execute a delegated task using registered handlers."""
-        task_id = task.get("task_id", "")
+        task_id = str(task.get("task_id", ""))
         subject = task.get("subject", "unknown")
         description_data = task.get("description", "{}")
 
@@ -322,22 +335,71 @@ class DelegationManager:
             handler = self._handlers.get(task_type)
             if handler:
                 if asyncio.iscoroutinefunction(handler):
-                    result = await handler(task, context)
+                    handler_result = await handler(task, context)
                 else:
-                    result = handler(task, context)
-                log.info(f"Task {task_id} completed: {str(result)[:100]}")
+                    handler_result = handler(task, context)
+                log.info(f"Task {task_id} completed: {str(handler_result)[:100]}")
             else:
-                result = f"[{self.node_name}] No handler for task type '{task_type}'. Available: {list(self._handlers.keys())}"
+                handler_result = f"[{self.node_name}] No handler for task type '{task_type}'. Available: {list(self._handlers.keys())}"
                 log.warning(f"No handler for task type '{task_type}', task {task_id}")
 
-            # Mark as completed
-            await self.pg_pool.execute(
-                """UPDATE shared_delegations 
-                   SET status = $1, result = $2, completed_at = NOW(), progress = 100
-                   WHERE task_id = $3""",
-                STATUS_COMPLETED, str(result)[:4000], task_id,
-            )
-            await self.add_note(task_id, f"Task completed: {str(result)[:200]}")
+            # Parse handler result — can be str or dict with {result, files, context_updates}
+            result_text = ""
+            result_file_id = None
+            if isinstance(handler_result, dict):
+                result_text = _safe_ascii(str(handler_result.get("result", "")))[:4000]
+                # Store files in shared_files table (base64-encoded to avoid SQL_ASCII issues)
+                import base64
+                files = handler_result.get("files", [])
+                for f in files:
+                    try:
+                        raw_content = f.get("content", "")
+                        encoded_content = base64.b64encode(raw_content.encode("utf-8")).decode("ascii")
+                        file_id = await self.pg_pool.fetchval(
+                            """INSERT INTO shared_files 
+                               (sender_agent, recipient_agent, filename, content_type, file_size, encoding, content, description, status)
+                               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ready')
+                               RETURNING id""",
+                            self.node_name,
+                            task.get("from_agent", ""),
+                            f.get("filename", "result.txt"),
+                            f.get("content_type", "text/plain"),
+                            f.get("size", len(raw_content)),
+                            "base64",
+                            encoded_content,
+                            f"Task result: {subject}",
+                        )
+                        # Store first file ID as result_file
+                        if result_file_id is None:
+                            result_file_id = str(file_id)
+                    except Exception as file_err:
+                        log.warning(f"File storage failed for {f.get('filename','?')}: {file_err}")
+                # Apply context updates from handler result (non-fatal)
+                ctx_updates = handler_result.get("context_updates", {})
+                for key, value in ctx_updates.items():
+                    try:
+                        await self.set_context(f"task_{str(task_id)[:8]}_{key}", _safe_ascii(str(value)))
+                    except Exception as ctx_err:
+                        log.warning(f"Context update failed for {key}: {ctx_err}")
+            else:
+                result_text = _safe_ascii(str(handler_result))[:4000]
+
+            # Mark as completed with optional result_file
+            if result_file_id:
+                await self.pg_pool.execute(
+                    """UPDATE shared_delegations 
+                       SET status = $1, result = $2, result_file = $3, completed_at = NOW(), progress = 100
+                       WHERE task_id = $4""",
+                    STATUS_COMPLETED, result_text, result_file_id, task_id,
+                )
+            else:
+                await self.pg_pool.execute(
+                    """UPDATE shared_delegations 
+                       SET status = $1, result = $2, completed_at = NOW(), progress = 100
+                       WHERE task_id = $3""",
+                    STATUS_COMPLETED, result_text, task_id,
+                )
+            await self.add_note(task_id, f"Task completed: {result_text[:200]}")
 
         except Exception as e:
             log.error(f"Task {task_id} failed: {e}")
@@ -345,7 +407,7 @@ class DelegationManager:
                 """UPDATE shared_delegations 
                    SET status = $1, result = $2, completed_at = NOW()
                    WHERE task_id = $3""",
-                STATUS_FAILED, str(e)[:4000], task_id,
+                STATUS_FAILED, _safe_ascii(str(e))[:4000], task_id,
             )
             await self.add_note(task_id, f"Task failed: {str(e)[:200]}")
 

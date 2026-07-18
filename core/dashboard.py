@@ -187,6 +187,7 @@ class DashboardHandler:
         app.router.add_post("/api/delegations/{task_id}/reassign", self._api_delegations_reassign)
         app.router.add_post("/api/delegations/{task_id}/note", self._api_delegations_note)
         app.router.add_post("/api/delegations/{task_id}/progress", self._api_delegations_progress)
+        app.router.add_get("/api/delegations/{task_id}/files", self._api_delegations_files)
         # Shared context API
         app.router.add_get("/api/context", self._api_context_list)
         app.router.add_get("/api/context/{key}", self._api_context_get)
@@ -3846,6 +3847,56 @@ class DashboardHandler:
                 return web.json_response({"error": "Task not found"}, status=404)
         except Exception as e:
             log.error(f"Progress error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_files(self, request):
+        """Get result files for a delegation. GET /api/delegations/{task_id}/files
+        Query param: download=1 to get raw file content instead of JSON metadata"""
+        import base64
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            download = request.query.get("download", "0") == "1"
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            # Get the delegation
+            row = await self.node.delegation.pg_pool.fetchrow(
+                "SELECT result_file FROM shared_delegations WHERE task_id = $1", task_id,
+            )
+            if not row:
+                return web.json_response({"error": "Task not found"}, status=404)
+            result_file_id = row.get("result_file")
+            if not result_file_id:
+                return web.json_response({"files": [], "message": "No files attached"})
+            # Get file from shared_files (include content for download)
+            file_row = await self.node.delegation.pg_pool.fetchrow(
+                "SELECT id, filename, content_type, file_size, encoding, content, description, created_at FROM shared_files WHERE id = $1", result_file_id,
+            )
+            if not file_row:
+                return web.json_response({"files": [], "message": "File reference not found"})
+            f = dict(file_row)
+            for k, v in f.items():
+                if hasattr(v, 'hex'):
+                    f[k] = str(v)
+                elif hasattr(v, 'isoformat'):
+                    f[k] = v.isoformat()
+            # Decode content if base64-encoded
+            if f.get("encoding") == "base64" and f.get("content"):
+                f["content"] = base64.b64decode(f["content"]).decode("utf-8")
+            # If download mode, return raw file content
+            if download:
+                content = f.get("content", "")
+                return web.Response(
+                    text=content,
+                    content_type=f.get("content_type", "text/plain"),
+                    headers={"Content-Disposition": f'attachment; filename="{f.get("filename", "result.txt")}"'},
+                )
+            return web.json_response({"files": [f], "count": 1})
+        except Exception as e:
+            log.error(f"Files error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     # ── Shared Context API ──

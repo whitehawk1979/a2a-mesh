@@ -68,6 +68,10 @@ class AsyncDBPool:
         dsn += f"@{host}:{port}/{dbname}"
         return dsn
 
+    async def _setup_connection(self, conn):
+        """Set client_encoding to UTF8 on each new pool connection."""
+        await conn.execute("SET client_encoding TO 'UTF8'")
+
     async def connect(self) -> bool:
         """Create the connection pool. Returns True on success."""
         if self._pool and not self._pool._closed:
@@ -84,6 +88,7 @@ class AsyncDBPool:
                 max_size=self._max_size,
                 command_timeout=30,
                 max_inactive_connection_lifetime=300,
+                setup=self._setup_connection,
             )
             log.info("AsyncDB connection pool established")
             return True

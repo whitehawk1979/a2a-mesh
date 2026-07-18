@@ -570,7 +570,7 @@ class MeshNode:
     # ── Delegation task handlers ──
 
     async def _handle_monitoring_task(self, task: dict, context: dict) -> str:
-        """Handle monitoring-type delegated tasks."""
+        """Handle monitoring-type delegated tasks. Returns dict with result, files, context_updates."""
         import platform
         from datetime import datetime, timezone
         
@@ -581,44 +581,78 @@ class MeshNode:
             cpu_pct = psutil.cpu_percent(interval=1)
             mem = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
-            result = (
+            load_avg = psutil.getloadavg() if hasattr(psutil, 'getloadavg') else (0, 0, 0)
+            net_io = psutil.net_io_counters()
+            
+            result_text = (
                 f"[{self.node_name}] Health check at {uptime}\n"
                 f"  CPU: {cpu_pct}%\n"
                 f"  Memory: {mem.percent}% ({mem.available // 1024 // 1024}MB free)\n"
                 f"  Disk: {disk.percent}% ({disk.free // 1024 // 1024 // 1024}GB free)\n"
+                f"  Load: {load_avg[0]:.1f}, {load_avg[1]:.1f}, {load_avg[2]:.1f}\n"
+                f"  Network: ↑{net_io.bytes_sent // 1024 // 1024}MB ↓{net_io.bytes_recv // 1024 // 1024}MB\n"
                 f"  Platform: {platform.system()} {platform.release()}\n"
                 f"  Python: {platform.python_version()}"
             )
+            
+            # Build detailed JSON report as file
+            import json
+            report = {
+                "agent": self.node_name,
+                "timestamp": uptime,
+                "cpu_pct": cpu_pct,
+                "memory_pct": mem.percent,
+                "memory_available_mb": mem.available // 1024 // 1024,
+                "disk_pct": disk.percent,
+                "disk_free_gb": disk.free // 1024 // 1024 // 1024,
+                "load_avg": list(load_avg),
+                "net_sent_mb": net_io.bytes_sent // 1024 // 1024,
+                "net_recv_mb": net_io.bytes_recv // 1024 // 1024,
+                "platform": platform.system(),
+                "platform_release": platform.release(),
+                "python_version": platform.python_version(),
+            }
+            file_content = json.dumps(report, indent=2)
+            
+            return {
+                "result": result_text,
+                "files": [{
+                    "filename": f"health_{self.node_name}_{uptime[:10]}.json",
+                    "content_type": "application/json",
+                    "content": file_content,
+                    "size": len(file_content),
+                }],
+                "context_updates": {
+                    "cpu_pct": str(cpu_pct),
+                    "memory_pct": str(mem.percent),
+                    "disk_pct": str(disk.percent),
+                    "last_health_check": uptime,
+                },
+            }
         except ImportError:
-            result = (
+            result_text = (
                 f"[{self.node_name}] Health check at {uptime}\n"
                 f"  Platform: {platform.system()} {platform.release()}\n"
                 f"  Python: {platform.python_version()}\n"
                 f"  (psutil not available — basic report only)"
             )
-        
-        log.info(f"Monitoring task completed: {result[:100]}")
-        return result
+            return {
+                "result": result_text,
+                "files": [],
+                "context_updates": {
+                    "last_health_check": uptime,
+                },
+            }
 
-    async def _handle_generic_task(self, task: dict, context: dict) -> str:
-        """Handle generic delegated tasks."""
-        task_id = task.get("task_id", "?")
-        subject = task.get("subject", "?")
-        desc_data = task.get("description", "{}")
-        
-        try:
-            if isinstance(desc_data, str):
-                import json
-                desc = json.loads(desc_data)
-            else:
-                desc = desc_data
-        except Exception:
-            desc = {"description": str(desc_data)}
-        
-        description = desc.get("description", "")
-        result = f"[{self.node_name}] Task '{subject}' acknowledged. Description: {description or '(none)'}. No specific handler — generic acknowledgment."
-        log.info(f"Generic task {task_id} acknowledged: {subject}")
-        return result
+    async def _handle_generic_task(self, task: dict, context: dict) -> dict:
+        """Handle generic delegated tasks. Returns dict with result."""
+        from datetime import datetime, timezone
+        subject = task.get("subject", "unknown")
+        return {
+            "result": f"[{self.node_name}] Acknowledged task '{subject}' at {datetime.now(timezone.utc).isoformat()}",
+            "files": [],
+            "context_updates": {"generic_ack": "true"},
+        }
 
     async def stop(self):
         """Stop all transports and discovery. Deregister from mesh."""
