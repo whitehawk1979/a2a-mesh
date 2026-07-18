@@ -188,6 +188,8 @@ class DashboardHandler:
         app.router.add_post("/api/delegations/{task_id}/note", self._api_delegations_note)
         app.router.add_post("/api/delegations/{task_id}/progress", self._api_delegations_progress)
         app.router.add_get("/api/delegations/{task_id}/files", self._api_delegations_files)
+        # Log viewer API
+        app.router.add_get("/api/logs", self._api_logs)
         # Shared context API
         app.router.add_get("/api/context", self._api_context_list)
         app.router.add_get("/api/context/{key}", self._api_context_get)
@@ -3671,6 +3673,7 @@ class DashboardHandler:
                 timeout_minutes=int(data.get("timeout_minutes", "30")),
                 available=available,
                 fan_out=int(data.get("fan_out", "0")),
+                max_retries=int(data.get("max_retries", "2")),
             )
             
             # fan_out returns list of task_ids
@@ -3912,6 +3915,80 @@ class DashboardHandler:
             return web.json_response({"files": [f], "count": 1})
         except Exception as e:
             log.error(f"Files error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ── Log Viewer API ──
+
+    async def _api_logs(self, request):
+        """Central log viewer. GET /api/logs?type=delegation&limit=50&status=failed
+        
+        Shows recent task events, node health, and system logs from the PG database.
+        Query params:
+            type: 'delegation' (default), 'health', 'all'
+            limit: max results (default 50, max 200)
+            status: filter by status (completed, failed, available, etc.)
+            agent: filter by agent name
+        """
+        from aiohttp import web
+        log_type = request.query.get("type", "delegation")
+        limit = min(int(request.query.get("limit", "50")), 200)
+        status_filter = request.query.get("status", "")
+        agent_filter = request.query.get("agent", "")
+        
+        try:
+            results = []
+            
+            if log_type in ("delegation", "all"):
+                # Task history
+                query = """SELECT task_id, from_agent, to_agent, subject, status, 
+                           priority, retry_count, assigned_agent, created_at, completed_at
+                           FROM shared_delegations 
+                           WHERE 1=1"""
+                params = []
+                idx = 1
+                if status_filter:
+                    query += f" AND status = ${idx}"
+                    params.append(status_filter)
+                    idx += 1
+                if agent_filter:
+                    query += f" AND (from_agent = ${idx} OR assigned_agent = ${idx})"
+                    params.append(agent_filter)
+                    idx += 1
+                query += f" ORDER BY created_at DESC LIMIT ${idx}"
+                params.append(limit)
+                
+                rows = await self.node.delegation.pg_pool.fetch(query, *params)
+                for row in rows:
+                    r = dict(row)
+                    # Convert UUID and datetime to JSON-safe strings
+                    if "task_id" in r and r["task_id"]:
+                        r["task_id"] = str(r["task_id"])
+                    for k in ("created_at", "completed_at", "accepted_at", "expires_at"):
+                        if k in r and r[k]:
+                            r[k] = r[k].isoformat() if hasattr(r[k], "isoformat") else str(r[k])
+                    results.append({"type": "delegation", **r})
+            
+            if log_type in ("health", "all"):
+                # Node health history
+                query = """SELECT node_name, status, cpu_pct, memory_pct, disk_pct, 
+                           last_seen, updated_at 
+                           FROM mesh_node_health 
+                           ORDER BY updated_at DESC LIMIT $1"""
+                rows = await self.node.delegation.pg_pool.fetch(query, limit)
+                for row in rows:
+                    r = dict(row)
+                    for k in ("last_seen", "updated_at"):
+                        if k in r and r[k]:
+                            r[k] = r[k].isoformat() if hasattr(r[k], "isoformat") else str(r[k])
+                    results.append({"type": "health", **r})
+            
+            return web.json_response({
+                "logs": results,
+                "count": len(results),
+                "type": log_type,
+                "limit": limit,
+            })
+        except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
     # ── Shared Context API ──

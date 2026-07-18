@@ -103,6 +103,7 @@ class DelegationManager:
         timeout_minutes: int = 30,
         available: bool = False,
         fan_out: int = 0,
+        max_retries: int = 2,
     ) -> Union[str, List[str]]:
         """Delegate a task to another agent or make it available for any agent.
         
@@ -134,10 +135,10 @@ class DelegationManager:
 
         await self.pg_pool.execute(
             """INSERT INTO shared_delegations 
-               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
             task_id, self.node_name, actual_to, subject, desc_json,
-            status, priority, expires_at, None,
+            status, priority, expires_at, None, max_retries,
         )
 
         log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
@@ -149,10 +150,10 @@ class DelegationManager:
                 fan_id = str(uuid.uuid4())
                 await self.pg_pool.execute(
                     """INSERT INTO shared_delegations 
-                       (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                       (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
                     fan_id, self.node_name, actual_to, subject, desc_json,
-                    status, priority, expires_at, None,
+                    status, priority, expires_at, None, max_retries,
                 )
                 task_ids.append(fan_id)
             log.info(f"Fan-out: created {len(task_ids)} tasks for '{subject}' (P{priority})")
@@ -483,13 +484,30 @@ class DelegationManager:
 
         except Exception as e:
             log.error(f"Task {task_id} failed: {e}")
-            await self.pg_pool.execute(
-                """UPDATE shared_delegations 
-                   SET status = $1, result = $2, completed_at = NOW()
-                   WHERE task_id = $3""",
-                STATUS_FAILED, _safe_ascii(str(e))[:4000], task_id,
-            )
-            await self.add_note(task_id, f"Task failed: {str(e)[:200]}")
+            # Check retry count — if under max_retries, re-queue for another node
+            retry_count = task.get("retry_count", 0) or 0
+            max_retries = task.get("max_retries", 2) or 2
+            
+            if retry_count < max_retries:
+                new_retry = retry_count + 1
+                log.info(f"Task {task_id} failed (attempt {new_retry}/{max_retries}), re-queuing as available")
+                await self.pg_pool.execute(
+                    """UPDATE shared_delegations 
+                       SET status = $1, retry_count = $2, assigned_agent = NULL, 
+                           result = NULL, completed_at = NULL, accepted_at = NULL
+                       WHERE task_id = $3""",
+                    STATUS_AVAILABLE, new_retry, task_id,
+                )
+                await self.add_note(task_id, f"Retry {new_retry}/{max_retries}: re-queued after failure: {str(e)[:150]}")
+            else:
+                log.warning(f"Task {task_id} failed after {max_retries} retries, marking as failed permanently")
+                await self.pg_pool.execute(
+                    """UPDATE shared_delegations 
+                       SET status = $1, result = $2, completed_at = NOW()
+                       WHERE task_id = $3""",
+                    STATUS_FAILED, _safe_ascii(str(e))[:4000], task_id,
+                )
+                await self.add_note(task_id, f"Task failed permanently after {max_retries} retries: {str(e)[:150]}")
 
         finally:
             self._active_tasks.pop(task_id, None)

@@ -195,8 +195,11 @@ class AuthManager:
         # Create default owner if no users exist
         cur = conn.execute("SELECT COUNT(*) FROM users")
         if cur.fetchone()[0] == 0:
-            self.register_user("zsolt", "Lakatos Miklós Zsolt", "mesh2026", role="owner")
-            log.info("Default owner user 'zsolt' created")
+            default_user = os.environ.get("A2A_ADMIN_USER", "zsolt")
+            default_name = os.environ.get("A2A_ADMIN_DISPLAY_NAME", "Lakatos Miklós Zsolt")
+            default_pass = os.environ.get("A2A_ADMIN_PASSWORD", "mesh2026")
+            self.register_user(default_user, default_name, default_pass, role="owner")
+            log.info(f"Default owner user '{default_user}' created")
 
         conn.close()
 

@@ -76,7 +76,8 @@ class BridgeClient:
     
     def create(self, to_agent: str, subject: str, task_type: str = "generic",
                priority: int = 5, description: str = "", context: dict = None,
-               available: bool = False, timeout_minutes: int = 30, fan_out: int = 0) -> dict:
+               available: bool = False, timeout_minutes: int = 30, fan_out: int = 0,
+               max_retries: int = 2) -> dict:
         """Create a new delegation. If fan_out > 0, creates N identical tasks."""
         data = {
             "to_agent": to_agent,
@@ -85,6 +86,7 @@ class BridgeClient:
             "priority": priority,
             "description": description,
             "timeout_minutes": timeout_minutes,
+            "max_retries": max_retries,
         }
         if context:
             data["context"] = context
@@ -184,6 +186,7 @@ def main():
     parser.add_argument("--available", action="store_true", help="Make task available for any agent to claim")
     parser.add_argument("--fan-out", type=int, default=0, help="Create N identical tasks (first to complete wins, others cancelled)")
     parser.add_argument("--wait-all", action="store_true", help="For fan-out: wait for ALL tasks to complete and show aggregated results")
+    parser.add_argument("--max-retries", type=int, default=2, help="Max retry attempts for failed tasks (default: 2)")
     parser.add_argument("--host", default=DEFAULT_HOST, help="A2A Mesh host URL")
     parser.add_argument("--user", default=DEFAULT_USER, help="Auth username")
     parser.add_argument("--password", default=DEFAULT_PASS, help="Auth password")
@@ -202,6 +205,7 @@ def main():
             priority=args.priority, description=args.description,
             context=ctx, available=args.available or to == "any",
             fan_out=getattr(args, 'fan_out', 0) or 0,
+            max_retries=args.max_retries,
         )
         # fan_out returns dict with task_ids
         task_ids = []
