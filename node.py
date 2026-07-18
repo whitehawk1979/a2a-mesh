@@ -42,6 +42,7 @@ from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
 from .core.plugin_loader import PluginLoader
 from .core.topology_tuner import TopologyTuner
+from .core.exceptions import ConfigurationError
 
 log = logging.getLogger("a2a_mesh.node")
 
@@ -194,6 +195,9 @@ class MeshNode:
         self.topology_tuner = TopologyTuner(self, config=self.config)
         # Debounce peer offline broadcasts — prevent broadcast storms during P2P flapping
         self._peer_offline_debounce: dict[str, float] = {}  # peer_name -> last_broadcast_time
+
+        # Rate limit skills announcements — min 60s between announcements to prevent flooding
+        self._last_skills_announcement: float = 0
 
         # Initialize node authenticator
         auth_config = AuthConfig(
@@ -400,6 +404,21 @@ class MeshNode:
 
     async def start(self) -> bool:
         """Start all transports and discovery."""
+        # Validate node_name
+        if not self.node_name or self.node_name.strip() == '':
+            log.error("node_name is empty — refusing to start with invalid config")
+            raise ConfigurationError("node_name cannot be empty")
+        if self.node_name != self.config.node_name:
+            log.warning(f"node_name mismatch: self.node_name={self.node_name} vs config.node_name={self.config.node_name} — using {self.node_name}")
+
+        # Sanity check: node_name should not be a common default or another node's name
+        # This catches copy-paste config errors
+        if hasattr(self.config, 'discovery') and hasattr(self.config.discovery, 'static_nodes'):
+            for node in self.config.discovery.static_nodes:
+                static_name = node.get('name', '')
+                if static_name == self.node_name and static_name != self.config.node_name:
+                    log.warning(f"node_name '{self.node_name}' matches a static node entry — this may be correct if this IS that node")
+
         log.info(f"Starting mesh node '{self.node_name}' (role={self.role.value})")
         self._start_time = time.time()
 
@@ -796,6 +815,13 @@ class MeshNode:
 
         # P2P Skill Auto-Discovery: send our skills to the newly connected peer
         # Try P2P first, fall back to PG NOTIFY (guaranteed delivery)
+        # Rate limited: max 1 announcement per 60s (same as _on_peer_discovered)
+        import time as _time
+        now = _time.time()
+        if now - self._last_skills_announcement < 60:
+            log.debug(f"Skipping P2P skills announcement to {peer_name} — rate limited (last sent {now - self._last_skills_announcement:.0f}s ago)")
+            return
+        self._last_skills_announcement = now
         skills = list(getattr(self.config, 'skills', []) or [])
         if skills:
             sent_via = []
@@ -901,7 +927,13 @@ class MeshNode:
 
     async def _on_peer_discovered(self, peer_name: str):
         """Callback when a new peer is discovered (via PG or static config).
-        Sends our skills announcement via PG broadcast so all nodes receive it."""
+        Sends our skills announcement via PG broadcast — rate limited to max 1 per 60s."""
+        import time as _time
+        now = _time.time()
+        if now - self._last_skills_announcement < 60:
+            log.debug(f"Skipping skills announcement — rate limited (last sent {now - self._last_skills_announcement:.0f}s ago)")
+            return
+        self._last_skills_announcement = now
         skills = list(getattr(self.config, 'skills', []) or [])
         if not skills:
             return
@@ -1283,6 +1315,12 @@ class MeshNode:
                 json.dumps(capabilities, ensure_ascii=True),
             )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
+            # Notify other nodes immediately about our registration
+            try:
+                await self._pg_pool.execute("SELECT pg_notify('mesh_node_joined', $1)", self.node_name)
+                log.info(f"Sent mesh_node_joined NOTIFY for {self.node_name}")
+            except Exception as notify_err:
+                log.debug(f"Could not send mesh_node_joined NOTIFY: {notify_err}")
         except Exception as e:
             # Handle short_addr unique constraint violation:
             # Another node may hold our short_addr from a previous session.

@@ -742,8 +742,9 @@ class PeerDiscovery:
                 listener_conn.autocommit = True
                 cur = listener_conn.cursor()
                 cur.execute("LISTEN mesh_node_update")
+                cur.execute("LISTEN mesh_node_joined")
                 cur.close()
-                log.info("Listening for mesh_node_update PG NOTIFY (dedicated thread)")
+                log.info("Listening for mesh_node_update and mesh_node_joined PG NOTIFY (dedicated thread)")
                 
                 while self._running:
                     try:
@@ -752,7 +753,27 @@ class PeerDiscovery:
                             listener_conn.poll()
                         while listener_conn.notifies:
                             msg = listener_conn.notifies.pop(0)
-                            if msg.channel == "mesh_node_update":
+                            if msg.channel == "mesh_node_joined":
+                                # New node joined the mesh — trigger immediate discovery
+                                node_name = msg.payload.strip() if msg.payload else ""
+                                log.info(f"PG NOTIFY: mesh_node_joined — node '{node_name}' joined, triggering discovery")
+                                try:
+                                    loop = _asyncio.get_event_loop()
+                                    if loop.is_running():
+                                        _asyncio.run_coroutine_threadsafe(
+                                            self.discover_and_connect(), loop
+                                        )
+                                    else:
+                                        loop.run_until_complete(self.discover_and_connect())
+                                except RuntimeError:
+                                    try:
+                                        loop = _asyncio.get_event_loop()
+                                        _asyncio.run_coroutine_threadsafe(
+                                            self.discover_and_connect(), loop
+                                        )
+                                    except Exception:
+                                        pass
+                            elif msg.channel == "mesh_node_update":
                                 import json as _json
                                 try:
                                     data = _json.loads(msg.payload)

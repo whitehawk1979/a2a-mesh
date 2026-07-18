@@ -201,12 +201,50 @@ class P2PTransport(TransportAdapter):
             return True
         except OSError as e:
             if "address already in use" in str(e).lower() or getattr(e, 'errno', None) in (48, 98):
-                # Port already bound — try alternative ports before giving up
+                # Port conflict — try to kill stale process and wait for port to free
                 original_port = self._listen_port
-                for offset in [1, -1, 2, -2, 5, -5]:
-                    alt_port = original_port + offset
-                    if alt_port <= 0 or alt_port > 65535:
+                log.warning(f"P2P port {original_port} in use — attempting to reclaim it")
+                print(f"[P2P] Port {original_port} in use — attempting to reclaim it", flush=True)
+                
+                # Try to find and kill the process using this port
+                import subprocess
+                try:
+                    # macOS/Linux: find PID using the port
+                    result = subprocess.run(
+                        ["lsof", "-ti", f":{original_port}"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.stdout.strip():
+                        pids = result.stdout.strip().split('\n')
+                        for pid in pids:
+                            pid = pid.strip()
+                            if pid and pid != str(os.getpid()):
+                                log.warning(f"Killing stale process {pid} on port {original_port}")
+                                try:
+                                    os.kill(int(pid), 9)  # SIGKILL
+                                except (ProcessLookupError, PermissionError):
+                                    pass
+                except Exception as kill_err:
+                    log.warning(f"Could not kill process on port {original_port}: {kill_err}")
+                
+                # Wait for port to be freed (up to 5 seconds)
+                for wait in range(50):  # 50 x 0.1s = 5s
+                    try:
+                        self._server = await asyncio.start_server(
+                            self._handle_connection, self._listen_host, original_port
+                        )
+                        self._running = True
+                        self._available = True
+                        log.info(f"P2P reclaimed port {original_port} after {wait * 0.1:.1f}s")
+                        self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+                        return True
+                    except OSError:
+                        await asyncio.sleep(0.1)
                         continue
+                
+                # Port still not free after 5s — try one alternative as last resort
+                for offset in [1, -1]:
+                    alt_port = original_port + offset
                     try:
                         self._server = await asyncio.start_server(
                             self._handle_connection, self._listen_host, alt_port
@@ -214,16 +252,14 @@ class P2PTransport(TransportAdapter):
                         self._listen_port = alt_port
                         self._running = True
                         self._available = True
-                        log.info(f"P2P port {original_port} in use, bound to alternative port {alt_port}")
-                        # Start reconnection monitor
+                        log.warning(f"P2P port {original_port} still in use after 5s, using alternative {alt_port}")
+                        print(f"[P2P] WARNING: Using alternative port {alt_port} — other nodes may not connect!", flush=True)
                         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
                         return True
                     except OSError:
                         continue
-                # All alternative ports failed — assume existing server from previous process
-                log.warning(f"P2P port {original_port} and alternatives in use — assuming existing server")
-                self._running = True
-                self._available = True
+                
+                log.error(f"P2P cannot bind port {original_port} or alternatives — running without P2P server")
                 self._reconnect_task = asyncio.create_task(self._reconnect_loop())
                 return True
             log.error(f"P2P transport start failed: {e}")
