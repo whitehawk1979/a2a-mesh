@@ -1058,6 +1058,7 @@ class MeshNode:
                 "dashboard": self.dashboard.get_stats(),
                 "messages_sent": self.router._stats.get("sent", 0),
                 "messages_received": self.router._stats.get("received", 0),
+                "topology_tuner": self.topology_tuner.stats if hasattr(self, 'topology_tuner') else None,
             }
             return web.json_response(status=200 if self._running else 503, data=status)
 

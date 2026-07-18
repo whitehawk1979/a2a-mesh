@@ -42,6 +42,10 @@
   <div class="item"><div class="dot" style="background:#8b949e"></div> Unknown</div>
 </div>
 <div id="node-info"></div>
+<div id="tuner-panel" style="position:absolute;bottom:20px;left:20px;background:#161b22cc;border:1px solid #30363d;border-radius:8px;padding:12px 16px;font-size:12px;max-width:320px;display:none;">
+  <h4 style="color:#58a6ff;margin:0 0 8px 0">🔧 Topology Tuner</h4>
+  <div id="tuner-stats"></div>
+</div>
 
 <script>
 const canvas = document.getElementById('topology-canvas');
@@ -307,6 +311,45 @@ draw = function() {
 fetchTopology();
 animate();
 setInterval(fetchTopology, 10000); // Refresh every 10s
+
+// Topology Tuner stats
+async function fetchTunerStats() {
+  try {
+    const token = localStorage.getItem('mesh_token') || '';
+    const resp = await fetch('/api/status', {
+      headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const tuner = data.topology_tuner;
+    if (!tuner) {
+      document.getElementById('tuner-panel').style.display = 'none';
+      return;
+    }
+    document.getElementById('tuner-panel').style.display = 'block';
+    const enabled = tuner.enabled ? '✅ Enabled' : '❌ Disabled';
+    const autoApply = tuner.auto_apply ? '🟢 Auto' : '🟡 Manual';
+    let html = `<div style="margin:2px 0"><span style="color:#8b949e">Status:</span> ${enabled}</div>`;
+    html += `<div style="margin:2px 0"><span style="color:#8b949e">Mode:</span> ${autoApply}</div>`;
+    html += `<div style="margin:2px 0"><span style="color:#8b949e">Evaluations:</span> ${tuner.evaluations || 0}</div>`;
+    html += `<div style="margin:2px 0"><span style="color:#8b949e">Promotions:</span> <span style="color:#238636">${tuner.promotions || 0}</span> · <span style="color:#8b949e">Demotions:</span> <span style="color:#f85149">${tuner.demotions || 0}</span></div>`;
+    html += `<div style="margin:2px 0"><span style="color:#8b949e">No changes:</span> ${tuner.no_changes || 0}</div>`;
+    const recs = tuner.recent_recommendations || [];
+    if (recs.length > 0) {
+      html += `<div style="margin:6px 0 2px;color:#d29922;font-weight:bold">Recent Recommendations:</div>`;
+      recs.forEach(r => {
+        const actionColor = r.action?.includes('promote') ? '#238636' : r.action?.includes('demote') ? '#f85149' : '#58a6ff';
+        html += `<div style="margin:2px 0;color:${actionColor}">${r.action || '?'}: ${r.node_name || '?'} (${r.current_role}→${r.recommended_role})</div>`;
+        html += `<div style="color:#8b949e;font-size:11px">${r.reason || ''}</div>`;
+      });
+    }
+    document.getElementById('tuner-stats').innerHTML = html;
+  } catch (e) {
+    console.error('Tuner stats error:', e);
+  }
+}
+fetchTunerStats();
+setInterval(fetchTunerStats, 15000);
 </script>
 </body>
 </html>
