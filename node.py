@@ -916,7 +916,7 @@ class MeshNode:
                 n = int(numbers[0]) if numbers else 20
                 if "fibonacci" in lower_desc or "fib" in lower_desc:
                     code = f'''#!/usr/bin/env python3
-"""A2A Mesh — {node}
+"""A2A Mesh - {node}
 Task: {task_summary}
 Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 """
@@ -939,7 +939,7 @@ if __name__ == "__main__":
 '''
                 elif "prime" in lower_desc or "primszam" in lower_desc:
                     code = f'''#!/usr/bin/env python3
-"""A2A Mesh — {node}
+"""A2A Mesh - {node}
 Task: {task_summary}
 Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 """
@@ -965,7 +965,7 @@ if __name__ == "__main__":
 '''
                 else:
                     code = f'''#!/usr/bin/env python3
-"""A2A Mesh — {node}
+"""A2A Mesh - {node}
 Task: {task_summary}
 Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 """
@@ -980,7 +980,7 @@ if __name__ == "__main__":
 '''
             elif is_system:
                 code = f'''#!/usr/bin/env python3
-"""A2A Mesh — {node}
+"""A2A Mesh - {node}
 Task: {task_summary}
 Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 """
@@ -1011,7 +1011,7 @@ if __name__ == "__main__":
             else:
                 # Generic Python script with task context
                 code = f'''#!/usr/bin/env python3
-"""A2A Mesh — {node}
+"""A2A Mesh - {node}
 Task: {task_summary}
 Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 """
@@ -1033,7 +1033,7 @@ if __name__ == "__main__":
         elif lang == "bash":
             if is_network:
                 code = f'''#!/bin/bash
-# A2A Mesh — {node}
+# A2A Mesh - {node}
 # Task: {task_summary}
 # Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 echo "Network diagnostics from {node}"
@@ -1051,7 +1051,7 @@ done
 '''
             elif is_system:
                 code = f'''#!/bin/bash
-# A2A Mesh — {node}
+# A2A Mesh - {node}
 # Task: {task_summary}
 # Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 echo "System info from {node}"
@@ -1064,7 +1064,7 @@ echo "Processes: $(ps aux 2>/dev/null | wc -l)"
 '''
             else:
                 code = f'''#!/bin/bash
-# A2A Mesh — {node}
+# A2A Mesh - {node}
 # Task: {task_summary}
 # Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
 echo "Agent: {node}"
@@ -1082,7 +1082,7 @@ echo "Status: ok"
 </body></html>'''
 
         else:
-            code = f'// A2A Mesh — {node}\n// Task: {task_summary}\nconsole.log("Hello from {node}!");\n'
+            code = f'// A2A Mesh - {node}\n// Task: {task_summary}\nconsole.log("Hello from {node}!");\n'
 
         save_path = f"/tmp/generated_{lang}_{node}.txt"
         try:

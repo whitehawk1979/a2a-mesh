@@ -18,6 +18,7 @@ Flow:
 """
 
 import asyncio
+import random
 import json
 import logging
 import uuid
@@ -337,9 +338,15 @@ class DelegationManager:
                 log.debug(f"Skipping fan-out sibling {task_id}: already claimed same subject from {from_agent}")
                 continue
             
-            # Priority-aware: skip high-priority tasks if we're overloaded
+            # Priority-aware: skip tasks if we're overloaded
+            # P7+: skip if CPU > 80%
+            # P4-P6: skip if CPU > 90%
+            # P1-P3: always claim (low priority = easy tasks)
             if priority >= 7 and cpu_load > 80:
                 log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 80%")
+                continue
+            elif priority >= 4 and cpu_load > 90:
+                log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 90%")
                 continue
             
             # Check if we have a handler for this task type
@@ -357,7 +364,8 @@ class DelegationManager:
             if task_type not in self._handlers and "generic" not in self._handlers:
                 continue
             
-            # Try to claim it
+            # Try to claim it — add jitter to spread claims across nodes
+            await asyncio.sleep(random.uniform(0.1, 0.5))
             claimed = await self.claim_task(task_id)
             if claimed:
                 # Track fan-out dedup: remember we claimed this (from_agent, subject)
