@@ -2323,28 +2323,64 @@ echo "Status: ok"
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log.debug(f"Stats update error: {e}")
+                log.warning(f"Stats update error: {e}")
 
     async def _update_node_stats(self):
-        """Update node statistics in the mesh_nodes table."""
-        if not self._pg_transport or not self._pg_transport._available:
+        """Update node statistics in the mesh_nodes and mesh_node_health tables."""
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            log.warning(f"Stats update skipped: pg_pool={'None' if not self._pg_pool else 'not connected'}")
             return
         try:
-            conn = self._pg_transport._write_conn or self._pg_transport._conn
-            if not conn or conn.closed:
-                return
-            cur = conn.cursor()
-            stats = self.router._stats.copy()
-            cur.execute("""
-                UPDATE mesh.mesh_nodes 
-                SET last_heartbeat = NOW(),
-                    status = 'active'
-                WHERE node_name = %s
-            """, (self.node_name,))
-            conn.commit()
-            cur.close()
+            # Collect health metrics first (before DB ops)
+            cpu_pct = 0.0
+            memory_pct = 0.0
+            disk_pct = 0.0
+            try:
+                import psutil
+                cpu_pct = psutil.cpu_percent(interval=0.1)
+                memory_pct = psutil.virtual_memory().percent
+                disk_pct = psutil.disk_usage('/').percent
+            except ImportError:
+                try:
+                    import os, multiprocessing
+                    load1, _, _ = os.getloadavg()
+                    cpu_count = multiprocessing.cpu_count() or 1
+                    cpu_pct = min((load1 / cpu_count) * 100, 100.0)
+                    memory_pct = 50.0
+                    disk_pct = 50.0
+                except Exception:
+                    pass
+            
+            host_ip = self._get_local_ip()
+            
+            # UPSERT into mesh_nodes — only UPDATE if exists (INSERT requires short_addr etc.)
+            try:
+                await self._pg_pool.execute("""
+                    UPDATE mesh.mesh_nodes 
+                    SET last_heartbeat = NOW(),
+                        status = 'active',
+                        host = $1
+                    WHERE node_name = $2
+                """, host_ip, self.node_name)
+            except Exception as node_err:
+                log.debug(f"mesh_nodes update failed (non-critical): {node_err}")
+            
+            # UPSERT into mesh_node_health
+            await self._pg_pool.execute("""
+                INSERT INTO mesh_node_health (node_name, status, cpu_pct, memory_pct, disk_pct, last_seen, updated_at)
+                VALUES ($1, 'active', $2, $3, $4, NOW(), NOW())
+                ON CONFLICT (node_name) DO UPDATE SET
+                    status = 'active',
+                    cpu_pct = EXCLUDED.cpu_pct,
+                    memory_pct = EXCLUDED.memory_pct,
+                    disk_pct = EXCLUDED.disk_pct,
+                    last_seen = NOW(),
+                    updated_at = NOW()
+            """, self.node_name, cpu_pct, memory_pct, disk_pct)
+            log.info(f"Stats updated: {self.node_name} cpu={cpu_pct:.1f}% mem={memory_pct:.1f}% disk={disk_pct:.1f}%")
+            
         except Exception as e:
-            log.debug(f"Stats update failed: {e}")
+            log.warning(f"Stats update failed: {e}")
 
     async def _cleanup_old_messages(self, max_age_days: int = 7):
         """Delete old mesh_messages and vacuum to reclaim space.

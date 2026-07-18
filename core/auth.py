@@ -11,6 +11,8 @@ import os
 import sqlite3
 import time
 import uuid
+import base64
+import psycopg2
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -279,7 +281,6 @@ class AuthManager:
             return
         try:
             cur = conn.cursor()
-            import time
             cur.execute("""
                 INSERT INTO mesh.mesh_users (username, display_name, password_hash, salt, role, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -437,7 +438,6 @@ class AuthManager:
 
     def _generate_token(self, user_id: str, expiry_hours: int = 24) -> str:
         """Generate a JWT-like token (base64-encoded for URL safety)."""
-        import base64
         expires = time.time() + (expiry_hours * 3600)
         payload = {
             "user_id": user_id,
@@ -464,7 +464,6 @@ class AuthManager:
 
     def verify_token(self, token: str) -> Optional[DashboardUser]:
         """Verify a token and return the user. Returns None if invalid/expired."""
-        import base64
 
         # Decode base64 token (new format) or use raw (old format for backward compat)
         raw_token = token
@@ -512,7 +511,6 @@ class AuthManager:
 
     def logout(self, token: str):
         """Invalidate a session token."""
-        import base64
         raw_token = token
         if ":" not in token:
             try:
