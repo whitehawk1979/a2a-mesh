@@ -645,11 +645,116 @@ class MeshNode:
             }
 
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
-        """Handle generic delegated tasks. Returns dict with result."""
+        """Handle generic delegated tasks. Parses description for instructions
+        and executes simple tasks like generating HTML status pages."""
+        import platform
+        import socket
+        import json as _json
         from datetime import datetime, timezone
+
         subject = task.get("subject", "unknown")
+        desc_raw = task.get("description", "")
+        now = datetime.now(timezone.utc)
+        node = self.node_name
+
+        # Parse description — may be plain text or JSON
+        desc_text = ""
+        desc_ctx = {}
+        try:
+            d = _json.loads(desc_raw)
+            desc_text = d.get("description", "")
+            desc_ctx = d.get("context", {})
+        except (ValueError, TypeError, AttributeError):
+            desc_text = desc_raw if desc_raw else subject
+
+        # ── Task dispatcher based on keywords ────────────────────────
+        lower = (subject + " " + desc_text).lower()
+
+        # --- Generate HTML status page ---
+        if any(kw in lower for kw in ("html", "weboldal", "web oldal", "státuszoldal", "status page", "statuszoldal")):
+            cpu_pct = mem_pct = disk_pct = load_avg = "N/A"
+            try:
+                import psutil
+                cpu_pct = f"{psutil.cpu_percent(interval=0.5):.1f}%"
+                mem_pct = f"{psutil.virtual_memory().percent:.1f}%"
+                disk_pct = f"{psutil.disk_usage('/').percent:.1f}%"
+                load_avg = ", ".join(f"{x:.1f}" for x in psutil.getloadavg())
+            except Exception:
+                pass
+
+            html = f"""<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{node} Status</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+               background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+               color: #e0e0e0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }}
+        .card {{ background: rgba(255,255,255,0.05); backdrop-filter: blur(10px);
+                 border: 1px solid rgba(255,255,255,0.1); border-radius: 16px;
+                 padding: 2rem; max-width: 500px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }}
+        h1 {{ font-size: 1.5rem; margin-bottom: 0.5rem; color: #7f5af0; }}
+        .agent {{ font-size: 0.9rem; color: #a0a0a0; margin-bottom: 1.5rem; }}
+        .stat {{ display: flex; justify-content: space-between; padding: 0.6rem 0;
+                 border-bottom: 1px solid rgba(255,255,255,0.05); }}
+        .stat:last-child {{ border-bottom: none; }}
+        .label {{ color: #a0a0a0; }}
+        .value {{ color: #7f5af0; font-weight: 600; }}
+        .time {{ margin-top: 1.5rem; font-size: 0.8rem; color: #666; text-align: center; }}
+        .badge {{ display: inline-block; background: #7f5af0; color: white; padding: 0.2rem 0.6rem;
+                  border-radius: 12px; font-size: 0.75rem; margin-left: 0.5rem; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>{node} <span class="badge">A2A Mesh</span></h1>
+        <div class="agent">{platform.node()} &middot; {platform.system()} {platform.release()}</div>
+        <div class="stat"><span class="label">CPU</span><span class="value">{cpu_pct}</span></div>
+        <div class="stat"><span class="label">Memória</span><span class="value">{mem_pct}</span></div>
+        <div class="stat"><span class="label">Lemez</span><span class="value">{disk_pct}</span></div>
+        <div class="stat"><span class="label">Load</span><span class="value">{load_avg}</span></div>
+        <div class="stat"><span class="label">Idő</span><span class="value">{now.strftime('%Y-%m-%d %H:%M:%S UTC')}</span></div>
+        <div class="time">A2A Mesh v0.14.2 &middot; Task delegation test</div>
+    </div>
+</body>
+</html>"""
+
+            # Save HTML file
+            save_path = f"/tmp/agent-status-{node}.html"
+            try:
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(html)
+            except Exception:
+                save_path = "/tmp/agent-status.html"
+                try:
+                    with open(save_path, "w", encoding="utf-8") as f:
+                        f.write(html)
+                except Exception:
+                    save_path = ""
+
+            return {
+                "result": f"[{node}] Generated HTML status page at {now.isoformat()}",
+                "files": [{
+                    "filename": f"status_{node}_{now.strftime('%Y%m%d_%H%M%S')}.html",
+                    "content_type": "text/html",
+                    "content": html,
+                    "size": len(html.encode("utf-8")),
+                }],
+                "context_updates": {
+                    "task_type": "html_status",
+                    "cpu": str(cpu_pct),
+                    "memory": str(mem_pct),
+                    "disk": str(disk_pct),
+                    "save_path": save_path,
+                },
+            }
+
+        # --- Default: acknowledge ---
         return {
-            "result": f"[{self.node_name}] Acknowledged task '{subject}' at {datetime.now(timezone.utc).isoformat()}",
+            "result": f"[{node}] Acknowledged task '{subject}' at {now.isoformat()}",
             "files": [],
             "context_updates": {"generic_ack": "true"},
         }
