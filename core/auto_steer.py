@@ -13,7 +13,7 @@ import time
 from typing import Optional, Callable, Dict, List, Any
 from dataclasses import dataclass, field
 
-from .message import A2AMessage, MSG_TYPE_STEER, MSG_TYPE_DIRECTIVE
+from .message import A2AMessage, MSG_TYPE_STEER, MSG_TYPE_DIRECTIVE, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
 
 log = logging.getLogger("a2a_mesh.auto_steer")
 
@@ -63,14 +63,17 @@ class AutoSteerProcessor:
         # Active steer directives
         self._active_steers: Dict[str, SteerDirective] = {}
 
-        # Stats
+        # Stats — cumulative counters + processed counters for accurate queue depth
         self._stats = {
             "interrupts_triggered": 0,
             "steers_received": 0,
             "steers_completed": 0,
             "steers_failed": 0,
             "high_priority_queued": 0,
+            "high_priority_dispatched": 0,
             "normal_priority_queued": 0,
+            "normal_priority_dispatched": 0,
+            "skipped_internal": 0,  # heartbeat/ack/skills_announcement bypassed
         }
 
     def classify_message(self, message: A2AMessage) -> str:
@@ -91,9 +94,18 @@ class AutoSteerProcessor:
     async def process_message(self, message: A2AMessage) -> Optional[str]:
         """Process incoming message based on priority and type.
 
+        Internal housekeeping messages (heartbeat, ack, skills_announcement)
+        are skipped — they don't need steer processing and were inflating
+        the normal_priority_queued counter.
+
         Returns:
-            Action taken: 'interrupt', 'high', 'normal', or 'steer'
+            Action taken: 'interrupt', 'high', 'normal', 'steer', or 'skipped'
         """
+        # Skip internal mesh housekeeping messages — they don't need classification
+        if message.type in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK, "skills_announcement"):
+            self._stats["skipped_internal"] += 1
+            return "skipped"
+
         level = self.classify_message(message)
 
         # Handle steer directives specially
@@ -209,10 +221,17 @@ class AutoSteerProcessor:
             log.warning(f"⚠️ Webhook failed for {message.id[:8]}: {e}")
 
     def get_stats(self) -> Dict:
-        """Get auto-steer statistics."""
+        """Get auto-steer statistics.
+
+        'queued' counters are cumulative totals (not current queue depth).
+        For current queue depth, see 'high_priority_pending' and
+        'normal_priority_pending' which subtract dispatched from queued.
+        """
         return {
             **self._stats,
             "interrupt_threshold": self.interrupt_threshold,
             "queue_lower": self.queue_lower,
             "active_steers": len(self._active_steers),
+            "high_priority_pending": max(0, self._stats["high_priority_queued"] - self._stats["high_priority_dispatched"]),
+            "normal_priority_pending": max(0, self._stats["normal_priority_queued"] - self._stats["normal_priority_dispatched"]),
         }

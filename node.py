@@ -1972,9 +1972,14 @@ echo "Status: ok"
                                     elif action in ("high", "steer_queued"):
                                         # P7-9: handler dispatch
                                         await self._dispatch_to_handlers(msg)
+                                        self.auto_steer._stats["high_priority_dispatched"] += 1
+                                    elif action == "skipped":
+                                        # Internal housekeeping — already counted in skipped_internal
+                                        pass
                                     else:
                                         # P1-6: queued backlog processing
                                         await self.router.enqueue(msg)
+                                        self.auto_steer._stats["normal_priority_dispatched"] += 1
 
                             # Process broadcast messages that were "forwarded" by the router
                             # (e.g., skills_announcement with recipient="*" is forwarded, not processed)
