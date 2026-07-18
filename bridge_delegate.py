@@ -76,8 +76,8 @@ class BridgeClient:
     
     def create(self, to_agent: str, subject: str, task_type: str = "generic",
                priority: int = 5, description: str = "", context: dict = None,
-               available: bool = False, timeout_minutes: int = 30) -> dict:
-        """Create a new delegation."""
+               available: bool = False, timeout_minutes: int = 30, fan_out: int = 0) -> dict:
+        """Create a new delegation. If fan_out > 0, creates N identical tasks."""
         data = {
             "to_agent": to_agent,
             "subject": subject,
@@ -91,6 +91,8 @@ class BridgeClient:
         if available or to_agent == "any":
             data["available"] = True
             data["to_agent"] = "any"
+        if fan_out > 0:
+            data["fan_out"] = fan_out
         return self._request("POST", "/api/delegations", data)
     
     def status(self, task_id: str) -> dict:
@@ -180,6 +182,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=120, help="Timeout in seconds for delegate command")
     parser.add_argument("--poll-interval", type=int, default=5, help="Poll interval in seconds")
     parser.add_argument("--available", action="store_true", help="Make task available for any agent to claim")
+    parser.add_argument("--fan-out", type=int, default=0, help="Create N identical tasks (first to complete wins, others cancelled)")
     parser.add_argument("--host", default=DEFAULT_HOST, help="A2A Mesh host URL")
     parser.add_argument("--user", default=DEFAULT_USER, help="Auth username")
     parser.add_argument("--password", default=DEFAULT_PASS, help="Auth password")
@@ -197,8 +200,13 @@ def main():
             to_agent=to, subject=args.subject, task_type=args.type,
             priority=args.priority, description=args.description,
             context=ctx, available=args.available or to == "any",
+            fan_out=getattr(args, 'fan_out', 0) or 0,
         )
-        print(json.dumps(result, indent=2))
+        # fan_out returns list of task_ids
+        if isinstance(result, list):
+            print(json.dumps(result, indent=2))
+        else:
+            print(json.dumps(result, indent=2))
     
     elif args.command == "delegate":
         if not args.subject:

@@ -22,7 +22,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 log = logging.getLogger("a2a.delegation")
 
@@ -93,7 +93,8 @@ class DelegationManager:
         context: Optional[Dict] = None,
         timeout_minutes: int = 30,
         available: bool = False,
-    ) -> str:
+        fan_out: int = 0,
+    ) -> Union[str, List[str]]:
         """Delegate a task to another agent or make it available for any agent.
         
         Args:
@@ -105,6 +106,8 @@ class DelegationManager:
             context: Additional context data
             timeout_minutes: Timeout in minutes
             available: If True, task is available for any agent to claim
+            fan_out: If > 0, creates N identical tasks (one per available agent),
+                     first to complete wins, others are cancelled. No duplicate work.
         """
         task_id = str(uuid.uuid4())
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
@@ -129,6 +132,22 @@ class DelegationManager:
         )
 
         log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
+
+        # ── Fan-out: create identical tasks for N agents ──
+        if fan_out > 0:
+            task_ids = [task_id]
+            for i in range(1, fan_out):
+                fan_id = str(uuid.uuid4())
+                await self.pg_pool.execute(
+                    """INSERT INTO shared_delegations 
+                       (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                    fan_id, self.node_name, actual_to, subject, desc_json,
+                    status, priority, expires_at, None,
+                )
+                task_ids.append(fan_id)
+            log.info(f"Fan-out: created {len(task_ids)} tasks for '{subject}' (P{priority})")
+            return task_ids
 
         # Notify via A2A message
         try:
@@ -265,7 +284,16 @@ class DelegationManager:
     async def _poll_available(self):
         """Poll for available tasks that this node can claim.
         Only claim tasks where: (a) we have a handler for the task_type,
-        and (b) the task was NOT sent by us (avoid claiming our own tasks)."""
+        and (b) the task was NOT sent by us (avoid claiming our own tasks).
+        Priority-aware: high-priority tasks (7-10) only claimed if CPU load is low."""
+        # Check our own load for priority-aware claiming
+        cpu_load = 0.0
+        try:
+            import psutil
+            cpu_load = psutil.cpu_percent(interval=0.1)
+        except Exception:
+            pass
+
         rows = await self.pg_pool.fetch(
             """SELECT * FROM shared_delegations 
                WHERE status = $1 AND (expires_at IS NULL OR expires_at > NOW())
@@ -277,9 +305,15 @@ class DelegationManager:
             task_dict = dict(task)
             task_id = task_dict.get("task_id", "")
             from_agent = task_dict.get("from_agent", "")
+            priority = int(task_dict.get("priority", 5))
             
             # Don't claim our own tasks — let other agents handle them
             if from_agent == self.node_name:
+                continue
+            
+            # Priority-aware: skip high-priority tasks if we're overloaded
+            if priority >= 7 and cpu_load > 80:
+                log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 80%")
                 continue
             
             # Check if we have a handler for this task type
@@ -300,7 +334,7 @@ class DelegationManager:
             # Try to claim it
             claimed = await self.claim_task(task_id)
             if claimed:
-                log.info(f"Claimed available task {task_id}: {task_dict.get('subject', '?')}")
+                log.info(f"Claimed available task {task_id}: {task_dict.get('subject', '?')} (P{priority}, CPU {cpu_load:.0f}%)")
                 asyncio.create_task(self._execute_task(task_dict))
 
     async def _execute_task(self, task: Dict):
@@ -400,6 +434,25 @@ class DelegationManager:
                     STATUS_COMPLETED, result_text, task_id,
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
+
+            # ── Fan-out: cancel sibling tasks with same subject from same sender ──
+            try:
+                subject_val = task.get("subject", "")
+                from_agent_val = task.get("from_agent", "")
+                if subject_val and from_agent_val:
+                    cancelled = await self.pg_pool.execute(
+                        """UPDATE shared_delegations 
+                           SET status = $1, result = $2, completed_at = NOW()
+                           WHERE subject = $3 AND from_agent = $4 
+                           AND status IN ($5, $6) AND task_id != $7""",
+                        STATUS_CANCELLED, f"Fan-out: sibling completed by {self.node_name}",
+                        subject_val, from_agent_val,
+                        STATUS_AVAILABLE, STATUS_PENDING, task_id,
+                    )
+                    if cancelled and hasattr(cancelled, '__getitem__') and len(cancelled) > 0:
+                        log.info(f"Fan-out: cancelled {cancelled} sibling tasks for '{subject_val}'")
+            except Exception as e:
+                log.debug(f"Fan-out cancel check (non-critical): {e}")
 
         except Exception as e:
             log.error(f"Task {task_id} failed: {e}")

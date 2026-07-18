@@ -646,9 +646,9 @@ class MeshNode:
 
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
         """Handle generic delegated tasks. Parses description for instructions
-        and executes simple tasks like generating HTML status pages."""
+        and dispatches to specialized sub-handlers based on keywords."""
         import platform
-        import socket
+        import subprocess
         import json as _json
         from datetime import datetime, timezone
 
@@ -672,17 +672,47 @@ class MeshNode:
 
         # --- Generate HTML status page ---
         if any(kw in lower for kw in ("html", "weboldal", "web oldal", "státuszoldal", "status page", "statuszoldal")):
-            cpu_pct = mem_pct = disk_pct = load_avg = "N/A"
-            try:
-                import psutil
-                cpu_pct = f"{psutil.cpu_percent(interval=0.5):.1f}%"
-                mem_pct = f"{psutil.virtual_memory().percent:.1f}%"
-                disk_pct = f"{psutil.disk_usage('/').percent:.1f}%"
-                load_avg = ", ".join(f"{x:.1f}" for x in psutil.getloadavg())
-            except Exception:
-                pass
+            return await self._task_html_status(node, now)
 
-            html = f"""<!DOCTYPE html>
+        # --- System analysis / diagnostics ---
+        if any(kw in lower for kw in ("diagnosztika", "diagnóstico", "diagnostic", "analysis", "elemzés", "rendszer", "system info", "bench", "benchmark")):
+            return await self._task_system_analysis(node, now)
+
+        # --- File operations ---
+        if any(kw in lower for kw in ("fájl", "file", "listázd", "list", "könyvtár", "directory", "ls", "cat ", "head ", "read file")):
+            return await self._task_file_ops(node, now, desc_text)
+
+        # --- Code generation ---
+        if any(kw in lower for kw in ("kód", "code", "script", "python", "bash", "javascript", "generálj", "generate", "írj", "write")):
+            return await self._task_code_generation(node, now, subject, desc_text)
+
+        # --- Network check ---
+        if any(kw in lower for kw in ("ping", "hálózat", "network", "dns", "ip", "port", "curl", "wget", "connect")):
+            return await self._task_network_check(node, now, desc_text)
+
+        # --- Default: acknowledge ---
+        return {
+            "result": f"[{node}] Acknowledged task '{subject}' at {now.isoformat()}",
+            "files": [],
+            "context_updates": {"generic_ack": "true"},
+        }
+
+    # ── Sub-handlers ──────────────────────────────────────────────────
+
+    async def _task_html_status(self, node: str, now) -> dict:
+        """Generate an elegant HTML status page."""
+        import platform
+        cpu_pct = mem_pct = disk_pct = load_avg = "N/A"
+        try:
+            import psutil
+            cpu_pct = f"{psutil.cpu_percent(interval=0.5):.1f}%"
+            mem_pct = f"{psutil.virtual_memory().percent:.1f}%"
+            disk_pct = f"{psutil.disk_usage('/').percent:.1f}%"
+            load_avg = ", ".join(f"{x:.1f}" for x in psutil.getloadavg())
+        except Exception:
+            pass
+
+        html = f"""<!DOCTYPE html>
 <html lang="hu">
 <head>
     <meta charset="UTF-8">
@@ -717,46 +747,234 @@ class MeshNode:
         <div class="stat"><span class="label">Lemez</span><span class="value">{disk_pct}</span></div>
         <div class="stat"><span class="label">Load</span><span class="value">{load_avg}</span></div>
         <div class="stat"><span class="label">Idő</span><span class="value">{now.strftime('%Y-%m-%d %H:%M:%S UTC')}</span></div>
-        <div class="time">A2A Mesh v0.14.2 &middot; Task delegation test</div>
+        <div class="time">A2A Mesh v0.14.3 &middot; Task delegation</div>
     </div>
 </body>
 </html>"""
 
-            # Save HTML file
-            save_path = f"/tmp/agent-status-{node}.html"
-            try:
-                with open(save_path, "w", encoding="utf-8") as f:
-                    f.write(html)
-            except Exception:
-                save_path = "/tmp/agent-status.html"
-                try:
-                    with open(save_path, "w", encoding="utf-8") as f:
-                        f.write(html)
-                except Exception:
-                    save_path = ""
+        save_path = f"/tmp/agent-status-{node}.html"
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(html)
+        except Exception:
+            save_path = ""
 
-            return {
-                "result": f"[{node}] Generated HTML status page at {now.isoformat()}",
-                "files": [{
-                    "filename": f"status_{node}_{now.strftime('%Y%m%d_%H%M%S')}.html",
-                    "content_type": "text/html",
-                    "content": html,
-                    "size": len(html.encode("utf-8")),
-                }],
-                "context_updates": {
-                    "task_type": "html_status",
-                    "cpu": str(cpu_pct),
-                    "memory": str(mem_pct),
-                    "disk": str(disk_pct),
-                    "save_path": save_path,
-                },
-            }
-
-        # --- Default: acknowledge ---
         return {
-            "result": f"[{node}] Acknowledged task '{subject}' at {now.isoformat()}",
-            "files": [],
-            "context_updates": {"generic_ack": "true"},
+            "result": f"[{node}] Generated HTML status page at {now.isoformat()}",
+            "files": [{"filename": f"status_{node}_{now.strftime('%Y%m%d_%H%M%S')}.html",
+                        "content_type": "text/html", "content": html,
+                        "size": len(html.encode("utf-8"))}],
+            "context_updates": {"task_type": "html_status", "cpu": str(cpu_pct),
+                                "memory": str(mem_pct), "disk": str(disk_pct), "save_path": save_path},
+        }
+
+    async def _task_system_analysis(self, node: str, now) -> dict:
+        """Collect detailed system diagnostics."""
+        import platform
+        import subprocess
+
+        info = {"node": node, "hostname": platform.node(), "system": platform.system(),
+                "release": platform.release(), "python": platform.python_version()}
+
+        try:
+            import psutil
+            info["cpu_pct"] = f"{psutil.cpu_percent(interval=0.5):.1f}%"
+            mem = psutil.virtual_memory()
+            info["memory_pct"] = f"{mem.percent:.1f}%"
+            info["memory_available_mb"] = int(mem.available / 1024 / 1024)
+            info["disk_pct"] = f"{psutil.disk_usage('/').percent:.1f}%"
+            info["disk_free_gb"] = round(psutil.disk_usage('/').free / 1024 / 1024 / 1024, 1)
+            info["load_avg"] = [round(x, 2) for x in psutil.getloadavg()]
+            info["uptime_hours"] = round(psutil.boot_time() / 3600, 1) if hasattr(psutil, 'boot_time') else "N/A"
+            # Top 5 processes by CPU
+            procs = sorted(psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']),
+                           key=lambda p: p.info.get('cpu_percent', 0) or 0, reverse=True)[:5]
+            info["top_processes"] = [{"name": p.info['name'], "cpu": f"{p.info.get('cpu_percent', 0):.1f}%",
+                                      "mem": f"{p.info.get('memory_percent', 0):.1f}%"} for p in procs]
+        except Exception as e:
+            info["psutil_error"] = str(e)
+
+        # Network interfaces
+        try:
+            result = subprocess.run(["ip", "addr", "show"], capture_output=True, text=True, timeout=5)
+            net_lines = [l.strip() for l in result.stdout.split("\n") if "inet " in l][:10]
+            info["network_ips"] = net_lines
+        except Exception:
+            pass
+
+        # Docker containers
+        try:
+            result = subprocess.run(["docker", "ps", "--format", "{{.Names}} {{.Status}}"],
+                                    capture_output=True, text=True, timeout=5)
+            containers = result.stdout.strip().split("\n")[:10] if result.stdout.strip() else []
+            info["docker_containers"] = containers
+        except Exception:
+            info["docker_containers"] = []
+
+        report = _json.dumps(info, indent=2, ensure_ascii=False) if 'json' in dir() else str(info)
+        import json as _jj
+        report = _jj.dumps(info, indent=2, ensure_ascii=False)
+
+        save_path = f"/tmp/analysis-{node}-{now.strftime('%Y%m%d_%H%M%S')}.json"
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(report)
+        except Exception:
+            save_path = ""
+
+        return {
+            "result": f"[{node}] System analysis completed at {now.isoformat()}",
+            "files": [{"filename": f"analysis_{node}_{now.strftime('%Y%m%d_%H%M%S')}.json",
+                        "content_type": "application/json", "content": report,
+                        "size": len(report.encode("utf-8"))}],
+            "context_updates": {"task_type": "system_analysis", **{k: str(v) for k, v in info.items()
+                                if isinstance(v, (str, int, float))}},
+        }
+
+    async def _task_file_ops(self, node: str, now, desc_text: str) -> dict:
+        """List files or read file contents."""
+        import subprocess
+
+        # Determine path from description
+        path = "/tmp"
+        for word in desc_text.split():
+            if word.startswith("/") or word.startswith("~/"):
+                path = word
+                break
+
+        # Expand ~
+        path = path.replace("~", "/home" + ("/" + os.environ.get("USER", "user")) if "USER" in os.environ else "")
+
+        result_lines = []
+        try:
+            if "list" in desc_text.lower() or "ls" in desc_text.lower() or "könyvtár" in desc_text.lower():
+                result = subprocess.run(["ls", "-la", path], capture_output=True, text=True, timeout=5)
+                result_lines.append(f"=== Listing {path} ===")
+                result_lines.append(result.stdout[:3000] if result.stdout else result.stderr[:500])
+            else:
+                # Read file
+                result = subprocess.run(["head", "-100", path], capture_output=True, text=True, timeout=5)
+                result_lines.append(f"=== {path} (first 100 lines) ===")
+                result_lines.append(result.stdout[:3000] if result.stdout else result.stderr[:500])
+        except Exception as e:
+            result_lines.append(f"Error: {e}")
+
+        content = "\n".join(result_lines)
+        return {
+            "result": f"[{node}] File ops: {desc_text[:100]} at {now.isoformat()}",
+            "files": [{"filename": f"fileops_{node}_{now.strftime('%Y%m%d_%H%M%S')}.txt",
+                        "content_type": "text/plain", "content": content,
+                        "size": len(content.encode("utf-8"))}],
+            "context_updates": {"task_type": "file_ops", "path": path},
+        }
+
+    async def _task_code_generation(self, node: str, now, subject: str, desc_text: str) -> dict:
+        """Generate code snippets based on description."""
+        import platform
+
+        # Simple template-based code generation
+        lang = "python"
+        if "bash" in desc_text.lower() or "shell" in desc_text.lower() or "sh " in desc_text.lower():
+            lang = "bash"
+        elif "javascript" in desc_text.lower() or "js" in desc_text.lower():
+            lang = "javascript"
+        elif "html" in desc_text.lower():
+            lang = "html"
+
+        if lang == "python":
+            code = f'''#!/usr/bin/env python3
+"""Auto-generated by {node} — A2A Mesh v0.14.3
+Task: {subject}
+Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
+"""
+import json
+import platform
+from datetime import datetime
+
+def main():
+    print(f"Agent: {node}")
+    print(f"Host: {{platform.node()}}")
+    print(f"Time: {{datetime.utcnow().isoformat()}}")
+    result = {{"agent": "{node}", "host": platform.node(), "status": "ok"}}
+    print(json.dumps(result, indent=2))
+
+if __name__ == "__main__":
+    main()
+'''
+        elif lang == "bash":
+            code = f'''#!/bin/bash
+# Auto-generated by {node} — A2A Mesh v0.14.3
+# Task: {subject}
+# Generated: {now.strftime("%Y-%m-%d %H:%M:%S UTC")}
+echo "Agent: {node}"
+echo "Host: $(hostname)"
+echo "Time: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Status: ok"
+'''
+        else:
+            code = f'// Auto-generated by {node}\n// Task: {subject}\nconsole.log("Hello from {node}!");\n'
+
+        save_path = f"/tmp/generated_{lang}_{node}.txt"
+        try:
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(code)
+        except Exception:
+            save_path = ""
+
+        return {
+            "result": f"[{node}] Generated {lang} code for '{subject[:50]}' at {now.isoformat()}",
+            "files": [{"filename": f"generated_{lang}_{node}_{now.strftime('%Y%m%d_%H%M%S')}.{lang}",
+                        "content_type": "text/plain", "content": code,
+                        "size": len(code.encode("utf-8"))}],
+            "context_updates": {"task_type": "code_generation", "language": lang, "save_path": save_path},
+        }
+
+    async def _task_network_check(self, node: str, now, desc_text: str) -> dict:
+        """Check network connectivity and DNS resolution."""
+        import subprocess
+        import re
+
+        checks = []
+        targets = ["1.1.1.1", "8.8.8.8", "google.com"]
+
+        # Extract host/port from description
+        for word in desc_text.split():
+            if "." in word and not word.startswith("/"):
+                targets.insert(0, word.rstrip(",."))
+
+        # Ping checks
+        for target in targets[:5]:
+            try:
+                result = subprocess.run(["ping", "-c", "2", "-W", "3", target],
+                                        capture_output=True, text=True, timeout=10)
+                latency = "timeout"
+                match = re.search(r'min/avg/.*?=\s*([\d.]+)', result.stdout)
+                if match:
+                    latency = f"{match.group(1)}ms"
+                checks.append({"target": target, "type": "ping", "latency": latency,
+                               "success": result.returncode == 0})
+            except Exception as e:
+                checks.append({"target": target, "type": "ping", "error": str(e)[:100]})
+
+        # DNS check
+        try:
+            result = subprocess.run(["nslookup", "google.com"], capture_output=True, text=True, timeout=5)
+            dns_ok = "Address" in result.stdout or "address" in result.stdout
+            checks.append({"type": "dns", "target": "google.com", "success": dns_ok})
+        except Exception:
+            checks.append({"type": "dns", "success": False})
+
+        report = {"node": node, "timestamp": now.isoformat(), "checks": checks}
+        import json as _jj
+        report_str = _jj.dumps(report, indent=2, ensure_ascii=False)
+
+        return {
+            "result": f"[{node}] Network check completed: {sum(1 for c in checks if c.get('success'))}/{len(checks)} OK",
+            "files": [{"filename": f"network_{node}_{now.strftime('%Y%m%d_%H%M%S')}.json",
+                        "content_type": "application/json", "content": report_str,
+                        "size": len(report_str.encode("utf-8"))}],
+            "context_updates": {"task_type": "network_check",
+                                "checks_ok": str(sum(1 for c in checks if c.get('success')))},
         }
 
     async def stop(self):

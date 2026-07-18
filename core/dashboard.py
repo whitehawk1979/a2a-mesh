@@ -3670,10 +3670,25 @@ class DashboardHandler:
                 context=data.get("context"),
                 timeout_minutes=int(data.get("timeout_minutes", "30")),
                 available=available,
+                fan_out=int(data.get("fan_out", "0")),
             )
             
+            # fan_out returns list of task_ids
+            is_fan_out = isinstance(task_id, list)
+            task_ids = task_id if is_fan_out else [task_id]
             status = "available" if available else "pending"
-            return web.json_response({"task_id": task_id, "status": status, "to_agent": to_agent, "subject": subject})
+            
+            if is_fan_out:
+                return web.json_response({
+                    "task_ids": task_ids,
+                    "count": len(task_ids),
+                    "status": status,
+                    "to_agent": to_agent,
+                    "subject": subject,
+                    "fan_out": True,
+                })
+            else:
+                return web.json_response({"task_id": task_id, "status": status, "to_agent": to_agent, "subject": subject})
         except Exception as e:
             log.error(f"Delegation create error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
