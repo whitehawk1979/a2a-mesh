@@ -1159,6 +1159,7 @@ echo "Status: ok"
         if not self._running:
             return  # Already stopped, avoid double-stop
         log.info(f"Stopping mesh node '{self.node_name}'")
+        await self.debug_log("WARNING", "shutdown", f"Node {self.node_name} shutting down")
         self._running = False
 
         # Stop plugins first (they may need mesh to send final messages)
@@ -1410,6 +1411,7 @@ echo "Status: ok"
         peer = self.peer_discovery.get_peer(peer_name)
         if peer:
             log.info(f"P2P peer_connected callback: registering {peer_name} with agent registry")
+            await self.debug_log("INFO", "transport", f"Peer {peer_name} connected via P2P")
             peer.p2p_available = True
             self.peer_discovery._register_discovered_peer(peer)
         else:
@@ -1967,6 +1969,7 @@ echo "Status: ok"
                 json.dumps(capabilities, ensure_ascii=True),
             )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
+            await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
             # Notify other nodes immediately about our registration
             try:
                 await self._pg_pool.execute("SELECT pg_notify('mesh_node_joined', $1)", self.node_name)
@@ -2327,10 +2330,49 @@ echo "Status: ok"
                 self.local_store.cleanup_outbound(max_age_hours=1)
                 # Cleanup old mesh_messages (retention: 7 days)
                 await self._cleanup_old_messages(max_age_days=7)
+                # Cleanup old debug logs (retention: 7 days)
+                await self._cleanup_debug_logs(max_age_hours=168)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.warning(f"Stats update error: {e}")
+
+    # ── Debug Logging ────────────────────────────────────────────
+
+    async def debug_log(self, level: str, category: str, message: str, metadata: dict = None):
+        """Log a debug message to the mesh_debug_logs table (shared across agents).
+
+        Levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+        Categories: startup, shutdown, transport, election, delegation, health, general
+        """
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            log.warning(f"Debug log skipped (DB not connected): [{level}] {category}: {message}")
+            return
+        try:
+            import json
+            await self._pg_pool.execute(
+                "INSERT INTO mesh.mesh_debug_logs (source_node, log_level, category, message, metadata) "
+                "VALUES ($1, $2, $3, $4, $5)",
+                self.node_name, level.upper(), category, message,
+                json.dumps(metadata or {})
+            )
+        except Exception as e:
+            log.warning(f"Debug log write failed: {e}")
+
+    async def _cleanup_debug_logs(self, max_age_hours: int = 168):
+        """Remove debug logs older than max_age_hours (default: 7 days)."""
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            return
+        try:
+            result = await self._pg_pool.execute(
+                "DELETE FROM mesh.mesh_debug_logs WHERE created_at < NOW() - ($1 || ' hours')::INTERVAL",
+                str(max_age_hours)
+            )
+            deleted = int(result.split()[-1]) if result else 0
+            if deleted > 0:
+                log.info(f"Debug log cleanup: removed {deleted} entries older than {max_age_hours}h")
+        except Exception as e:
+            log.warning(f"Debug log cleanup error: {e}")
 
     async def _update_node_stats(self):
         """Update node statistics in the mesh_nodes and mesh_node_health tables."""

@@ -152,6 +152,9 @@ class DashboardHandler:
         app.router.add_post("/api/health/record-failure/{name}", self._api_health_failure)
         # Task cleanup endpoint
         app.router.add_post("/api/tasks/cleanup", self._api_tasks_cleanup)
+        # Debug logs endpoints
+        app.router.add_get("/api/debug/logs", self._api_debug_logs)
+        app.router.add_post("/api/debug/log", self._api_debug_log_create)
         # P2P management endpoints
         app.router.add_post("/api/p2p/reset-backoff", self._api_p2p_reset_backoff)
         app.router.add_post("/api/p2p/reconnect", self._api_p2p_reconnect)
@@ -2935,6 +2938,72 @@ class DashboardHandler:
             )
             deleted = int(result.split()[-1]) if result else 0
             return web.json_response({"deleted": deleted, "max_age_hours": max_age_hours})
+        except Exception as e:
+            from aiohttp import web
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_debug_logs(self, request):
+        """GET /api/debug/logs?level=INFO&category=general&source=morzsa&limit=50 — Query debug logs."""
+        from aiohttp import web
+        try:
+            pool = self.node._pg_pool
+            if not pool or not pool.is_connected():
+                return web.json_response({"error": "DB not connected", "logs": [], "count": 0}, status=503)
+            level = request.query.get("level", "")
+            category = request.query.get("category", "")
+            source = request.query.get("source", "")
+            limit = min(int(request.query.get("limit", "50")), 500)
+            query = "SELECT id, source_node, log_level, category, message, metadata, created_at " \
+                    "FROM mesh.mesh_debug_logs WHERE 1=1"
+            params = []
+            idx = 1
+            if level:
+                query += f" AND log_level = ${idx}"
+                params.append(level.upper())
+                idx += 1
+            if category:
+                query += f" AND category = ${idx}"
+                params.append(category)
+                idx += 1
+            if source:
+                query += f" AND source_node = ${idx}"
+                params.append(source)
+                idx += 1
+            query += f" ORDER BY created_at DESC LIMIT ${idx}"
+            params.append(limit)
+            rows = await pool.fetch(query, *params)
+            logs = []
+            for r in rows:
+                logs.append({
+                    "id": str(r["id"]),
+                    "source_node": r["source_node"],
+                    "level": r["log_level"],
+                    "category": r["category"],
+                    "message": r["message"],
+                    "metadata": r["metadata"] if isinstance(r["metadata"], dict) else {},
+                    "created_at": str(r["created_at"]),
+                })
+            return web.json_response({"logs": logs, "count": len(logs)})
+        except Exception as e:
+            from aiohttp import web
+            return web.json_response({"error": str(e), "logs": [], "count": 0}, status=500)
+
+    async def _api_debug_log_create(self, request):
+        """POST /api/debug/log — Create a debug log entry.
+
+        Body: {"level": "INFO", "category": "startup", "message": "...", "metadata": {}}
+        """
+        from aiohttp import web
+        try:
+            data = await request.json()
+            level = data.get("level", "INFO").upper()
+            category = data.get("category", "general")
+            message = data.get("message", "")
+            metadata = data.get("metadata", {})
+            if not message:
+                return web.json_response({"error": "message is required"}, status=400)
+            await self.node.debug_log(level, category, message, metadata)
+            return web.json_response({"status": "ok", "level": level, "category": category})
         except Exception as e:
             from aiohttp import web
             return web.json_response({"error": str(e)}, status=500)
