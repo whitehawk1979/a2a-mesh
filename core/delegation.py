@@ -1,0 +1,418 @@
+"""
+Task Delegation System for A2A Mesh.
+
+Two modes:
+  1. DIRECT: Sender assigns task to a specific agent (to_agent)
+  2. AVAILABLE: Task posted for any agent to claim (to_agent='any', status='available')
+
+Features:
+  - Agent assignment/reassignment
+  - Progress tracking (0-100)
+  - Notes/journal for task execution details
+  - File attachment support via result_file
+  - A2A message notification on delegation
+
+Flow:
+  DIRECT: from_agent → to_agent (specific agent)
+  AVAILABLE: from_agent → 'any' (any agent can claim via status='available')
+"""
+
+import asyncio
+import json
+import logging
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
+log = logging.getLogger("a2a.delegation")
+
+# Delegation statuses
+STATUS_PENDING = "pending"
+STATUS_AVAILABLE = "available"  # Any agent can claim
+STATUS_ACCEPTED = "accepted"
+STATUS_RUNNING = "running"
+STATUS_COMPLETED = "completed"
+STATUS_FAILED = "failed"
+STATUS_CANCELLED = "cancelled"
+STATUS_EXPIRED = "expired"
+
+
+class DelegationManager:
+    """Manages task delegation between mesh nodes via shared_delegations table."""
+
+    def __init__(self, pg_pool, node_name: str):
+        self.pg_pool = pg_pool  # AsyncDBPool instance
+        self.node_name = node_name
+        self._running = False
+        self._poll_task = None
+        self._active_tasks: Dict[str, Dict] = {}
+        self._handlers: Dict[str, callable] = {}
+        self._poll_interval = 5.0
+        self._on_result_callback = None
+
+    async def start(self):
+        """Start polling for delegated tasks."""
+        self._running = True
+        self._poll_task = asyncio.create_task(self._poll_loop())
+        log.info(f"Delegation manager started for {self.node_name}, polling every {self._poll_interval}s")
+
+    async def stop(self):
+        """Stop polling."""
+        self._running = False
+        if self._poll_task:
+            self._poll_task.cancel()
+            try:
+                await self._poll_task
+            except asyncio.CancelledError:
+                pass
+        log.info("Delegation manager stopped")
+
+    def register_handler(self, task_type: str, handler):
+        """Register a handler function for a task type."""
+        self._handlers[task_type] = handler
+        log.info(f"Registered delegation handler for task type: {task_type}")
+
+    def on_result(self, callback):
+        """Register callback for when a delegated task completes."""
+        self._on_result_callback = callback
+
+    # ── Send side: delegate a task ──
+
+    async def delegate_task(
+        self,
+        to_agent: str,
+        subject: str,
+        description: str = "",
+        task_type: str = "generic",
+        priority: int = 5,
+        context: Optional[Dict] = None,
+        timeout_minutes: int = 30,
+        available: bool = False,
+    ) -> str:
+        """Delegate a task to another agent or make it available for any agent.
+        
+        Args:
+            to_agent: Target agent name, or 'any' for available tasks
+            subject: Task subject/title
+            description: Task description
+            task_type: Type of task (generic, monitoring, code, research, analysis)
+            priority: Priority (1=low, 5=normal, 7=high, 10=critical)
+            context: Additional context data
+            timeout_minutes: Timeout in minutes
+            available: If True, task is available for any agent to claim
+        """
+        task_id = str(uuid.uuid4())
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
+        desc_json = json.dumps({"type": task_type, "description": description, "context": context or {}})
+        status = STATUS_AVAILABLE if available else STATUS_PENDING
+        actual_to = "any" if available else to_agent
+
+        await self.pg_pool.execute(
+            """INSERT INTO shared_delegations 
+               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+            task_id, self.node_name, actual_to, subject, desc_json,
+            status, priority, expires_at, None,
+        )
+
+        log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
+
+        # Notify via A2A message
+        try:
+            from .a2a_message import A2AMessage
+            recipient = "broadcast" if available else to_agent
+            msg = A2AMessage.create(
+                sender=self.node_name,
+                recipient=recipient,
+                msg_type="delegation",
+                subject=subject,
+                content=f"New {'available' if available else ''} task: {subject}",
+                priority=priority,
+            )
+        except Exception as e:
+            log.debug(f"Could not send delegation notification: {e}")
+
+        return task_id
+
+    async def claim_task(self, task_id: str, agent_name: Optional[str] = None) -> bool:
+        """Claim an available task. Agent can claim tasks marked as 'available'."""
+        agent = agent_name or self.node_name
+        result = await self.pg_pool.execute(
+            """UPDATE shared_delegations 
+               SET status = $1, assigned_agent = $2, accepted_at = NOW()
+               WHERE task_id = $3 AND status = $4""",
+            STATUS_ACCEPTED, agent, task_id, STATUS_AVAILABLE,
+        )
+        if "UPDATE 1" in result:
+            log.info(f"Agent {agent} claimed task {task_id}")
+            return True
+        return False
+
+    async def reassign_task(self, task_id: str, new_agent: str) -> bool:
+        """Reassign a task to a different agent."""
+        result = await self.pg_pool.execute(
+            """UPDATE shared_delegations 
+               SET to_agent = $1, assigned_agent = $1
+               WHERE task_id = $2 AND status IN ($3, $4)""",
+            new_agent, task_id, STATUS_ACCEPTED, STATUS_PENDING,
+        )
+        return "UPDATE 1" in result
+
+    async def add_note(self, task_id: str, note: str, agent: Optional[str] = None) -> bool:
+        """Add a progress note to a task."""
+        who = agent or self.node_name
+        timestamp = datetime.now(timezone.utc).isoformat()
+        note_entry = json.dumps({"agent": who, "note": note, "time": timestamp})
+        result = await self.pg_pool.execute(
+            """UPDATE shared_delegations 
+               SET notes = COALESCE(notes, '[]'::jsonb) || $1::jsonb
+               WHERE task_id = $2""",
+            note_entry, task_id,
+        )
+        return "UPDATE 1" in result
+
+    async def update_progress(self, task_id: str, progress: int, note: Optional[str] = None) -> bool:
+        """Update task progress (0-100) with optional note."""
+        if note:
+            await self.add_note(task_id, note)
+        result = await self.pg_pool.execute(
+            "UPDATE shared_delegations SET progress = $1 WHERE task_id = $2",
+            min(100, max(0, progress)), task_id,
+        )
+        return "UPDATE 1" in result
+
+    async def get_task_status(self, task_id: str) -> Optional[Dict]:
+        """Check the status of a delegated task."""
+        row = await self.pg_pool.fetchrow(
+            "SELECT * FROM shared_delegations WHERE task_id = $1", task_id
+        )
+        if row:
+            return dict(row)
+        return None
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """Cancel a pending delegation."""
+        result = await self.pg_pool.execute(
+            """UPDATE shared_delegations SET status = $1 
+               WHERE task_id = $2 AND status IN ($3, $4, $5)""",
+            STATUS_CANCELLED, task_id, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED,
+        )
+        return "UPDATE 1" in result
+
+    # ── Receive side: poll and execute tasks ──
+
+    async def _poll_loop(self):
+        """Poll shared_delegations for tasks assigned to this node."""
+        while self._running:
+            try:
+                await self._check_expired()
+                await self._poll_pending()
+                await self._poll_available()
+                await self._check_results()
+                await asyncio.sleep(self._poll_interval)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Delegation poll error: {e}")
+                await asyncio.sleep(self._poll_interval * 2)
+
+    async def _check_expired(self):
+        """Mark expired tasks."""
+        await self.pg_pool.execute(
+            """UPDATE shared_delegations SET status = $1 
+               WHERE status IN ($2, $3, $4) AND expires_at < NOW()""",
+            STATUS_EXPIRED, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED,
+        )
+
+    async def _poll_pending(self):
+        """Poll for pending tasks specifically assigned to this node."""
+        rows = await self.pg_pool.fetch(
+            """SELECT * FROM shared_delegations 
+               WHERE to_agent = $1 AND status = $2 
+               ORDER BY priority DESC, created_at ASC LIMIT 5""",
+            self.node_name, STATUS_PENDING,
+        )
+
+        for task in rows:
+            task_dict = dict(task)
+            task_id = task_dict.get("task_id", "")
+            log.info(f"Found pending task {task_id}: {task_dict.get('subject', '?')}")
+
+            # Mark as accepted with assigned_agent
+            await self.pg_pool.execute(
+                """UPDATE shared_delegations 
+                   SET status = $1, accepted_at = NOW(), assigned_agent = $2
+                   WHERE task_id = $3""",
+                STATUS_ACCEPTED, self.node_name, task_id,
+            )
+
+            # Execute in background
+            asyncio.create_task(self._execute_task(task_dict))
+
+    async def _poll_available(self):
+        """Poll for available tasks that this node can claim."""
+        rows = await self.pg_pool.fetch(
+            """SELECT * FROM shared_delegations 
+               WHERE status = $1 AND (expires_at IS NULL OR expires_at > NOW())
+               ORDER BY priority DESC, created_at ASC LIMIT 3""",
+            STATUS_AVAILABLE,
+        )
+
+        for task in rows:
+            task_dict = dict(task)
+            task_id = task_dict.get("task_id", "")
+            # Try to claim it
+            claimed = await self.claim_task(task_id)
+            if claimed:
+                log.info(f"Claimed available task {task_id}: {task_dict.get('subject', '?')}")
+                asyncio.create_task(self._execute_task(task_dict))
+
+    async def _execute_task(self, task: Dict):
+        """Execute a delegated task using registered handlers."""
+        task_id = task.get("task_id", "")
+        subject = task.get("subject", "unknown")
+        description_data = task.get("description", "{}")
+
+        try:
+            if isinstance(description_data, str):
+                desc = json.loads(description_data)
+            else:
+                desc = description_data
+        except (json.JSONDecodeError, TypeError):
+            desc = {"type": "generic", "description": str(description_data), "context": {}}
+
+        task_type = desc.get("type", "generic")
+        context = desc.get("context", {})
+
+        log.info(f"Executing task {task_id} of type {task_type}: {subject}")
+
+        # Mark as running
+        self._active_tasks[task_id] = task
+        await self.pg_pool.execute(
+            "UPDATE shared_delegations SET status = $1, assigned_agent = $2 WHERE task_id = $3",
+            STATUS_RUNNING, self.node_name, task_id,
+        )
+        # Add start note
+        await self.add_note(task_id, f"Task started by {self.node_name}")
+
+        try:
+            handler = self._handlers.get(task_type)
+            if handler:
+                if asyncio.iscoroutinefunction(handler):
+                    result = await handler(task, context)
+                else:
+                    result = handler(task, context)
+                log.info(f"Task {task_id} completed: {str(result)[:100]}")
+            else:
+                result = f"[{self.node_name}] No handler for task type '{task_type}'. Available: {list(self._handlers.keys())}"
+                log.warning(f"No handler for task type '{task_type}', task {task_id}")
+
+            # Mark as completed
+            await self.pg_pool.execute(
+                """UPDATE shared_delegations 
+                   SET status = $1, result = $2, completed_at = NOW(), progress = 100
+                   WHERE task_id = $3""",
+                STATUS_COMPLETED, str(result)[:4000], task_id,
+            )
+            await self.add_note(task_id, f"Task completed: {str(result)[:200]}")
+
+        except Exception as e:
+            log.error(f"Task {task_id} failed: {e}")
+            await self.pg_pool.execute(
+                """UPDATE shared_delegations 
+                   SET status = $1, result = $2, completed_at = NOW()
+                   WHERE task_id = $3""",
+                STATUS_FAILED, str(e)[:4000], task_id,
+            )
+            await self.add_note(task_id, f"Task failed: {str(e)[:200]}")
+
+        finally:
+            self._active_tasks.pop(task_id, None)
+
+    async def _check_results(self):
+        """Check for completed tasks that we delegated out."""
+        rows = await self.pg_pool.fetch(
+            """SELECT * FROM shared_delegations 
+               WHERE from_agent = $1 AND status IN ($2, $3) 
+               AND completed_at > NOW() - INTERVAL '1 minute'
+               ORDER BY completed_at DESC LIMIT 10""",
+            self.node_name, STATUS_COMPLETED, STATUS_FAILED,
+        )
+
+        for row in rows:
+            if self._on_result_callback:
+                try:
+                    if asyncio.iscoroutinefunction(self._on_result_callback):
+                        await self._on_result_callback(dict(row))
+                    else:
+                        self._on_result_callback(dict(row))
+                except Exception as e:
+                    log.debug(f"Result callback error: {e}")
+
+    # ── Query helpers ──
+
+    async def get_my_delegations(self, status: Optional[str] = None) -> List[Dict]:
+        """Get tasks delegated BY this node."""
+        if status:
+            rows = await self.pg_pool.fetch(
+                """SELECT * FROM shared_delegations WHERE from_agent = $1 AND status = $2 
+                   ORDER BY created_at DESC LIMIT 50""",
+                self.node_name, status,
+            )
+        else:
+            rows = await self.pg_pool.fetch(
+                """SELECT * FROM shared_delegations WHERE from_agent = $1 
+                   ORDER BY created_at DESC LIMIT 50""",
+                self.node_name,
+            )
+        return [dict(r) for r in rows]
+
+    async def get_assigned_tasks(self, status: Optional[str] = None) -> List[Dict]:
+        """Get tasks delegated TO this node (or claimed by this node)."""
+        if status:
+            rows = await self.pg_pool.fetch(
+                """SELECT * FROM shared_delegations 
+                   WHERE (to_agent = $1 OR assigned_agent = $1) AND status = $2 
+                   ORDER BY priority DESC, created_at DESC LIMIT 50""",
+                self.node_name, status,
+            )
+        else:
+            rows = await self.pg_pool.fetch(
+                """SELECT * FROM shared_delegations 
+                   WHERE to_agent = $1 OR assigned_agent = $1
+                   ORDER BY priority DESC, created_at DESC LIMIT 50""",
+                self.node_name,
+            )
+        return [dict(r) for r in rows]
+
+    async def get_available_tasks(self) -> List[Dict]:
+        """Get tasks available for claiming."""
+        rows = await self.pg_pool.fetch(
+            """SELECT * FROM shared_delegations 
+               WHERE status = $1 AND (expires_at IS NULL OR expires_at > NOW())
+               ORDER BY priority DESC, created_at ASC LIMIT 20""",
+            STATUS_AVAILABLE,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_all_delegations(self, limit: int = 50) -> List[Dict]:
+        """Get all delegations (admin view)."""
+        rows = await self.pg_pool.fetch(
+            """SELECT * FROM shared_delegations 
+               ORDER BY created_at DESC LIMIT $1""",
+            limit,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_delegation_stats(self) -> Dict:
+        """Get delegation statistics."""
+        rows = await self.pg_pool.fetch(
+            """SELECT status, count(*) as cnt 
+               FROM shared_delegations 
+               GROUP BY status"""
+        )
+        stats = {}
+        for r in rows:
+            stats[r["status"]] = r["cnt"]
+        stats["total"] = sum(stats.values())
+        return stats

@@ -42,6 +42,7 @@ from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
 from .core.plugin_loader import PluginLoader
 from .core.topology_tuner import TopologyTuner
+from .core.delegation import DelegationManager
 from .core.exceptions import ConfigurationError
 
 log = logging.getLogger("a2a_mesh.node")
@@ -159,6 +160,12 @@ class MeshNode:
         self.auto_steer = AutoSteerProcessor(
             node_name=self.node_name,
             config=self.config,
+        )
+
+        # Initialize delegation manager (task delegation between nodes)
+        self.delegation = DelegationManager(
+            pg_pool=None,  # Will be set after PG connection is established
+            node_name=self.node_name,
         )
 
         # Initialize P2P file transfer
@@ -514,6 +521,15 @@ class MeshNode:
         # connect to peers it hasn't connected to yet, using peer_discovery data
         self._p2p_transport._peer_address_resolver = self.peer_discovery.resolve_peer_address
         self.memory_sync._pg_pool = self._pg_pool
+        # Wire up delegation manager with PG pool and start polling
+        self.delegation.pg_pool = self._pg_pool
+        # Register built-in task handlers
+        self.delegation.register_handler("monitoring", self._handle_monitoring_task)
+        self.delegation.register_handler("generic", self._handle_generic_task)
+        self.delegation.register_handler("research", self._handle_generic_task)
+        self.delegation.register_handler("code", self._handle_generic_task)
+        self.delegation.register_handler("analysis", self._handle_generic_task)
+        await self.delegation.start()
         await self.peer_discovery.start()
 
         # Start ACK manager
@@ -551,6 +567,59 @@ class MeshNode:
 
         return any_ok
 
+    # ── Delegation task handlers ──
+
+    async def _handle_monitoring_task(self, task: dict, context: dict) -> str:
+        """Handle monitoring-type delegated tasks."""
+        import platform
+        from datetime import datetime, timezone
+        
+        uptime = datetime.now(timezone.utc).isoformat()
+        
+        try:
+            import psutil
+            cpu_pct = psutil.cpu_percent(interval=1)
+            mem = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
+            result = (
+                f"[{self.node_name}] Health check at {uptime}\n"
+                f"  CPU: {cpu_pct}%\n"
+                f"  Memory: {mem.percent}% ({mem.available // 1024 // 1024}MB free)\n"
+                f"  Disk: {disk.percent}% ({disk.free // 1024 // 1024 // 1024}GB free)\n"
+                f"  Platform: {platform.system()} {platform.release()}\n"
+                f"  Python: {platform.python_version()}"
+            )
+        except ImportError:
+            result = (
+                f"[{self.node_name}] Health check at {uptime}\n"
+                f"  Platform: {platform.system()} {platform.release()}\n"
+                f"  Python: {platform.python_version()}\n"
+                f"  (psutil not available — basic report only)"
+            )
+        
+        log.info(f"Monitoring task completed: {result[:100]}")
+        return result
+
+    async def _handle_generic_task(self, task: dict, context: dict) -> str:
+        """Handle generic delegated tasks."""
+        task_id = task.get("task_id", "?")
+        subject = task.get("subject", "?")
+        desc_data = task.get("description", "{}")
+        
+        try:
+            if isinstance(desc_data, str):
+                import json
+                desc = json.loads(desc_data)
+            else:
+                desc = desc_data
+        except Exception:
+            desc = {"description": str(desc_data)}
+        
+        description = desc.get("description", "")
+        result = f"[{self.node_name}] Task '{subject}' acknowledged. Description: {description or '(none)'}. No specific handler — generic acknowledgment."
+        log.info(f"Generic task {task_id} acknowledged: {subject}")
+        return result
+
     async def stop(self):
         """Stop all transports and discovery. Deregister from mesh."""
         if not self._running:
@@ -574,6 +643,9 @@ class MeshNode:
 
         # Stop ACK manager
         await self.ack_manager.stop()
+
+        # Stop delegation manager
+        await self.delegation.stop()
 
         # Stop priority queue processor
         await self.router.stop_priority_queue()

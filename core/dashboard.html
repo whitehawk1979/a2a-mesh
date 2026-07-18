@@ -400,6 +400,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">🤖</span>
       <span class="nav-label">Node-ok</span>
     </button>
+    <button class="nav-item" onclick="showDelegations()" id="navDelegations">
+      <span class="nav-icon">📋</span>
+      <span class="nav-label">Feladatok</span>
+    </button>
     <button class="nav-item" onclick="showSettings()" id="navSettings">
       <span class="nav-icon">⚙️</span>
       <span class="nav-label">Beállítások</span>
@@ -467,6 +471,69 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <button class="btn btn-sm" onclick="document.getElementById('registerAgentForm').style.display='none'">Mégsem</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Delegations Modal -->
+<div class="file-modal-overlay" id="delegationsModal" style="display:none">
+  <div class="file-modal" style="width:800px;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">📋 Feladat-delegációk</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('delegationsModal').style.display='none'">✕</button>
+    </div>
+
+    <!-- Create new delegation -->
+    <div style="margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <h3 style="margin:0 0 8px 0;font-size:14px">➕ Új feladat küldése</h3>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">
+        <select id="delTarget" style="padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <option value="">Célzott node...</option>
+        </select>
+        <input type="text" id="delSubject" placeholder="Feladat tárgya *" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <label style="font-size:13px;display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" id="delAvailable" style="cursor:pointer"> 🔄 Bárki vállalhatja (available)
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <input type="text" id="delDesc" placeholder="Leírás (opcionális)" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+        <select id="delType" style="padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <option value="generic">Általános</option>
+          <option value="research">Kutatás</option>
+          <option value="code">Kódolás</option>
+          <option value="analysis">Elemzés</option>
+          <option value="monitoring">Monitorozás</option>
+        </select>
+        <select id="delPriority" style="padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
+          <option value="5">P5 Normál</option>
+          <option value="7">P7 Magas</option>
+          <option value="10">P10 Sürgős</option>
+          <option value="1">P1 Alacsony</option>
+        </select>
+      </div>
+      <button class="btn btn-sm" style="background:var(--success)" onclick="createDelegation()">📤 Feladat küldése</button>
+      <span id="delCreateStatus" style="margin-left:8px;font-size:13px;color:var(--text3)"></span>
+    </div>
+
+    <!-- Delegation stats -->
+    <div id="delStats" style="margin-bottom:12px;font-size:12px;color:var(--text3)"></div>
+
+    <!-- Filter -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+      <select id="delFilterStatus" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
+        <option value="">Összes</option>
+        <option value="pending">⏳ Függő</option>
+        <option value="accepted">✅ Elfogadott</option>
+        <option value="running">🔄 Futó</option>
+        <option value="completed">✔️ Kész</option>
+        <option value="failed">❌ Sikertelen</option>
+      </select>
+      <button class="btn btn-sm" onclick="loadDelegations()">🔄 Frissítés</button>
+    </div>
+
+    <!-- Delegations list -->
+    <ul class="file-list" id="delegationsList"></ul>
   </div>
 </div>
 
@@ -1710,6 +1777,254 @@ function showSettings() {
   document.getElementById('settingsModal').style.display = 'flex';
   loadSettings();
   loadUsers();
+}
+
+// ── Delegation UI ──
+
+function showDelegations() {
+  document.getElementById('delegationsModal').style.display = 'flex';
+  populateDelegationTargets();
+  loadDelegations();
+  loadDelegationStats();
+}
+
+function populateDelegationTargets() {
+  var sel = document.getElementById('delTarget');
+  // Clear existing options except first
+  while (sel.options.length > 1) sel.remove(1);
+  // Add known agents
+  fetch("/api/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var agents = data.agents || data || [];
+      agents.forEach(function(a) {
+        if (a.name && a.name !== nodeName) {
+          var opt = document.createElement("option");
+          opt.value = a.name;
+          opt.textContent = a.name + (a.status === "online" ? " 🟢" : " 🟡");
+          sel.appendChild(opt);
+        }
+      });
+    });
+}
+
+function loadDelegations() {
+  var status = document.getElementById('delFilterStatus').value;
+  var url = "/api/delegations?limit=50";
+  if (status) url += "&status=" + status;
+  fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var list = document.getElementById('delegationsList');
+      list.innerHTML = "";
+      var delegations = data.delegations || [];
+      if (delegations.length === 0) {
+        list.innerHTML = '<li style="padding:12px;text-align:center;color:var(--text3)">Még nincs delegáció</li>';
+        return;
+      }
+      delegations.forEach(function(d) {
+        var statusIcon = {"pending":"⏳","available":"🔄","accepted":"✅","running":"🔄","completed":"✔️","failed":"❌","cancelled":"🚫","expired":"⌛"}[d.status] || "❓";
+        var priorityColor = {10:"var(--danger)",7:"var(--warning)",5:"var(--text2)",1:"var(--success)"}[d.priority] || "var(--text2)";
+        var timeAgo = d.created_at ? timeSince(new Date(d.created_at)) : "?";
+        var assigned = d.assigned_agent ? " 👤" + d.assigned_agent : "";
+        var toLabel = d.to_agent === "any" ? "🔄 Bárki" : "📥 " + escHtml(d.to_agent || "?");
+        var progress = d.progress ? '<div style="background:var(--surface);border-radius:4px;height:6px;overflow:hidden;margin-top:4px"><div style="height:100%;width:' + d.progress + '%;background:var(--success);border-radius:4px"></div></div><span style="font-size:10px;color:var(--text3)">' + d.progress + '%</span>' : '';
+        var notes = "";
+        if (d.notes && Array.isArray(d.notes) && d.notes.length > 0) {
+          var lastNote = d.notes[d.notes.length - 1];
+          notes = '<div style="font-size:11px;color:var(--text3);margin-top:4px;padding:4px 6px;background:var(--surface);border-radius:4px">📝 ' + escHtml((lastNote.agent || "?") + ": " + (lastNote.note || "")) + '</div>';
+        }
+        var actions = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">';
+        if (d.status === "pending" || d.status === "accepted") {
+          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--danger)" onclick="cancelDelegation(\'' + d.task_id + '\')">🚫 Mégsem</button>';
+        }
+        if (d.status === "available") {
+          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--success)" onclick="claimDelegation(\'' + d.task_id + '\')">✋ Vállalom</button>';
+        }
+        if (d.status === "accepted" || d.status === "running") {
+          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--info)" onclick="reassignDelegation(\'' + d.task_id + '\')">🔄 Átcélzó</button>';
+          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--text3)" onclick="addDelegationNote(\'' + d.task_id + '\')">📝 Jegyzet</button>';
+        }
+        if (d.status === "running") {
+          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--warning)" onclick="updateDelegationProgress(\'' + d.task_id + '\')">📊 Haladás</button>';
+        }
+        actions += '</div>';
+        var li = document.createElement("li");
+        li.style.cssText = "background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;flex-direction:column;gap:4px";
+        li.innerHTML =
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+            '<span style="font-weight:600;font-size:13px">' + statusIcon + ' ' + escHtml(d.subject || "?") + '</span>' +
+            '<span style="font-size:11px;color:' + priorityColor + '">P' + (d.priority || 5) + '</span>' +
+          '</div>' +
+          '<div style="font-size:11px;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap">' +
+            '<span>📤 ' + escHtml(d.from_agent || "?") + ' → ' + toLabel + assigned + '</span>' +
+            '<span>' + timeAgo + '</span>' +
+            '<span style="color:' + (d.status === "completed" ? "var(--success)" : d.status === "failed" ? "var(--danger)" : "var(--text3)") + '">' + d.status + '</span>' +
+          '</div>' +
+          progress +
+          notes +
+          (d.result ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:6px;background:var(--surface);border-radius:4px;max-height:60px;overflow-y:auto">' + escHtml(d.result).substring(0, 200) + '</div>' : '') +
+          actions;
+        list.appendChild(li);
+      });
+    });
+}
+
+function loadDelegationStats() {
+  fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var el = document.getElementById("delStats");
+      var total = data.total || 0;
+      var parts = [];
+      if (data.pending) parts.push("⏳" + data.pending + " függő");
+      if (data.available) parts.push("🔄" + data.available + " elérhető");
+      if (data.accepted) parts.push("✅" + data.accepted + " elfogadott");
+      if (data.running) parts.push("🔄" + data.running + " futó");
+      if (data.completed) parts.push("✔️" + data.completed + " kész");
+      if (data.failed) parts.push("❌" + data.failed + " hiba");
+      el.textContent = parts.length ? parts.join(" · ") : "Még nincs delegáció";
+    });
+}
+
+function claimDelegation(taskId) {
+  if (!confirm("Vállalod ezt a feladatot?")) return;
+  fetch("/api/delegations/" + taskId + "/claim", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert("Hiba: " + data.error); } else { alert("✋ Feladat vállalva: " + data.claimed_by); loadDelegations(); }
+  });
+}
+
+function reassignDelegation(taskId) {
+  var agent = prompt("Új agent neve (morzsa / runa / nova):");
+  if (!agent) return;
+  fetch("/api/delegations/" + taskId + "/reassign", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    body: JSON.stringify({agent: agent})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert("Hiba: " + data.error); } else { alert("🔄 Átcélozva: " + data.assigned_to); loadDelegations(); }
+  });
+}
+
+function addDelegationNote(taskId) {
+  var note = prompt("Jegyzet:");
+  if (!note) return;
+  fetch("/api/delegations/" + taskId + "/note", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    body: JSON.stringify({note: note})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert("Hiba: " + data.error); } else { loadDelegations(); }
+  });
+}
+
+function updateDelegationProgress(taskId) {
+  var pct = prompt("Haladás (0-100):", "50");
+  if (!pct) return;
+  var note = prompt("Opcionális jegyzet:");
+  fetch("/api/delegations/" + taskId + "/progress", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    body: JSON.stringify({progress: parseInt(pct), note: note || undefined})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert("Hiba: " + data.error); } else { alert("📊 Haladás: " + data.progress + "%"); loadDelegations(); }
+  });
+}
+
+function createDelegation() {
+  var target = document.getElementById('delTarget').value;
+  var subject = document.getElementById('delSubject').value;
+  var desc = document.getElementById('delDesc').value;
+  var type = document.getElementById('delType').value;
+  var priority = parseInt(document.getElementById('delPriority').value);
+  var available = document.getElementById('delAvailable').checked;
+  var statusEl = document.getElementById('delCreateStatus');
+
+  if (!subject) {
+    statusEl.textContent = "❌ Tárgy kötelező!";
+    statusEl.style.color = "var(--danger)";
+    return;
+  }
+  if (!available && !target) {
+    statusEl.textContent = "❌ Válassz cél-agentet vagy jelöld be 'Bárki vállalhatja'!";
+    statusEl.style.color = "var(--danger)";
+    return;
+  }
+
+  statusEl.textContent = "📤 Küldés...";
+  statusEl.style.color = "var(--text3)";
+
+  var body = {subject: subject, description: desc, task_type: type, priority: priority};
+  if (available) {
+    body.to_agent = "any";
+    body.available = true;
+  } else {
+    body.to_agent = target;
+  }
+
+  fetch("/api/delegations", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    body: JSON.stringify(body)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.task_id) {
+      statusEl.textContent = "✅ Elküldve! ID: " + data.task_id.substring(0, 8);
+      statusEl.style.color = "var(--success)";
+      document.getElementById('delSubject').value = "";
+      document.getElementById('delDesc').value = "";
+      loadDelegations();
+      loadDelegationStats();
+    } else {
+      statusEl.textContent = "❌ " + (data.error || "Hiba");
+      statusEl.style.color = "var(--danger)";
+    }
+  })
+  .catch(function(e) {
+    statusEl.textContent = "❌ Hálózati hiba";
+    statusEl.style.color = "var(--danger)";
+  });
+}
+
+function cancelDelegation(taskId) {
+  fetch("/api/delegations/" + taskId + "/cancel", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    loadDelegations();
+    loadDelegationStats();
+  });
+}
+
+function timeSince(date) {
+  var seconds = Math.floor((new Date() - date) / 1000);
+  if (seconds < 60) return seconds + "s";
+  var minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + "p";
+  var hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + "ó";
+  var days = Math.floor(hours / 24);
+  return days + "n";
+}
+
+function escHtml(str) {
+  var div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
 }
 
 function loadSettings() {

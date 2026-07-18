@@ -176,6 +176,17 @@ class DashboardHandler:
         app.router.add_post("/api/queue/flush", self._api_queue_flush)
         app.router.add_post("/api/queue/cleanup", self._api_queue_cleanup)
         app.router.add_get("/api/queue/stats", self._api_queue_stats)
+        # Delegation endpoints
+        app.router.add_get("/api/delegations", self._api_delegations_list)
+        app.router.add_post("/api/delegations", self._api_delegations_create)
+        app.router.add_get("/api/delegations/stats", self._api_delegations_stats)
+        app.router.add_get("/api/delegations/available", self._api_delegations_available)
+        app.router.add_get("/api/delegations/{task_id}", self._api_delegations_status)
+        app.router.add_post("/api/delegations/{task_id}/cancel", self._api_delegations_cancel)
+        app.router.add_post("/api/delegations/{task_id}/claim", self._api_delegations_claim)
+        app.router.add_post("/api/delegations/{task_id}/reassign", self._api_delegations_reassign)
+        app.router.add_post("/api/delegations/{task_id}/note", self._api_delegations_note)
+        app.router.add_post("/api/delegations/{task_id}/progress", self._api_delegations_progress)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -3564,4 +3575,260 @@ class DashboardHandler:
             return web.json_response(stats)
         except Exception as e:
             log.error(f"Queue stats API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ── Delegation API endpoints ──
+
+    async def _api_delegations_list(self, request):
+        """List delegations. GET /api/delegations?status=pending&direction=sent"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            status = request.query.get("status")
+            direction = request.query.get("direction", "all")
+            limit = int(request.query.get("limit", "50"))
+            
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            
+            if direction == "sent":
+                tasks = await self.node.delegation.get_my_delegations(status=status)
+            elif direction == "received":
+                tasks = await self.node.delegation.get_assigned_tasks(status=status)
+            else:
+                tasks = await self.node.delegation.get_all_delegations(limit=limit)
+            
+            # Convert UUID and datetime to strings for JSON
+            for t in tasks:
+                for k, v in t.items():
+                    if hasattr(v, 'hex'):
+                        t[k] = str(v)
+                    elif hasattr(v, 'isoformat'):
+                        t[k] = v.isoformat()
+            
+            return web.json_response({"delegations": tasks, "count": len(tasks)})
+        except Exception as e:
+            log.error(f"Delegations list error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_create(self, request):
+        """Create a new delegation. POST /api/delegations
+        Body: {to_agent, subject, description?, task_type?, priority?, context?, timeout_minutes?, available?}
+        to_agent='any' + available=true → any agent can claim
+        to_agent='morzsa' → targeted delegation
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            to_agent = data.get("to_agent")
+            subject = data.get("subject")
+            available = data.get("available", False)
+            
+            if not subject:
+                return web.json_response({"error": "subject required"}, status=400)
+            if not to_agent:
+                return web.json_response({"error": "to_agent required (or set available=true)"}, status=400)
+            
+            # 'any' means available for any agent to claim
+            if to_agent == "any" or available:
+                to_agent = "any"
+                available = True
+            
+            # Verify target agent exists (best-effort, don't block creation)
+            if not available and self.node and self.node.peer_discovery:
+                known = list(self.node.peer_discovery._peers.keys())
+                if to_agent not in known and to_agent != self.node.node_name:
+                    return web.json_response({"error": f"Unknown agent: {to_agent}. Known: {known}"}, status=400)
+            
+            task_id = await self.node.delegation.delegate_task(
+                to_agent=to_agent,
+                subject=subject,
+                description=data.get("description", ""),
+                task_type=data.get("task_type", "generic"),
+                priority=int(data.get("priority", "5")),
+                context=data.get("context"),
+                timeout_minutes=int(data.get("timeout_minutes", "30")),
+                available=available,
+            )
+            
+            status = "available" if available else "pending"
+            return web.json_response({"task_id": task_id, "status": status, "to_agent": to_agent, "subject": subject})
+        except Exception as e:
+            log.error(f"Delegation create error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_stats(self, request):
+        """Get delegation statistics. GET /api/delegations/stats"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            stats = await self.node.delegation.get_delegation_stats()
+            return web.json_response(stats)
+        except Exception as e:
+            log.error(f"Delegation stats error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_status(self, request):
+        """Get status of a specific delegation. GET /api/delegations/{task_id}"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            task = await self.node.delegation.get_task_status(task_id)
+            if not task:
+                return web.json_response({"error": "Task not found"}, status=404)
+            for k, v in task.items():
+                if hasattr(v, 'hex'):
+                    task[k] = str(v)
+                elif hasattr(v, 'isoformat'):
+                    task[k] = v.isoformat()
+            return web.json_response(task)
+        except Exception as e:
+            log.error(f"Delegation status error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_cancel(self, request):
+        """Cancel a pending delegation. POST /api/delegations/{task_id}/cancel"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            success = await self.node.delegation.cancel_task(task_id)
+            if success:
+                return web.json_response({"task_id": task_id, "status": "cancelled"})
+            else:
+                return web.json_response({"error": "Task not found or already running/completed"}, status=404)
+        except Exception as e:
+            log.error(f"Delegation cancel error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_available(self, request):
+        """Get available tasks for claiming. GET /api/delegations/available"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            tasks = await self.node.delegation.get_available_tasks()
+            for t in tasks:
+                for k, v in t.items():
+                    if hasattr(v, 'hex'):
+                        t[k] = str(v)
+                    elif hasattr(v, 'isoformat'):
+                        t[k] = v.isoformat()
+            return web.json_response({"available": tasks, "count": len(tasks)})
+        except Exception as e:
+            log.error(f"Available tasks error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_claim(self, request):
+        """Claim an available task. POST /api/delegations/{task_id}/claim"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            success = await self.node.delegation.claim_task(task_id)
+            if success:
+                return web.json_response({"task_id": task_id, "status": "accepted", "claimed_by": self.node.node_name})
+            else:
+                return web.json_response({"error": "Task not available for claiming"}, status=404)
+        except Exception as e:
+            log.error(f"Claim error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_reassign(self, request):
+        """Reassign a task to a different agent. POST /api/delegations/{task_id}/reassign
+        Body: {"agent": "morzsa"}
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            data = await request.json()
+            new_agent = data.get("agent")
+            if not new_agent:
+                return web.json_response({"error": "agent required"}, status=400)
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            success = await self.node.delegation.reassign_task(task_id, new_agent)
+            if success:
+                return web.json_response({"task_id": task_id, "assigned_to": new_agent})
+            else:
+                return web.json_response({"error": "Task not found or cannot be reassigned"}, status=404)
+        except Exception as e:
+            log.error(f"Reassign error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_note(self, request):
+        """Add a note to a task. POST /api/delegations/{task_id}/note
+        Body: {"note": "Progress update text"}
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            data = await request.json()
+            note = data.get("note")
+            if not note:
+                return web.json_response({"error": "note required"}, status=400)
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            success = await self.node.delegation.add_note(task_id, note)
+            if success:
+                return web.json_response({"task_id": task_id, "note_added": note, "by": self.node.node_name})
+            else:
+                return web.json_response({"error": "Task not found"}, status=404)
+        except Exception as e:
+            log.error(f"Note error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_progress(self, request):
+        """Update task progress. POST /api/delegations/{task_id}/progress
+        Body: {"progress": 50, "note": "Halfway done"} (note optional)
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            data = await request.json()
+            progress = int(data.get("progress", 0))
+            note = data.get("note")
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+            success = await self.node.delegation.update_progress(task_id, progress, note)
+            if success:
+                return web.json_response({"task_id": task_id, "progress": progress})
+            else:
+                return web.json_response({"error": "Task not found"}, status=404)
+        except Exception as e:
+            log.error(f"Progress error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
