@@ -1,7 +1,7 @@
-# A2A Mesh Configuration — Runa node
+# A2A Mesh Configuration — Nova node
 
 mesh:
-  node_name: runa
+  node_name: nova
   node_id: ""
   
   transport_priority:
@@ -39,11 +39,11 @@ mesh:
       listen_port: 8645
       max_connections: 50
       idle_timeout: 300
-      tls_enabled: true
-      tls_cert: ~/a2a_mesh/certs/runa.crt
-      tls_key: ~/a2a_mesh/certs/runa.key
-      tls_ca: ~/a2a_mesh/certs/a2a-mesh-ca.crt
-      tls_verify_peer: false
+      tls_enabled: false
+      # tls_cert: ~/a2a_mesh/certs/nova.crt
+      # tls_key: ~/a2a_mesh/certs/nova.key
+      # tls_ca: ~/a2a_mesh/certs/a2a-mesh-ca.crt
+      # tls_verify_peer: false
     
     http:
       url: http://192.168.1.30:8199
