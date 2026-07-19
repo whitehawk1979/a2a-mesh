@@ -2258,6 +2258,21 @@ class DashboardHandler:
                     # Override version from PG if current is default '1.0.0'
                     if pg_version and nodes[name].get("version") == "1.0.0":
                         nodes[name]["version"] = pg_version
+                    # Override uptime from PG joined_at if current is 0 or invalid
+                    if row[9] and nodes[name].get("uptime_seconds", 0) <= 0:
+                        try:
+                            joined = row[9]
+                            if hasattr(joined, 'timestamp'):
+                                joined_ts = joined.timestamp()
+                            elif isinstance(joined, str):
+                                from datetime import datetime
+                                joined_ts = datetime.fromisoformat(joined.replace('Z', '+00:00')).timestamp()
+                            else:
+                                joined_ts = float(joined)
+                            import time as _time_mod
+                            nodes[name]["uptime_seconds"] = round(_time_mod.time() - joined_ts, 1)
+                        except Exception:
+                            pass
             cur.close()
             conn.close()
         except Exception as e:
