@@ -584,23 +584,27 @@ class AgentRegistry:
                 # New registration has fewer caps (e.g. P2P handshake only sends a2a_messaging)
                 # Keep existing richer capabilities
                 merged_caps = list(existing_caps_set | new_caps_set)
+                # Use the better version (prefer non-default)
+                better_version = card.version if card.version and card.version != "1.0.0" else (existing.version if existing.version and existing.version != "1.0.0" else card.version)
                 card = AgentCard(
                     name=card.name,
                     capabilities=merged_caps,
                     endpoint=card.endpoint or existing.endpoint,
                     description=card.description or existing.description,
-                    version=card.version or existing.version,
+                    version=better_version,
                     skills=final_skills_list if final_skills_list else None,
                 )
             else:
                 # Even if caps are fine, preserve existing skills if new card has none
                 if not new_skills and existing_skills:
+                    # Use the better version (prefer non-default)
+                    better_version = card.version if card.version and card.version != "1.0.0" else (existing.version if existing.version and existing.version != "1.0.0" else card.version)
                     card = AgentCard(
                         name=card.name,
                         capabilities=list(existing_caps_set | new_caps_set) if card.capabilities else existing.capabilities,
                         endpoint=card.endpoint or existing.endpoint,
                         description=card.description or existing.description,
-                        version=card.version or existing.version,
+                        version=better_version,
                         skills=final_skills_list if final_skills_list else None,
                     )
             self.agents[card.name] = card
