@@ -4299,14 +4299,12 @@ class DashboardHandler:
 
             log.info(f"Image generated: {gen_id} prompt='{prompt[:50]}' model={model}")
 
-            # Auto-send to Telegram if configured
-            if self.node and self.node.config.telegram_auto_image:
-                chat_id = self.node.config.telegram_chat_id
-                bot_token = self.node.config.telegram_bot_token
-                if chat_id and bot_token:
-                    asyncio.create_task(self._send_image_to_telegram(
-                        bot_token, chat_id, pollinations_url, prompt, model, seed
-                    ))
+            # Auto-send to Telegram if configured and target_chat provided
+            target_chat = data.get("target_chat", "").strip()
+            if self.node and self.node.config.telegram_auto_image and target_chat:
+                asyncio.create_task(self._send_image_to_telegram(
+                    target_chat, pollinations_url, prompt, model, seed
+                ))
 
             return web.json_response({
                 "url": pollinations_url,
@@ -4350,7 +4348,7 @@ class DashboardHandler:
             log.error(f"Image proxy error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _send_image_to_telegram(self, bot_token: str, chat_id: str,
+    async def _send_image_to_telegram(self, target_chat: str,
                                        image_url: str, prompt: str,
                                        model: str, seed: int):
         """Send generated image to Telegram chat via Hermes CLI.
@@ -4375,13 +4373,13 @@ class DashboardHandler:
             with open(tmp_path, "wb") as f:
                 f.write(image_data)
 
-            # Send via Hermes CLI
+            # Send via Hermes CLI — target_chat e.g. "telegram:-1003971026331:17585"
             caption = f"🎨 {prompt[:200]}\nModel: {model} | Seed: {seed}"
             import asyncio as _asyncio
             cmd = [
                 os.path.expanduser("~/.hermes/hermes-agent/venv/bin/python"),
                 "-m", "hermes_cli.main", "send",
-                "--to", "telegram",
+                "--to", target_chat,
                 f"🎨 {caption[:500]}\nMEDIA:{tmp_path}"
             ]
             proc = await _asyncio.create_subprocess_exec(
