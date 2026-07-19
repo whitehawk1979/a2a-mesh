@@ -345,6 +345,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </select>
       <button class="btn" id="sendBtn" onclick="sendMessage()">Küldés</button>
       <button class="btn" id="fileBtn" onclick="document.getElementById('fileInput').click()" title="Fájl küldése" style="background:var(--success);font-size:16px;">📎</button>
+      <button class="btn" id="imgBtn" onclick="showImageGen()" title="Kép generálás" style="background:var(--primary);font-size:16px;">🎨</button>
       <input type="file" id="fileInput" style="display:none" onchange="uploadFile()" multiple>
     </div>
   </div>
@@ -690,6 +691,55 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-sm" onclick="document.getElementById('settingsModal').style.display='none'">Mégsem</button>
       <button class="btn btn-sm" style="background:var(--success)" onclick="saveSettings()">💾 Mentés</button>
+    </div>
+  </div>
+</div>
+
+<!-- Image Generation Modal -->
+<div class="file-modal-overlay" id="imageGenModal" style="display:none">
+  <div class="file-modal" style="width:600px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">🎨 Kép generálás</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('imageGenModal').style.display='none'">✕</button>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Leírás (prompt)</label>
+      <textarea id="imagePrompt" placeholder="Pl: egy aranyos macska az ablakpárkányon, vízfesték stílusban" style="width:100%;height:80px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--text);font-size:14px;resize:vertical;font-family:inherit"></textarea>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Szélesség</label>
+        <input type="number" id="imageWidth" value="512" min="128" max="2048" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Magasság</label>
+        <input type="number" id="imageHeight" value="512" min="128" max="2048" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Modell</label>
+        <select id="imageModel" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+          <option value="flux">Flux (ajánlott)</option>
+          <option value="flux-realism">Flux Realism</option>
+          <option value="flux-anime">Flux Anime</option>
+          <option value="flux-3d">Flux 3D</option>
+          <option value="flux-cablyai">Flux CablyAI</option>
+          <option value="turbo">Turbo (gyors)</option>
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Seed (opcionális)</label>
+        <input type="number" id="imageSeed" placeholder="véletlen" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-sm" onclick="document.getElementById('imageGenModal').style.display='none'">Mégsem</button>
+      <button class="btn btn-sm" style="background:var(--primary)" id="imageGenBtn" onclick="generateImage()">🎨 Generálás</button>
+    </div>
+    <div id="imageGenResult" style="margin-top:16px;display:none">
+      <div id="imageGenStatus" style="color:var(--text2);font-size:13px;margin-bottom:8px"></div>
+      <img id="imageGenPreview" style="max-width:100%;border-radius:8px;display:none" alt="Generált kép">
     </div>
   </div>
 </div>
@@ -2307,6 +2357,71 @@ function submitChangePassword() {
       errEl.textContent = d.error || "Ismeretlen hiba";
     }
   }).catch(function() { errEl.textContent = "Hálózati hiba"; });
+}
+
+// ── Image Generation (Pollinations.ai) ───────────────────────
+function showImageGen() {
+  document.getElementById('imageGenModal').style.display = 'flex';
+  document.getElementById('imageGenResult').style.display = 'none';
+  document.getElementById('imagePrompt').focus();
+}
+
+function generateImage() {
+  var prompt = document.getElementById('imagePrompt').value.trim();
+  if (!prompt) { alert('Adj meg egy leírást!'); return; }
+  var width = parseInt(document.getElementById('imageWidth').value) || 512;
+  var height = parseInt(document.getElementById('imageHeight').value) || 512;
+  var model = document.getElementById('imageModel').value;
+  var seedVal = document.getElementById('imageSeed').value;
+  var seed = seedVal ? parseInt(seedVal) : undefined;
+
+  var resultDiv = document.getElementById('imageGenResult');
+  var statusEl = document.getElementById('imageGenStatus');
+  var previewEl = document.getElementById('imageGenPreview');
+  var btn = document.getElementById('imageGenBtn');
+
+  resultDiv.style.display = 'block';
+  statusEl.textContent = '⏳ Kép generálása...';
+  previewEl.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = '⏳ Generálás...';
+
+  var body = {prompt: prompt, width: width, height: height, model: model};
+  if (seed !== undefined) body.seed = seed;
+
+  fetch('/api/image/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + authToken},
+    body: JSON.stringify(body)
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error) {
+      statusEl.textContent = '❌ Hiba: ' + d.error;
+      btn.disabled = false;
+      btn.textContent = '🎨 Generálás';
+      return;
+    }
+    statusEl.textContent = '⏳ Kép letöltése... (seed: ' + d.seed + ')';
+
+    // Load image through proxy
+    var proxyUrl = '/api/image/proxy?url=' + encodeURIComponent(d.url);
+    previewEl.onload = function() {
+      statusEl.textContent = '✅ Kép kész! (seed: ' + d.seed + ', modell: ' + d.model + ')';
+      btn.disabled = false;
+      btn.textContent = '🎨 Generálás';
+    };
+    previewEl.onerror = function() {
+      // Fallback: direct URL
+      previewEl.src = d.url;
+      statusEl.textContent = '✅ Kép kész (direct) — seed: ' + d.seed;
+      btn.disabled = false;
+      btn.textContent = '🎨 Generálás';
+    };
+    previewEl.src = proxyUrl;
+  }).catch(function(e) {
+    statusEl.textContent = '❌ Hiba: ' + e.message;
+    btn.disabled = false;
+    btn.textContent = '🎨 Generálás';
+  });
 }
 </script>
 </body>

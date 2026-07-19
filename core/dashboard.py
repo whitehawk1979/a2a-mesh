@@ -201,6 +201,9 @@ class DashboardHandler:
         app.router.add_get("/api/context/{key}", self._api_context_get)
         app.router.add_post("/api/context", self._api_context_set)
         app.router.add_delete("/api/context/{key}", self._api_context_delete)
+        # Image generation API (Pollinations.ai proxy)
+        app.router.add_post("/api/image/generate", self._api_image_generate)
+        app.router.add_get("/api/image/proxy", self._api_image_proxy)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -4241,4 +4244,98 @@ class DashboardHandler:
                 return web.json_response({"error": "Key not found"}, status=404)
         except Exception as e:
             log.error(f"Context delete error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ── Image Generation (Pollinations.ai) ──────────────────────────
+
+    async def _api_image_generate(self, request):
+        """Generate image via Pollinations.ai. POST /api/image/generate
+        Body: {prompt: str, width?: int, height?: int, model?: str, seed?: int, nologo?: bool}
+        Returns: {url, prompt, width, height, seed}
+        """
+        from aiohttp import web
+        import aiohttp
+        import random
+        import json
+
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            prompt = data.get("prompt", "").strip()
+            if not prompt:
+                return web.json_response({"error": "prompt is required"}, status=400)
+
+            width = int(data.get("width", 512))
+            height = int(data.get("height", 512))
+            model = data.get("model", "flux")
+            seed = data.get("seed", random.randint(1, 999999999))
+            nologo = data.get("nologo", True)
+            enhance = data.get("enhance", True)
+
+            # Build Pollinations URL
+            from urllib.parse import quote
+            encoded_prompt = quote(prompt)
+            params = f"width={width}&height={height}&model={model}&seed={seed}"
+            if nologo:
+                params += "&nologo=true"
+            if enhance:
+                params += "&enhance=true"
+            pollinations_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?{params}"
+
+            # Skip HEAD validation to avoid rate limits — proxy will handle download
+
+            # Store generation in context for later retrieval
+            gen_id = f"img_{seed}_{random.randint(1000,9999)}"
+            if self.node and self.node.delegation:
+                await self.node.delegation.set_context(
+                    gen_id, json.dumps({
+                        "prompt": prompt, "url": pollinations_url,
+                        "width": width, "height": height,
+                        "seed": seed, "model": model
+                    }), "image_generation", expires_minutes=60
+                )
+
+            log.info(f"Image generated: {gen_id} prompt='{prompt[:50]}' model={model}")
+            return web.json_response({
+                "url": pollinations_url,
+                "gen_id": gen_id,
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "seed": seed,
+                "model": model
+            })
+        except Exception as e:
+            log.error(f"Image generate error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_image_proxy(self, request):
+        """Proxy image download from Pollinations.ai. GET /api/image/proxy?url=...
+        Returns the image binary directly with proper content-type.
+        """
+        from aiohttp import web
+        import aiohttp
+
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            image_url = request.query.get("url", "")
+            if not image_url or not image_url.startswith("https://image.pollinations.ai/"):
+                return web.json_response({"error": "Invalid or missing url parameter"}, status=400)
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status != 200:
+                        return web.json_response({"error": f"Upstream returned {resp.status}"}, status=502)
+                    content_type = resp.headers.get("Content-Type", "image/jpeg")
+                    body = await resp.read()
+
+            return web.Response(body=body, content_type=content_type)
+        except asyncio.TimeoutError:
+            return web.json_response({"error": "Image generation timed out (try simpler prompt)"}, status=504)
+        except Exception as e:
+            log.error(f"Image proxy error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
