@@ -3343,6 +3343,15 @@ class DashboardHandler:
             connections = []
             now = _time.time()
 
+            # ── DB version lookup (fallback for agent cards with default '1.0.0') ──
+            db_versions = {}
+            try:
+                if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
+                    rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                    db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+            except Exception:
+                pass
+
             # ── Self node info ──────────────────────────────────────────
             cfg = self.node.config
             self_uptime = now - self.node._start_time if hasattr(self.node, '_start_time') and self.node._start_time else 0
@@ -3387,6 +3396,8 @@ class DashboardHandler:
                     for card, health in reg.list_agents():
                         name = card.name
                         reg_agents[name] = (card, health)
+                        # Prefer DB version over card default (card may have '1.0.0' fallback)
+                        card_version = card.version if card.version and card.version != "1.0.0" else db_versions.get(name)
                         nodes[name] = {
                             "name": name,
                             "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
@@ -3396,7 +3407,7 @@ class DashboardHandler:
                             "status": "registered",
                             "health_score": round(health.health_score, 3),
                             "capabilities": list(card.capabilities) if card.capabilities else [],
-                            "version": card.version or "1.0.0",
+                            "version": card_version,
                             "skills": list(card.skills) if card.skills else [],
                             "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                             "last_seen": health.last_health_check or 0,
@@ -3421,6 +3432,8 @@ class DashboardHandler:
                         # Prefer registry data for skills/caps, fall back to peer data
                         final_caps = existing_caps if existing_caps else peer_caps
                         existing_skills = existing.get("skills", []) or []
+                        # Use DB version as fallback if card version is default '1.0.0'
+                        peer_version = existing.get("version") or db_versions.get(name, "1.0.0")
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),
@@ -3430,7 +3443,7 @@ class DashboardHandler:
                             "status": "connected" if p2p_available else "disconnected",
                             "health_score": existing.get("health_score", 1.0),
                             "capabilities": final_caps,
-                            "version": existing.get("version", "1.0.0"),
+                            "version": peer_version,
                             "skills": existing_skills if existing_skills else [],
                             "uptime_seconds": existing.get("uptime_seconds", 0),
                             "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
