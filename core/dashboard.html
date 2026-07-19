@@ -2402,19 +2402,25 @@ function generateImage() {
     }
     statusEl.textContent = '⏳ Kép letöltése... (seed: ' + d.seed + ')';
 
-    // Load image through proxy
-    var proxyUrl = '/api/image/proxy?url=' + encodeURIComponent(d.url);
+    // Load image through proxy first, fallback to direct URL
+    previewEl.style.display = 'none';
     previewEl.onload = function() {
+      previewEl.style.display = 'block';
       statusEl.textContent = '✅ Kép kész! (seed: ' + d.seed + ', modell: ' + d.model + ')';
       btn.disabled = false;
       btn.textContent = '🎨 Generálás';
     };
     previewEl.onerror = function() {
-      // Fallback: direct URL
-      previewEl.src = d.url;
-      statusEl.textContent = '✅ Kép kész (direct) — seed: ' + d.seed;
-      btn.disabled = false;
-      btn.textContent = '🎨 Generálás';
+      // If proxy fails, try direct Pollinations URL
+      if (previewEl.src.includes('/api/image/proxy')) {
+        previewEl.src = d.url;
+        statusEl.textContent = '⏳ Direct letöltés... (seed: ' + d.seed + ')';
+      } else {
+        previewEl.style.display = 'none';
+        statusEl.innerHTML = '❌ Kép letöltés sikertelen. <a href="' + d.url + '" target="_blank" style="color:var(--primary)">Kattints ide a megtekintéshez</a>';
+        btn.disabled = false;
+        btn.textContent = '🎨 Generálás';
+      }
     };
     previewEl.src = proxyUrl;
   }).catch(function(e) {
