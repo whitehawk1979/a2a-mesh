@@ -561,6 +561,7 @@ class DashboardHandler:
             "role": self.node.config.topology.node_role,
             "status": "online",
             "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
+            "version": getattr(self.node.config, 'version', '1.0.0') or '1.0.0',
             "transports": {
                 "p2p": self_transports.get("p2p", False),
                 "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
@@ -583,6 +584,7 @@ class DashboardHandler:
                 "role": peer.role,
                 "status": peer_status,
                 "host": peer.host,
+                "version": getattr(peer, 'version', None) or '1.0.0',
                 "p2p_port": peer.p2p_port,
                 "health_port": peer.health_port,
                 "last_seen": peer.last_seen,
