@@ -537,6 +537,16 @@ class DashboardHandler:
         """Return list of known agents with consistent transport format."""
         from aiohttp import web
         agents = []
+        
+        # ── DB version lookup (fallback for peers with default '1.0.0') ──
+        db_versions = {}
+        try:
+            if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
+                rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+        except Exception:
+            pass
+        
         # Self — extract transport availability from TransportStatus objects
         status = self.node.get_status()
         raw_transports = status.get("transports", {})
@@ -579,12 +589,16 @@ class DashboardHandler:
                 peer_status = "available"
             else:
                 peer_status = "offline"
+            # Use DB version as fallback for default '1.0.0'
+            peer_ver = getattr(peer, 'version', None)
+            if not peer_ver or peer_ver == '1.0.0':
+                peer_ver = db_versions.get(peer.name, peer_ver or '1.0.0')
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
                 "status": peer_status,
                 "host": peer.host,
-                "version": getattr(peer, 'version', None) or '1.0.0',
+                "version": peer_ver,
                 "p2p_port": peer.p2p_port,
                 "health_port": peer.health_port,
                 "last_seen": peer.last_seen,
