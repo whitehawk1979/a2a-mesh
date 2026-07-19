@@ -4374,11 +4374,13 @@ class DashboardHandler:
                 f.write(image_data)
 
             # Send via Hermes CLI — target_chat e.g. "telegram:-1003971026331:17585"
+            # Use local hermes_cli path per node
+            import shutil
+            hermes_cli = shutil.which("hermes") or os.path.expanduser("~/.hermes/hermes-agent/venv/bin/python")
+            cmd_prefix = [hermes_cli, "-m", "hermes_cli.main", "send"] if hermes_cli.endswith("python") else [hermes_cli, "send"]
             caption = f"🎨 {prompt[:200]}\nModel: {model} | Seed: {seed}"
             import asyncio as _asyncio
-            cmd = [
-                os.path.expanduser("~/.hermes/hermes-agent/venv/bin/python"),
-                "-m", "hermes_cli.main", "send",
+            cmd = cmd_prefix + [
                 "--to", target_chat,
                 f"🎨 {caption[:500]}\nMEDIA:{tmp_path}"
             ]
