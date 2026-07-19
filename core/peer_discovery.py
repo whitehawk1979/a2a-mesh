@@ -343,7 +343,7 @@ class PeerDiscovery:
             cur.execute("""
                 SELECT node_name, role, host, p2p_port, health_port,
                        pg_available, p2p_available, http_available,
-                       last_heartbeat, capabilities
+                       last_heartbeat, capabilities, version
                 FROM mesh.mesh_nodes
                 WHERE node_name != %s
                   AND status = 'active'
@@ -358,6 +358,7 @@ class PeerDiscovery:
                 p2p_avail = row[6] if len(row) > 6 else False
                 http_avail = row[7] if len(row) > 7 else False
                 capabilities = row[9] if len(row) > 9 else None
+                version = row[10] if len(row) > 10 else None
 
                 if not host:
                     log.debug(f"Skipping peer {name}: no host address")
@@ -397,6 +398,8 @@ class PeerDiscovery:
                         self._peers[name].p2p_available = p2p_avail
                     self._peers[name].http_available = http_avail
                     self._peers[name].capabilities = caps
+                    if version:
+                        self._peers[name].version = version
                     # Re-register with registry to keep dashboard in sync
                     self._register_discovered_peer(self._peers[name])
                 else:
@@ -404,6 +407,8 @@ class PeerDiscovery:
                     peer.pg_available = pg_avail
                     peer.p2p_available = p2p_avail
                     peer.http_available = http_avail
+                    if version:
+                        peer.version = version
                     discovered.append(peer)
 
             cur.close()
