@@ -571,6 +571,7 @@ class DashboardHandler:
             "role": self.node.config.topology.node_role,
             "status": "online",
             "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
+            "health_port": getattr(self.node.config, 'health_port', 8650),
             "version": getattr(self.node.config, 'version', '1.0.0') or '1.0.0',
             "transports": {
                 "p2p": self_transports.get("p2p", False),

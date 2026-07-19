@@ -411,7 +411,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">⚙️</span>
       <span class="nav-label">Beállítások</span>
     </button>
-    <button class="nav-item" onclick="window.open('http://192.168.1.8:3322/dashboard','_blank')" id="navDashboard">
+    <button class="nav-item" onclick="window.open(location.protocol+'//'+location.host+'/dashboard','_blank')" id="navDashboard">
       <span class="nav-icon">🖥️</span>
       <span class="nav-label">Dashboard</span>
     </button>
@@ -1389,37 +1389,34 @@ function loadQuickLinks() {
       html += '<span class="icon">🌐</span> Topológia Nézet';
       html += '</div>';
 
-      // Dashboard links for each connected agent that has 'dashboard' capability
+      // Dashboard links for each connected agent
       var selfName = (d.self_name || nodeId || "").toLowerCase();
+      var selfHost = location.hostname;
+      var selfPort = location.port || (location.protocol === "https:" ? "443" : "80");
+      // If accessing via proxy (non-8650 port), use proxy URL for self, direct for others
+      var useProxy = (selfPort !== "8650" && selfPort !== "8645");
+
       Object.keys(agents).forEach(function(name) {
         var info = agents[name];
         var caps = info.capabilities || [];
         var hasDash = caps.some(function(c) { return c.toLowerCase() === "dashboard"; });
-        if (!hasDash) return;
-
-        var ep = info.endpoint || "";
-        // endpoint may be "http://0.0.0.0:8650" or "192.168.1.30:8645"
-        var host, port;
-        if (ep.indexOf("://") >= 0) {
-          var parts = ep.split("://")[1].split(":");
-          host = parts[0];
-          port = parts[1] || "8650";
-        } else {
-          var parts2 = ep.split(":");
-          host = parts2[0];
-          port = parts2[1] || "8650";
-        }
-
-        // Skip 0.0.0.0 — use this server's hostname instead
-        if (host === "0.0.0.0" || host === "0.0.0.0") {
-          host = location.hostname;
-          port = "8650";
-        }
-
-        // Dashboard runs on health_port (8650), not p2p_port
-        var dashUrl = location.protocol + "//" + host + ":8650/dashboard";
-        var label = name.charAt(0).toUpperCase() + name.slice(1) + " Dashboard";
+        // All mesh nodes have dashboards — show regardless of capability
         var isSelf = (name.toLowerCase() === selfName);
+        var dashUrl;
+
+        if (isSelf) {
+          // Self node — link to current dashboard (proxy or direct)
+          dashUrl = location.protocol + "//" + selfHost + ":" + selfPort + "/dashboard";
+        } else {
+          // Peer node — use direct health_port from mesh data
+          var peerHost = info.host || info.endpoint || "";
+          if (peerHost.indexOf("://") >= 0) { peerHost = peerHost.split("://")[1]; }
+          if (peerHost.indexOf(":") >= 0) { peerHost = peerHost.split(":")[0]; }
+          var peerPort = info.health_port || 8650;
+          dashUrl = location.protocol + "//" + peerHost + ":" + peerPort + "/dashboard";
+        }
+
+        var label = name.charAt(0).toUpperCase() + name.slice(1) + " Dashboard";
         var icon = isSelf ? "🏠" : "📊";
 
         html += '<div class="channel-item" onclick="window.open(\'' + dashUrl + '\',\'_blank\')">';
