@@ -163,9 +163,25 @@ class PeerDiscovery:
             except Exception as e:
                 log.debug(f"Could not load capabilities from PG for {peer.name}: {e}")
         
+        # Determine version from peer data or PG
+        peer_version = getattr(peer, 'version', None)
+        if not peer_version and self._pg_conn and not self._pg_conn.closed:
+            try:
+                cur2 = self._pg_conn.cursor()
+                cur2.execute("SELECT version FROM mesh.mesh_nodes WHERE node_name = %s", (peer.name,))
+                vrow = cur2.fetchone()
+                cur2.close()
+                if vrow and vrow[0]:
+                    peer_version = vrow[0]
+            except Exception:
+                pass
+        if not peer_version:
+            peer_version = '1.0.0'
+
         card = AgentCard(
             name=peer.name,
             capabilities=capabilities,
+            version=peer_version,
             endpoint=f"{peer.host}:{peer.p2p_port}",
             description=f"P2P discovered peer ({peer.role})",
         )

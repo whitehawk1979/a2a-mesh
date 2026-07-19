@@ -1948,8 +1948,8 @@ echo "Status: ok"
                 INSERT INTO mesh.mesh_nodes 
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
-                     pg_available, p2p_available, http_available, capabilities)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14)
+                     pg_available, p2p_available, http_available, capabilities, version)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
@@ -1961,7 +1961,8 @@ echo "Status: ok"
                     pg_available = EXCLUDED.pg_available,
                     p2p_available = EXCLUDED.p2p_available,
                     http_available = EXCLUDED.http_available,
-                    capabilities = EXCLUDED.capabilities
+                    capabilities = EXCLUDED.capabilities,
+                    version = EXCLUDED.version
             """,
                 self.node_name,
                 self.role.value,
@@ -1977,6 +1978,7 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
+                getattr(self.config, 'version', '0.18.3'),
             )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
             await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
@@ -2009,8 +2011,8 @@ echo "Status: ok"
                         INSERT INTO mesh.mesh_nodes 
                             (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                              status, last_heartbeat, host, p2p_port, health_port,
-                             pg_available, p2p_available, http_available, capabilities)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14)
+                             pg_available, p2p_available, http_available, capabilities, version)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15)
                         ON CONFLICT (node_name) DO UPDATE SET
                             role = EXCLUDED.role,
                             short_addr = EXCLUDED.short_addr,
@@ -2022,7 +2024,8 @@ echo "Status: ok"
                             pg_available = EXCLUDED.pg_available,
                             p2p_available = EXCLUDED.p2p_available,
                             http_available = EXCLUDED.http_available,
-                            capabilities = EXCLUDED.capabilities
+                            capabilities = EXCLUDED.capabilities,
+                            version = EXCLUDED.version
                     """,
                         self.node_name,
                         self.role.value,
@@ -2038,6 +2041,7 @@ echo "Status: ok"
                         self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                         self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                         json.dumps(capabilities, ensure_ascii=True),
+                        getattr(self.config, 'version', '0.18.3'),
                     )
                     log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")
                 except Exception as retry_e:
