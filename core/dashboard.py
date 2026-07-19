@@ -2162,7 +2162,7 @@ class DashboardHandler:
                         "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                         "last_seen": health.last_health_check or 0,
                         "message_count": health.total_requests,
-                        "version": card.version or "1.0.0",
+                        "version": card.version if card.version and card.version != "1.0.0" else "1.0.0",
                     }
             except Exception as e:
                 log.warning(f"Nodes list: registry lookup failed: {e}")
@@ -2204,7 +2204,7 @@ class DashboardHandler:
                         "uptime_seconds": 0,
                         "last_seen": getattr(peer, 'last_seen', 0),
                         "message_count": 0,
-                        "version": "1.0.0",
+                        "version": getattr(peer, 'version', '1.0.0') or '1.0.0',
                     }
 
         # 3. PG data (persistent — fills gaps for offline/pending nodes)
@@ -2220,13 +2220,14 @@ class DashboardHandler:
             cur.execute("""
                 SELECT node_name, role, host, p2p_port, health_port,
                        pg_available, p2p_available, http_available,
-                       status, joined_at, last_heartbeat, skills, capabilities
+                       status, joined_at, last_heartbeat, skills, capabilities, version
                 FROM mesh.mesh_nodes
                 ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, joined_at
             """)
             for row in cur.fetchall():
                 name = row[0]
                 pg_status = row[8]
+                pg_version = row[13] if len(row) > 13 else None
                 if name not in nodes:
                     # Not in registry/P2P — offline or pending
                     nodes[name] = {
@@ -2245,7 +2246,7 @@ class DashboardHandler:
                         "uptime_seconds": 0,
                         "last_seen": row[10].isoformat() if row[10] else None,
                         "message_count": 0,
-                        "version": "1.0.0",
+                        "version": pg_version or "1.0.0",
                         "joined_at": row[9].isoformat() if row[9] else None,
                     }
                 else:
@@ -2254,6 +2255,9 @@ class DashboardHandler:
                         nodes[name]["joined_at"] = row[9].isoformat()
                     if pg_status == "pending" and nodes[name].get("status") not in ("connected", "active", "registered"):
                         nodes[name]["status"] = "pending"
+                    # Override version from PG if current is default '1.0.0'
+                    if pg_version and nodes[name].get("version") == "1.0.0":
+                        nodes[name]["version"] = pg_version
             cur.close()
             conn.close()
         except Exception as e:
