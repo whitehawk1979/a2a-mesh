@@ -156,6 +156,7 @@ class MeshConfig:
         "registry",            # Agent registry (coordinator nodes)
         "dashboard",           # Web dashboard (coordinator nodes)
         "health_monitor",      # Health monitoring and scoring
+        "image_gen",           # Image generation via Pollinations.ai + Telegram delivery
     ])
 
     # Agent skills — fine-grained abilities that other agents can discover via P2P handshake
@@ -191,6 +192,12 @@ class MeshConfig:
             "name": "Task Execution",
             "description": "Execute delegated tasks and report results back to the coordinator",
             "tags": ["task", "execution", "delegation"],
+        },
+        {
+            "id": "image_gen",
+            "name": "Image Generation",
+            "description": "Generate images from text prompts using Pollinations.ai (Flux, Flux Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram chats.",
+            "tags": ["image", "generation", "pollinations", "telegram"],
         },
     ])
 
