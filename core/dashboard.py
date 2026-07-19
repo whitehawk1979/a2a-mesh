@@ -4298,6 +4298,16 @@ class DashboardHandler:
                 )
 
             log.info(f"Image generated: {gen_id} prompt='{prompt[:50]}' model={model}")
+
+            # Auto-send to Telegram if configured
+            if self.node and self.node.config.telegram_auto_image:
+                chat_id = self.node.config.telegram_chat_id
+                bot_token = self.node.config.telegram_bot_token
+                if chat_id and bot_token:
+                    asyncio.create_task(self._send_image_to_telegram(
+                        bot_token, chat_id, pollinations_url, prompt, model, seed
+                    ))
+
             return web.json_response({
                 "url": pollinations_url,
                 "gen_id": gen_id,
@@ -4339,3 +4349,55 @@ class DashboardHandler:
         except Exception as e:
             log.error(f"Image proxy error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _send_image_to_telegram(self, bot_token: str, chat_id: str,
+                                       image_url: str, prompt: str,
+                                       model: str, seed: int):
+        """Send generated image to Telegram chat via Hermes CLI.
+
+        Uses 'hermes send' which reuses the gateway's platform credentials.
+        Downloads image from Pollinations, saves to temp file, sends via CLI.
+        """
+        import aiohttp
+        import tempfile
+        import os
+        try:
+            # Download image from Pollinations
+            async with aiohttp.ClientSession() as session:
+                async with session.get(image_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                    if resp.status != 200:
+                        log.warning(f"Telegram: failed to download image ({resp.status})")
+                        return
+                    image_data = await resp.read()
+
+            # Save to temp file
+            tmp_path = os.path.join(tempfile.gettempdir(), f"a2a_img_{seed}.jpg")
+            with open(tmp_path, "wb") as f:
+                f.write(image_data)
+
+            # Send via Hermes CLI
+            caption = f"🎨 {prompt[:200]}\nModel: {model} | Seed: {seed}"
+            import asyncio as _asyncio
+            cmd = [
+                os.path.expanduser("~/.hermes/hermes-agent/venv/bin/python"),
+                "-m", "hermes_cli.main", "send",
+                "--to", "telegram",
+                f"🎨 {caption[:500]}\nMEDIA:{tmp_path}"
+            ]
+            proc = await _asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=_asyncio.subprocess.PIPE,
+                stderr=_asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await _asyncio.wait_for(proc.communicate(), timeout=30)
+            if proc.returncode == 0:
+                log.info(f"Telegram: image sent via Hermes CLI")
+            else:
+                log.warning(f"Telegram: Hermes CLI failed ({proc.returncode}): {stderr.decode()[:200]}")
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+        except Exception as e:
+            log.warning(f"Telegram: image send error: {e}")

@@ -217,6 +217,8 @@ class MeshConfig:
 
     # Telegram config
     telegram_chat_id: str = ""
+    telegram_bot_token: str = ""
+    telegram_auto_image: bool = True
 
     # Auth config
     auth_mode: str = "open"  # open, whitelist, tofu
@@ -348,6 +350,8 @@ class MeshConfig:
         config.webhook_port = int(os.environ.get('WEBHOOK_PORT', mesh.get('webhook_port', 8644)))
         config.webhook_secret = os.environ.get('WEBHOOK_SECRET', mesh.get('webhook_secret', ''))
         config.telegram_chat_id = os.environ.get('A2A_TELEGRAM_CHAT_ID', mesh.get('telegram_chat_id', ''))
+        config.telegram_bot_token = os.environ.get('A2A_TELEGRAM_BOT_TOKEN', mesh.get('telegram_bot_token', ''))
+        config.telegram_auto_image = str(os.environ.get('A2A_TELEGRAM_AUTO_IMAGE', mesh.get('telegram_auto_image', 'true'))).lower() in ('true', '1', 'yes')
 
         # Auth mode
         config.auth_mode = mesh.get('auth_mode', 'open')

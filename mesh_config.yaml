@@ -12,6 +12,8 @@ mesh:
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
   telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
+  telegram_bot_token: ${A2A_TELEGRAM_BOT_TOKEN}
+  telegram_auto_image: true
   log_file: ~/a2a_mesh/a2a_mesh.log
   auth_mode: open
   health_port: 8650
