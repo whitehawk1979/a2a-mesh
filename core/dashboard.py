@@ -575,7 +575,7 @@ class DashboardHandler:
             "status": "online",
             "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
             "health_port": getattr(self.node, '_health_port', 8650),
-            "version": getattr(self.node.config, 'version', '1.0.0') or '1.0.0',
+            "version": self.node._resolved_version,
             "transports": {
                 "p2p": self_transports.get("p2p", False),
                 "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
@@ -3418,7 +3418,7 @@ class DashboardHandler:
                 "status": "online",
                 "health_score": 1.0,
                 "capabilities": self_caps,
-                "version": getattr(cfg, 'version', '1.0.0') or '1.0.0',
+                "version": self.node._resolved_version,
                 "skills": self_skills,
                 "uptime_seconds": round(self_uptime, 1),
                 "last_seen": now,

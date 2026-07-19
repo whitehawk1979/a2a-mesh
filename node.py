@@ -79,6 +79,8 @@ class MeshNode:
     def __init__(self, config: Optional[MeshConfig] = None):
         self.config = config or MeshConfig()
         self.node_name = self.config.node_name
+        # Resolve version from git tag (auto-updates on deploy)
+        self._resolved_version = self.config._resolve_version()
 
         # Initialize encryption
         self.encryption: Optional[MeshEncryption] = None
@@ -1667,7 +1669,7 @@ echo "Status: ok"
             name=self.node_name,
             capabilities=capabilities,
             skills=skills,
-            version=getattr(self.config, 'version', '1.0.0'),
+            version=self._resolved_version,
             description=f"A2A Mesh node ({self.role.value})",
             endpoint=endpoint,
             health_endpoint="/api/status",
@@ -1728,7 +1730,7 @@ echo "Status: ok"
                 "role": self.role.value,
                 "address": f"0x{self.mesh_address.short:04X}" if self.mesh_address else "pending",
                 "uptime_seconds": round(uptime, 1),
-                "version": getattr(self.config, 'version', '1.0.0'),
+                "version": self._resolved_version,
                 "updater": updater_status,
                 "transports": {
                     "pg": self._pg_transport.is_available(),
@@ -1978,7 +1980,7 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
-                getattr(self.config, 'version', '0.18.3'),
+                self._resolved_version,
             )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
             await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
@@ -2041,7 +2043,7 @@ echo "Status: ok"
                         self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                         self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                         json.dumps(capabilities, ensure_ascii=True),
-                        getattr(self.config, 'version', '0.18.3'),
+                        self._resolved_version,
                     )
                     log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")
                 except Exception as retry_e:

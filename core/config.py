@@ -129,7 +129,22 @@ class MeshConfig:
     node_name: str = "nova"
     node_id: str = ""
     public_key: str = ""
-    version: str = "0.18.3"
+    version: str = ""
+
+    def _resolve_version(self) -> str:
+        """Resolve version from git tag, fallback to hardcoded default."""
+        if self.version:
+            return self.version
+        import subprocess, os
+        try:
+            repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            tag = subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=repo_dir, stderr=subprocess.DEVNULL
+            ).decode().strip().lstrip("v")
+            return tag
+        except Exception:
+            return "0.18.18"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
