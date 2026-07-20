@@ -533,6 +533,12 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
 
+        # Auto-update: check for new versions periodically
+        auto_update_cfg = getattr(self.config, 'auto_update', None)
+        if auto_update_cfg and getattr(auto_update_cfg, 'enabled', False):
+            check_interval = getattr(auto_update_cfg, 'check_interval', 300)
+            self._tasks.append(asyncio.create_task(self._auto_update_loop(check_interval)))
+
         # Start priority queue processor
         self.router.start_priority_queue()
 
@@ -2353,6 +2359,44 @@ echo "Status: ok"
                 break
             except Exception as e:
                 log.warning(f"Stats update error: {e}")
+
+    async def _auto_update_loop(self, check_interval: int = 300):
+        """Periodically check Gitea for new versions and auto-update if configured."""
+        # Wait a bit after startup before first check
+        await asyncio.sleep(60)
+        while self._running:
+            try:
+                await asyncio.sleep(check_interval)
+                if not self._running:
+                    break
+
+                auto_update_cfg = getattr(self.config, 'auto_update', None)
+                if not auto_update_cfg or not getattr(auto_update_cfg, 'enabled', False):
+                    break
+
+                from core.auto_updater import AutoUpdater
+                updater = AutoUpdater(node=self)
+                try:
+                    latest_tag = await updater.check_for_update()
+                    if latest_tag:
+                        current = updater.current_version
+                        apply_auto = getattr(auto_update_cfg, 'apply_automatically', False)
+                        if apply_auto:
+                            log.info(f"🔄 Auto-update: {current} → {latest_tag.lstrip('v')}, applying...")
+                            result = await updater.apply_update(latest_tag)
+                            if result.success:
+                                log.info(f"✅ Auto-update successful: {result.previous_version} → {result.new_version}")
+                            else:
+                                log.error(f"❌ Auto-update failed: {result.error}")
+                        else:
+                            log.info(f"🆕 Update available: {current} → {latest_tag.lstrip('v')} (auto-apply disabled)")
+                finally:
+                    await updater.close()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning(f"Auto-update check error: {e}")
 
     # ── Debug Logging ────────────────────────────────────────────
 

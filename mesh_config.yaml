@@ -126,6 +126,14 @@ mesh:
     trusted_keys: {}
     encryption: nacl
     transport_auth: hmac
+  auto_update:
+    enabled: true
+    check_interval: 300      # Check every 5 minutes
+    apply_automatically: true # Auto-apply if newer version found
+    gitea_url: http://192.168.1.100:3001
+    gitea_repo: nova/a2a-mesh
+    gitea_user: zsolt
+    gitea_pass: admin1234
   loop_prevention:
     self_reference_filter: true
     not_for_me_filter: true
