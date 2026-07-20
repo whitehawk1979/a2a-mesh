@@ -1,50 +1,65 @@
-# A2A Mesh Configuration — Nova node (macOS, 192.168.1.8)
-
 mesh:
-  node_name: nova
-  node_id: ""
-  
+  node_name: runa
+  node_id: ''
   transport_priority:
-    - p2p
-    - pg_notify
-    - http
-  
+  - p2p
+  - pg_notify
+  - http
   capabilities:
-    - a2a_messaging
-    - file_transfer
-    - p2p_transport
-    - pg_transport
-    - health_monitor
-    - registry
-    - dashboard
-    - image_gen
-
+  - a2a_messaging
+  - file_transfer
+  - p2p_transport
+  - pg_transport
+  - health_monitor
+  - registry
+  - dashboard
+  - image_gen
   skills:
-    - id: mesh_send
-      name: Send Message
-      description: Send a message to another agent or broadcast to all
-      tags: [messaging, send]
-    - id: mesh_discover
-      name: Discover Agents
-      description: List all agents in the mesh and their capabilities
-      tags: [discovery, agents]
-    - id: mesh_health
-      name: Health Check
-      description: Get health status and metrics of this agent
-      tags: [health, monitoring]
-    - id: gdm
-      name: Group Decision Making
-      description: Coordinate multi-agent decisions with voting, consensus, and ranking protocols
-      tags: [gdm, decision, voting, consensus, coordination]
-    - id: task_execution
-      name: Task Execution
-      description: Execute delegated tasks and report results back to the coordinator
-      tags: [task, execution, delegation]
-    - id: image_gen
-      name: Image Generation
-      description: Generate images from text prompts using Pollinations.ai (Flux, Flux Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram chats.
-      tags: [image, generation, pollinations, telegram]
-
+  - id: mesh_send
+    name: Send Message
+    description: Send a message to another agent or broadcast to all
+    tags:
+    - messaging
+    - send
+  - id: mesh_discover
+    name: Discover Agents
+    description: List all agents in the mesh and their capabilities
+    tags:
+    - discovery
+    - agents
+  - id: mesh_health
+    name: Health Check
+    description: Get health status and metrics of this agent
+    tags:
+    - health
+    - monitoring
+  - id: gdm
+    name: Group Decision Making
+    description: Coordinate multi-agent decisions with voting, consensus, and ranking
+      protocols
+    tags:
+    - gdm
+    - decision
+    - voting
+    - consensus
+    - coordination
+  - id: task_execution
+    name: Task Execution
+    description: Execute delegated tasks and report results back to the coordinator
+    tags:
+    - task
+    - execution
+    - delegation
+  - id: image_gen
+    name: Image Generation
+    description: Generate images from text prompts using Pollinations.ai (Flux, Flux
+      Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram
+      chats.
+    tags:
+    - image
+    - generation
+    - pollinations
+    - telegram
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
   telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
@@ -61,10 +76,10 @@ mesh:
       user: nova
       password: nova_agent_2026
       channels:
-        - a2a_channel
-        - a2a_steer_channel
-        - delegation_channel
-        - mesh_channel
+      - a2a_channel
+      - a2a_steer_channel
+      - delegation_channel
+      - mesh_channel
     p2p:
       enabled: true
       listen_host: 0.0.0.0
@@ -72,10 +87,9 @@ mesh:
       max_connections: 50
       idle_timeout: 300
       tls_enabled: false
-    
     http:
-      url: http://192.168.1.8:8199
-      health_url: http://192.168.1.8:8198/health
+      url: http://192.168.1.100:8199
+      health_url: http://192.168.1.100:8198/health
       timeout: 5
       retries: 3
   discovery:
@@ -85,55 +99,59 @@ mesh:
       port: 8645
     static:
       nodes:
-        - name: nova
-          ip: 192.168.1.8
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-        - name: nova
-          ip: 100.75.253.52
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-        - name: morzsa
-          ip: 192.168.1.30
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-        - name: morzsa
-          ip: 100.65.232.47
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-        - name: runa
-          ip: 192.168.1.100
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-        - name: runa
-          ip: 100.125.223.24
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-        - name: lennie
-          ip: 192.168.1.15
-          p2p_port: 8645
-          health_port: 8650
-          transport: p2p
-  
+      - name: nova
+        ip: 192.168.1.8
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: nova
+        ip: 100.75.253.52
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: morzsa
+        ip: 192.168.1.30
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: morzsa
+        ip: 100.65.232.47
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: runa
+        ip: 192.168.1.100
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: runa
+        ip: 100.125.223.24
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: lennie
+        ip: 192.168.1.15
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: lennie
+        ip: 100.121.92.95
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+  auto_update:
+    enabled: true
+    check_interval: 300
+    apply_automatically: true
+    gitea_url: http://192.168.1.100:3001
+    gitea_repo: nova/a2a-mesh
+    gitea_user: zsolt
+    gitea_pass: admin1234
   security:
     signing_key: ''
     trusted_keys: {}
     encryption: nacl
     transport_auth: hmac
-  auto_update:
-    enabled: true
-    check_interval: 300      # Check every 5 minutes
-    apply_automatically: true # Auto-apply if newer version found
-    gitea_url: http://192.168.1.100:3001
-    gitea_repo: nova/a2a-mesh
-    gitea_user: zsolt
-    gitea_pass: admin1234
   loop_prevention:
     self_reference_filter: true
     not_for_me_filter: true
@@ -149,7 +167,7 @@ mesh:
     critical_threshold: 900
     silent_on_success: true
   topology:
-    node_role: coordinator
+    node_role: router
     routing_mode: hybrid
     max_children: 20
     max_routers: 6
@@ -173,18 +191,16 @@ mesh:
     min_observations: 10
     cooldown: 600
     auto_apply: false
-
-# ── Plugins ──────────────────────────────────────────────────────
 plugins:
   task_dispatch:
     enabled: true
     max_concurrent_tasks: 5
     task_timeout_seconds: 300
     allowed_actions:
-      - shell
-      - scan
-      - status
-      - ping
-      - custom
+    - shell
+    - scan
+    - status
+    - ping
+    - custom
     require_confirmation_for:
-      - shell
+    - shell
