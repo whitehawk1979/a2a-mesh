@@ -167,20 +167,22 @@ class PeerDiscovery:
             except Exception as e:
                 log.debug(f"Could not load capabilities from PG for {peer.name}: {e}")
         
-        # Determine version from peer data or PG
+        # Determine version — prefer PG over stale "1.0.0" default
         peer_version = getattr(peer, 'version', None)
-        if not peer_version and self._pg_conn and not self._pg_conn.closed:
+        # Always try PG for the real version (peer.version may be stale "1.0.0" default)
+        if self._pg_conn and not self._pg_conn.closed:
             try:
                 cur2 = self._pg_conn.cursor()
                 cur2.execute("SELECT version FROM mesh.mesh_nodes WHERE node_name = %s", (peer.name,))
                 vrow = cur2.fetchone()
                 cur2.close()
-                if vrow and vrow[0]:
+                if vrow and vrow[0] and vrow[0] != '1.0.0':
                     peer_version = vrow[0]
             except Exception:
                 pass
+        # Fallback: use peer version if available, else "1.0.0"
         if not peer_version:
-            peer_version = '1.0.0'
+            peer_version = getattr(peer, 'version', None) or '1.0.0'
         
         # Update PeerInfo version
         peer.version = peer_version
