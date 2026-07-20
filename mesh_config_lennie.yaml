@@ -1,7 +1,7 @@
-# A2A Mesh Configuration — Runa node
+# A2A Mesh Configuration — Lennie node (Windows)
 
 mesh:
-  node_name: runa
+  node_name: lennie
   node_id: ""
   
   transport_priority:
@@ -14,7 +14,7 @@ mesh:
   telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
   telegram_bot_token: ${A2A_TELEGRAM_BOT_TOKEN}
   telegram_auto_image: true
-  log_file: ~/a2a_mesh/a2a_mesh.log
+  log_file: a2a_mesh.log
   auth_mode: open
   health_port: 8650
   transports:
@@ -90,9 +90,9 @@ mesh:
     critical_threshold: 900
     silent_on_success: true
   topology:
-    node_role: router
+    node_role: end_device
     routing_mode: hybrid
-    max_children: 20
+    max_children: 5
     max_routers: 6
     max_depth: 5
     trust_center_enabled: true
