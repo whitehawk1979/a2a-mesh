@@ -2678,6 +2678,7 @@ class DashboardHandler:
             max_concurrent=data.get("max_concurrent", 10),
             cost_per_task=data.get("cost_per_task", 0.0),
             metadata=data.get("metadata", {}),
+            skills=data.get("skills"),
         )
 
         force = data.get("force", False)
