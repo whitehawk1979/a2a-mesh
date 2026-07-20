@@ -66,7 +66,7 @@ class AgentCard:
     name: str
     capabilities: List[str] = field(default_factory=list)  # ["web_search", "summarization@v2"]
     skills: List[Dict] = field(default_factory=list)  # [{"id": "gdm", "name": "GDM", "tags": [...]}]
-    version: str = "1.0.0"
+    version: str = ""  # Empty = not set yet, will be resolved from PG
     description: str = ""
     endpoint: str = ""       # e.g., "http://192.168.1.30:8651"
     health_endpoint: str = "/health"
@@ -590,7 +590,7 @@ class AgentRegistry:
                 # Keep existing richer capabilities
                 merged_caps = list(existing_caps_set | new_caps_set)
                 # Use the better version (prefer non-default)
-                better_version = card.version if card.version and card.version != "1.0.0" else (existing.version if existing.version and existing.version != "1.0.0" else card.version)
+                better_version = card.version if card.version else (existing.version if existing.version else card.version)
                 card = AgentCard(
                     name=card.name,
                     capabilities=merged_caps,
@@ -603,7 +603,7 @@ class AgentRegistry:
                 # Even if caps are fine, preserve existing skills if new card has none
                 if not new_skills and existing_skills:
                     # Use the better version (prefer non-default)
-                    better_version = card.version if card.version and card.version != "1.0.0" else (existing.version if existing.version and existing.version != "1.0.0" else card.version)
+                    better_version = card.version if card.version else (existing.version if existing.version else card.version)
                     card = AgentCard(
                         name=card.name,
                         capabilities=list(existing_caps_set | new_caps_set) if card.capabilities else existing.capabilities,

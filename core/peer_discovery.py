@@ -37,7 +37,7 @@ class PeerInfo:
     pg_available: bool = False
     http_available: bool = False
     capabilities: Optional[list] = None  # Agent capabilities from PG
-    version: str = "1.0.0"  # Mesh version from PG
+    version: str | None = None  # Mesh version — set from PG or P2P handshake
 
     def __post_init__(self):
         if self.capabilities is None:
@@ -72,7 +72,7 @@ class PeerInfo:
             p2p_available=d.get("p2p_available", False),
             pg_available=d.get("pg_available", False),
             http_available=d.get("http_available", False),
-            version=d.get("version", "1.0.0"),
+            version=d.get("version"),  # None if missing — resolved from PG later
         )
 
 
@@ -114,7 +114,7 @@ class PeerDiscovery:
                     role=node.get("role", "router"),
                     p2p_port=node.get("p2p_port", 8645),
                     health_port=node.get("health_port", 8650),
-                    version=node.get("version", "1.0.0"),
+                    version=node.get("version"),  # None if missing
                 )
                 self._peers[name] = peer
                 log.info(f"Loaded static peer: {name} at {peer.host}:{peer.p2p_port}")
@@ -195,9 +195,20 @@ class PeerDiscovery:
                             pg_skills_list = skills_list
             except Exception:
                 pass
-        # Fallback: use peer version if available, else "1.0.0"
+        # Fallback: use peer version if available, else use the mesh_nodes PG version
         if not peer_version:
-            peer_version = getattr(peer, 'version', None) or '1.0.0'
+            # Try PG one more time for this specific node
+            try:
+                if self._pg_conn and not self._pg_conn.closed:
+                    with self._pg_conn.cursor() as cur:
+                        cur.execute("SELECT version FROM mesh.mesh_nodes WHERE node_name = %s", (peer.name,))
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            peer_version = row[0]
+            except Exception:
+                pass
+        if not peer_version:
+            peer_version = getattr(peer, 'version', None) or 'unknown'
         
         # Update PeerInfo version
         peer.version = peer_version

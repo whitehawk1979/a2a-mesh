@@ -2166,7 +2166,7 @@ class DashboardHandler:
                         "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                         "last_seen": health.last_health_check or 0,
                         "message_count": health.total_requests,
-                        "version": card.version if card.version and card.version != "1.0.0" else "1.0.0",
+                        "version": card.version if card.version else "",
                     }
             except Exception as e:
                 log.warning(f"Nodes list: registry lookup failed: {e}")
@@ -2250,7 +2250,7 @@ class DashboardHandler:
                         "uptime_seconds": 0,
                         "last_seen": row[10].isoformat() if row[10] else None,
                         "message_count": 0,
-                        "version": pg_version or "1.0.0",
+                        "version": pg_version or "",
                         "joined_at": row[9].isoformat() if row[9] else None,
                     }
                 else:
@@ -2260,7 +2260,7 @@ class DashboardHandler:
                     if pg_status == "pending" and nodes[name].get("status") not in ("connected", "active", "registered"):
                         nodes[name]["status"] = "pending"
                     # Override version from PG if current is default '1.0.0'
-                    if pg_version and nodes[name].get("version") == "1.0.0":
+                    if pg_version and not nodes[name].get("version"):
                         nodes[name]["version"] = pg_version
                     # Override uptime from PG joined_at if current is 0 or invalid
                     if row[9] and nodes[name].get("uptime_seconds", 0) <= 0:
@@ -2671,7 +2671,7 @@ class DashboardHandler:
         card = AgentCard(
             name=name,
             capabilities=data.get("capabilities", []),
-            version=data.get("version", "1.0.0"),
+            version=data.get("version", ""),
             description=data.get("description", ""),
             endpoint=data.get("endpoint", ""),
             health_endpoint=data.get("health_endpoint", "/health"),
@@ -3437,7 +3437,7 @@ class DashboardHandler:
                         name = card.name
                         reg_agents[name] = (card, health)
                         # Prefer DB version over card default (card may have '1.0.0' fallback)
-                        card_version = card.version if card.version and card.version != "1.0.0" else db_versions.get(name)
+                        card_version = card.version if card.version else db_versions.get(name)
                         nodes[name] = {
                             "name": name,
                             "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
@@ -3473,7 +3473,7 @@ class DashboardHandler:
                         final_caps = existing_caps if existing_caps else peer_caps
                         existing_skills = existing.get("skills", []) or []
                         # Use DB version as fallback if card version is default '1.0.0'
-                        peer_version = existing.get("version") or db_versions.get(name, "1.0.0")
+                        peer_version = existing.get("version") or db_versions.get(name, "")
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),

@@ -144,10 +144,18 @@ class MeshConfig:
     version: str = ""
 
     def _resolve_version(self) -> str:
-        """Resolve version from git tag, fallback to hardcoded default."""
+        """Resolve version from git tag, fallback to pyproject.toml, then hardcoded default.
+        
+        Priority:
+        1. Explicit version in config YAML (if set)
+        2. Git tag (most accurate — single source of truth)
+        3. pyproject.toml version
+        4. Hardcoded fallback
+        """
         if self.version:
             return self.version
         import subprocess, os
+        # Try git tag first (single source of truth)
         try:
             repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             tag = subprocess.check_output(
@@ -156,7 +164,19 @@ class MeshConfig:
             ).decode().strip().lstrip("v")
             return tag
         except Exception:
-            return "0.18.18"
+            pass
+        # Fallback: read pyproject.toml
+        try:
+            repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            pyproject = os.path.join(repo_dir, "pyproject.toml")
+            if os.path.exists(pyproject):
+                with open(pyproject) as f:
+                    for line in f:
+                        if line.strip().startswith("version"):
+                            return line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+        return "0.18.37"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery

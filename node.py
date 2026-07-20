@@ -539,6 +539,9 @@ class MeshNode:
             check_interval = getattr(auto_update_cfg, 'check_interval', 300)
             self._tasks.append(asyncio.create_task(self._auto_update_loop(check_interval)))
 
+        # Auto-update state (shared with health endpoint)
+        self._updater_state = {"state": "idle", "last_check": None, "last_update": None, "current_version": self._resolved_version}
+
         # Start priority queue processor
         self.router.start_priority_queue()
 
@@ -1723,13 +1726,15 @@ echo "Status: ok"
             """Return node health status as JSON."""
             from core.auto_updater import AutoUpdater
             uptime = time.time() - self._start_time if self._start_time else 0
-            updater_status = {}
-            try:
-                updater = AutoUpdater(node=self)
-                updater_status = updater.get_status()
-                await updater.close()
-            except Exception:
-                pass
+            updater_status = getattr(self, '_updater_state', {}) or {}
+            if not updater_status:
+                # Fallback: create temporary updater for status
+                try:
+                    updater = AutoUpdater(node=self)
+                    updater_status = updater.get_status()
+                    await updater.close()
+                except Exception:
+                    pass
             status = {
                 "status": "running" if self._running else "stopped",
                 "node": self.node_name,
@@ -2378,26 +2383,39 @@ echo "Status: ok"
                 from core.auto_updater import AutoUpdater
                 updater = AutoUpdater(node=self)
                 try:
+                    # Update state: checking
+                    self._updater_state["state"] = "checking"
+                    self._updater_state["last_check"] = time.time()
+                    
                     latest_tag = await updater.check_for_update()
+                    current = updater.current_version
+                    self._updater_state["current_version"] = current
+                    
                     if latest_tag:
-                        current = updater.current_version
                         apply_auto = getattr(auto_update_cfg, 'apply_automatically', False)
                         if apply_auto:
                             log.info(f"🔄 Auto-update: {current} → {latest_tag.lstrip('v')}, applying...")
+                            self._updater_state["state"] = "updating"
                             result = await updater.apply_update(latest_tag)
                             if result.success:
                                 log.info(f"✅ Auto-update successful: {result.previous_version} → {result.new_version}")
+                                self._updater_state["state"] = "updated"
+                                self._updater_state["last_update"] = time.time()
                             else:
                                 log.error(f"❌ Auto-update failed: {result.error}")
+                                self._updater_state["state"] = "failed"
                         else:
                             log.info(f"🆕 Update available: {current} → {latest_tag.lstrip('v')} (auto-apply disabled)")
+                            self._updater_state["state"] = "update_available"
+                    else:
+                        self._updater_state["state"] = "idle"
                 finally:
                     await updater.close()
-
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                log.warning(f"Auto-update check error: {e}")
+                log.warning(f"Auto-update error: {e}")
+                self._updater_state["state"] = "error"
 
     # ── Debug Logging ────────────────────────────────────────────
 
