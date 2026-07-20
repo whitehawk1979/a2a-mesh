@@ -378,16 +378,44 @@ class AutoUpdater:
         """Pull latest code and checkout target tag."""
         loop = asyncio.get_event_loop()
 
-        # Fetch all tags
-        logger.info(f"📥 Fetching latest code...")
+        # Find the Gitea remote (could be 'gitea', 'origin', or any remote pointing to Gitea)
+        remote_name = "origin"
+        try:
+            remotes_result = subprocess.run(
+                ["git", "remote"],
+                cwd=str(self.mesh_dir),
+                capture_output=True, text=True, timeout=10,
+            )
+            remotes = remotes_result.stdout.strip().splitlines()
+            # Prefer 'gitea' remote, fall back to 'origin'
+            if "gitea" in remotes:
+                remote_name = "gitea"
+            elif not remotes:
+                logger.warning("No git remotes configured")
+        except Exception:
+            pass
+
+        # Fetch all tags from the Gitea remote
+        logger.info(f"📥 Fetching from remote '{remote_name}'...")
         result = await loop.run_in_executor(
             None,
             lambda: subprocess.run(
-                ["git", "fetch", "--tags", "--all"],
+                ["git", "fetch", remote_name, "--tags", "--force"],
                 cwd=str(self.mesh_dir),
                 capture_output=True, text=True, timeout=60,
             ),
         )
+        if result.returncode != 0:
+            # Fall back to --all
+            logger.warning(f"Fetch from '{remote_name}' failed, trying --all")
+            result = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["git", "fetch", "--tags", "--all"],
+                    cwd=str(self.mesh_dir),
+                    capture_output=True, text=True, timeout=60,
+                ),
+            )
         if result.returncode != 0:
             raise RuntimeError(f"git fetch failed: {result.stderr}")
 
@@ -461,6 +489,35 @@ class AutoUpdater:
                         capture_output=True, text=True, timeout=15,
                     )
                 return result.returncode == 0
+
+            elif system == "Windows":
+                # Windows: restart via self-spawning in a new process
+                logger.info("Restarting on Windows (self-spawn)...")
+                python = sys.executable
+                script = str(Path(__file__).parent.parent / "cli.py")
+                config = getattr(self.node.config, '_config_path', 'mesh_config.yaml')
+                node_name_arg = f"--name {node_name}" if node_name != "unknown" else ""
+                
+                # Use a batch file to restart after a short delay
+                restart_script = self.mesh_dir / "restart_windows.bat"
+                restart_script.write_text(
+                    f"@echo off\n"
+                    f"timeout /t 3 /nobreak >nul\n"
+                    f"cd /d {self.mesh_dir}\n"
+                    f"{python} {script} start {node_name_arg} --config {config}\n"
+                )
+                # Detach the restart script
+                creationflags = 0
+                if sys.platform == "win32":
+                    creationflags = 0x8 | 0x200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+                subprocess.Popen(
+                    ["cmd", "/c", str(restart_script)],
+                    creationflags=creationflags,
+                    cwd=str(self.mesh_dir),
+                )
+                # Exit current process
+                os._exit(0)
+                return True  # Never reached, but for type checker
 
             else:
                 logger.error(f"Unsupported platform: {system}")

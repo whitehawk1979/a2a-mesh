@@ -219,6 +219,11 @@ class HealthScorer:
         else:
             availability_score = health.uptime_pct / 100.0
 
+        # Treat 0% uptime with 0 requests as "newly registered — healthy"
+        # (avoids degrading fresh P2P peers that haven't been health-checked yet)
+        if availability_score == 0.0 and health.total_requests == 0 and health.total_failures == 0:
+            availability_score = 1.0
+
         # Weighted composite
         w = self.weights
         composite = (
@@ -526,7 +531,7 @@ class AgentRegistry:
             "approved" if auto-approved, "pending" if awaiting approval.
         """
         if card.name in self.agents:
-            log.info(f"Agent {card.name} already registered, updating")
+            log.info(f"Agent {card.name} already registered, updating (card.version={card.version}, existing.version={self.agents[card.name].version})")
             # Merge capabilities: keep existing if new ones are fewer (PG has richer data)
             existing = self.agents[card.name]
             # Preserve existing skills if new card has none (P2P handshake doesn't include skills)

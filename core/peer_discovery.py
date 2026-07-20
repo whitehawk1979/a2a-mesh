@@ -167,20 +167,37 @@ class PeerDiscovery:
             except Exception as e:
                 log.debug(f"Could not load capabilities from PG for {peer.name}: {e}")
         
-        # Determine version from peer data or PG
+        # Determine version — prefer PG over stale "1.0.0" default
         peer_version = getattr(peer, 'version', None)
-        if not peer_version and self._pg_conn and not self._pg_conn.closed:
+        pg_skills_list = None  # Skills loaded from PG
+        # Always try PG for the real version (peer.version may be stale "1.0.0" default)
+        if self._pg_conn and not self._pg_conn.closed:
             try:
                 cur2 = self._pg_conn.cursor()
-                cur2.execute("SELECT version FROM mesh.mesh_nodes WHERE node_name = %s", (peer.name,))
+                cur2.execute("SELECT version, skills FROM mesh.mesh_nodes WHERE node_name = %s", (peer.name,))
                 vrow = cur2.fetchone()
                 cur2.close()
-                if vrow and vrow[0]:
+                if vrow and vrow[0] and vrow[0] != '1.0.0':
                     peer_version = vrow[0]
+                # Also load skills from PG if available
+                if vrow and vrow[1]:
+                    import json
+                    pg_skills = json.loads(vrow[1]) if isinstance(vrow[1], str) else vrow[1]
+                    if isinstance(pg_skills, list) and len(pg_skills) > 0:
+                        # Convert string skill IDs to minimal skill dicts for AgentCard
+                        skills_list = []
+                        for s in pg_skills:
+                            if isinstance(s, str):
+                                skills_list.append({"id": s, "name": s, "description": f"Skill {s}"})
+                            elif isinstance(s, dict):
+                                skills_list.append(s)
+                        if skills_list:
+                            pg_skills_list = skills_list
             except Exception:
                 pass
+        # Fallback: use peer version if available, else "1.0.0"
         if not peer_version:
-            peer_version = '1.0.0'
+            peer_version = getattr(peer, 'version', None) or '1.0.0'
         
         # Update PeerInfo version
         peer.version = peer_version
@@ -191,6 +208,7 @@ class PeerDiscovery:
             version=peer_version,
             endpoint=f"{peer.host}:{peer.p2p_port}",
             description=f"P2P discovered peer ({peer.role})",
+            skills=pg_skills_list if pg_skills_list else None,
         )
         status = self.registry.request_registration(card)
         if status == "approved":

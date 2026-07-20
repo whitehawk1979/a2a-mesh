@@ -79,6 +79,8 @@ class MeshNode:
     def __init__(self, config: Optional[MeshConfig] = None):
         self.config = config or MeshConfig()
         self.node_name = self.config.node_name
+        # Resolve version from git tag (auto-updates on deploy)
+        self._resolved_version = self.config._resolve_version()
 
         # Initialize encryption
         self.encryption: Optional[MeshEncryption] = None
@@ -530,6 +532,12 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
+
+        # Auto-update: check for new versions periodically
+        auto_update_cfg = getattr(self.config, 'auto_update', None)
+        if auto_update_cfg and getattr(auto_update_cfg, 'enabled', False):
+            check_interval = getattr(auto_update_cfg, 'check_interval', 300)
+            self._tasks.append(asyncio.create_task(self._auto_update_loop(check_interval)))
 
         # Start priority queue processor
         self.router.start_priority_queue()
@@ -1667,7 +1675,7 @@ echo "Status: ok"
             name=self.node_name,
             capabilities=capabilities,
             skills=skills,
-            version=getattr(self.config, 'version', '1.0.0'),
+            version=self._resolved_version,
             description=f"A2A Mesh node ({self.role.value})",
             endpoint=endpoint,
             health_endpoint="/api/status",
@@ -1728,7 +1736,7 @@ echo "Status: ok"
                 "role": self.role.value,
                 "address": f"0x{self.mesh_address.short:04X}" if self.mesh_address else "pending",
                 "uptime_seconds": round(uptime, 1),
-                "version": getattr(self.config, 'version', '1.0.0'),
+                "version": self._resolved_version,
                 "updater": updater_status,
                 "transports": {
                     "pg": self._pg_transport.is_available(),
@@ -1978,7 +1986,7 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
-                getattr(self.config, 'version', '0.18.3'),
+                self._resolved_version,
             )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
             await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
@@ -2041,7 +2049,7 @@ echo "Status: ok"
                         self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                         self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                         json.dumps(capabilities, ensure_ascii=True),
-                        getattr(self.config, 'version', '0.18.3'),
+                        self._resolved_version,
                     )
                     log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} (retry succeeded)")
                 except Exception as retry_e:
@@ -2351,6 +2359,44 @@ echo "Status: ok"
                 break
             except Exception as e:
                 log.warning(f"Stats update error: {e}")
+
+    async def _auto_update_loop(self, check_interval: int = 300):
+        """Periodically check Gitea for new versions and auto-update if configured."""
+        # Wait a bit after startup before first check
+        await asyncio.sleep(60)
+        while self._running:
+            try:
+                await asyncio.sleep(check_interval)
+                if not self._running:
+                    break
+
+                auto_update_cfg = getattr(self.config, 'auto_update', None)
+                if not auto_update_cfg or not getattr(auto_update_cfg, 'enabled', False):
+                    break
+
+                from core.auto_updater import AutoUpdater
+                updater = AutoUpdater(node=self)
+                try:
+                    latest_tag = await updater.check_for_update()
+                    if latest_tag:
+                        current = updater.current_version
+                        apply_auto = getattr(auto_update_cfg, 'apply_automatically', False)
+                        if apply_auto:
+                            log.info(f"🔄 Auto-update: {current} → {latest_tag.lstrip('v')}, applying...")
+                            result = await updater.apply_update(latest_tag)
+                            if result.success:
+                                log.info(f"✅ Auto-update successful: {result.previous_version} → {result.new_version}")
+                            else:
+                                log.error(f"❌ Auto-update failed: {result.error}")
+                        else:
+                            log.info(f"🆕 Update available: {current} → {latest_tag.lstrip('v')} (auto-apply disabled)")
+                finally:
+                    await updater.close()
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning(f"Auto-update check error: {e}")
 
     # ── Debug Logging ────────────────────────────────────────────
 

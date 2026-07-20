@@ -129,7 +129,22 @@ class MeshConfig:
     node_name: str = "nova"
     node_id: str = ""
     public_key: str = ""
-    version: str = "0.18.3"
+    version: str = ""
+
+    def _resolve_version(self) -> str:
+        """Resolve version from git tag, fallback to hardcoded default."""
+        if self.version:
+            return self.version
+        import subprocess, os
+        try:
+            repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            tag = subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=repo_dir, stderr=subprocess.DEVNULL
+            ).decode().strip().lstrip("v")
+            return tag
+        except Exception:
+            return "0.18.18"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
@@ -141,6 +156,7 @@ class MeshConfig:
         "registry",            # Agent registry (coordinator nodes)
         "dashboard",           # Web dashboard (coordinator nodes)
         "health_monitor",      # Health monitoring and scoring
+        "image_gen",           # Image generation via Pollinations.ai + Telegram delivery
     ])
 
     # Agent skills — fine-grained abilities that other agents can discover via P2P handshake
@@ -177,6 +193,12 @@ class MeshConfig:
             "description": "Execute delegated tasks and report results back to the coordinator",
             "tags": ["task", "execution", "delegation"],
         },
+        {
+            "id": "image_gen",
+            "name": "Image Generation",
+            "description": "Generate images from text prompts using Pollinations.ai (Flux, Flux Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram chats.",
+            "tags": ["image", "generation", "pollinations", "telegram"],
+        },
     ])
 
     # Transport priority (first success wins for directed messages)
@@ -202,6 +224,8 @@ class MeshConfig:
 
     # Telegram config
     telegram_chat_id: str = ""
+    telegram_bot_token: str = ""
+    telegram_auto_image: bool = True
 
     # Auth config
     auth_mode: str = "open"  # open, whitelist, tofu
@@ -333,6 +357,8 @@ class MeshConfig:
         config.webhook_port = int(os.environ.get('WEBHOOK_PORT', mesh.get('webhook_port', 8644)))
         config.webhook_secret = os.environ.get('WEBHOOK_SECRET', mesh.get('webhook_secret', ''))
         config.telegram_chat_id = os.environ.get('A2A_TELEGRAM_CHAT_ID', mesh.get('telegram_chat_id', ''))
+        config.telegram_bot_token = os.environ.get('A2A_TELEGRAM_BOT_TOKEN', mesh.get('telegram_bot_token', ''))
+        config.telegram_auto_image = str(os.environ.get('A2A_TELEGRAM_AUTO_IMAGE', mesh.get('telegram_auto_image', 'true'))).lower() in ('true', '1', 'yes')
 
         # Auth mode
         config.auth_mode = mesh.get('auth_mode', 'open')
