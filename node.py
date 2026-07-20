@@ -2362,6 +2362,7 @@ echo "Status: ok"
 
     async def _auto_update_loop(self, check_interval: int = 300):
         """Periodically check Gitea for new versions and auto-update if configured."""
+        log.info(f"🔄 Auto-update loop starting (interval={check_interval}s, enabled=True)")
         # Wait a bit after startup before first check
         await asyncio.sleep(60)
         while self._running:
