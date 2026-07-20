@@ -90,13 +90,28 @@ mesh:
           p2p_port: 8645
           health_port: 8650
           transport: p2p
+        - name: nova
+          ip: 100.75.253.52
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
         - name: morzsa
           ip: 192.168.1.30
           p2p_port: 8645
           health_port: 8650
           transport: p2p
+        - name: morzsa
+          ip: 100.65.232.47
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
         - name: runa
           ip: 192.168.1.100
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
+        - name: runa
+          ip: 100.125.223.24
           p2p_port: 8645
           health_port: 8650
           transport: p2p
