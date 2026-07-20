@@ -124,6 +124,18 @@ class TopologyConfig:
 
 
 @dataclass
+class AutoUpdateConfig:
+    """Auto-update configuration for checking and applying updates from Gitea."""
+    enabled: bool = False
+    check_interval: int = 300          # seconds between checks
+    apply_automatically: bool = False  # auto-apply or just notify
+    gitea_url: str = "http://192.168.1.100:3001"
+    gitea_repo: str = "nova/a2a-mesh"
+    gitea_user: str = "zsolt"
+    gitea_pass: str = "admin1234"
+
+
+@dataclass
 class MeshConfig:
     """Full mesh configuration."""
     node_name: str = "nova"
@@ -217,6 +229,7 @@ class MeshConfig:
     auto_steer: AutoSteerConfig = field(default_factory=AutoSteerConfig)
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     topology: TopologyConfig = field(default_factory=TopologyConfig)
+    auto_update: AutoUpdateConfig = field(default_factory=AutoUpdateConfig)
 
     # Webhook config
     webhook_port: int = 8644
@@ -413,6 +426,19 @@ class MeshConfig:
                 coordinator_heartbeat_interval=topo_data.get('coordinator_heartbeat_interval', 10),
                 enable_route_cache=topo_data.get('enable_route_cache', True),
                 route_cache_ttl=topo_data.get('route_cache_ttl', 300),
+            )
+
+        # Auto-update config
+        au_data = mesh.get('auto_update', {})
+        if au_data:
+            config.auto_update = AutoUpdateConfig(
+                enabled=au_data.get('enabled', False),
+                check_interval=au_data.get('check_interval', 300),
+                apply_automatically=au_data.get('apply_automatically', False),
+                gitea_url=au_data.get('gitea_url', os.environ.get('A2A_GITEA_URL', 'http://192.168.1.100:3001')),
+                gitea_repo=au_data.get('gitea_repo', 'nova/a2a-mesh'),
+                gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'zsolt')),
+                gitea_pass=au_data.get('gitea_pass', os.environ.get('A2A_GITEA_PASS', 'admin1234')),
             )
 
         return config
