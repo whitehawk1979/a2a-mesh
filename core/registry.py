@@ -219,6 +219,11 @@ class HealthScorer:
         else:
             availability_score = health.uptime_pct / 100.0
 
+        # Treat 0% uptime with 0 requests as "newly registered — healthy"
+        # (avoids degrading fresh P2P peers that haven't been health-checked yet)
+        if availability_score == 0.0 and health.total_requests == 0 and health.total_failures == 0:
+            availability_score = 1.0
+
         # Weighted composite
         w = self.weights
         composite = (
