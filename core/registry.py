@@ -531,7 +531,7 @@ class AgentRegistry:
             "approved" if auto-approved, "pending" if awaiting approval.
         """
         if card.name in self.agents:
-            log.info(f"Agent {card.name} already registered, updating")
+            log.info(f"Agent {card.name} already registered, updating (card.version={card.version}, existing.version={self.agents[card.name].version})")
             # Merge capabilities: keep existing if new ones are fewer (PG has richer data)
             existing = self.agents[card.name]
             # Preserve existing skills if new card has none (P2P handshake doesn't include skills)

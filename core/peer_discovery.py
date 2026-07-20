@@ -186,6 +186,7 @@ class PeerDiscovery:
         
         # Update PeerInfo version
         peer.version = peer_version
+        log.info(f"Discovered peer {peer.name}: version={peer_version} (from PG={peer_version != getattr(peer, '_version_before_pg', peer_version)})")
 
         card = AgentCard(
             name=peer.name,
