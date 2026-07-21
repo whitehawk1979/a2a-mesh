@@ -1373,6 +1373,17 @@ function loadAllNodes() {
               '<button class="node-detail-toggle" onclick="toggleNodeDetail(\'' + detailId + '\', this)">Részletek</button>' +
             '</div>' +
           '</div>' +
+          (skills.length > 0 ? '<div class="node-detail-skills" style="margin:2px 0 4px 0">' +
+            skills.slice(0, 4).map(function(s) {
+              if (typeof s === 'object' && s !== null) {
+                var label = s.name || s.id || '?';
+                var title = s.description || s.id || '';
+                return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
+              }
+              return '<span class="skill-tag">' + escapeHtml(s) + '</span>';
+            }).join('') +
+            (skills.length > 4 ? '<span class="skill-tag" style="opacity:0.6">+' + (skills.length - 4) + '</span>' : '') +
+          '</div>' : '') +
           '<div class="node-detail-content" id="' + detailId + '">' +
             '<div class="node-detail-grid">' +
               '<div class="node-detail-item"><div class="dlabel">Verzió</div><div class="dvalue blue">' + escapeHtml(version) + '</div></div>' +
