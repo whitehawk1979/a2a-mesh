@@ -946,8 +946,8 @@ class MeshNode:
             log.debug(f"[{node}] No Ollama available, using template fallback")
             return None
 
-        # Pick model — prefer code-capable models
-        preferred_models = ["qwen2.5", "glm-4.7-flash", "gemma4:31b-cloud", "glm-5.1:cloud", "kimi-k2.5:cloud"]
+        # Pick model — prefer large code-capable models over small ones
+        preferred_models = ["glm-5.2", "glm-5.1", "glm-4.7", "gemma4:31b", "kimi-k2.5", "qwen2.5:7b", "qwen2.5:3b", "qwen2.5:1.5b"]
         model = None
         try:
             import urllib.request
@@ -988,7 +988,7 @@ Requirements:
 Output ONLY the code, no explanations. Start with the appropriate shebang or DOCTYPE."""
 
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
                 payload = {
                     "model": model,
                     "prompt": prompt,
