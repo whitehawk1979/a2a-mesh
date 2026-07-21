@@ -589,6 +589,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 @media(max-width:768px){#kanbanBoard{grid-template-columns:1fr;max-height:none}.kanban-col{max-height:40vh}}
 </style>
 
+<!-- Task Detail Modal -->
+<div class="file-modal-overlay" id="taskDetailModal" style="display:none">
+  <div class="file-modal" style="width:700px;max-width:95vw;max-height:85vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0" id="taskDetailTitle">📋 Feladat részletei</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('taskDetailModal').style.display='none'">✕</button>
+    </div>
+    <div id="taskDetailContent">Betöltés...</div>
+  </div>
+</div>
+
 <!-- Settings Modal -->
 <div class="file-modal-overlay" id="settingsModal" style="display:none">
   <div class="file-modal" style="width:700px;max-height:85vh;overflow-y:auto">
@@ -2004,7 +2015,7 @@ function renderKanbanCard(d) {
     resultHtml = '<div class="card-result">' + escHtml(d.result).substring(0, 120) + '</div>';
   }
 
-  return '<div class="kanban-card">' +
+  return '<div class="kanban-card" style="cursor:pointer" onclick="showTaskDetail(\'' + d.task_id + '\')">' +
     '<div class="card-subject"><span>' + escHtml(d.subject || "?") + '</span><span class="priority-badge ' + prioClass + '">' + prioLabel + '</span></div>' +
     '<div><span class="card-type ' + typeClass + '">' + typeLabel + '</span></div>' +
     '<div class="card-meta"><span>📤' + fromLabel + ' → ' + toLabel + '</span>' + (assigned ? '<span>' + assigned + '</span>' : '') + '<span>' + timeAgo + '</span></div>' +
@@ -2066,6 +2077,115 @@ function loadDelegationStats() {
         data.failed ? '<span style="color:var(--danger)">❌' + data.failed + ' hiba</span>' : ''
       ].filter(Boolean);
       el.innerHTML = items.length ? '<b>Összesen: ' + total + '</b> · ' + items.join(' · ') : 'Még nincs delegáció';
+    });
+}
+
+function showTaskDetail(taskId) {
+  document.getElementById('taskDetailModal').style.display = 'flex';
+  document.getElementById('taskDetailTitle').textContent = '📋 Betöltés...';
+  document.getElementById('taskDetailContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Betöltés...</div>';
+  fetch("/api/delegations/" + taskId, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ ' + escHtml(d.error) + '</div>'; return; }
+      var statusColors = {available:"var(--info)",pending:"#8b5cf6",accepted:"#8b5cf6",running:"var(--warning)",completed:"var(--success)",failed:"var(--danger)",cancelled:"var(--danger)",expired:"var(--danger)"};
+      var statusIcons = {available:"🔄",pending:"⏳",accepted:"✅",running:"⚙️",completed:"✔️",failed:"❌",cancelled:"🚫",expired:"⌛"};
+      var sColor = statusColors[d.status] || "var(--text3)";
+      var sIcon = statusIcons[d.status] || "❓";
+      document.getElementById('taskDetailTitle').textContent = sIcon + " " + escHtml(d.subject || "?");
+
+      // Parse description
+      var descHtml = "";
+      if (d.description) {
+        try {
+          var descObj = typeof d.description === "string" ? JSON.parse(d.description) : d.description;
+          var descText = descObj.description || descObj.type || "";
+          if (descText) descHtml = '<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text2);line-height:1.5">' + escHtml(descText) + '</div>';
+        } catch(e) {
+          descHtml = '<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text2)">' + escHtml(str(d.description).substring(0, 300)) + '</div>';
+        }
+      }
+
+      // Timeline from notes
+      var timelineHtml = "";
+      if (d.notes && Array.isArray(d.notes) && d.notes.length > 0) {
+        timelineHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📝 Idővonal</h4>';
+        d.notes.forEach(function(n) {
+          var t = n.time ? new Date(n.time).toLocaleTimeString("hu-HU", {hour:"2-digit",minute:"2-digit"}) : "?";
+          var agent = n.agent || "?";
+          timelineHtml += '<div style="display:flex;gap:8px;margin-bottom:6px;font-size:12px">' +
+            '<span style="color:var(--text3);min-width:42px">' + t + '</span>' +
+            '<span style="font-weight:600;color:var(--info);min-width:50px">' + escHtml(agent) + '</span>' +
+            '<span style="color:var(--text2)">' + escHtml(n.note || "").substring(0, 200) + '</span></div>';
+        });
+        timelineHtml += '</div>';
+      }
+
+      // Result
+      var resultHtml = "";
+      if (d.result) {
+        resultHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📄 Eredmény</h4>' +
+          '<div style="padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);max-height:150px;overflow-y:auto;white-space:pre-wrap;line-height:1.4">' + escHtml(d.result).substring(0, 2000) + '</div></div>';
+      }
+
+      // File download
+      var fileHtml = "";
+      if (d.result_file) {
+        var token = localStorage.getItem("a2a_token") || "";
+        var fileUrl = "/api/delegations/" + d.task_id + "/files?download=1&token=" + encodeURIComponent(token);
+        fileHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájl</h4>' +
+          '<a href="' + fileUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px">⬇️ Letöltés</a></div>';
+      }
+
+      // Meta info
+      var metaHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px">';
+      metaHtml += '<div><span style="color:var(--text3)">Státusz:</span> <span style="color:' + sColor + ';font-weight:600">' + sIcon + ' ' + d.status + '</span></div>';
+      metaHtml += '<div><span style="color:var(--text3)">Prioritás:</span> <span class="priority-badge priority-' + (d.priority || 5) + '">P' + (d.priority || 5) + '</span></div>';
+      metaHtml += '<div><span style="color:var(--text3)">Feladó:</span> 📤 ' + escHtml(d.from_agent || "?") + '</div>';
+      var toLabel = d.to_agent === "any" ? "🔄 Bárki" : "📥 " + escHtml(d.to_agent || "?");
+      metaHtml += '<div><span style="color:var(--text3)">Címzett:</span> ' + toLabel + '</div>';
+      if (d.assigned_agent) metaHtml += '<div><span style="color:var(--text3)">Feldolgozó:</span> 👤 ' + escHtml(d.assigned_agent) + '</div>';
+      var typeLabel = {"code":"💻 Kódolás","research":"🔍 Kutatás","analysis":"📊 Elemzés","monitoring":"📈 Monitorozás"}[d.task_type] || "🔧 Általános";
+      metaHtml += '<div><span style="color:var(--text3)">Típus:</span> ' + typeLabel + '</div>';
+      if (d.progress) metaHtml += '<div><span style="color:var(--text3)">Haladás:</span> ' + d.progress + '%</div>';
+      if (d.created_at) {
+        var created = new Date(d.created_at);
+        metaHtml += '<div><span style="color:var(--text3)">Létrehozva:</span> ' + created.toLocaleString("hu-HU") + '</div>';
+      }
+      if (d.completed_at) {
+        var completed = new Date(d.completed_at);
+        metaHtml += '<div><span style="color:var(--text3)">Befejezve:</span> ' + completed.toLocaleString("hu-HU") + '</div>';
+      }
+      if (d.created_at && d.completed_at) {
+        var dur = Math.round((new Date(d.completed_at) - new Date(d.created_at)) / 1000);
+        var durStr = dur < 60 ? dur + "mp" : dur < 3600 ? Math.round(dur/60) + "perc" : Math.round(dur/3600*10)/10 + "óra";
+        metaHtml += '<div><span style="color:var(--text3)">Időtartam:</span> ⏱️ ' + durStr + '</div>';
+      }
+      metaHtml += '</div>';
+
+      // Progress bar
+      var progressHtml = "";
+      if (d.progress && d.status !== "completed") {
+        var pColor = d.progress >= 80 ? "var(--success)" : d.progress >= 40 ? "var(--warning)" : "var(--info)";
+        progressHtml = '<div style="margin-bottom:12px"><div style="background:var(--surface);border-radius:6px;height:8px;overflow:hidden"><div style="height:100%;width:' + d.progress + '%;background:' + pColor + ';border-radius:6px;transition:width .3s"></div></div><div style="font-size:11px;color:var(--text3);text-align:center;margin-top:2px">' + d.progress + '% kész</div></div>';
+      }
+
+      // Actions
+      var actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
+      if (d.status === "available") actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">✋ Vállalom</button>';
+      if (d.status === "pending" || d.status === "accepted") actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">🚫 Mégsem</button>';
+      if (d.status === "accepted" || d.status === "running") {
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">🔄 Átcélzó</button>';
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📝 Jegyzet</button>';
+      }
+      if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📊 Haladás</button>';
+      actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="loadDelegations();document.getElementById(\'taskDetailModal\').style.display=\'none\'">🔄 Frissítés</button>';
+      actionsHtml += '</div>';
+
+      document.getElementById('taskDetailContent').innerHTML = metaHtml + descHtml + progressHtml + timelineHtml + resultHtml + fileHtml + actionsHtml;
+    })
+    .catch(function(e) {
+      document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ Hiba: ' + escHtml(e.message || String(e)) + '</div>';
     });
 }
 

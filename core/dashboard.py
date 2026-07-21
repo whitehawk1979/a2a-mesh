@@ -4077,12 +4077,30 @@ class DashboardHandler:
 
     async def _api_delegations_files(self, request):
         """Get result files for a delegation. GET /api/delegations/{task_id}/files
-        Query param: download=1 to get raw file content instead of JSON metadata"""
+        Query param: download=1 to get raw file content instead of JSON metadata
+        Query param: token for auth via URL (for file downloads)"""
         import base64
         from aiohttp import web
-        user, err = self._require_auth(request)
-        if err:
-            return err
+        # Support token auth via query param for file downloads
+        token = request.query.get("token", "")
+        auth_header = request.headers.get("Authorization", "")
+        if token and not auth_header:
+            auth_header = f"Bearer {token}"
+        user = None
+        err = None
+        if auth_header:
+            try:
+                from .auth import AuthManager
+                # Try to validate the token directly
+                payload = self.auth.verify_token(auth_header.replace("Bearer ", ""))
+                if payload:
+                    user = payload
+            except Exception:
+                pass
+        if not user:
+            user, err = self._require_auth(request)
+            if err:
+                return err
         try:
             task_id = request.match_info.get("task_id")
             download = request.query.get("download", "0") == "1"
