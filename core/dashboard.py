@@ -597,10 +597,10 @@ class DashboardHandler:
                 peer_status = "available"
             else:
                 peer_status = "offline"
-            # Use DB version as fallback for default '1.0.0'
+            # Use DB version as fallback for empty/default version
             peer_ver = getattr(peer, 'version', None)
-            if not peer_ver or peer_ver == '1.0.0':
-                peer_ver = db_versions.get(peer.name, peer_ver or '1.0.0')
+            if not peer_ver or peer_ver in ('1.0.0', 'unknown'):
+                peer_ver = db_versions.get(peer.name, peer_ver or '')
             # Get skills from registry
             peer_skills = []
             card = self.node.registry.get_card(peer.name) if hasattr(self.node, 'registry') else None
@@ -622,7 +622,7 @@ class DashboardHandler:
                     "http": peer.http_available,
                 },
             })
-        return web.json_response({"agents": agents, "total": len(agents), "_debug_db_versions": db_versions})
+        return web.json_response({"agents": agents, "total": len(agents)})
 
     async def _api_send(self, request):
         """Send a message to the mesh from the dashboard.
@@ -3447,7 +3447,7 @@ class DashboardHandler:
                         name = card.name
                         reg_agents[name] = (card, health)
                         # Prefer DB version over card default (card may have '1.0.0' fallback)
-                        card_version = card.version if card.version else db_versions.get(name)
+                        card_version = card.version if card.version and card.version not in ('1.0.0', 'unknown') else db_versions.get(name, '')
                         nodes[name] = {
                             "name": name,
                             "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
@@ -3482,8 +3482,10 @@ class DashboardHandler:
                         # Prefer registry data for skills/caps, fall back to peer data
                         final_caps = existing_caps if existing_caps else peer_caps
                         existing_skills = existing.get("skills", []) or []
-                        # Use DB version as fallback if card version is default '1.0.0'
-                        peer_version = existing.get("version") or db_versions.get(name, "")
+                        # Use DB version as fallback if card version is default/unknown
+                        peer_version = existing.get("version")
+                        if not peer_version or peer_version in ('1.0.0', 'unknown'):
+                            peer_version = db_versions.get(name, '')
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),
