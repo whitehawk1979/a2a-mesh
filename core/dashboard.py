@@ -2208,7 +2208,7 @@ class DashboardHandler:
                         "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                         "last_seen": health.last_health_check or 0,
                         "message_count": health.total_requests,
-                        "version": card.version if card.version else "",
+                        "version": card.version if card.version and card.version not in ('1.0.0', 'unknown') else db_versions.get(name, card.version or ''),
                     }
             except Exception as e:
                 log.warning(f"Nodes list: registry lookup failed: {e}")
