@@ -1056,7 +1056,7 @@ function deleteMessage(msgId) {
   if (!msgId || !confirm("Törlöd ezt az üzenetet?")) return;
   fetch("/api/messages/" + encodeURIComponent(msgId), {
     method: "DELETE",
-    headers: { "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "") }
+    headers: { "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "") }
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "deleted") {
       var el = document.getElementById("msg-" + msgId);
@@ -1474,7 +1474,7 @@ function checkAdminPanel() {
 
 // ─── Quick Links — dynamic node dashboard links ──────────
 function loadQuickLinks() {
-  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("quickLinksList");
@@ -1592,7 +1592,7 @@ function sendDirective(type) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")
+      "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")
     },
     body: JSON.stringify(msg)
   })
@@ -1657,7 +1657,7 @@ function uploadFiles(files, recipient) {
 
       var xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/send-file", true);
-      xhr.setRequestHeader("Authorization", "Bearer " + (localStorage.getItem("mesh_token") || ""));
+      xhr.setRequestHeader("Authorization", "Bearer " + (localStorage.getItem("a2a_token") || ""));
 
       xhr.upload.onprogress = function(e) {
         if (e.lengthComputable) {
@@ -1709,7 +1709,7 @@ function showFileList() {
 }
 
 function loadFileList() {
-  fetch("/api/files", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/files", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("fileListContent");
@@ -1731,7 +1731,7 @@ function loadFileList() {
             '<div class="file-meta">' + typeLabel + ' ' + f.size_human + ' · ' + time + '</div>' +
           '</div>' +
           '<div class="file-actions">' +
-            '<a href="' + f.url + '?token=' + encodeURIComponent(localStorage.getItem("mesh_token") || "") + '" target="_blank" class="btn btn-sm" style="text-decoration:none">⬇️ Letöltés</a>' +
+            '<a href="' + f.url + '?token=' + encodeURIComponent(localStorage.getItem("a2a_token") || "") + '" target="_blank" class="btn btn-sm" style="text-decoration:none">⬇️ Letöltés</a>' +
           '</div>' +
         '</li>';
       }).join('');
@@ -1765,7 +1765,7 @@ function registerAgent() {
   };
   fetch("/api/registry/agents", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
     body: JSON.stringify(data)
   })
   .then(function(r) { return r.json(); })
@@ -1777,7 +1777,7 @@ function registerAgent() {
 }
 
 function loadRegistry() {
-  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var statsEl = document.getElementById("registryStats");
@@ -1788,7 +1788,7 @@ function loadRegistry() {
 }
 
 function loadRegistryAgents() {
-  fetch("/api/registry/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("registryList");
@@ -1830,7 +1830,7 @@ function loadRegistryAgents() {
 function searchRegistry() {
   var caps = document.getElementById("registryCapSearch").value;
   var params = "capabilities=" + encodeURIComponent(caps);
-  fetch("/api/registry/find?" + params, {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry/find?" + params, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("registryList");
@@ -1858,7 +1858,7 @@ function deregisterAgent(name) {
   if (!confirm("Biztosan eltávolítod: " + name + "?")) return;
   fetch("/api/registry/agents/" + encodeURIComponent(name), {
     method: "DELETE",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   })
   .then(function(r) { return r.json(); })
   .then(function(d) { loadRegistry(); })
@@ -1910,7 +1910,7 @@ function populateDelegationTargets() {
   // Clear existing options except first
   while (sel.options.length > 1) sel.remove(1);
   // Add known agents
-  fetch("/api/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var agents = data.agents || data || [];
@@ -2155,7 +2155,7 @@ function createDelegation() {
 function cancelDelegation(taskId) {
   fetch("/api/delegations/" + taskId + "/cancel", {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
@@ -2182,7 +2182,7 @@ function escHtml(str) {
 }
 
 function loadSettings() {
-  fetch("/api/settings", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/settings", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       document.getElementById("settingsMeshInfo").innerHTML =
@@ -2205,7 +2205,7 @@ function loadSettings() {
 }
 
 function loadPendingAgents() {
-  fetch("/api/registry/pending", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry/pending", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var container = document.getElementById("settingsPendingAgents");
@@ -2234,7 +2234,7 @@ function loadPendingAgents() {
 function approveAgent(name) {
   fetch("/api/registry/approve/" + name, {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   }).then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status === "approved") {
@@ -2250,7 +2250,7 @@ function rejectAgent(name) {
   if (!confirm("Biztosan elutasítod " + name + " kérelmét?")) return;
   fetch("/api/registry/reject/" + name, {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   }).then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status === "rejected") {
@@ -2281,7 +2281,7 @@ function saveSettings() {
   };
   fetch("/api/settings", {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || ""), "Content-Type": "application/json"},
     body: JSON.stringify(data)
   }).then(function(r) { return r.json(); })
     .then(function(result) {
@@ -2312,7 +2312,7 @@ function loadUsers() {
     return;
   }
   document.getElementById("usersSection").style.display = "block";
-  fetch("/api/auth/users", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/auth/users", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var tbody = document.getElementById("usersTableBody");
@@ -2370,7 +2370,7 @@ function addUser() {
 
   fetch("/api/auth/register", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
     body: JSON.stringify({username: username, display_name: displayName, password: password, role: role})
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.error) {
@@ -2391,7 +2391,7 @@ function deleteUser(username) {
   if (!confirm("Biztosan törlöd '" + username + "' felhasználót? Ez a fiók deaktiválódik.")) return;
   fetch("/api/auth/users/" + encodeURIComponent(username), {
     method: "DELETE",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "deleted") {
       alert("✅ '" + username + "' felhasználó törölve!");
@@ -2428,7 +2428,7 @@ function submitChangePassword() {
 
   fetch("/api/auth/users/" + encodeURIComponent(_changePasswordUsername) + "/password", {
     method: "PUT",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
     body: JSON.stringify({new_password: newPassword})
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "password_changed") {
