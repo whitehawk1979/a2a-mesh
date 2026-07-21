@@ -88,8 +88,8 @@ mesh:
       idle_timeout: 300
       tls_enabled: false
     http:
-      url: http://192.168.1.100:8199
-      health_url: http://192.168.1.100:8198/health
+      url: http://192.168.1.30:8199
+      health_url: http://192.168.1.30:8198/health
       timeout: 5
       retries: 3
   discovery:
