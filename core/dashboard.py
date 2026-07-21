@@ -541,12 +541,30 @@ class DashboardHandler:
         from aiohttp import web
         agents = []
         
-        # ── DB version lookup (fallback for peers with default '1.0.0') ──
+        # ── DB version lookup (fallback for peers with empty/default version) ──
         db_versions = {}
         try:
             if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
-                db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                try:
+                    rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                    db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
+                except Exception as e:
+                    log.warning(f"DB version lookup failed: {e}")
+            else:
+                # Fallback: try asyncpg directly
+                import asyncpg
+                try:
+                    pool = await asyncpg.create_pool(
+                        host=self.node.config.pg.host, port=self.node.config.pg.port,
+                        database=self.node.config.pg.database, user=self.node.config.pg.user,
+                        password=self.node.config.pg.password, min_size=1, max_size=2
+                    )
+                    async with pool.acquire() as conn:
+                        rows = await conn.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                        db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
+                    await pool.close()
+                except Exception as e2:
+                    log.warning(f"DB version fallback failed: {e2}")
         except Exception:
             pass
         
@@ -593,10 +611,10 @@ class DashboardHandler:
                 peer_status = "available"
             else:
                 peer_status = "offline"
-            # Use DB version as fallback for default '1.0.0'
+            # Use DB version as fallback for empty/default version
             peer_ver = getattr(peer, 'version', None)
-            if not peer_ver or peer_ver == '1.0.0':
-                peer_ver = db_versions.get(peer.name, peer_ver or '1.0.0')
+            if not peer_ver:
+                peer_ver = db_versions.get(peer.name, '')
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
@@ -3383,12 +3401,29 @@ class DashboardHandler:
             connections = []
             now = _time.time()
 
-            # ── DB version lookup (fallback for agent cards with default '1.0.0') ──
+            # ── DB version lookup (fallback for agent cards with empty version) ──
             db_versions = {}
             try:
                 if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                    rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
-                    db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                    try:
+                        rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                        db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
+                    except Exception as e:
+                        log.warning(f"Topology DB version lookup failed: {e}")
+                else:
+                    import asyncpg
+                    try:
+                        pool = await asyncpg.create_pool(
+                            host=self.node.config.pg.host, port=self.node.config.pg.port,
+                            database=self.node.config.pg.database, user=self.node.config.pg.user,
+                            password=self.node.config.pg.password, min_size=1, max_size=2
+                        )
+                        async with pool.acquire() as conn:
+                            rows = await conn.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                            db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
+                        await pool.close()
+                    except Exception as e2:
+                        log.warning(f"Topology DB version fallback failed: {e2}")
             except Exception:
                 pass
 
@@ -3437,7 +3472,7 @@ class DashboardHandler:
                         name = card.name
                         reg_agents[name] = (card, health)
                         # Prefer DB version over card default (card may have '1.0.0' fallback)
-                        card_version = card.version if card.version and card.version != "1.0.0" else db_versions.get(name)
+                        card_version = card.version if card.version else db_versions.get(name, "")
                         nodes[name] = {
                             "name": name,
                             "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
