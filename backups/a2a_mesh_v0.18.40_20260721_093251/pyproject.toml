@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "a2a-mesh"
+version = "0.18.40"
+description = "Zigbee-inspired A2A mesh networking for AI agents — P2P transport, PG NOTIFY, mDNS discovery, TLS encryption"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Nova A2A Mesh Team"},
+]
+keywords = ["a2a", "mesh", "p2p", "agent", "networking", "discovery", "zigbee"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Networking",
+]
+
+dependencies = [
+    "aiohttp>=3.9.0",
+    "asyncpg>=0.31.0",
+    "msgpack>=1.0.7",
+    "psycopg2-binary>=2.9.9",
+    "PyYAML>=6.0",
+    "zeroconf>=0.130.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+a2a-mesh = "cli:main"
+
+[tool.setuptools.packages.find]
+include = ["core*", "discovery*", "transports*", "plugins*"]
+
+[tool.setuptools]
+py-modules = ["cli", "node", "generate_certs"]

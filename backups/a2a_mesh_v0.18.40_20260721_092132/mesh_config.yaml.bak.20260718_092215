@@ -1,0 +1,121 @@
+# A2A Mesh Configuration — Nova node
+
+mesh:
+  node_name: nova
+  node_id: ""
+  
+  transport_priority:
+    - p2p
+    - pg_notify
+    - http
+  
+  webhook_port: 8644
+  webhook_secret: ${WEBHOOK_SECRET}
+  
+  telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
+  
+  log_file: ~/a2a_mesh/a2a_mesh.log
+  
+  auth_mode: open
+  
+  health_port: 8650
+  
+  transports:
+    pg_notify:
+      host: 192.168.1.30
+      port: 5432
+      dbname: agent_memory
+      user: nova
+      password: nova_agent_2026
+      channels:
+        - a2a_channel
+        - a2a_steer_channel
+        - delegation_channel
+        - mesh_channel
+    
+    p2p:
+      enabled: true
+      listen_host: 0.0.0.0
+      listen_port: 8645
+      max_connections: 50
+      idle_timeout: 300
+      tls_enabled: false
+      # tls_cert: ~/a2a_mesh/certs/nova.crt
+      # tls_key: ~/a2a_mesh/certs/nova.key
+      # tls_ca: ~/a2a_mesh/certs/a2a-mesh-ca.crt
+      # tls_verify_peer: false
+    
+    http:
+      url: http://192.168.1.30:8199
+      health_url: http://192.168.1.30:8198/health
+      timeout: 5
+      retries: 3
+  
+  discovery:
+    mdns:
+      enabled: true
+      service: _a2a._tcp
+      port: 8645
+    static:
+      nodes:
+        - name: nova
+          ip: 192.168.1.8
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
+        - name: morzsa
+          ip: 192.168.1.30
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
+  
+  security:
+    signing_key: ""
+    trusted_keys: {}
+    encryption: nacl
+    transport_auth: hmac
+  
+  loop_prevention:
+    self_reference_filter: true
+    not_for_me_filter: true
+    re_chain_limit: 4
+    dedup_cache_size: 5000
+    dedup_ttl: 300
+  
+  auto_steer:
+    priority_threshold: 10
+    queue_lower_priorities: true
+  
+  heartbeat:
+    interval: 300
+    warning_threshold: 300
+    critical_threshold: 900
+    silent_on_success: true
+  
+  topology:
+    node_role: router
+    routing_mode: hybrid
+    max_children: 20
+    max_routers: 6
+    max_depth: 5
+    trust_center_enabled: true
+    auto_approve_known_agents: true
+    allowed_public_keys: []
+    enable_sleepy_end_devices: true
+    message_buffer_max_size: 1000
+    message_buffer_ttl_seconds: 86400
+    re_association_timeout: 30
+    coordinator_heartbeat_interval: 10
+    enable_route_cache: true
+    route_cache_ttl: 300
+
+  # Health-score-based topology auto-tuning
+  topology_tuning:
+    enabled: true
+    check_interval: 300        # seconds between evaluations (5 min)
+    promote_threshold: 0.9     # health score to promote end_device → router
+    demote_threshold: 0.3      # health score to demote router → end_device
+    coordinator_threshold: 0.5  # health score below which coordinator handover is suggested
+    min_observations: 10       # minimum requests before making recommendations
+    cooldown: 600              # seconds between role changes for the same node
+    auto_apply: false           # safety: only recommend, don't auto-apply

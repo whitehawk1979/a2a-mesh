@@ -1,0 +1,5 @@
+[v3_node]
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = DNS:morzsa, IP:127.0.0.1
