@@ -2336,6 +2336,12 @@ echo "Status: ok"
                 for name, transport in self.router.transports.items():
                     if not transport.is_available():
                         log.debug(f"Transport {name} unavailable")
+                        # Re-check HTTP transport if it's marked unavailable
+                        if name == 'http' and hasattr(transport, 'health_check'):
+                            try:
+                                await transport.health_check()
+                            except Exception:
+                                pass
 
             except asyncio.CancelledError:
                 break

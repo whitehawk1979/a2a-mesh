@@ -69,6 +69,22 @@ class HTTPTransport(TransportAdapter):
         self._available = False
         return True
 
+    async def health_check(self) -> bool:
+        """Periodic health check for HTTP bridge availability."""
+        if not self._session or self._session.closed:
+            return False
+        health_url = getattr(self.config.http, 'health_url', f"{self._url}/health")
+        try:
+            async with self._session.get(health_url) as resp:
+                if resp.status == 200:
+                    self._available = True
+                    return True
+                self._available = True  # Bridge exists, might just not have /health
+                return True
+        except Exception:
+            self._available = False
+            return False
+
     async def send(self, message: A2AMessage) -> SendResult:
         """Send message via HTTP/MCP bridge."""
         if not self._session:
