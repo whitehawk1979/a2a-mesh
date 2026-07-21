@@ -108,6 +108,7 @@ class HTTPTransport(TransportAdapter):
 
             except asyncio.TimeoutError:
                 last_error = f"timeout (attempt {attempt + 1}/{self._retries})"
+                # Don't mark unavailable on timeout — bridge may be slow but still alive
             except Exception as e:
                 last_error = str(e)
 
@@ -115,7 +116,10 @@ class HTTPTransport(TransportAdapter):
             if attempt < self._retries - 1:
                 await asyncio.sleep(2 ** attempt)
 
-        self._available = False
+        # Only mark unavailable on connection errors, not timeouts
+        # Timeouts don't mean the bridge is down — it may just be slow
+        if last_error and not last_error.startswith("timeout"):
+            self._available = False
         return SendResult(transport="http", success=False, error=last_error)
 
     async def receive(self) -> list:

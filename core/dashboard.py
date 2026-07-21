@@ -576,6 +576,7 @@ class DashboardHandler:
             "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
             "health_port": getattr(self.node, '_health_port', 8650),
             "version": self.node._resolved_version,
+            "skills": [s if isinstance(s, str) else s.get('id', str(s)) for s in (self.node.config.skills or [])],
             "transports": {
                 "p2p": self_transports.get("p2p", False),
                 "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
@@ -597,6 +598,11 @@ class DashboardHandler:
             peer_ver = getattr(peer, 'version', None)
             if not peer_ver or peer_ver == '1.0.0':
                 peer_ver = db_versions.get(peer.name, peer_ver or '1.0.0')
+            # Get skills from registry
+            peer_skills = []
+            card = self.node.registry.get_card(peer.name) if hasattr(self.node, 'registry') else None
+            if card and hasattr(card, 'skills') and card.skills:
+                peer_skills = [s if isinstance(s, str) else s.get('id', str(s)) for s in card.skills]
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
@@ -606,6 +612,7 @@ class DashboardHandler:
                 "p2p_port": peer.p2p_port,
                 "health_port": peer.health_port,
                 "last_seen": peer.last_seen,
+                "skills": peer_skills,
                 "transports": {
                     "p2p": peer.p2p_available,
                     "pg": peer.pg_available,
