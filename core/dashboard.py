@@ -547,8 +547,11 @@ class DashboardHandler:
             if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
                 rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
                 db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
-        except Exception:
-            pass
+                log.debug(f"db_versions from PG: {db_versions}")
+            else:
+                log.warning(f"PG pool not available for db_versions: hasattr={hasattr(self.node, '_pg_pool')}, pool={getattr(self.node, '_pg_pool', None)}")
+        except Exception as e:
+            log.warning(f"db_versions query failed: {e}")
         
         # Self — extract transport availability from TransportStatus objects
         status = self.node.get_status()
