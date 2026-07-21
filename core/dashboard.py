@@ -541,13 +541,22 @@ class DashboardHandler:
         from aiohttp import web
         agents = []
         
-        # ── DB version lookup (fallback for peers with default '1.0.0') ──
+        # ── DB version + skills lookup (fallback for peers with default '1.0.0' or empty skills) ──
         db_versions = {}
+        db_skills = {}
         try:
             if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
                 db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                for r in rows:
+                    s = r.get('skills')
+                    if s:
+                        import json as _json
+                        skill_list = _json.loads(s) if isinstance(s, str) else s
+                        if isinstance(skill_list, list) and len(skill_list) > 0:
+                            db_skills[r['node_name']] = skill_list
                 log.debug(f"db_versions from PG: {db_versions}")
+                log.debug(f"db_skills from PG: {list(db_skills.keys())}")
             else:
                 log.warning(f"PG pool not available for db_versions: hasattr={hasattr(self.node, '_pg_pool')}, pool={getattr(self.node, '_pg_pool', None)}")
         except Exception as e:
@@ -601,11 +610,13 @@ class DashboardHandler:
             peer_ver = getattr(peer, 'version', None)
             if not peer_ver or peer_ver in ('1.0.0', 'unknown'):
                 peer_ver = db_versions.get(peer.name, peer_ver or '')
-            # Get skills from registry
+            # Get skills from registry, fall back to DB
             peer_skills = []
             card = self.node.registry.get_card(peer.name) if hasattr(self.node, 'registry') else None
             if card and hasattr(card, 'skills') and card.skills:
                 peer_skills = [s if isinstance(s, str) else s.get('id', str(s)) for s in card.skills]
+            elif peer.name in db_skills:
+                peer_skills = [s if isinstance(s, str) else s.get('id', str(s)) for s in db_skills[peer.name]]
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
@@ -3458,7 +3469,7 @@ class DashboardHandler:
                             "health_score": round(health.health_score, 3),
                             "capabilities": list(card.capabilities) if card.capabilities else [],
                             "version": card_version,
-                            "skills": list(card.skills) if card.skills else [],
+                            "skills": list(card.skills) if card.skills else db_skills.get(name, []),
                             "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                             "last_seen": health.last_health_check or 0,
                             "message_count": health.total_requests,
@@ -3482,6 +3493,9 @@ class DashboardHandler:
                         # Prefer registry data for skills/caps, fall back to peer data
                         final_caps = existing_caps if existing_caps else peer_caps
                         existing_skills = existing.get("skills", []) or []
+                        # Fall back to DB skills if registry is empty
+                        if not existing_skills and name in db_skills:
+                            existing_skills = db_skills[name]
                         # Use DB version as fallback if card version is default/unknown
                         peer_version = existing.get("version")
                         if not peer_version or peer_version in ('1.0.0', 'unknown'):

@@ -380,6 +380,17 @@ class MeshNode:
                             merged_caps = ["a2a_messaging"]
                         card.capabilities = merged_caps
                     log.info(f"Updated {peer_name} in registry: {len(merged_skills)} skills, {len(card.capabilities)} caps")
+                else:
+                    # Peer not in registry yet — create a new AgentCard
+                    from .core.registry import AgentCard
+                    new_card = AgentCard(
+                        name=peer_name,
+                        endpoint=f"http://{getattr(self, '_last_peer_host', '')}:8650",
+                        skills=merged_skills,
+                        capabilities=merged_caps,
+                    )
+                    self.dashboard.registry.register(new_card)
+                    log.info(f"Created registry card for {peer_name}: {len(merged_skills)} skills, {len(merged_caps)} caps")
             # Sync skills & capabilities to DB
             # Convert dict skills to string IDs for SQL_ASCII compatibility
             try:
