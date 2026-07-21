@@ -549,7 +549,7 @@ class DashboardHandler:
                 rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
                 db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
                 for r in rows:
-                    s = r.get('skills')
+                    s = r['skills'] if 'skills' in r.keys() else None
                     if s:
                         import json as _json
                         skill_list = _json.loads(s) if isinstance(s, str) else s
@@ -3404,12 +3404,20 @@ class DashboardHandler:
             connections = []
             now = _time.time()
 
-            # ── DB version lookup (fallback for agent cards with default '1.0.0') ──
+            # ── DB version + skills lookup (fallback for agent cards with default '1.0.0' or empty skills) ──
             db_versions = {}
+            db_skills = {}
             try:
                 if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                    rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
+                    rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
                     db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                    for r in rows:
+                        s = r['skills'] if 'skills' in r.keys() else None
+                        if s:
+                            import json as _json
+                            skill_list = _json.loads(s) if isinstance(s, str) else s
+                            if isinstance(skill_list, list) and len(skill_list) > 0:
+                                db_skills[r['node_name']] = skill_list
             except Exception:
                 pass
 
