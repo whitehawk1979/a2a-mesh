@@ -1343,11 +1343,18 @@ function loadAllNodes() {
         var healthScore = n.health_score != null ? n.health_score : null;
         var msgCount = n.message_count != null ? n.message_count : (n.messages_sent != null ? n.messages_sent : "—");
         var version = n.version || "—";
-        var skills = n.skills || n.capabilities || [];
+        var skills = (n.skills || n.capabilities || []);
         var skillsHtml = "";
         if (skills.length > 0) {
           skillsHtml = '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Képességek / Skillek</div><div class="node-detail-skills">' +
-            skills.map(function(s) { return '<span class="skill-tag">' + escapeHtml(s) + '</span>'; }).join('') +
+            skills.map(function(s) {
+              if (typeof s === 'object' && s !== null) {
+                var label = s.name || s.id || JSON.stringify(s);
+                var title = s.description || s.id || '';
+                return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
+              }
+              return '<span class="skill-tag">' + escapeHtml(s) + '</span>';
+            }).join('') +
           '</div></div>';
         }
         var healthHtml = "";
