@@ -613,8 +613,8 @@ class DashboardHandler:
                 peer_status = "offline"
             # Use DB version as fallback for empty/default version
             peer_ver = getattr(peer, 'version', None)
-            if not peer_ver:
-                peer_ver = db_versions.get(peer.name, '')
+            if not peer_ver or peer_ver == '1.0.0':
+                peer_ver = db_versions.get(peer.name, peer_ver or '')
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
@@ -3472,7 +3472,7 @@ class DashboardHandler:
                         name = card.name
                         reg_agents[name] = (card, health)
                         # Prefer DB version over card default (card may have '1.0.0' fallback)
-                        card_version = card.version if card.version else db_versions.get(name, "")
+                        card_version = card.version if card.version and card.version != '1.0.0' else db_versions.get(name, '')
                         nodes[name] = {
                             "name": name,
                             "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
@@ -3508,7 +3508,9 @@ class DashboardHandler:
                         final_caps = existing_caps if existing_caps else peer_caps
                         existing_skills = existing.get("skills", []) or []
                         # Use DB version as fallback if card version is default '1.0.0'
-                        peer_version = existing.get("version") or db_versions.get(name, "1.0.0")
+                        peer_version = existing.get("version") or db_versions.get(name, "")
+                        if peer_version == '1.0.0' and db_versions.get(name):
+                            peer_version = db_versions[name]
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),
