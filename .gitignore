@@ -56,3 +56,4 @@ mesh.mesh_nodes
 
 # Backup files
 *.bak
+backups/
