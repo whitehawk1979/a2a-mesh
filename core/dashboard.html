@@ -487,15 +487,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 <!-- Delegations Modal -->
 <div class="file-modal-overlay" id="delegationsModal" style="display:none">
-  <div class="file-modal" style="width:800px;max-height:85vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <div class="file-modal" style="width:960px;max-width:98vw;max-height:90vh;display:flex;flex-direction:column">
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
       <h2 style="margin:0">📋 Feladat-delegációk</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('delegationsModal').style.display='none'">✕</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-sm" style="background:var(--success)" onclick="toggleNewTask()">➕ Új feladat</button>
+        <button class="btn btn-sm" onclick="loadDelegations()">🔄</button>
+        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('delegationsModal').style.display='none'">✕</button>
+      </div>
     </div>
 
-    <!-- Create new delegation -->
-    <div style="margin-bottom:16px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-      <h3 style="margin:0 0 8px 0;font-size:14px">➕ Új feladat küldése</h3>
+    <!-- Stats bar -->
+    <div id="delStats" style="margin-bottom:8px;font-size:12px;color:var(--text3);display:flex;gap:12px;flex-shrink:0"></div>
+
+    <!-- New task form (collapsible) -->
+    <div id="newTaskForm" style="display:none;margin-bottom:12px;padding:12px;background:var(--surface2);border-radius:10px;border:1px solid var(--border);flex-shrink:0">
+      <h3 style="margin:0 0 10px 0;font-size:14px">➕ Új feladat küldése</h3>
       <div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-bottom:8px">
         <select id="delTarget" style="padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
           <option value="">Célzott node...</option>
@@ -523,45 +531,64 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <option value="1">P1 Alacsony</option>
         </select>
       </div>
-      <button class="btn btn-sm" style="background:var(--success)" onclick="createDelegation()">📤 Feladat küldése</button>
-      <span id="delCreateStatus" style="margin-left:8px;font-size:13px;color:var(--text3)"></span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-sm" style="background:var(--success)" onclick="createDelegation()">📤 Küldés</button>
+        <span id="delCreateStatus" style="font-size:13px;color:var(--text3)"></span>
+      </div>
     </div>
 
-    <!-- Delegation stats -->
-    <div id="delStats" style="margin-bottom:12px;font-size:12px;color:var(--text3)"></div>
-
-    <!-- Filter -->
-    <div style="display:flex;gap:6px;margin-bottom:12px;align-items:center;flex-wrap:wrap">
-      <select id="delFilterStatus" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
-        <option value="">Összes státusz</option>
-        <option value="available">🔄 Elérhető</option>
-        <option value="pending">⏳ Függő</option>
-        <option value="accepted">✅ Elfogadott</option>
-        <option value="running">🔄 Futó</option>
-        <option value="completed">✔️ Kész</option>
-        <option value="failed">❌ Sikertelen</option>
-        <option value="cancelled">🚫 Törölt</option>
-      </select>
-      <select id="delFilterAgent" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
-        <option value="">Összes agent</option>
-        <option value="nova">Nova</option>
-        <option value="morzsa">Morzsa</option>
-        <option value="runa">Runa</option>
-      </select>
-      <select id="delFilterType" onchange="loadDelegations()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px">
-        <option value="">Összes típus</option>
-        <option value="monitoring">📊 Monitoring</option>
-        <option value="generic">🔧 Általános</option>
-        <option value="research">🔍 Kutatás</option>
-        <option value="maintenance">🛠️ Karbantartás</option>
-      </select>
-      <button class="btn btn-sm" onclick="loadDelegations()">🔄 Frissítés</button>
+    <!-- Kanban board -->
+    <div id="kanbanBoard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;overflow-y:auto;flex:1;min-height:0">
+      <!-- Columns rendered by JS -->
+      <div class="kanban-col" data-status="available">
+        <div class="kanban-col-header" style="background:var(--info)">🔄 Elérhető</div>
+        <div class="kanban-cards" id="kanban-available"></div>
+      </div>
+      <div class="kanban-col" data-status="pending">
+        <div class="kanban-col-header" style="background:#8b5cf6">⏳ Függő</div>
+        <div class="kanban-cards" id="kanban-pending"></div>
+      </div>
+      <div class="kanban-col" data-status="running">
+        <div class="kanban-col-header" style="background:var(--warning)">⚙️ Futó</div>
+        <div class="kanban-cards" id="kanban-running"></div>
+      </div>
+      <div class="kanban-col" data-status="completed">
+        <div class="kanban-col-header" style="background:var(--success)">✔️ Kész</div>
+        <div class="kanban-cards" id="kanban-completed"></div>
+      </div>
+      <div class="kanban-col" data-status="failed">
+        <div class="kanban-col-header" style="background:var(--danger)">❌ Hiba/Törölt</div>
+        <div class="kanban-cards" id="kanban-failed"></div>
+      </div>
     </div>
 
-    <!-- Delegations list -->
-    <ul class="file-list" id="delegationsList"></ul>
+    <!-- Hidden: old filter selects for API queries -->
+    <select id="delFilterStatus" style="display:none"><option value="" selected></option></select>
+    <select id="delFilterAgent" style="display:none"><option value="" selected></option></select>
+    <select id="delFilterType" style="display:none"><option value="" selected></option></select>
   </div>
 </div>
+
+<style>
+.kanban-col{background:var(--surface);border-radius:10px;border:1px solid var(--border);display:flex;flex-direction:column;min-height:120px;max-height:60vh}
+.kanban-col-header{padding:8px 12px;border-radius:10px 10px 0 0;font-size:13px;font-weight:700;color:#fff;text-align:center;letter-spacing:.5px}
+.kanban-cards{padding:6px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px}
+.kanban-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;cursor:default;transition:box-shadow .15s,transform .15s}
+.kanban-card:hover{box-shadow:0 2px 8px rgba(79,140,255,.25);transform:translateY(-1px)}
+.kanban-card .card-subject{font-weight:600;font-size:13px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center}
+.kanban-card .card-meta{color:var(--text3);font-size:11px;display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px}
+.kanban-card .card-progress{background:var(--surface);border-radius:4px;height:5px;overflow:hidden;margin:4px 0}
+.kanban-card .card-progress-bar{height:100%;border-radius:4px;transition:width .3s}
+.kanban-card .card-result{font-size:11px;color:var(--text2);padding:4px 6px;background:var(--surface);border-radius:4px;max-height:50px;overflow-y:auto;margin-top:4px}
+.kanban-card .card-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.kanban-card .card-actions button{font-size:10px;padding:2px 6px;border-radius:4px;cursor:pointer;border:none}
+.kanban-card .card-type{display:inline-block;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:600;margin-right:4px}
+.type-code{background:#1e3a5f;color:#60a5fa}.type-research{background:#3b1f5f;color:#c084fc}.type-analysis{background:#3f2a1a;color:#fbbf24}.type-monitoring{background:#1a3f2a;color:#4ade80}.type-generic{background:#1a2a3f;color:#94a3b8}
+.priority-badge{font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700}
+.priority-10{background:var(--danger);color:#fff}.priority-7{background:var(--warning);color:#000}.priority-5{background:var(--text3);color:#fff}.priority-1{background:var(--success);color:#fff}
+.kanban-count{font-size:10px;background:rgba(255,255,255,.2);padding:1px 6px;border-radius:10px;margin-left:6px}
+@media(max-width:768px){#kanbanBoard{grid-template-columns:1fr;max-height:none}.kanban-col{max-height:40vh}}
+</style>
 
 <!-- Settings Modal -->
 <div class="file-modal-overlay" id="settingsModal" style="display:none">
@@ -1898,69 +1925,101 @@ function populateDelegationTargets() {
     });
 }
 
+function toggleNewTask() {
+  var f = document.getElementById('newTaskForm');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
+}
+
+function renderKanbanCard(d) {
+  var typeClass = {"code":"type-code","research":"type-research","analysis":"type-analysis","monitoring":"type-monitoring"}[d.task_type] || "type-generic";
+  var typeLabel = {"code":"💻 Kód","research":"🔍 Kutatás","analysis":"📊 Elemzés","monitoring":"📈 Monitor"}[d.task_type] || "🔧 Általános";
+  var prioClass = "priority-" + (d.priority || 5);
+  var prioLabel = "P" + (d.priority || 5);
+  var timeAgo = d.created_at ? timeSince(new Date(d.created_at)) : "?";
+  var assigned = d.assigned_agent ? "👤" + escHtml(d.assigned_agent) : "";
+  var toLabel = d.to_agent === "any" ? "🔄Bárki" : "📥" + escHtml(d.to_agent || "?");
+  var fromLabel = escHtml(d.from_agent || "?");
+
+  var progressHtml = "";
+  if (d.progress) {
+    var pColor = d.progress >= 80 ? "var(--success)" : d.progress >= 40 ? "var(--warning)" : "var(--info)";
+    progressHtml = '<div class="card-progress"><div class="card-progress-bar" style="width:' + d.progress + '%;background:' + pColor + '"></div></div><span style="font-size:10px;color:var(--text3)">' + d.progress + '%</span>';
+  }
+
+  var notesHtml = "";
+  if (d.notes && Array.isArray(d.notes) && d.notes.length > 0) {
+    var ln = d.notes[d.notes.length - 1];
+    notesHtml = '<div style="font-size:10px;color:var(--text3);margin-top:3px;padding:3px 5px;background:var(--surface);border-radius:3px">📝 ' + escHtml((ln.agent || "?") + ": " + (ln.note || "")).substring(0, 60) + '</div>';
+  }
+
+  var actions = '<div class="card-actions">';
+  if (d.status === "available") {
+    actions += '<button style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + d.task_id + '\')">✋ Vállalom</button>';
+  }
+  if (d.status === "pending" || d.status === "accepted") {
+    actions += '<button style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + d.task_id + '\')">🚫</button>';
+  }
+  if (d.status === "accepted" || d.status === "running") {
+    actions += '<button style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + d.task_id + '\')">🔄</button>';
+    actions += '<button style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\')">📝</button>';
+  }
+  if (d.status === "running") {
+    actions += '<button style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\')">📊</button>';
+  }
+  actions += '</div>';
+
+  var resultHtml = "";
+  if (d.result) {
+    resultHtml = '<div class="card-result">' + escHtml(d.result).substring(0, 120) + '</div>';
+  }
+
+  return '<div class="kanban-card">' +
+    '<div class="card-subject"><span>' + escHtml(d.subject || "?") + '</span><span class="priority-badge ' + prioClass + '">' + prioLabel + '</span></div>' +
+    '<div><span class="card-type ' + typeClass + '">' + typeLabel + '</span></div>' +
+    '<div class="card-meta"><span>📤' + fromLabel + ' → ' + toLabel + '</span>' + (assigned ? '<span>' + assigned + '</span>' : '') + '<span>' + timeAgo + '</span></div>' +
+    progressHtml + notesHtml + resultHtml + actions +
+    '</div>';
+}
+
 function loadDelegations() {
-  var status = document.getElementById('delFilterStatus').value;
-  var agent = document.getElementById('delFilterAgent').value;
-  var taskType = document.getElementById('delFilterType').value;
   var url = "/api/delegations?limit=50";
-  if (status) url += "&status=" + status;
-  if (agent) url += "&agent=" + agent;
-  if (taskType) url += "&task_type=" + taskType;
   fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      var list = document.getElementById('delegationsList');
-      list.innerHTML = "";
       var delegations = data.delegations || [];
+      // Clear all kanban columns
+      ["available","pending","running","completed","failed"].forEach(function(s) {
+        document.getElementById("kanban-" + s).innerHTML = "";
+      });
+      // Update column counts
+      var counts = {available:0, pending:0, running:0, completed:0, failed:0};
       if (delegations.length === 0) {
-        list.innerHTML = '<li style="padding:12px;text-align:center;color:var(--text3)">Még nincs delegáció</li>';
+        ["available","pending","running","completed","failed"].forEach(function(s) {
+          document.getElementById("kanban-" + s).innerHTML = '<div style="text-align:center;color:var(--text3);font-size:11px;padding:16px">Üres</div>';
+        });
         return;
       }
       delegations.forEach(function(d) {
-        var statusIcon = {"pending":"⏳","available":"🔄","accepted":"✅","running":"🔄","completed":"✔️","failed":"❌","cancelled":"🚫","expired":"⌛"}[d.status] || "❓";
-        var priorityColor = {10:"var(--danger)",7:"var(--warning)",5:"var(--text2)",1:"var(--success)"}[d.priority] || "var(--text2)";
-        var timeAgo = d.created_at ? timeSince(new Date(d.created_at)) : "?";
-        var assigned = d.assigned_agent ? " 👤" + d.assigned_agent : "";
-        var toLabel = d.to_agent === "any" ? "🔄 Bárki" : "📥 " + escHtml(d.to_agent || "?");
-        var progress = d.progress ? '<div style="background:var(--surface);border-radius:4px;height:6px;overflow:hidden;margin-top:4px"><div style="height:100%;width:' + d.progress + '%;background:var(--success);border-radius:4px"></div></div><span style="font-size:10px;color:var(--text3)">' + d.progress + '%</span>' : '';
-        var notes = "";
-        if (d.notes && Array.isArray(d.notes) && d.notes.length > 0) {
-          var lastNote = d.notes[d.notes.length - 1];
-          notes = '<div style="font-size:11px;color:var(--text3);margin-top:4px;padding:4px 6px;background:var(--surface);border-radius:4px">📝 ' + escHtml((lastNote.agent || "?") + ": " + (lastNote.note || "")) + '</div>';
+        var col = d.status || "pending";
+        // Map statuses to kanban columns
+        if (col === "accepted") col = "pending";
+        if (col === "cancelled" || col === "expired") col = "failed";
+        if (!["available","pending","running","completed","failed"].includes(col)) col = "pending";
+        var el = document.getElementById("kanban-" + col);
+        if (el) {
+          el.innerHTML += renderKanbanCard(d);
+          counts[col] = (counts[col] || 0) + 1;
         }
-        var actions = '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">';
-        if (d.status === "pending" || d.status === "accepted") {
-          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--danger)" onclick="cancelDelegation(\'' + d.task_id + '\')">🚫 Mégsem</button>';
-        }
-        if (d.status === "available") {
-          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--success)" onclick="claimDelegation(\'' + d.task_id + '\')">✋ Vállalom</button>';
-        }
-        if (d.status === "accepted" || d.status === "running") {
-          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--info)" onclick="reassignDelegation(\'' + d.task_id + '\')">🔄 Átcélzó</button>';
-          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--text3)" onclick="addDelegationNote(\'' + d.task_id + '\')">📝 Jegyzet</button>';
-        }
-        if (d.status === "running") {
-          actions += '<button class="btn btn-sm" style="font-size:10px;padding:2px 6px;background:var(--warning)" onclick="updateDelegationProgress(\'' + d.task_id + '\')">📊 Haladás</button>';
-        }
-        actions += '</div>';
-        var li = document.createElement("li");
-        li.style.cssText = "background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;flex-direction:column;gap:4px";
-        li.innerHTML =
-          '<div style="display:flex;justify-content:space-between;align-items:center">' +
-            '<span style="font-weight:600;font-size:13px">' + statusIcon + ' ' + escHtml(d.subject || "?") + '</span>' +
-            '<span style="font-size:11px;color:' + priorityColor + '">P' + (d.priority || 5) + '</span>' +
-          '</div>' +
-          '<div style="font-size:11px;color:var(--text3);display:flex;gap:8px;flex-wrap:wrap">' +
-            '<span>📤 ' + escHtml(d.from_agent || "?") + ' → ' + toLabel + assigned + '</span>' +
-            '<span>' + timeAgo + '</span>' +
-            '<span style="color:' + (d.status === "completed" ? "var(--success)" : d.status === "failed" ? "var(--danger)" : "var(--text3)") + '">' + d.status + '</span>' +
-          '</div>' +
-          progress +
-          notes +
-          (d.result ? '<div style="font-size:12px;color:var(--text2);margin-top:4px;padding:6px;background:var(--surface);border-radius:4px;max-height:60px;overflow-y:auto">' + escHtml(d.result).substring(0, 200) + '</div>' : '') +
-          actions;
-        list.appendChild(li);
       });
+      // Update header counts
+      ["available","pending","running","completed","failed"].forEach(function(s) {
+        var header = document.querySelector('[data-status="' + s + '"] .kanban-col-header');
+        if (header) {
+          var baseText = header.textContent.replace(/\s*\d+$/, '');
+          header.textContent = baseText.trim() + ' (' + counts[s] + ')';
+        }
+      });
+      loadDelegationStats();
     });
 }
 
@@ -1970,14 +2029,15 @@ function loadDelegationStats() {
     .then(function(data) {
       var el = document.getElementById("delStats");
       var total = data.total || 0;
-      var parts = [];
-      if (data.pending) parts.push("⏳" + data.pending + " függő");
-      if (data.available) parts.push("🔄" + data.available + " elérhető");
-      if (data.accepted) parts.push("✅" + data.accepted + " elfogadott");
-      if (data.running) parts.push("🔄" + data.running + " futó");
-      if (data.completed) parts.push("✔️" + data.completed + " kész");
-      if (data.failed) parts.push("❌" + data.failed + " hiba");
-      el.textContent = parts.length ? parts.join(" · ") : "Még nincs delegáció";
+      var items = [
+        data.available ? '<span style="color:var(--info)">🔄' + data.available + ' elérhető</span>' : '',
+        data.pending ? '<span style="color:#8b5cf6">⏳' + (data.pending || 0) + ' függő</span>' : '',
+        data.accepted ? '<span style="color:#8b5cf6">✅' + data.accepted + ' elfogadott</span>' : '',
+        data.running ? '<span style="color:var(--warning)">⚙️' + data.running + ' futó</span>' : '',
+        data.completed ? '<span style="color:var(--success)">✔️' + data.completed + ' kész</span>' : '',
+        data.failed ? '<span style="color:var(--danger)">❌' + data.failed + ' hiba</span>' : ''
+      ].filter(Boolean);
+      el.innerHTML = items.length ? '<b>Összesen: ' + total + '</b> · ' + items.join(' · ') : 'Még nincs delegáció';
     });
 }
 
