@@ -4096,155 +4096,50 @@ class DashboardHandler:
 
     async def _api_delegations_files(self, request):
         """Get result files for a delegation. GET /api/delegations/{task_id}/files
-        Query param: download=1 to get raw file content instead of JSON metadata
-        Query param: token for auth via URL (for file downloads)
-        Query param: file_id=UUID to download a specific file
-        Query param: zip=1 to download all files as a ZIP archive"""
+        Query param: download=1 to get raw file content instead of JSON metadata"""
         import base64
-        import io
-        import zipfile
         from aiohttp import web
-        # Support token auth via query param for file downloads
-        token = request.query.get("token", "")
-        auth_header = request.headers.get("Authorization", "")
-        if token and not auth_header:
-            auth_header = f"Bearer {token}"
-        user = None
-        err = None
-        if auth_header:
-            try:
-                payload = self.auth.verify_token(auth_header.replace("Bearer ", ""))
-                if payload:
-                    user = payload
-            except Exception:
-                pass
-        if not user:
-            user, err = self._require_auth(request)
-            if err:
-                return err
+        user, err = self._require_auth(request)
+        if err:
+            return err
         try:
             task_id = request.match_info.get("task_id")
             download = request.query.get("download", "0") == "1"
-            file_id_param = request.query.get("file_id", "")
-            as_zip = request.query.get("zip", "0") == "1"
             if not self.node or not self.node.delegation:
                 return web.json_response({"error": "Delegation not available"}, status=503)
             # Get the delegation
             row = await self.node.delegation.pg_pool.fetchrow(
-                "SELECT result_file, from_agent, to_agent, assigned_agent, subject FROM shared_delegations WHERE task_id = $1", task_id,
+                "SELECT result_file FROM shared_delegations WHERE task_id = $1", task_id,
             )
             if not row:
                 return web.json_response({"error": "Task not found"}, status=404)
             result_file_id = row.get("result_file")
-            assigned = row.get("assigned_agent") or row.get("to_agent") or ""
-            subject = row.get("subject", "result")
-            # Collect ALL files for this task: result_file + any files from assigned agent about this task
-            file_rows = []
-            if result_file_id:
-                fr = await self.node.delegation.pg_pool.fetchrow(
-                    "SELECT id, filename, content_type, file_size, encoding, content, description, created_at FROM shared_files WHERE id = $1", result_file_id,
-                )
-                if fr:
-                    file_rows.append(fr)
-            # Also find files linked by sender_agent matching the task subject/timeframe
-            extra_files = await self.node.delegation.pg_pool.fetch(
-                "SELECT id, filename, content_type, file_size, encoding, content, description, created_at FROM shared_files WHERE sender_agent = $1 AND description LIKE $2 AND id != $3 ORDER BY created_at DESC LIMIT 10",
-                assigned, f"%{subject[:30]}%", result_file_id or "00000000-0000-0000-0000-000000000000",
-            )
-            for ef in extra_files:
-                if ef not in file_rows:
-                    file_rows.append(ef)
-            if not file_rows:
+            if not result_file_id:
                 return web.json_response({"files": [], "message": "No files attached"})
-            # Helper: decode file content
-            def decode_file(f):
-                fd = dict(f)
-                for k, v in fd.items():
-                    if hasattr(v, 'hex'):
-                        fd[k] = str(v)
-                    elif hasattr(v, 'isoformat'):
-                        fd[k] = v.isoformat()
-                raw = fd.get("content", "")
-                if fd.get("encoding") == "base64" and raw:
-                    try:
-                        raw = base64.b64decode(raw).decode("utf-8")
-                    except Exception:
-                        try:
-                            raw = base64.b64decode(raw).decode("latin-1")
-                        except Exception:
-                            raw = base64.b64decode(raw).decode("utf-8", errors="replace")
-                fd["content"] = raw
-                # Fix filename: if .txt but content starts with ```python, change to .py
-                fn = fd.get("filename", "result.txt")
-                if fn.endswith(".txt") and raw.strip().startswith("```python"):
-                    fn = fn[:-4] + ".py"
-                    fd["filename"] = fn
-                    fd["content_type"] = "text/x-python"
-                elif fn.endswith(".txt") and raw.strip().startswith("<!DOCTYPE") or raw.strip().startswith("<html"):
-                    fn = fn[:-4] + ".html"
-                    fd["filename"] = fn
-                    fd["content_type"] = "text/html"
-                # Strip code fences
-                if raw.strip().startswith("```python"):
-                    fd["content"] = "\n".join(raw.strip().split("\n")[1:-1]) if raw.strip().endswith("```") else raw.strip()[len("```python"):]
-                    if fd["content"].endswith("```"):
-                        fd["content"] = fd["content"][:-3]
-                elif raw.strip().startswith("```") and raw.strip().endswith("```"):
-                    fd["content"] = raw.strip()[3:-3]
-                return fd
-
-            # Specific file download by file_id
-            if file_id_param and download:
-                for f in file_rows:
-                    if str(f["id"]) == file_id_param:
-                        fd = decode_file(f)
-                        return web.Response(
-                            text=fd["content"],
-                            content_type=fd.get("content_type", "text/plain"),
-                            headers={"Content-Disposition": f'attachment; filename="{fd.get("filename", "result.txt")}"'},
-                        )
-                return web.json_response({"error": "File not found"}, status=404)
-
-            # ZIP download of all files
-            if as_zip and len(file_rows) > 1:
-                zip_buf = io.BytesIO()
-                with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
-                    for f in file_rows:
-                        fd = decode_file(f)
-                        content_bytes = fd["content"].encode("utf-8")
-                        zf.writestr(fd["filename"], content_bytes)
-                zip_buf.seek(0)
-                safe_subject = "".join(c if c.isalnum() or c in "- _" else "_" for c in subject)[:40]
+            # Get file from shared_files (include content for download)
+            file_row = await self.node.delegation.pg_pool.fetchrow(
+                "SELECT id, filename, content_type, file_size, encoding, content, description, created_at FROM shared_files WHERE id = $1", result_file_id,
+            )
+            if not file_row:
+                return web.json_response({"files": [], "message": "File reference not found"})
+            f = dict(file_row)
+            for k, v in f.items():
+                if hasattr(v, 'hex'):
+                    f[k] = str(v)
+                elif hasattr(v, 'isoformat'):
+                    f[k] = v.isoformat()
+            # Decode content if base64-encoded
+            if f.get("encoding") == "base64" and f.get("content"):
+                f["content"] = base64.b64decode(f["content"]).decode("utf-8")
+            # If download mode, return raw file content
+            if download:
+                content = f.get("content", "")
                 return web.Response(
-                    body=zip_buf.read(),
-                    content_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="{safe_subject}.zip"'},
+                    text=content,
+                    content_type=f.get("content_type", "text/plain"),
+                    headers={"Content-Disposition": f'attachment; filename="{f.get("filename", "result.txt")}"'},
                 )
-
-            # Single file download (backward compat)
-            if download and len(file_rows) == 1:
-                fd = decode_file(file_rows[0])
-                return web.Response(
-                    text=fd["content"],
-                    content_type=fd.get("content_type", "text/plain"),
-                    headers={"Content-Disposition": f'attachment; filename="{fd.get("filename", "result.txt")}"'},
-                )
-
-            # JSON listing of all files
-            files_list = []
-            for f in file_rows:
-                fd = decode_file(f)
-                # Don't include full content in listing (too large), just metadata
-                files_list.append({
-                    "id": fd["id"],
-                    "filename": fd["filename"],
-                    "content_type": fd.get("content_type", "text/plain"),
-                    "file_size": fd.get("file_size", len(fd["content"])),
-                    "description": fd.get("description", ""),
-                    "created_at": fd.get("created_at", ""),
-                    "preview": fd["content"][:500] if fd["content"] else "",
-                })
-            return web.json_response({"files": files_list, "count": len(files_list)})
+            return web.json_response({"files": [f], "count": 1})
         except Exception as e:
             log.error(f"Files error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)

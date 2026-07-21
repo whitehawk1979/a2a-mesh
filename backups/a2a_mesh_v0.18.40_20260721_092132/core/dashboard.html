@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>A2A Mesh Dashboard</title>
 <style>
 :root{--bg:#0a0e17;--surface:#131a2b;--surface2:#1a2238;--border:#2a3555;--primary:#4f8cff;--primary-dim:#2d5bb9;--success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--dm-bg:#1a1e2e;--room-active:#1e3a5f}
@@ -513,7 +516,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         </label>
       </div>
       <div id="eligibleAgentsPanel" style="display:none;margin-bottom:8px;padding:8px 10px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Mely agentek vállalhatják? (ha egyik sem, bármelyik eligible)</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:6px">Mely agentek vállalhatják? (ha egyik sem, bármelyik eligelible)</div>
         <div id="eligibleAgentsList" style="display:flex;flex-wrap:wrap;gap:6px"></div>
       </div>
       <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
@@ -540,6 +543,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
     <!-- Kanban board -->
     <div id="kanbanBoard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;overflow-y:auto;flex:1;min-height:0">
+      <!-- Columns rendered by JS -->
       <div class="kanban-col" data-status="available">
         <div class="kanban-col-header" style="background:var(--info)">🔄 Elérhető</div>
         <div class="kanban-cards" id="kanban-available"></div>
@@ -586,19 +590,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .type-code{background:#1e3a5f;color:#60a5fa}.type-research{background:#3b1f5f;color:#c084fc}.type-analysis{background:#3f2a1a;color:#fbbf24}.type-monitoring{background:#1a3f2a;color:#4ade80}.type-generic{background:#1a2a3f;color:#94a3b8}
 .priority-badge{font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700}
 .priority-10{background:var(--danger);color:#fff}.priority-7{background:var(--warning);color:#000}.priority-5{background:var(--text3);color:#fff}.priority-1{background:var(--success);color:#fff}
+.kanban-count{font-size:10px;background:rgba(255,255,255,.2);padding:1px 6px;border-radius:10px;margin-left:6px}
 @media(max-width:768px){#kanbanBoard{grid-template-columns:1fr;max-height:none}.kanban-col{max-height:40vh}}
 </style>
-
-<!-- Task Detail Modal -->
-<div class="file-modal-overlay" id="taskDetailModal" style="display:none">
-  <div class="file-modal" style="width:700px;max-width:95vw;max-height:85vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="margin:0" id="taskDetailTitle">📋 Feladat részletei</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('taskDetailModal').style.display='none'">✕</button>
-    </div>
-    <div id="taskDetailContent">Betöltés...</div>
-  </div>
-</div>
 
 <!-- Settings Modal -->
 <div class="file-modal-overlay" id="settingsModal" style="display:none">
@@ -1066,7 +1060,7 @@ function deleteMessage(msgId) {
   if (!msgId || !confirm("Törlöd ezt az üzenetet?")) return;
   fetch("/api/messages/" + encodeURIComponent(msgId), {
     method: "DELETE",
-    headers: { "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "") }
+    headers: { "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "") }
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "deleted") {
       var el = document.getElementById("msg-" + msgId);
@@ -1383,11 +1377,21 @@ function loadAllNodes() {
         var healthScore = n.health_score != null ? n.health_score : null;
         var msgCount = n.message_count != null ? n.message_count : (n.messages_sent != null ? n.messages_sent : "—");
         var version = n.version || "—";
-        var skills = n.skills || n.capabilities || [];
+        var skills = (n.skills || n.capabilities || []);
+        // Normalize skills: convert objects to {name, description, id} strings
+        skills = skills.map(function(s) {
+          if (typeof s === 'object' && s !== null) return s;
+          if (typeof s === 'string') return {id: s, name: s};
+          return {id: String(s), name: String(s)};
+        });
         var skillsHtml = "";
         if (skills.length > 0) {
           skillsHtml = '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Képességek / Skillek</div><div class="node-detail-skills">' +
-            skills.map(function(s) { return '<span class="skill-tag">' + escapeHtml(s) + '</span>'; }).join('') +
+            skills.map(function(s) {
+              var label = s.name || s.id || '?';
+              var title = s.description || s.id || '';
+              return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
+            }).join('') +
           '</div></div>';
         }
         var healthHtml = "";
@@ -1406,6 +1410,14 @@ function loadAllNodes() {
               '<button class="node-detail-toggle" onclick="toggleNodeDetail(\'' + detailId + '\', this)">Részletek</button>' +
             '</div>' +
           '</div>' +
+          (skills.length > 0 ? '<div class="node-detail-skills" style="margin:2px 0 4px 0">' +
+            skills.slice(0, 4).map(function(s) {
+              var label = s.name || s.id || '?';
+              var title = s.description || s.id || '';
+              return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
+            }).join('') +
+            (skills.length > 4 ? '<span class="skill-tag" style="opacity:0.6">+' + (skills.length - 4) + '</span>' : '') +
+          '</div>' : '') +
           '<div class="node-detail-content" id="' + detailId + '">' +
             '<div class="node-detail-grid">' +
               '<div class="node-detail-item"><div class="dlabel">Verzió</div><div class="dvalue blue">' + escapeHtml(version) + '</div></div>' +
@@ -1466,7 +1478,7 @@ function checkAdminPanel() {
 
 // ─── Quick Links — dynamic node dashboard links ──────────
 function loadQuickLinks() {
-  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("quickLinksList");
@@ -1584,7 +1596,7 @@ function sendDirective(type) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")
+      "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")
     },
     body: JSON.stringify(msg)
   })
@@ -1649,7 +1661,7 @@ function uploadFiles(files, recipient) {
 
       var xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/send-file", true);
-      xhr.setRequestHeader("Authorization", "Bearer " + (localStorage.getItem("mesh_token") || ""));
+      xhr.setRequestHeader("Authorization", "Bearer " + (localStorage.getItem("a2a_token") || ""));
 
       xhr.upload.onprogress = function(e) {
         if (e.lengthComputable) {
@@ -1701,7 +1713,7 @@ function showFileList() {
 }
 
 function loadFileList() {
-  fetch("/api/files", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/files", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("fileListContent");
@@ -1723,7 +1735,7 @@ function loadFileList() {
             '<div class="file-meta">' + typeLabel + ' ' + f.size_human + ' · ' + time + '</div>' +
           '</div>' +
           '<div class="file-actions">' +
-            '<a href="' + f.url + '?token=' + encodeURIComponent(localStorage.getItem("mesh_token") || "") + '" target="_blank" class="btn btn-sm" style="text-decoration:none">⬇️ Letöltés</a>' +
+            '<a href="' + f.url + '?token=' + encodeURIComponent(localStorage.getItem("a2a_token") || "") + '" target="_blank" class="btn btn-sm" style="text-decoration:none">⬇️ Letöltés</a>' +
           '</div>' +
         '</li>';
       }).join('');
@@ -1757,7 +1769,7 @@ function registerAgent() {
   };
   fetch("/api/registry/agents", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
     body: JSON.stringify(data)
   })
   .then(function(r) { return r.json(); })
@@ -1769,7 +1781,7 @@ function registerAgent() {
 }
 
 function loadRegistry() {
-  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var statsEl = document.getElementById("registryStats");
@@ -1780,7 +1792,7 @@ function loadRegistry() {
 }
 
 function loadRegistryAgents() {
-  fetch("/api/registry/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("registryList");
@@ -1822,7 +1834,7 @@ function loadRegistryAgents() {
 function searchRegistry() {
   var caps = document.getElementById("registryCapSearch").value;
   var params = "capabilities=" + encodeURIComponent(caps);
-  fetch("/api/registry/find?" + params, {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry/find?" + params, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById("registryList");
@@ -1850,7 +1862,7 @@ function deregisterAgent(name) {
   if (!confirm("Biztosan eltávolítod: " + name + "?")) return;
   fetch("/api/registry/agents/" + encodeURIComponent(name), {
     method: "DELETE",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   })
   .then(function(r) { return r.json(); })
   .then(function(d) { loadRegistry(); })
@@ -1928,6 +1940,7 @@ function toggleEligibleAgents() {
     targetSel.disabled = true;
     targetSel.value = "";
     panel.style.display = "block";
+    // Populate agent checkboxes
     var list = document.getElementById("eligibleAgentsList");
     list.innerHTML = "";
     _knownAgents.forEach(function(a) {
@@ -1959,6 +1972,7 @@ function toggleNewTask() {
   f.style.display = f.style.display === 'none' ? 'block' : 'none';
   if (f.style.display === 'block') {
     populateDelegationTargets();
+    // Reset eligible agents
     document.getElementById("delAvailable").checked = false;
     document.getElementById("eligibleAgentsPanel").style.display = "none";
     document.getElementById("delTarget").disabled = false;
@@ -2015,7 +2029,7 @@ function renderKanbanCard(d) {
     resultHtml = '<div class="card-result">' + escHtml(d.result).substring(0, 120) + '</div>';
   }
 
-  return '<div class="kanban-card" style="cursor:pointer" onclick="showTaskDetail(\'' + d.task_id + '\')">' +
+  return '<div class="kanban-card">' +
     '<div class="card-subject"><span>' + escHtml(d.subject || "?") + '</span><span class="priority-badge ' + prioClass + '">' + prioLabel + '</span></div>' +
     '<div><span class="card-type ' + typeClass + '">' + typeLabel + '</span></div>' +
     '<div class="card-meta"><span>📤' + fromLabel + ' → ' + toLabel + '</span>' + (assigned ? '<span>' + assigned + '</span>' : '') + '<span>' + timeAgo + '</span></div>' +
@@ -2030,9 +2044,11 @@ function loadDelegations() {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var delegations = data.delegations || [];
+      // Clear all kanban columns
       ["available","pending","running","completed","failed"].forEach(function(s) {
         document.getElementById("kanban-" + s).innerHTML = "";
       });
+      // Update column counts
       var counts = {available:0, pending:0, running:0, completed:0, failed:0};
       if (delegations.length === 0) {
         ["available","pending","running","completed","failed"].forEach(function(s) {
@@ -2042,6 +2058,7 @@ function loadDelegations() {
       }
       delegations.forEach(function(d) {
         var col = d.status || "pending";
+        // Map statuses to kanban columns
         if (col === "accepted") col = "pending";
         if (col === "cancelled" || col === "expired") col = "failed";
         if (!["available","pending","running","completed","failed"].includes(col)) col = "pending";
@@ -2051,10 +2068,11 @@ function loadDelegations() {
           counts[col] = (counts[col] || 0) + 1;
         }
       });
+      // Update header counts
       ["available","pending","running","completed","failed"].forEach(function(s) {
         var header = document.querySelector('[data-status="' + s + '"] .kanban-col-header');
         if (header) {
-          var baseText = header.textContent.replace(/\s*\(\d+\)$/, '');
+          var baseText = header.textContent.replace(/\s*\d+$/, '');
           header.textContent = baseText.trim() + ' (' + counts[s] + ')';
         }
       });
@@ -2077,155 +2095,6 @@ function loadDelegationStats() {
         data.failed ? '<span style="color:var(--danger)">❌' + data.failed + ' hiba</span>' : ''
       ].filter(Boolean);
       el.innerHTML = items.length ? '<b>Összesen: ' + total + '</b> · ' + items.join(' · ') : 'Még nincs delegáció';
-    });
-}
-
-function showTaskDetail(taskId) {
-  document.getElementById('taskDetailModal').style.display = 'flex';
-  document.getElementById('taskDetailTitle').textContent = '📋 Betöltés...';
-  document.getElementById('taskDetailContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Betöltés...</div>';
-  fetch("/api/delegations/" + taskId, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.error) { document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ ' + escHtml(d.error) + '</div>'; return; }
-      var statusColors = {available:"var(--info)",pending:"#8b5cf6",accepted:"#8b5cf6",running:"var(--warning)",completed:"var(--success)",failed:"var(--danger)",cancelled:"var(--danger)",expired:"var(--danger)"};
-      var statusIcons = {available:"🔄",pending:"⏳",accepted:"✅",running:"⚙️",completed:"✔️",failed:"❌",cancelled:"🚫",expired:"⌛"};
-      var sColor = statusColors[d.status] || "var(--text3)";
-      var sIcon = statusIcons[d.status] || "❓";
-      document.getElementById('taskDetailTitle').textContent = sIcon + " " + escHtml(d.subject || "?");
-
-      // Parse description
-      var descHtml = "";
-      if (d.description) {
-        try {
-          var descObj = typeof d.description === "string" ? JSON.parse(d.description) : d.description;
-          var descText = descObj.description || descObj.type || "";
-          if (descText) descHtml = '<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text2);line-height:1.5">' + escHtml(descText) + '</div>';
-        } catch(e) {
-          descHtml = '<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text2)">' + escHtml(str(d.description).substring(0, 300)) + '</div>';
-        }
-      }
-
-      // Timeline from notes
-      var timelineHtml = "";
-      if (d.notes && Array.isArray(d.notes) && d.notes.length > 0) {
-        timelineHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📝 Idővonal</h4>';
-        d.notes.forEach(function(n) {
-          var t = n.time ? new Date(n.time).toLocaleTimeString("hu-HU", {hour:"2-digit",minute:"2-digit"}) : "?";
-          var agent = n.agent || "?";
-          timelineHtml += '<div style="display:flex;gap:8px;margin-bottom:6px;font-size:12px">' +
-            '<span style="color:var(--text3);min-width:42px">' + t + '</span>' +
-            '<span style="font-weight:600;color:var(--info);min-width:50px">' + escHtml(agent) + '</span>' +
-            '<span style="color:var(--text2)">' + escHtml(n.note || "").substring(0, 200) + '</span></div>';
-        });
-        timelineHtml += '</div>';
-      }
-
-      // Result
-      var resultHtml = "";
-      if (d.result) {
-        resultHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📄 Eredmény</h4>' +
-          '<div style="padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);max-height:150px;overflow-y:auto;white-space:pre-wrap;line-height:1.4">' + escHtml(d.result).substring(0, 2000) + '</div></div>';
-      }
-
-      // File download — fetch files list dynamically
-      var fileHtml = "";
-      if (d.result_file || d.status === "completed") {
-        var token = localStorage.getItem("a2a_token") || "";
-        var filesUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
-        fileHtml = '<div style="margin-bottom:12px" id="taskFiles"><h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Betöltés...</div></div>';
-        // Fetch files after modal renders
-        setTimeout(function() {
-          fetch(filesUrl, {headers: {"Authorization": "Bearer " + token}})
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-              var container = document.getElementById("taskFiles");
-              if (!container) return;
-              var files = data.files || [];
-              if (files.length === 0) {
-                container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs csatolt fájl</div>';
-                return;
-              }
-              var baseUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
-              var html = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok (' + files.length + ')</h4>';
-              html += '<div style="display:flex;flex-direction:column;gap:6px">';
-              files.forEach(function(f) {
-                var icon = f.filename.endsWith(".py") ? "🐍" : f.filename.endsWith(".html") ? "🌐" : f.filename.endsWith(".pptx") ? "📊" : f.filename.endsWith(".zip") ? "📦" : f.filename.endsWith(".pdf") ? "📕" : "📄";
-                var sizeKB = f.file_size ? Math.round(f.file_size / 1024) + " KB" : "?";
-                var dlUrl = baseUrl + "&download=1&file_id=" + encodeURIComponent(f.id);
-                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">';
-                html += '<span style="font-size:18px">' + icon + '</span>';
-                html += '<div style="flex:1;min-width:0">';
-                html += '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.filename) + '</div>';
-                html += '<div style="font-size:11px;color:var(--text3)">' + sizeKB + ' · ' + escHtml(f.content_type || "text/plain") + '</div>';
-                if (f.preview) html += '<div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.preview.substring(0, 120)) + '</div>';
-                html += '</div>';
-                html += '<a href="' + dlUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;white-space:nowrap">⬇️ Letöltés</a>';
-                html += '</div>';
-              });
-              if (files.length > 1) {
-                var zipUrl = baseUrl + "&zip=1";
-                html += '<a href="' + zipUrl + '" target="_blank" class="btn btn-sm" style="background:var(--info);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px">📦 Összes letöltése ZIP-ként</a>';
-              }
-              html += '</div>';
-              container.innerHTML = html;
-            })
-            .catch(function(e) {
-              var container = document.getElementById("taskFiles");
-              if (container) container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--danger);font-size:12px">Hiba: ' + escHtml(e.message || String(e)) + '</div>';
-            });
-        }, 100);
-      }
-
-      // Meta info
-      var metaHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px">';
-      metaHtml += '<div><span style="color:var(--text3)">Státusz:</span> <span style="color:' + sColor + ';font-weight:600">' + sIcon + ' ' + d.status + '</span></div>';
-      metaHtml += '<div><span style="color:var(--text3)">Prioritás:</span> <span class="priority-badge priority-' + (d.priority || 5) + '">P' + (d.priority || 5) + '</span></div>';
-      metaHtml += '<div><span style="color:var(--text3)">Feladó:</span> 📤 ' + escHtml(d.from_agent || "?") + '</div>';
-      var toLabel = d.to_agent === "any" ? "🔄 Bárki" : "📥 " + escHtml(d.to_agent || "?");
-      metaHtml += '<div><span style="color:var(--text3)">Címzett:</span> ' + toLabel + '</div>';
-      if (d.assigned_agent) metaHtml += '<div><span style="color:var(--text3)">Feldolgozó:</span> 👤 ' + escHtml(d.assigned_agent) + '</div>';
-      var typeLabel = {"code":"💻 Kódolás","research":"🔍 Kutatás","analysis":"📊 Elemzés","monitoring":"📈 Monitorozás"}[d.task_type] || "🔧 Általános";
-      metaHtml += '<div><span style="color:var(--text3)">Típus:</span> ' + typeLabel + '</div>';
-      if (d.progress) metaHtml += '<div><span style="color:var(--text3)">Haladás:</span> ' + d.progress + '%</div>';
-      if (d.created_at) {
-        var created = new Date(d.created_at);
-        metaHtml += '<div><span style="color:var(--text3)">Létrehozva:</span> ' + created.toLocaleString("hu-HU") + '</div>';
-      }
-      if (d.completed_at) {
-        var completed = new Date(d.completed_at);
-        metaHtml += '<div><span style="color:var(--text3)">Befejezve:</span> ' + completed.toLocaleString("hu-HU") + '</div>';
-      }
-      if (d.created_at && d.completed_at) {
-        var dur = Math.round((new Date(d.completed_at) - new Date(d.created_at)) / 1000);
-        var durStr = dur < 60 ? dur + "mp" : dur < 3600 ? Math.round(dur/60) + "perc" : Math.round(dur/3600*10)/10 + "óra";
-        metaHtml += '<div><span style="color:var(--text3)">Időtartam:</span> ⏱️ ' + durStr + '</div>';
-      }
-      metaHtml += '</div>';
-
-      // Progress bar
-      var progressHtml = "";
-      if (d.progress && d.status !== "completed") {
-        var pColor = d.progress >= 80 ? "var(--success)" : d.progress >= 40 ? "var(--warning)" : "var(--info)";
-        progressHtml = '<div style="margin-bottom:12px"><div style="background:var(--surface);border-radius:6px;height:8px;overflow:hidden"><div style="height:100%;width:' + d.progress + '%;background:' + pColor + ';border-radius:6px;transition:width .3s"></div></div><div style="font-size:11px;color:var(--text3);text-align:center;margin-top:2px">' + d.progress + '% kész</div></div>';
-      }
-
-      // Actions
-      var actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
-      if (d.status === "available") actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">✋ Vállalom</button>';
-      if (d.status === "pending" || d.status === "accepted") actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">🚫 Mégsem</button>';
-      if (d.status === "accepted" || d.status === "running") {
-        actionsHtml += '<button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">🔄 Átcélzó</button>';
-        actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📝 Jegyzet</button>';
-      }
-      if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📊 Haladás</button>';
-      actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="loadDelegations();document.getElementById(\'taskDetailModal\').style.display=\'none\'">🔄 Frissítés</button>';
-      actionsHtml += '</div>';
-
-      document.getElementById('taskDetailContent').innerHTML = metaHtml + descHtml + progressHtml + timelineHtml + resultHtml + fileHtml + actionsHtml;
-    })
-    .catch(function(e) {
-      document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ Hiba: ' + escHtml(e.message || String(e)) + '</div>';
     });
 }
 
@@ -2351,7 +2220,7 @@ function createDelegation() {
 function cancelDelegation(taskId) {
   fetch("/api/delegations/" + taskId + "/cancel", {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
@@ -2378,7 +2247,7 @@ function escHtml(str) {
 }
 
 function loadSettings() {
-  fetch("/api/settings", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/settings", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       document.getElementById("settingsMeshInfo").innerHTML =
@@ -2401,7 +2270,7 @@ function loadSettings() {
 }
 
 function loadPendingAgents() {
-  fetch("/api/registry/pending", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/registry/pending", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var container = document.getElementById("settingsPendingAgents");
@@ -2430,7 +2299,7 @@ function loadPendingAgents() {
 function approveAgent(name) {
   fetch("/api/registry/approve/" + name, {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   }).then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status === "approved") {
@@ -2446,7 +2315,7 @@ function rejectAgent(name) {
   if (!confirm("Biztosan elutasítod " + name + " kérelmét?")) return;
   fetch("/api/registry/reject/" + name, {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   }).then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status === "rejected") {
@@ -2477,7 +2346,7 @@ function saveSettings() {
   };
   fetch("/api/settings", {
     method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || ""), "Content-Type": "application/json"},
     body: JSON.stringify(data)
   }).then(function(r) { return r.json(); })
     .then(function(result) {
@@ -2508,7 +2377,7 @@ function loadUsers() {
     return;
   }
   document.getElementById("usersSection").style.display = "block";
-  fetch("/api/auth/users", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  fetch("/api/auth/users", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var tbody = document.getElementById("usersTableBody");
@@ -2566,7 +2435,7 @@ function addUser() {
 
   fetch("/api/auth/register", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
     body: JSON.stringify({username: username, display_name: displayName, password: password, role: role})
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.error) {
@@ -2587,7 +2456,7 @@ function deleteUser(username) {
   if (!confirm("Biztosan törlöd '" + username + "' felhasználót? Ez a fiók deaktiválódik.")) return;
   fetch("/api/auth/users/" + encodeURIComponent(username), {
     method: "DELETE",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "deleted") {
       alert("✅ '" + username + "' felhasználó törölve!");
@@ -2624,7 +2493,7 @@ function submitChangePassword() {
 
   fetch("/api/auth/users/" + encodeURIComponent(_changePasswordUsername) + "/password", {
     method: "PUT",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
     body: JSON.stringify({new_password: newPassword})
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "password_changed") {

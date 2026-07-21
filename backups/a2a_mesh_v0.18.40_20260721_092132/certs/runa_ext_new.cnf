@@ -1,0 +1,10 @@
+[ req_ext ]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth, clientAuth
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = runa.a2a.mesh
+DNS.2 = a2a-mesh
+IP.1 = 192.168.1.100
