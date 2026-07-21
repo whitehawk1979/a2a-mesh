@@ -622,7 +622,7 @@ class DashboardHandler:
                     "http": peer.http_available,
                 },
             })
-        return web.json_response({"agents": agents, "total": len(agents)})
+        return web.json_response({"agents": agents, "total": len(agents), "_debug_db_versions": db_versions})
 
     async def _api_send(self, request):
         """Send a message to the mesh from the dashboard.
