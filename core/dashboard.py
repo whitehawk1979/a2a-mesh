@@ -581,6 +581,10 @@ class DashboardHandler:
                 self_transports[key] = val.available
             else:
                 self_transports[key] = bool(val)
+        # Self skills: prefer registry, fall back to config, then DB
+        self_skill_list = [s if isinstance(s, str) else s.get('id', str(s)) for s in (self.node.config.skills or [])]
+        if self.node.node_name in db_skills and len(db_skills[self.node.node_name]) > len(self_skill_list):
+            self_skill_list = [s if isinstance(s, str) else s.get('id', str(s)) for s in db_skills[self.node.node_name]]
         agents.append({
             "name": self.node.node_name,
             "role": self.node.config.topology.node_role,
@@ -588,7 +592,7 @@ class DashboardHandler:
             "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
             "health_port": getattr(self.node, '_health_port', 8650),
             "version": self.node._resolved_version,
-            "skills": [s if isinstance(s, str) else s.get('id', str(s)) for s in (self.node.config.skills or [])],
+            "skills": self_skill_list,
             "transports": {
                 "p2p": self_transports.get("p2p", False),
                 "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
