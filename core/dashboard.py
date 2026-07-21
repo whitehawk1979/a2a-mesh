@@ -2169,6 +2169,23 @@ class DashboardHandler:
             return err
         nodes = {}  # name -> node_dict
 
+        # ── DB skills + version lookup (fallback for nodes with empty skills) ──
+        db_skills = {}
+        db_versions = {}
+        try:
+            if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
+                rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
+                db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                for r in rows:
+                    s = r['skills'] if 'skills' in r.keys() else None
+                    if s:
+                        import json as _json
+                        skill_list = _json.loads(s) if isinstance(s, str) else s
+                        if isinstance(skill_list, list) and len(skill_list) > 0:
+                            db_skills[r['node_name']] = skill_list
+        except Exception:
+            pass
+
         # 1. Registry data (live, in-memory — always up-to-date)
         reg = self.registry
         if reg:
@@ -2185,7 +2202,7 @@ class DashboardHandler:
                         "p2p_available": False,  # will be enriched from P2P below
                         "http_available": True,
                         "status": "active",
-                        "skills": list(card.skills) if card.skills else [],
+                        "skills": list(card.skills) if card.skills else db_skills.get(name, []),
                         "capabilities": list(card.capabilities) if card.capabilities else [],
                         "health_score": round(health.health_score, 3),
                         "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
@@ -2227,13 +2244,13 @@ class DashboardHandler:
                         "p2p_available": p2p_available,
                         "http_available": getattr(peer, 'http_available', False),
                         "status": peer_status,
-                        "skills": [],
+                        "skills": db_skills.get(name, []),
                         "capabilities": list(getattr(peer, 'capabilities', []) or []),
                         "health_score": 1.0,
                         "uptime_seconds": 0,
                         "last_seen": getattr(peer, 'last_seen', 0),
                         "message_count": 0,
-                        "version": getattr(peer, 'version', '1.0.0') or '1.0.0',
+                        "version": db_versions.get(name, getattr(peer, 'version', '') or ''),
                     }
 
         # 3. PG data (persistent — fills gaps for offline/pending nodes)
