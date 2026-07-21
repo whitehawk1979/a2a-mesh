@@ -2128,13 +2128,53 @@ function showTaskDetail(taskId) {
           '<div style="padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);max-height:150px;overflow-y:auto;white-space:pre-wrap;line-height:1.4">' + escHtml(d.result).substring(0, 2000) + '</div></div>';
       }
 
-      // File download
+      // File download — fetch files list dynamically
       var fileHtml = "";
-      if (d.result_file) {
+      if (d.result_file || d.status === "completed") {
         var token = localStorage.getItem("a2a_token") || "";
-        var fileUrl = "/api/delegations/" + d.task_id + "/files?download=1&token=" + encodeURIComponent(token);
-        fileHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájl</h4>' +
-          '<a href="' + fileUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px">⬇️ Letöltés</a></div>';
+        var filesUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
+        fileHtml = '<div style="margin-bottom:12px" id="taskFiles"><h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Betöltés...</div></div>';
+        // Fetch files after modal renders
+        setTimeout(function() {
+          fetch(filesUrl, {headers: {"Authorization": "Bearer " + token}})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              var container = document.getElementById("taskFiles");
+              if (!container) return;
+              var files = data.files || [];
+              if (files.length === 0) {
+                container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs csatolt fájl</div>';
+                return;
+              }
+              var baseUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
+              var html = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok (' + files.length + ')</h4>';
+              html += '<div style="display:flex;flex-direction:column;gap:6px">';
+              files.forEach(function(f) {
+                var icon = f.filename.endsWith(".py") ? "🐍" : f.filename.endsWith(".html") ? "🌐" : f.filename.endsWith(".pptx") ? "📊" : f.filename.endsWith(".zip") ? "📦" : f.filename.endsWith(".pdf") ? "📕" : "📄";
+                var sizeKB = f.file_size ? Math.round(f.file_size / 1024) + " KB" : "?";
+                var dlUrl = baseUrl + "&download=1&file_id=" + encodeURIComponent(f.id);
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">';
+                html += '<span style="font-size:18px">' + icon + '</span>';
+                html += '<div style="flex:1;min-width:0">';
+                html += '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.filename) + '</div>';
+                html += '<div style="font-size:11px;color:var(--text3)">' + sizeKB + ' · ' + escHtml(f.content_type || "text/plain") + '</div>';
+                if (f.preview) html += '<div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.preview.substring(0, 120)) + '</div>';
+                html += '</div>';
+                html += '<a href="' + dlUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;white-space:nowrap">⬇️ Letöltés</a>';
+                html += '</div>';
+              });
+              if (files.length > 1) {
+                var zipUrl = baseUrl + "&zip=1";
+                html += '<a href="' + zipUrl + '" target="_blank" class="btn btn-sm" style="background:var(--info);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px">📦 Összes letöltése ZIP-ként</a>';
+              }
+              html += '</div>';
+              container.innerHTML = html;
+            })
+            .catch(function(e) {
+              var container = document.getElementById("taskFiles");
+              if (container) container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--danger);font-size:12px">Hiba: ' + escHtml(e.message || String(e)) + '</div>';
+            });
+        }, 100);
       }
 
       // Meta info
