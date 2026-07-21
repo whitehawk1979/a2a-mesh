@@ -541,32 +541,26 @@ class DashboardHandler:
         from aiohttp import web
         agents = []
         
-        # ── DB version lookup (fallback for peers with empty/default version) ──
+        # ── DB version + skills lookup (fallback for peers with default '1.0.0' or empty skills) ──
         db_versions = {}
+        db_skills = {}
         try:
             if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                try:
-                    rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
-                    db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
-                except Exception as e:
-                    log.warning(f"DB version lookup failed: {e}")
+                rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
+                db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                for r in rows:
+                    s = r['skills'] if 'skills' in r.keys() else None
+                    if s:
+                        import json as _json
+                        skill_list = _json.loads(s) if isinstance(s, str) else s
+                        if isinstance(skill_list, list) and len(skill_list) > 0:
+                            db_skills[r['node_name']] = skill_list
+                log.debug(f"db_versions from PG: {db_versions}")
+                log.debug(f"db_skills from PG: {list(db_skills.keys())}")
             else:
-                # Fallback: try asyncpg directly
-                import asyncpg
-                try:
-                    pool = await asyncpg.create_pool(
-                        host=self.node.config.pg.host, port=self.node.config.pg.port,
-                        database=self.node.config.pg.database, user=self.node.config.pg.user,
-                        password=self.node.config.pg.password, min_size=1, max_size=2
-                    )
-                    async with pool.acquire() as conn:
-                        rows = await conn.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
-                        db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
-                    await pool.close()
-                except Exception as e2:
-                    log.warning(f"DB version fallback failed: {e2}")
-        except Exception:
-            pass
+                log.warning(f"PG pool not available for db_versions: hasattr={hasattr(self.node, '_pg_pool')}, pool={getattr(self.node, '_pg_pool', None)}")
+        except Exception as e:
+            log.warning(f"db_versions query failed: {e}")
         
         # Self — extract transport availability from TransportStatus objects
         status = self.node.get_status()
@@ -587,6 +581,10 @@ class DashboardHandler:
                 self_transports[key] = val.available
             else:
                 self_transports[key] = bool(val)
+        # Self skills: prefer registry, fall back to config, then DB
+        self_skill_list = [s if isinstance(s, str) else s.get('id', str(s)) for s in (self.node.config.skills or [])]
+        if self.node.node_name in db_skills and len(db_skills[self.node.node_name]) > len(self_skill_list):
+            self_skill_list = [s if isinstance(s, str) else s.get('id', str(s)) for s in db_skills[self.node.node_name]]
         agents.append({
             "name": self.node.node_name,
             "role": self.node.config.topology.node_role,
@@ -594,6 +592,7 @@ class DashboardHandler:
             "host": getattr(self.node.config.p2p, "listen_host", "0.0.0.0"),
             "health_port": getattr(self.node, '_health_port', 8650),
             "version": self.node._resolved_version,
+            "skills": self_skill_list,
             "transports": {
                 "p2p": self_transports.get("p2p", False),
                 "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
@@ -613,8 +612,15 @@ class DashboardHandler:
                 peer_status = "offline"
             # Use DB version as fallback for empty/default version
             peer_ver = getattr(peer, 'version', None)
-            if not peer_ver or peer_ver == '1.0.0':
+            if not peer_ver or peer_ver in ('1.0.0', 'unknown'):
                 peer_ver = db_versions.get(peer.name, peer_ver or '')
+            # Get skills from registry, fall back to DB
+            peer_skills = []
+            card = self.node.registry.get_card(peer.name) if hasattr(self.node, 'registry') else None
+            if card and hasattr(card, 'skills') and card.skills:
+                peer_skills = [s if isinstance(s, str) else s.get('id', str(s)) for s in card.skills]
+            elif peer.name in db_skills:
+                peer_skills = [s if isinstance(s, str) else s.get('id', str(s)) for s in db_skills[peer.name]]
             agents.append({
                 "name": peer.name,
                 "role": peer.role,
@@ -624,6 +630,7 @@ class DashboardHandler:
                 "p2p_port": peer.p2p_port,
                 "health_port": peer.health_port,
                 "last_seen": peer.last_seen,
+                "skills": peer_skills,
                 "transports": {
                     "p2p": peer.p2p_available,
                     "pg": peer.pg_available,
@@ -2184,7 +2191,7 @@ class DashboardHandler:
                         "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                         "last_seen": health.last_health_check or 0,
                         "message_count": health.total_requests,
-                        "version": card.version if card.version and card.version != "1.0.0" else "1.0.0",
+                        "version": card.version if card.version else "",
                     }
             except Exception as e:
                 log.warning(f"Nodes list: registry lookup failed: {e}")
@@ -2268,7 +2275,7 @@ class DashboardHandler:
                         "uptime_seconds": 0,
                         "last_seen": row[10].isoformat() if row[10] else None,
                         "message_count": 0,
-                        "version": pg_version or "1.0.0",
+                        "version": pg_version or "",
                         "joined_at": row[9].isoformat() if row[9] else None,
                     }
                 else:
@@ -2278,7 +2285,7 @@ class DashboardHandler:
                     if pg_status == "pending" and nodes[name].get("status") not in ("connected", "active", "registered"):
                         nodes[name]["status"] = "pending"
                     # Override version from PG if current is default '1.0.0'
-                    if pg_version and nodes[name].get("version") == "1.0.0":
+                    if pg_version and not nodes[name].get("version"):
                         nodes[name]["version"] = pg_version
                     # Override uptime from PG joined_at if current is 0 or invalid
                     if row[9] and nodes[name].get("uptime_seconds", 0) <= 0:
@@ -2689,7 +2696,7 @@ class DashboardHandler:
         card = AgentCard(
             name=name,
             capabilities=data.get("capabilities", []),
-            version=data.get("version", "1.0.0"),
+            version=data.get("version", ""),
             description=data.get("description", ""),
             endpoint=data.get("endpoint", ""),
             health_endpoint=data.get("health_endpoint", "/health"),
@@ -3401,29 +3408,20 @@ class DashboardHandler:
             connections = []
             now = _time.time()
 
-            # ── DB version lookup (fallback for agent cards with empty version) ──
+            # ── DB version + skills lookup (fallback for agent cards with default '1.0.0' or empty skills) ──
             db_versions = {}
+            db_skills = {}
             try:
                 if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                    try:
-                        rows = await self.node._pg_pool.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
-                        db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
-                    except Exception as e:
-                        log.warning(f"Topology DB version lookup failed: {e}")
-                else:
-                    import asyncpg
-                    try:
-                        pool = await asyncpg.create_pool(
-                            host=self.node.config.pg.host, port=self.node.config.pg.port,
-                            database=self.node.config.pg.database, user=self.node.config.pg.user,
-                            password=self.node.config.pg.password, min_size=1, max_size=2
-                        )
-                        async with pool.acquire() as conn:
-                            rows = await conn.fetch("SELECT node_name, version FROM mesh.mesh_nodes")
-                            db_versions = {r['node_name']: r['version'] for r in rows if r['version']}
-                        await pool.close()
-                    except Exception as e2:
-                        log.warning(f"Topology DB version fallback failed: {e2}")
+                    rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
+                    db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                    for r in rows:
+                        s = r['skills'] if 'skills' in r.keys() else None
+                        if s:
+                            import json as _json
+                            skill_list = _json.loads(s) if isinstance(s, str) else s
+                            if isinstance(skill_list, list) and len(skill_list) > 0:
+                                db_skills[r['node_name']] = skill_list
             except Exception:
                 pass
 
@@ -3472,7 +3470,7 @@ class DashboardHandler:
                         name = card.name
                         reg_agents[name] = (card, health)
                         # Prefer DB version over card default (card may have '1.0.0' fallback)
-                        card_version = card.version if card.version and card.version != '1.0.0' else db_versions.get(name, '')
+                        card_version = card.version if card.version and card.version not in ('1.0.0', 'unknown') else db_versions.get(name, '')
                         nodes[name] = {
                             "name": name,
                             "host": card.endpoint.replace("http://", "").split(":")[0] if card.endpoint else "",
@@ -3483,7 +3481,7 @@ class DashboardHandler:
                             "health_score": round(health.health_score, 3),
                             "capabilities": list(card.capabilities) if card.capabilities else [],
                             "version": card_version,
-                            "skills": list(card.skills) if card.skills else [],
+                            "skills": list(card.skills) if card.skills else db_skills.get(name, []),
                             "uptime_seconds": round(health.last_success - health.last_failure, 1) if health.last_success and health.last_failure else 0,
                             "last_seen": health.last_health_check or 0,
                             "message_count": health.total_requests,
@@ -3507,10 +3505,13 @@ class DashboardHandler:
                         # Prefer registry data for skills/caps, fall back to peer data
                         final_caps = existing_caps if existing_caps else peer_caps
                         existing_skills = existing.get("skills", []) or []
-                        # Use DB version as fallback if card version is default '1.0.0'
-                        peer_version = existing.get("version") or db_versions.get(name, "")
-                        if peer_version == '1.0.0' and db_versions.get(name):
-                            peer_version = db_versions[name]
+                        # Fall back to DB skills if registry is empty
+                        if not existing_skills and name in db_skills:
+                            existing_skills = db_skills[name]
+                        # Use DB version as fallback if card version is default/unknown
+                        peer_version = existing.get("version")
+                        if not peer_version or peer_version in ('1.0.0', 'unknown'):
+                            peer_version = db_versions.get(name, '')
                         nodes[name] = {
                             "name": name,
                             "host": getattr(peer, 'host', '') or existing.get("host", ""),
