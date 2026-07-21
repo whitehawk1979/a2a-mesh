@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "a2a-mesh"
-version = "0.18.37"
+version = "0.18.40"
 description = "Zigbee-inspired A2A mesh networking for AI agents — P2P transport, PG NOTIFY, mDNS discovery, TLS encryption"
 readme = "README.md"
 requires-python = ">=3.9"
