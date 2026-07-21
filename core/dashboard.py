@@ -3900,6 +3900,7 @@ class DashboardHandler:
                 available=available,
                 fan_out=int(data.get("fan_out", "0")),
                 max_retries=int(data.get("max_retries", "2")),
+                eligible_agents=data.get("eligible_agents"),
             )
             
             # fan_out returns list of task_ids

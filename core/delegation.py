@@ -105,6 +105,7 @@ class DelegationManager:
         available: bool = False,
         fan_out: int = 0,
         max_retries: int = 2,
+        eligible_agents: Optional[List[str]] = None,
     ) -> Union[str, List[str]]:
         """Delegate a task to another agent or make it available for any agent.
         
@@ -119,6 +120,8 @@ class DelegationManager:
             available: If True, task is available for any agent to claim
             fan_out: If > 0, creates N identical tasks (one per available agent),
                      first to complete wins, others are cancelled. No duplicate work.
+            eligible_agents: Optional list of agent names that can claim this task
+                            (only used when available=True)
         """
         task_id = str(uuid.uuid4())
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
@@ -131,6 +134,14 @@ class DelegationManager:
                 desc_json = json.dumps({"type": task_type, "description": description, "context": context or {}})
         except (json.JSONDecodeError, TypeError):
             desc_json = json.dumps({"type": task_type, "description": str(description), "context": context or {}})
+        # Add eligible_agents to description JSON if specified
+        if eligible_agents and available:
+            try:
+                desc_data = json.loads(desc_json)
+                desc_data["eligible_agents"] = eligible_agents
+                desc_json = json.dumps(desc_data)
+            except (json.JSONDecodeError, TypeError):
+                pass
         status = STATUS_AVAILABLE if available else STATUS_PENDING
         actual_to = "any" if available else to_agent
 
@@ -178,8 +189,23 @@ class DelegationManager:
         return task_id
 
     async def claim_task(self, task_id: str, agent_name: Optional[str] = None) -> bool:
-        """Claim an available task. Agent can claim tasks marked as 'available'."""
+        """Claim an available task. Agent can claim tasks marked as 'available'.
+        If eligible_agents is set in the task description, only those agents can claim."""
         agent = agent_name or self.node_name
+        # Check eligible_agents constraint
+        task_row = await self.pg_pool.fetchrow(
+            "SELECT description FROM shared_delegations WHERE task_id = $1 AND status = $2",
+            task_id, STATUS_AVAILABLE,
+        )
+        if task_row:
+            try:
+                desc = json.loads(task_row["description"]) if isinstance(task_row["description"], str) else task_row["description"]
+                eligible = desc.get("eligible_agents") if isinstance(desc, dict) else None
+                if eligible and isinstance(eligible, list) and agent not in eligible:
+                    log.warning(f"Agent {agent} not in eligible_agents for task {task_id}: {eligible}")
+                    return False
+            except (json.JSONDecodeError, TypeError):
+                pass
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations 
                SET status = $1, assigned_agent = $2, accepted_at = NOW()
