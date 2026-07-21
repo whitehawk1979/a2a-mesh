@@ -1,165 +1,216 @@
-# A2A Mesh — Agent-to-Agent Communication Network
+# A2A Mesh — Decentralizált Ágens Hálózat
 
-> Decentralized, P2P agent mesh with intelligent routing, health scoring, and workflow orchestration.
+> **Minden agent a saját gépén dolgozik, a saját LLM-ével. A hálózat delegál, koordinál, szinkronizál.**
 
-## Overview
+## A Mesh Lényege
 
-A2A Mesh enables autonomous AI agents to communicate, coordinate, and execute complex workflows across a decentralized network. Built with reliability-first design (ACK/retry/offline queue) and inspired by [gensyn-ai/axl](https://github.com/gensyn-ai/axl) and [sushaan-k/a2a-mesh](https://github.com/sushaan-k/a2a-mesh).
+Az A2A Mesh nem egy centralizált szolgáltatás — **egy decentralizált ágens hálózat**, ahol minden node:
 
-## Architecture
+1. **Saját gépen fut** — nincs központi szerver, nincs single point of failure
+2. **Saját LLM-et használ** — minden node a helyi Ollamájával generál kódot, elemez, dönt
+3. **Delegál és fogad feladatokat** — az egyik agent felügyelő, a másik worker, a szerepkörök dinamikusan változnak
+4. **Eredményt visszaad** — a worker elkészíti a feladatot, a felügyelő megkapja az eredményt
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    A2A Mesh Node                     │
-├─────────────────────────────────────────────────────┤
-│  Dashboard (aiohttp)    │  Agent Card (well-known)  │
-│  /api/health/scores     │  /api/router/stats         │
-├─────────────────────────────────────────────────────┤
-│  Smart Router           │  Workflow Coordinator v2   │
-│  - health_weighted      │  - FanIn (MERGE/FIRST/VOTE)│
-│  - least_latency        │  - Consensus (ALL/ANY/MAJ) │
-│  - least_load           │  - Budget + Timeout        │
-├─────────────────────────────────────────────────────┤
-│  StreamMux              │  BoundedQueue              │
-│  (content routing)      │  (oldest-drop overflow)    │
-├─────────────────────────────────────────────────────┤
-│  Health Scorer          │  GossipSub Broadcast       │
-│  (decay/recovery)       │  (flood≤10, mesh>10)       │
-├─────────────────────────────────────────────────────┤
-│  Dedup Cache            │  Agent Registry            │
-│  (hit/miss tracking)    │  (capabilities, status)    │
-├─────────────────────────────────────────────────────┤
-│  Transports                                           │
-│  ├─ PG Transport (NOTIFY, fallback)                  │
-│  └─ P2P Transport (binary framing v1)                │
-└─────────────────────────────────────────────────────┘
+  Nova (felügyelő)          Morzsa (worker)           Runa (worker)
+  ┌─────────────┐    ┌─────────────────┐    ┌─────────────────┐
+  │ Delegál:    │───►│ LLM generál:    │    │ LLM generál:    │
+  │ "Készíts    │    │ glm-5.2:cloud   │    │ glm-5.2:cloud   │
+  │  weboldalt" │    │ → HTML/CSS/JS   │    │ → Python script  │
+  └──────┬──────┘    └────────┬────────┘    └────────┬────────┘
+         │                    │                      │
+         │◄───────────────────┘                      │
+         │  Eredmény: generated_html_morzsa.html    │
+         │                                           │
+         │◄──────────────────────────────────────────┘
+         │  Eredmény: generated_py_runa.py
+         │
+  Nova összesíti, validálja, továbbítja a felhasználónak
 ```
 
-## Features
+**Ha Runa küld egy feladatot Morzsának** → Runa a felügyelő, Morzsa a worker. A szerepkörök mindig a feladó és végrehajtó között alakulnak ki.
 
-### Core (v0.1–v0.7)
-- **PG Transport**: PostgreSQL NOTIFY + shared mesh_messages table
-- **P2P Transport**: Direct TCP with length-prefixed binary framing
-- **Dedup Cache**: Message deduplication with hit/miss statistics
-- **Agent Registry**: Capability-based agent discovery
-- **Smart Router**: Multi-strategy routing (round-robin, least-cost, health-weighted)
-- **Auth**: Token-based dashboard + mesh_secret for inter-node
-- **Auto-steer**: Priority-based message steering (P10+ interrupt, P7-9 high, P1-6 backlog)
+## Architektúra
 
-### v0.8.0–v0.8.3 (AXL + sushaan-k inspired)
-- **StreamMux**: Content-based stream routing (a2a, mesh_control, file_transfer, task)
-- **BoundedQueue**: asyncio.Queue with oldest-drop overflow (maxsize=200)
-- **AgentCard**: `/.well-known/agent-card.json` + `/api/agent-card` endpoints
-- **Protocol v0.8.0**: `protocol_version` field in messages
-- **Connection Semaphore**: Concurrent connection limiting
-- **Versioned Binary Framing v1**: `[0x01][4-byte BE len][payload]` — backward compatible
-- **GossipSub Broadcast**: Flood mode (≤10 nodes), GossipSub mesh (>10 nodes)
-- **Health Scorer**: Decay on failure (0.15+exponential), recovery on success (0.05), latency penalty
-- **Workflow DAG Coordinator v2**:
-  - FanInStrategy: MERGE, FIRST, VOTE (majority vote)
-  - ConsensusMode: ALL, ANY, MAJORITY, QUORUM
-  - Fan-out: deepcopy isolation, N parallel copies per task
-  - Budget tracking: per-level cost accumulation
-  - Workflow timeout: remaining-time tracking
+```
+┌─────────────────────────────────────────────────────────┐
+│                    A2A Mesh Node                         │
+├─────────────────────────────────────────────────────────┤
+│  Dashboard (aiohttp)    │  Agent Card (well-known)     │
+│  /api/health            │  /api/agent-card              │
+│  /api/delegations       │  /api/nodes                   │
+│  /api/mesh/topology     │  /api/agents                  │
+├─────────────────────────────────────────────────────────┤
+│  Delegation Manager     │  LLM Code Generator           │
+│  - Task lifecycle       │  - Local Ollama integration    │
+│  - Fan-out/claim        │  - Model preference: glm-5.2  │
+│  - Result files         │  - Template fallback           │
+├─────────────────────────────────────────────────────────┤
+│  Smart Router           │  Workflow Coordinator v2      │
+│  - health_weighted      │  - FanIn (MERGE/FIRST/VOTE)  │
+│  - least_latency        │  - Consensus (ALL/ANY/MAJ)    │
+│  - least_load           │  - Budget + Timeout            │
+├─────────────────────────────────────────────────────────┤
+│  Transports                                             │
+│  ├─ P2P Transport (primary, binary framing v1)         │
+│  ├─ PG Transport (NOTIFY, fallback)                    │
+│  ├─ HTTP/MCP Bridge (external API)                     │
+│  └─ BLE Transport (IoT, proximity)                     │
+├─────────────────────────────────────────────────────────┤
+│  Health Scorer  │  GossipSub  │  Dedup  │  Registry    │
+│  (decay/recov)  │  (flood/mesh)│  Cache  │  (skills)    │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Delegáció Rendszer
+
+A mesh központi funkciója a **feladat-delegáció** — minden node delegálhat feladatot bármelyik másik node-nak:
+
+### Feladat Típusok
+| Típus | Leírás | Handler |
+|-------|--------|---------|
+| `code` | Kódgenerálás (LLM) | `_task_llm_generate` → Ollama, vagy template fallback |
+| `generic` | Általános feladat | `_task_code_generation` (kulcsszó-alapú) |
+| `research` | Kutatás, elemzés | `_task_system_analysis` |
+| `analysis` | Rendszerelemzés | `_task_system_analysis` |
+| `monitoring` | Rendszermonitorozás | `_task_html_status` |
+
+### Delegáció Folyamat
+```
+1. Feladó → POST /api/delegations {to_agent, subject, description, task_type}
+2. Koordinátor → PG NOTIFY: delegation_channel
+3. Feldolgozó → claim + végrehajtás (LLM vagy template)
+4. Eredmény → task result + files (base64)
+5. Feladó → GET /api/delegations/{id}/files
+```
+
+### LLM Generálás
+Minden node a **saját Ollamáját** használja:
+- Modell preferencia: `glm-5.2` > `glm-5.1` > `glm-4.7` > `gemma4:31b` > `qwen2.5`
+- Ha nincs LLM elérhető → template fallback (sablon-alapú generálás)
+- Timeout: 300 másodperc nagy modellekhez
+
+## Skillek
+
+Minden node publikálja a képességeit (skills) a registry-ben:
+
+| Skill | Leírás |
+|-------|--------|
+| `mesh_send` | Üzenetküldés agentek között |
+| `mesh_discover` | Agent felfedezés és képesség-lekérdezés |
+| `mesh_health` | Rendszerállapot monitorozás |
+| `gdm` | Csoportos döntéshozatal (Group Decision Making) |
+| `task_execution` | Delegált feladatok végrehajtása |
+| `image_gen` | Képgenerálás szövegből |
+| `gateway_bridge` | Külső rendszer híd (Telegram, Discord) |
+| `health_monitor` | Riasztások és értesítések |
+| `delegation` | Feladat kiosztás és szinkronizáció |
+| `task_dispatch` | Feladat szétosztás a meshben |
 
 ## API Endpoints
 
+### Dashboard & Monitoring
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Node health check |
-| GET | `/.well-known/agent-card.json` | Agent capability card |
-| GET | `/api/agent-card` | Agent card (alias) |
-| GET | `/api/router/stats` | Router statistics (dedup, queues, gossipsub, health) |
-| GET | `/api/health/scores` | All agent health scores |
-| POST | `/api/health/record-success/{name}` | Record successful delivery |
-| POST | `/api/health/record-failure/{name}` | Record failed delivery |
-| POST | `/api/send` | Send message to agent |
-| POST | `/api/agent-reply` | Agent reply endpoint |
-| GET | `/api/registry` | List registered agents |
+| GET | `/api/agents` | Agent list with skills |
+| GET | `/api/nodes` | Node list with transports |
+| GET | `/api/mesh/topology` | Full mesh topology |
+| GET | `/api/delegations` | Delegation list |
+| POST | `/api/delegations` | Create delegation |
+
+### Delegation
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/delegations` | Create task (to_agent, subject, task_type) |
+| GET | `/api/delegations/{id}` | Task status |
+| GET | `/api/delegations/{id}/files` | Download result files |
+| POST | `/api/delegations/{id}/cancel` | Cancel task |
+| POST | `/api/delegations/{id}/claim` | Claim available task |
+| GET | `/api/delegations/available` | List available tasks |
+| GET | `/api/delegations/stats` | Delegation statistics |
 
 ## Quick Start
 
-### Option 1: Auto-install (recommended)
-
 ```bash
-# Clone and run — dependencies install automatically
+# Clone and run
 git clone <repo-url> a2a_mesh && cd a2a_mesh
+.venv/bin/python cli.py start --name nova --config mesh_config.yaml
 
-# Start with PG DSN (easiest — no config editing needed)
-python3 cli.py start --name mynode --port 8650 \
-  --pg-dsn 'postgresql://nova:mypassword@192.168.1.30:5432/agent_memory'
-
-# Or with A2A_MESH_PG_DSN env var:
-export A2A_MESH_PG_DSN='postgresql://nova:mypassword@192.168.1.30:5432/agent_memory'
-python3 cli.py start --name mynode --port 8650
-# 📦 Missing deps are auto-installed on first run
-```
-
-### Option 2: Full install script
-
-```bash
-# Clone, install deps, generate certs, guided setup
-git clone <repo-url> a2a_mesh && cd a2a_mesh
-chmod +x install.sh
-./install.sh          # Interactive — creates venv, installs deps, generates certs
-
-# Or non-interactive:
-./install.sh --skip-start --no-certs
-```
-
-### Option 3: Manual setup
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Start a node
-.venv/bin/python3 cli.py start --name nova --port 8650
-```
-
-### With TLS encryption
-
-```bash
-python3 cli.py start --name nova --port 8650 --tls
-# Or with custom certs:
-python3 cli.py start --name nova --port 8650 --tls \
-  --tls-cert certs/nova.crt --tls-key certs/nova.key --tls-ca certs/a2a-mesh-ca.crt
-```
-
-### Send a message
-curl -X POST http://localhost:8650/api/send \
-  -H "Authorization: Bearer <token>" \
+# Send a delegation task
+curl -X POST http://localhost:8650/api/delegations \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"recipient":"morzsa","type":"task","priority":5,"payload":{"task":"analyze"}}'
+  -d '{"to_agent":"morzsa","subject":"Generálj Python scriptet","task_type":"code","priority":5}'
 ```
 
 ## Configuration
 
-Environment variables:
-- `MESH_SECRET`: Shared secret for inter-node authentication
-- `MESH_PG_DSN`: PostgreSQL connection string
-- `MESH_PORT`: HTTP port (default: 8650)
-- `LOGLEVEL`: Log level (DEBUG, INFO, WARNING)
+```yaml
+# mesh_config.yaml
+node:
+  name: nova
+  role: router
+  version: "0.18.55"
 
-## Releases
+pg:
+  host: 192.168.1.30
+  port: 5432
+  database: agent_memory
+  user: nova
+  password: "***"
 
-| Version | Date | Highlights |
-|---------|------|-----------|
-| v0.10.5 | 2026-07-02 | P2 enhancements: peer_address_resolver, reconnect loop peer_discovery-aware, connection pooling (50 max, 1h age), retry queue dedup, LaunchAgent auto-restart |
-| v0.10.4 | 2026-07-01 | P2P-first transport priority, PG optional (no-password mode), auto-install deps (PEP 668) |
-| v0.10.0 | 2026-06-29 | Dashboard v2, mDNS/UDP discovery, TLS encryption, static nodes config |
-| v0.9.6 | 2026-06-26 | Health Scorer, API endpoints, StreamMux |
-| v0.9.0 | 2026-06-25 | Workflow DAG v2: FanIn, Consensus, Budget, Timeout |
-| v0.8.3 | 2026-06-23 | Workflow DAG v2: FanIn, Consensus, Budget, Timeout |
-| v0.8.2 | 2026-06-23 | Health Scorer, API endpoints |
-| v0.8.1 | 2026-06-23 | Versioned binary framing, GossipSub |
-| v0.8.0 | 2026-06-22 | StreamMux, BoundedQueue, AgentCard, protocol v0.8.0 |
-| v0.7.0 | 2026-06-21 | Smart Router, Auth, Auto-steer |
-| v0.6.0 | 2026-06-20 | Dedup cache, PG transport fixes |
-| v0.4.0 | 2026-06-19 | P2P transport, dashboard |
-| v0.3.0 | 2026-06-18 | PG NOTIFY transport |
-| v0.2.0 | 2026-06-17 | Basic routing, message model |
-| v0.1.0 | 2026-06-16 | Project scaffold |
+transports:
+  p2p:
+    enabled: true
+    port: 8645
+  pg:
+    enabled: true
+  http:
+    enabled: true
+    bridge_url: http://192.168.1.30:8199
+  ble:
+    enabled: true
+
+skills:
+  - id: mesh_send
+  - id: mesh_discover
+  - id: mesh_health
+  - id: gdm
+  - id: task_execution
+  - id: image_gen
+
+plugins:
+  task_dispatch:
+    enabled: true
+    max_concurrent_tasks: 5
+```
+
+## Node-ok
+
+| Node | Host | Role | LLM | Skills |
+|------|------|------|-----|--------|
+| Nova | macOS 192.168.1.8 | Router | qwen2.5, glm-4.7-flash, kimi-k2.5 | 17 |
+| Morzsa | Linux 192.168.1.30 | Coordinator | gemma4:31b-cloud, glm-5.2:cloud, qwen2.5 | 16 |
+| Runa | Linux 192.168.1.100 | Router | glm-5.2:cloud, gemma4:cloud, qwen2.5 | 17 |
+| Lennie | Windows 192.168.1.15 | Agent | (offline) | 0 |
+
+## Verzió Történet
+
+| Version | Highlights |
+|---------|------------|
+| v0.18.55 | LLM-alapú delegáció: glm-5.2 preferencia, 300s timeout |
+| v0.18.54 | LLM task handler: Ollama integráció, template fallback |
+| v0.18.53 | Skill normalizálás: dict→{name,id,description} konverzió |
+| v0.18.52 | /api/nodes version + skills DB fallback |
+| v0.18.47 | Full skill publishing: DB fallback, AgentCard creation |
+| v0.18.46 | Topology endpoint 500 fix, asyncpg Record access |
+| v0.18.40 | Skill DB tárolás, periodic skills broadcast |
+| v0.18.30 | Delegation system: task lifecycle, claim, files |
+| v0.18.0 | Dashboard v3: dark theme, glass-morphism, sidebar |
+| v0.10.0 | Dashboard v2, mDNS, TLS, static nodes |
+| v0.8.0 | StreamMux, BoundedQueue, AgentCard, protocol v0.8.0 |
+| v0.1.0 | Project scaffold |
 
 ## License
 
