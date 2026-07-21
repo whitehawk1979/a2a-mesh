@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>A2A Mesh Dashboard</title>
 <style>
 :root{--bg:#0a0e17;--surface:#131a2b;--surface2:#1a2238;--border:#2a3555;--primary:#4f8cff;--primary-dim:#2d5bb9;--success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--dm-bg:#1a1e2e;--room-active:#1e3a5f}
@@ -1344,16 +1347,19 @@ function loadAllNodes() {
         var msgCount = n.message_count != null ? n.message_count : (n.messages_sent != null ? n.messages_sent : "—");
         var version = n.version || "—";
         var skills = (n.skills || n.capabilities || []);
+        // Normalize skills: convert objects to {name, description, id} strings
+        skills = skills.map(function(s) {
+          if (typeof s === 'object' && s !== null) return s;
+          if (typeof s === 'string') return {id: s, name: s};
+          return {id: String(s), name: String(s)};
+        });
         var skillsHtml = "";
         if (skills.length > 0) {
           skillsHtml = '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Képességek / Skillek</div><div class="node-detail-skills">' +
             skills.map(function(s) {
-              if (typeof s === 'object' && s !== null) {
-                var label = s.name || s.id || JSON.stringify(s);
-                var title = s.description || s.id || '';
-                return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
-              }
-              return '<span class="skill-tag">' + escapeHtml(s) + '</span>';
+              var label = s.name || s.id || '?';
+              var title = s.description || s.id || '';
+              return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
             }).join('') +
           '</div></div>';
         }
@@ -1375,12 +1381,9 @@ function loadAllNodes() {
           '</div>' +
           (skills.length > 0 ? '<div class="node-detail-skills" style="margin:2px 0 4px 0">' +
             skills.slice(0, 4).map(function(s) {
-              if (typeof s === 'object' && s !== null) {
-                var label = s.name || s.id || '?';
-                var title = s.description || s.id || '';
-                return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
-              }
-              return '<span class="skill-tag">' + escapeHtml(s) + '</span>';
+              var label = s.name || s.id || '?';
+              var title = s.description || s.id || '';
+              return '<span class="skill-tag" title="' + escapeHtml(title) + '">' + escapeHtml(label) + '</span>';
             }).join('') +
             (skills.length > 4 ? '<span class="skill-tag" style="opacity:0.6">+' + (skills.length - 4) + '</span>' : '') +
           '</div>' : '') +
