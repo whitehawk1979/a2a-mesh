@@ -419,8 +419,23 @@ class AutoUpdater:
         if result.returncode != 0:
             raise RuntimeError(f"git fetch failed: {result.stderr}")
 
-        # Checkout the tag
+        # Checkout the tag (stash local changes if needed)
         logger.info(f"📦 Checking out {target_tag}...")
+        
+        # Stash any local changes before checkout
+        stash_result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ["git", "stash", "--include-untracked"],
+                cwd=str(self.mesh_dir),
+                capture_output=True, text=True, timeout=30,
+            ),
+        )
+        if stash_result.returncode != 0:
+            logger.warning(f"git stash warning: {stash_result.stderr}")
+        else:
+            logger.info("📦 Stashed local changes before checkout")
+        
         result = await loop.run_in_executor(
             None,
             lambda: subprocess.run(
@@ -430,7 +445,18 @@ class AutoUpdater:
             ),
         )
         if result.returncode != 0:
-            raise RuntimeError(f"git checkout {target_tag} failed: {result.stderr}")
+            # Try force checkout as fallback
+            logger.warning(f"git checkout failed, trying force checkout: {result.stderr}")
+            result = await loop.run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ["git", "checkout", "--force", target_tag],
+                    cwd=str(self.mesh_dir),
+                    capture_output=True, text=True, timeout=30,
+                ),
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"git checkout {target_tag} failed (even with --force): {result.stderr}")
 
         logger.info(f"✅ Checked out {target_tag}")
 
