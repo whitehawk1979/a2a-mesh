@@ -29,6 +29,7 @@ from .core.offline_queue import OfflineQueue
 from .core.auth import NodeAuthenticator, AuthConfig, JoinRequest, AuthMode
 from .core.async_db import AsyncDBPool, validate_message_payload, MessageValidationError
 from .core.auto_steer import AutoSteerProcessor
+from .core.diagnostics import DiagnosticEngine
 from .core.local_store import LocalStore
 from .core.file_transfer import P2PFileTransfer, FILE_OFFER, FILE_ACCEPT, FILE_REJECT, FILE_CHUNK, FILE_COMPLETE, FILE_ACK
 from .core.peer_discovery import PeerDiscovery
