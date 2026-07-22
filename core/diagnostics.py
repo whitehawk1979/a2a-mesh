@@ -411,11 +411,19 @@ class DiagnosticEngine:
         
         if msg_type == "diagnostic_report":
             report = DiagnosticReport.from_dict(data)
+            # Deduplicate by report_id — same report may arrive via P2P and PG NOTIFY
+            if any(r.report_id == report.report_id for r in self._reports):
+                log.debug(f"📊 Duplicate diagnostic report from {source}: {report.report_id} — skipping")
+                return
             self._store_report(report)
             log.info(f"📊 Received diagnostic report from {source}: {report.report_id}")
         
         elif msg_type == "config_suggestion":
             suggestion = ConfigSuggestion.from_dict(data)
+            # Deduplicate by suggestion_id
+            if any(s.suggestion_id == suggestion.suggestion_id for s in self._suggestions):
+                log.debug(f"💡 Duplicate config suggestion from {source}: {suggestion.title} — skipping")
+                return
             self._suggestions.append(suggestion)
             if len(self._suggestions) > self.config.max_reports_stored:
                 self._suggestions = self._suggestions[-self.config.max_reports_stored:]
