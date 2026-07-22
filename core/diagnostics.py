@@ -362,15 +362,16 @@ class DiagnosticEngine:
                 payload=payload,
             )
             # Also publish to PG diagnostic_channel for cross-node delivery
-            if self.node._pg_pool and not self.node._pg_pool.is_closed():
+            if self.node._pg_pool and self.node._pg_pool.is_connected():
                 try:
                     await self.node._pg_pool.execute(
                         "SELECT pg_notify($1, $2)",
                         "diagnostic_channel",
                         json.dumps(payload)
                     )
-                except Exception:
-                    pass
+                    log.debug(f"📊 Diagnostic report PG NOTIFY sent to diagnostic_channel")
+                except Exception as e:
+                    log.warning(f"Failed to PG NOTIFY diagnostic report: {e}")
             log.info(f"📊 Diagnostic report broadcasted: {report.report_id}")
         except Exception as e:
             log.error(f"Failed to broadcast diagnostic report: {e}")
@@ -388,15 +389,16 @@ class DiagnosticEngine:
                 payload=payload,
             )
             # Also publish to PG diagnostic_channel for cross-node delivery
-            if self.node._pg_pool and not self.node._pg_pool.is_closed():
+            if self.node._pg_pool and self.node._pg_pool.is_connected():
                 try:
                     await self.node._pg_pool.execute(
                         "SELECT pg_notify($1, $2)",
                         "diagnostic_channel",
                         json.dumps(payload)
                     )
-                except Exception:
-                    pass
+                    log.debug(f"💡 Config suggestion PG NOTIFY sent to diagnostic_channel")
+                except Exception as e:
+                    log.warning(f"Failed to PG NOTIFY config suggestion: {e}")
             log.info(f"💡 Config suggestion broadcasted: {suggestion.title}")
         except Exception as e:
             log.error(f"Failed to broadcast config suggestion: {e}")
