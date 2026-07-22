@@ -2231,7 +2231,7 @@ function showTaskDetail(taskId) {
         actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📝 Jegyzet</button>';
       }
       if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📊 Haladás</button>';
-      actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="loadDelegations();document.getElementById(\'taskDetailModal\').style.display=\'none\'">🔄 Frissítés</button>';
+      actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="showTaskDetail(\'' + d.task_id + '\')">🔄 Frissítés</button>';
       actionsHtml += '</div>';
 
       document.getElementById('taskDetailContent').innerHTML = metaHtml + descHtml + progressHtml + timelineHtml + resultHtml + fileHtml + actionsHtml;
