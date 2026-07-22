@@ -237,9 +237,24 @@ class PGTransport(TransportAdapter):
                     log.info(f"Received mesh message (fallback) from {sender}")
             else:
                 # Other channels (a2a_channel, a2a_steer_channel, etc.)
-                message = A2AMessage.from_dict(data)
-                await self._incoming_queue.put((message, "pg_notify"))
-                log.info(f"Received A2A message on {channel} from {getattr(message, 'sender', '?')}")
+                # Diagnostic channel uses its own payload format — wrap as A2AMessage
+                if channel == "diagnostic_channel":
+                    msg_type = data.get("type", "diagnostic_report")
+                    msg_data = {
+                        "id": data.get("id", f"diag-{channel}"),
+                        "sender": data.get("source", "unknown"),
+                        "recipient": "broadcast",
+                        "type": msg_type,
+                        "payload": data,
+                        "priority": data.get("priority", 5),
+                    }
+                    message = A2AMessage.from_dict(msg_data)
+                    await self._incoming_queue.put((message, "pg_notify"))
+                    log.info(f"Received A2A message on {channel} from {data.get('source', '?')}")
+                else:
+                    message = A2AMessage.from_dict(data)
+                    await self._incoming_queue.put((message, "pg_notify"))
+                    log.info(f"Received A2A message on {channel} from {getattr(message, 'sender', '?')}")
 
         except Exception as e:
             log.error(f"Failed to process NOTIFY payload: {e}")
