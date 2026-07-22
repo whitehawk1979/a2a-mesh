@@ -342,6 +342,7 @@ class MeshNode:
 
         # Handle diagnostic messages (diagnostic_report, config_suggestion)
         if message.type in ("diagnostic_report", "config_suggestion"):
+            log.debug(f"🔍 Handling diagnostic message: type={message.type} sender={message.sender} payload_keys={list(message.payload.keys()) if isinstance(message.payload, dict) else 'str'}")
             try:
                 payload = message.payload if isinstance(message.payload, dict) else {}
                 if isinstance(message.payload, str):
