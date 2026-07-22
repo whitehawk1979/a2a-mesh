@@ -1036,11 +1036,25 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                 import base64 as _b64
 
                 pre_exec_time = _time.time()
+                # Strip markdown code fences (```python ... ```) from LLM output
+                import re as _re
+                cleaned = generated.strip()
+                fence_match = _re.match(r'^```[\w]*\n(.*?)```\s*$', cleaned, _re.DOTALL)
+                if fence_match:
+                    cleaned = fence_match.group(1).strip()
+                elif cleaned.startswith('```'):
+                    lines = cleaned.split('\n')
+                    if lines[0].strip().startswith('```'):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == '```':
+                        lines = lines[:-1]
+                    cleaned = '\n'.join(lines).strip()
+
                 script_ext = ".py" if lang == "python" else ".sh"
                 script_path = f"/tmp/a2a_task_{node}_{now.strftime('%Y%m%d_%H%M%S')}{script_ext}"
                 try:
                     with open(script_path, "w", encoding="utf-8") as sf:
-                        sf.write(generated)
+                        sf.write(cleaned)
                     if lang == "bash":
                         _os.chmod(script_path, 0o755)
                 except Exception:
