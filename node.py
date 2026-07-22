@@ -2742,18 +2742,32 @@ echo "Status: ok"
 
     def get_status(self) -> dict:
         """Return node status."""
+        uptime_s = int(time.time() - self._start_time) if self._start_time else 0
+        # Build peers list from peer_discovery for diagnostics (which expects
+        # status["peers"] as a list of dicts with name/status/version).
+        pd_stats = self.peer_discovery.get_stats()
+        peers = []
+        for pname, pinfo in pd_stats.get("peers", {}).items():
+            peers.append({
+                "name": pname,
+                "status": "connected" if pinfo.get("p2p_available") else "discovered",
+                "version": pinfo.get("version", "?"),
+            })
         status = {
             "node_name": self.node_name,
             "role": self.role.value,
             "running": self._running,
-            "uptime": int(time.time() - self._start_time) if self._start_time else 0,
+            "uptime": uptime_s,
+            "uptime_seconds": uptime_s,
+            "version": self._resolved_version,
+            "peers": peers,
             "transports": self.router.get_stats(),
             "encryption": "enabled" if self.encryption else "disabled",
             "dedup_cache_size": self.router.dedup.size,
             "auto_steer": self.auto_steer.get_stats(),
             "local_store": self.local_store.get_stats(),
             "file_transfer": self.file_transfer.get_transfer_stats(),
-            "peer_discovery": self.peer_discovery.get_stats(),
+            "peer_discovery": pd_stats,
             "coordinator": self.election.get_status() if self.election else None,
             "topology_tuner": self.topology_tuner.stats if hasattr(self, 'topology_tuner') else None,
         }
