@@ -2224,13 +2224,13 @@ function showTaskDetail(taskId) {
 
       // Actions
       var actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
-      if (d.status === "available") actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">✋ Vállalom</button>';
-      if (d.status === "pending" || d.status === "accepted") actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">🚫 Mégsem</button>';
+      if (d.status === "available") actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">✋ Vállalom</button>';
+      if (d.status === "pending" || d.status === "accepted") actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">🚫 Mégsem</button>';
       if (d.status === "accepted" || d.status === "running") {
-        actionsHtml += '<button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">🔄 Átcélzó</button>';
-        actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📝 Jegyzet</button>';
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">🔄 Átcélzó</button>';
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">📝 Jegyzet</button>';
       }
-      if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');document.getElementById(\'taskDetailModal\').style.display=\'none\'">📊 Haladás</button>';
+      if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">📊 Haladás</button>';
       actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="showTaskDetail(\'' + d.task_id + '\')">🔄 Frissítés</button>';
       actionsHtml += '</div>';
 
