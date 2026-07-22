@@ -64,6 +64,7 @@ class DelegationManager:
         self._on_result_callback = None
         # Fan-out dedup: track (from_agent, subject) combos we've already claimed
         self._claimed_subjects: set = set()
+        self._claimed_subjects_timestamps: Dict[tuple, float] = {}  # TTL tracking
 
     async def start(self):
         """Start polling for delegated tasks."""
@@ -274,6 +275,15 @@ class DelegationManager:
         """Poll shared_delegations for tasks assigned to this node."""
         while self._running:
             try:
+                # Cleanup expired dedup entries (older than 1 hour)
+                now = time.time()
+                expired = [k for k, v in self._claimed_subjects_timestamps.items() if now - v > 3600]
+                for k in expired:
+                    self._claimed_subjects.discard(k)
+                    del self._claimed_subjects_timestamps[k]
+                if expired:
+                    log.debug(f"Cleaned up {len(expired)} expired claimed subjects")
+
                 await self._check_expired()
                 await self._poll_pending()
                 await self._poll_available()
@@ -396,6 +406,7 @@ class DelegationManager:
             if claimed:
                 # Track fan-out dedup: remember we claimed this (from_agent, subject)
                 self._claimed_subjects.add(subject_key)
+                self._claimed_subjects_timestamps[subject_key] = time.time()
                 log.info(f"Claimed available task {task_id}: {task_dict.get('subject', '?')} (P{priority}, CPU {cpu_load:.0f}%)")
                 asyncio.create_task(self._execute_task(task_dict))
 

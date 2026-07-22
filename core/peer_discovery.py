@@ -101,7 +101,7 @@ class PeerDiscovery:
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
         # Thread-safe event queue for PG NOTIFY → async loop communication
-        self._pg_event_queue: asyncio.Queue = asyncio.Queue()
+        self._pg_event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
         # Load static peers from config
         for node in config.discovery.static_nodes:
@@ -910,6 +910,12 @@ class PeerDiscovery:
         while self._running:
             try:
                 await self.discover_and_connect()
+                # Prune stale peers not seen in 30 minutes
+                cutoff = time.time() - 1800
+                stale = [name for name, p in self._peers.items() if p.last_seen > 0 and p.last_seen < cutoff]
+                for name in stale:
+                    log.info(f"Pruning stale peer: {name} (last seen {int(time.time() - self._peers[name].last_seen)}s ago)")
+                    del self._peers[name]
             except Exception as e:
                 log.error(f"Discovery loop error: {e}")
             await asyncio.sleep(self._discover_interval)

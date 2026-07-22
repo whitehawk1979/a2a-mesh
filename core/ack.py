@@ -244,8 +244,8 @@ class AckManager:
                 for msg_id in timed_out:
                     tracker = self._tracked.get(msg_id)
                     if tracker and tracker.status == AckStatus.FAILED:
-                        # Keep for a bit for status queries
-                        if tracker.acked_at and tracker.acked_at < cutoff:
+                        # Remove failed entries older than 5 minutes (use sent_at since acked_at is None for failures)
+                        if tracker.sent_at and (now - tracker.sent_at) > 300:
                             del self._tracked[msg_id]
 
             except asyncio.CancelledError:

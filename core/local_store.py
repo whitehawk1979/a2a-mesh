@@ -199,6 +199,44 @@ class LocalStore:
 
     # ─── Inbound Messages ─────────────────────────────────────────
 
+    def cleanup_inbound(self, max_age_hours: int = 1):
+        """Remove old inbound messages (processed and stale unprocessed)."""
+        cutoff = time.time() - (max_age_hours * 3600)
+        # Clean processed messages
+        processed = self._conn.execute(
+            "DELETE FROM inbound_messages WHERE processed = 1 AND created_at < ?",
+            (cutoff,)
+        ).rowcount
+        # Clean stale unprocessed messages (older than 24h)
+        stale_cutoff = time.time() - (24 * 3600)
+        stale = self._conn.execute(
+            "DELETE FROM inbound_messages WHERE created_at < ?",
+            (stale_cutoff,)
+        ).rowcount
+        self._conn.commit()
+        if processed > 0 or stale > 0:
+            log.info(f"Cleanup: removed {processed} processed, {stale} stale inbound messages")
+        return processed + stale
+
+    def cleanup_file_transfers(self, max_age_hours: int = 24):
+        """Remove completed file transfers and their chunk data."""
+        cutoff = time.time() - (max_age_hours * 3600)
+        # Clean completed transfers
+        completed = self._conn.execute(
+            "DELETE FROM file_transfers WHERE status = 'complete' AND completed_at < ?",
+            (cutoff,)
+        ).rowcount
+        # Clean failed/abandoned transfers older than 48h
+        abandoned_cutoff = time.time() - (48 * 3600)
+        abandoned = self._conn.execute(
+            "DELETE FROM file_transfers WHERE status != 'complete' AND created_at < ?",
+            (abandoned_cutoff,)
+        ).rowcount
+        self._conn.commit()
+        if completed > 0 or abandoned > 0:
+            log.info(f"Cleanup: removed {completed} completed, {abandoned} abandoned file transfers")
+        return completed + abandoned
+
     def store_inbound(self, msg_id: str, sender: str, recipient: str,
                       msg_type: str, priority: int, payload: str,
                       from_transport: str = "unknown") -> bool:

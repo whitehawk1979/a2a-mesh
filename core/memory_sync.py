@@ -25,6 +25,7 @@ class MemorySync:
         self._pg_conn = None
         self._last_sync = 0  # timestamp of last sync
         self._local_memory = {}  # key -> value cache
+        self._max_memory_entries = 10000  # Limit memory cache size
 
     def set_pg_conn(self, conn):
         """Set PG connection for sync operations."""
@@ -163,6 +164,12 @@ class MemorySync:
     def set_local_memory(self, key: str, value):
         """Set a value in local memory cache."""
         self._local_memory[key] = value
+        # Evict oldest entries if cache exceeds limit
+        if len(self._local_memory) > self._max_memory_entries:
+            # Remove 10% oldest entries (simple LRU approximation)
+            keys_to_remove = list(self._local_memory.keys())[:len(self._local_memory) // 10]
+            for k in keys_to_remove:
+                del self._local_memory[k]
 
     def get_all_local_memory(self) -> Dict:
         """Get all local memory entries."""
