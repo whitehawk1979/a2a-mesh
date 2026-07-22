@@ -350,35 +350,53 @@ class DiagnosticEngine:
             self._reports = self._reports[-self.config.max_reports_stored:]
     
     async def _broadcast_report(self, report: DiagnosticReport):
-        """Broadcast diagnostic report through the PG diagnostic channel."""
+        """Broadcast diagnostic report through the mesh."""
         try:
-            payload = json.dumps({
+            payload = {
                 "type": "diagnostic_report",
                 "source": self.node.config.node_name,
                 "data": report.to_dict(),
-            })
+            }
             await self.node.broadcast(
-                channel="diagnostic_channel",
-                message_type="diagnostic_report",
+                msg_type="diagnostic_report",
                 payload=payload,
             )
+            # Also publish to PG diagnostic_channel for cross-node delivery
+            if self.node._pg_pool and not self.node._pg_pool.is_closed():
+                try:
+                    await self.node._pg_pool.execute(
+                        "SELECT pg_notify($1, $2)",
+                        "diagnostic_channel",
+                        json.dumps(payload)
+                    )
+                except Exception:
+                    pass
             log.info(f"📊 Diagnostic report broadcasted: {report.report_id}")
         except Exception as e:
             log.error(f"Failed to broadcast diagnostic report: {e}")
     
     async def _broadcast_suggestion(self, suggestion: ConfigSuggestion):
-        """Broadcast config suggestion through the PG diagnostic channel."""
+        """Broadcast config suggestion through the mesh."""
         try:
-            payload = json.dumps({
+            payload = {
                 "type": "config_suggestion",
                 "source": self.node.config.node_name,
                 "data": suggestion.to_dict(),
-            })
+            }
             await self.node.broadcast(
-                channel="diagnostic_channel",
-                message_type="config_suggestion",
+                msg_type="config_suggestion",
                 payload=payload,
             )
+            # Also publish to PG diagnostic_channel for cross-node delivery
+            if self.node._pg_pool and not self.node._pg_pool.is_closed():
+                try:
+                    await self.node._pg_pool.execute(
+                        "SELECT pg_notify($1, $2)",
+                        "diagnostic_channel",
+                        json.dumps(payload)
+                    )
+                except Exception:
+                    pass
             log.info(f"💡 Config suggestion broadcasted: {suggestion.title}")
         except Exception as e:
             log.error(f"Failed to broadcast config suggestion: {e}")
