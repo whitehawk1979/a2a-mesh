@@ -1282,10 +1282,22 @@ function renderAgents(agents) {
     if (transports.pg || transports.pg_notify) transportParts.push("PG✓");
     if (transports.http) transportParts.push("HTTP✓");
     var transportStr = transportParts.length > 0 ? transportParts.join(" ") : "—";
-    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0;font-size:11px;">' +
-      '<span>' + statusIcon + ' ' + escapeHtml(a.name) + '</span>' +
+    html += '<div style="padding:3px 0;border-bottom:1px solid var(--border,rgba(255,255,255,.06));">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;">' +
+      '<span>' + statusIcon + ' <strong>' + escapeHtml(a.name) + '</strong></span>' +
       '<span style="color:var(--text3);font-size:10px;">' + transportStr + '</span>' +
     '</div>';
+    // Show skills as small tags
+    var skills = a.skills || [];
+    if (skills.length > 0) {
+      var skillTags = skills.slice(0, 5).map(function(s) {
+        var short = s.split('_').pop();
+        return '<span style="background:rgba(79,140,255,.15);color:var(--primary);padding:1px 4px;border-radius:3px;font-size:9px;margin:1px;">' + escapeHtml(short) + '</span>';
+      }).join('');
+      if (skills.length > 5) skillTags += '<span style="color:var(--text3);font-size:9px;">+' + (skills.length - 5) + '</span>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:1px;margin-top:1px;">' + skillTags + '</div>';
+    }
+    html += '</div>';
   });
   agentList.innerHTML = html;
 }
