@@ -62,6 +62,7 @@ class P2PTransport(TransportAdapter):
         self._server: Optional[asyncio.Server] = None
         self._peers: Dict[str, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
         self._peer_addresses: Dict[str, str] = {}  # peer_name → host:port
+        self._peer_alternate_addresses: Dict[str, List[Tuple[str, int]]] = {}  # peer_name → [(host, port), ...] fallback addresses
         self._peer_backoff: Dict[str, float] = {}  # peer_name → next retry timestamp
         self._peer_retry_count: Dict[str, int] = {}  # peer_name → consecutive failure count
         self._peer_connected_at: Dict[str, float] = {}  # peer_name → connection start timestamp
@@ -190,13 +191,19 @@ class P2PTransport(TransportAdapter):
             self._available = True
             log.info(f"P2P transport started on {self._listen_host}:{self._listen_port}")
 
-            # Connect to static peers
+            # Connect to static peers — group by name for multi-address fallback
+            peer_addresses: Dict[str, List[Tuple[str, int]]] = {}
             for node in self.config.discovery.static_nodes:
+                name = node.get("name", "")
                 host = node.get("host", node.get("ip", ""))
                 port = node.get("p2p_port", self._listen_port)
-                name = node.get("name", "")
-                if host and name:
-                    asyncio.create_task(self._connect_to_peer(name, host, port))
+                if name and host and name != self.config.node_name:
+                    peer_addresses.setdefault(name, []).append((host, port))
+            for name, addresses in peer_addresses.items():
+                self._peer_alternate_addresses[name] = addresses
+                # Try first address immediately; fallback handled in _connect_to_peer_multi
+                host, port = addresses[0]
+                asyncio.create_task(self._connect_to_peer_multi(name, addresses))
 
             # Start reconnection monitor
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
@@ -354,7 +361,12 @@ class P2PTransport(TransportAdapter):
                         # Track per-peer latency (EWMA) for adaptive routing
                         ts = payload.get("timestamp", 0)
                         if ts and connected_peer_name:
-                            rtt_ms = (time.time() - ts) * 1000
+                            raw_rtt_ms = (time.time() - ts) * 1000
+                            if raw_rtt_ms < 0:
+                                log.warning(f"Clock skew detected with {connected_peer_name}: "
+                                            f"raw RTT={raw_rtt_ms:.2f}ms (negative). "
+                                            f"Consider enabling NTP on all nodes.")
+                            rtt_ms = max(0, raw_rtt_ms)  # Clamp negative (clock skew)
                             old_rtt = self._peer_latency.get(connected_peer_name, 0) or rtt_ms
                             self._peer_latency[connected_peer_name] = old_rtt * 0.7 + rtt_ms * 0.3  # EWMA
                         if self._ack_callback and ack_for_id:
@@ -546,6 +558,42 @@ class P2PTransport(TransportAdapter):
         Used for mesh-wide offline notification broadcast.
         """
         self._on_peer_disconnect = callback
+
+    async def _connect_to_peer_multi(self, name: str, addresses: List[Tuple[str, int]]):
+        """Connect to a peer trying multiple addresses in order (multi-address fallback).
+
+        Tries each address sequentially with a short timeout. On success,
+        stores the working address and falls back to _connect_to_peer for
+        the actual connection. This ensures connectivity when a node has
+        both LAN and Tailscale/VPN addresses and the primary is unreachable.
+        """
+        last_error = None
+        for host, port in addresses:
+            # Quick TCP probe — check if the port is reachable before committing
+            try:
+                probe_reader, probe_writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port),
+                    timeout=self.CONNECT_TIMEOUT
+                )
+                probe_writer.close()
+                await probe_writer.wait_closed()
+                # Port is reachable — now do the full connection
+                await self._connect_to_peer(name, host, port)
+                return  # Success
+            except (asyncio.TimeoutError, OSError, ConnectionError) as e:
+                log.debug(f"P2P multi-addr: {name} at {host}:{port} failed: {e}")
+                last_error = e
+                continue
+
+        # All addresses failed — apply backoff
+        retry_count = self._peer_retry_count.get(name, 0) + 1
+        self._peer_retry_count[name] = retry_count
+        base_backoff = min(self._reconnect_interval * (2 ** (retry_count - 1)), self.MAX_BACKOFF)
+        jitter = self._backoff_random.uniform(0, base_backoff * self.INITIAL_BACKOFF_JITTER)
+        backoff = base_backoff + jitter
+        next_retry = time.time() + backoff
+        self._peer_backoff[name] = next_retry
+        log.warning(f"P2P multi-addr: all {len(addresses)} addresses for {name} failed (retry #{retry_count}, next in {backoff:.1f}s): {last_error}")
 
     async def _connect_to_peer(self, name: str, host: str, port: int):
         """Connect to a known peer with exponential backoff + jitter.
@@ -958,7 +1006,8 @@ class P2PTransport(TransportAdapter):
     def get_status(self) -> TransportStatus:
         avg_latency = 1.0  # Default estimate for P2P
         if self._peer_latency:
-            avg_latency = sum(self._peer_latency.values()) / len(self._peer_latency)
+            valid_latencies = [v for v in self._peer_latency.values() if v > 0]
+            avg_latency = sum(valid_latencies) / len(valid_latencies) if valid_latencies else 1.0
         return TransportStatus(
             available=self._available,
             latency_ms=avg_latency if self._available else float('inf'),
@@ -1034,21 +1083,28 @@ class P2PTransport(TransportAdapter):
                     if now < next_retry:
                         continue  # Not time yet
 
-                    # Get address: try known addresses first, then resolver
-                    address = self._peer_addresses.get(name)
-                    if not address and self._peer_address_resolver:
-                        resolved = self._peer_address_resolver(name)
-                        if resolved:
-                            r_host, r_port = resolved
-                            address = f"{r_host}:{r_port}"
-                    
-                    if not address:
-                        continue  # No address available
+                    # Get address: try alternate addresses (multi-addr fallback), then known, then resolver
+                    alt_addrs = self._peer_alternate_addresses.get(name)
+                    if alt_addrs:
+                        # Multi-address fallback — try all addresses for this peer
+                        log.info(f"Reconnecting to peer {name} via multi-addr ({len(alt_addrs)} addresses)")
+                        await self._connect_to_peer_multi(name, alt_addrs)
+                    else:
+                        # Single address — use the old logic
+                        address = self._peer_addresses.get(name)
+                        if not address and self._peer_address_resolver:
+                            resolved = self._peer_address_resolver(name)
+                            if resolved:
+                                r_host, r_port = resolved
+                                address = f"{r_host}:{r_port}"
+                        
+                        if not address:
+                            continue  # No address available
 
-                    addr_host, addr_port_str = address.rsplit(":", 1)
-                    addr_port = int(addr_port_str)
-                    log.info(f"Reconnecting to peer {name} at {address}")
-                    await self._connect_to_peer(name, addr_host, addr_port)
+                        addr_host, addr_port_str = address.rsplit(":", 1)
+                        addr_port = int(addr_port_str)
+                        log.info(f"Reconnecting to peer {name} at {address}")
+                        await self._connect_to_peer(name, addr_host, addr_port)
 
                 # P2: Check connection age — reconnect stale connections
                 now = time.time()

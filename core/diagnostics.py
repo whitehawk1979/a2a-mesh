@@ -282,7 +282,7 @@ class DiagnosticEngine:
                 "role": status.get("role", "unknown"),
                 "peer_count": connected_count,
                 "peers": peer_list,
-                "transports": status.get("transports", {}),
+                "transports": self._sanitize_transport_latencies(status.get("transports", {})),
                 "delegations_active": status.get("delegations", {}).get("active", 0),
                 "delegations_completed": status.get("delegations", {}).get("completed", 0),
                 "delegations_failed": status.get("delegations", {}).get("failed", 0),
@@ -290,6 +290,38 @@ class DiagnosticEngine:
         except Exception as e:
             return {"error": str(e)}
     
+
+    @staticmethod
+    def _sanitize_transport_latencies(transports: dict) -> dict:
+        """Clamp negative latency values to 0 (clock skew protection).
+        
+        P2P ACK-based RTT measurement uses (local_time - remote_timestamp).
+        If clocks are not NTP-synchronized, this can produce negative values.
+        Clamp them to 0 to prevent nonsensical negative latency in reports.
+        """
+        sanitized = {}
+        for name, info in transports.items():
+            if isinstance(info, dict):
+                info = dict(info)  # shallow copy
+                lat = info.get("latency_ms")
+                if isinstance(lat, (int, float)) and lat < 0:
+                    log.warning(f"Transport {name} reported negative latency ({lat:.2f}ms) — "
+                                f"likely clock skew. Clamping to 0.")
+                    info["latency_ms"] = 0.0
+                # Also sanitize per-peer RTT if present
+                peers = info.get("peers")
+                if isinstance(peers, list):
+                    info["peers"] = peers  # no modification needed for list of names
+                elif isinstance(peers, dict):
+                    for pname, pdata in peers.items():
+                        if isinstance(pdata, dict):
+                            rtt = pdata.get("rtt_ms")
+                            if isinstance(rtt, (int, float)) and rtt < 0:
+                                log.warning(f"Peer {pname} RTT negative ({rtt:.2f}ms) — clamping to 0")
+                                pdata["rtt_ms"] = 0.0
+            sanitized[name] = info
+        return sanitized
+
     def _collect_performance(self) -> Dict[str, Any]:
         """Collect performance metrics."""
         sample = {

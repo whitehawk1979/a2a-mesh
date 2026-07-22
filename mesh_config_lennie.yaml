@@ -15,7 +15,7 @@ mesh:
   health_port: 8650
   transports:
     pg_notify:
-      host: 192.168.1.30
+      host: 100.65.232.47
       port: 5432
       dbname: agent_memory
       user: nova
@@ -34,8 +34,8 @@ mesh:
       idle_timeout: 300
       tls_enabled: false
     http:
-      url: http://192.168.1.30:8199
-      health_url: http://192.168.1.30:8198/health
+      url: http://100.65.232.47:8199
+      health_url: http://100.65.232.47:8198/health
       timeout: 5
       retries: 3
   discovery:
@@ -46,17 +46,12 @@ mesh:
     static:
       nodes:
       - name: nova
-        ip: 192.168.1.8
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: nova
         ip: 100.75.253.52
         p2p_port: 8645
         health_port: 8650
         transport: p2p
-      - name: morzsa
-        ip: 192.168.1.30
+      - name: nova
+        ip: 192.168.1.8
         p2p_port: 8645
         health_port: 8650
         transport: p2p
@@ -65,8 +60,8 @@ mesh:
         p2p_port: 8645
         health_port: 8650
         transport: p2p
-      - name: runa
-        ip: 192.168.1.100
+      - name: morzsa
+        ip: 192.168.1.30
         p2p_port: 8645
         health_port: 8650
         transport: p2p
@@ -75,13 +70,18 @@ mesh:
         p2p_port: 8645
         health_port: 8650
         transport: p2p
-      - name: lennie
-        ip: 192.168.1.15
+      - name: runa
+        ip: 192.168.1.100
         p2p_port: 8645
         health_port: 8650
         transport: p2p
       - name: lennie
         ip: 100.121.92.95
+        p2p_port: 8645
+        health_port: 8650
+        transport: p2p
+      - name: lennie
+        ip: 192.168.1.15
         p2p_port: 8645
         health_port: 8650
         transport: p2p
@@ -161,3 +161,9 @@ diagnostic:
   include_mesh_health: true
   include_performance: true
   include_config_suggestions: true
+resource_limits:
+  memory_max_mb: 128
+  memory_soft_mb: 96
+  nice: 5
+  open_files: null
+  cpu_time_seconds: null
