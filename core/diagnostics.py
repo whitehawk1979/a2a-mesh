@@ -131,7 +131,7 @@ class DiagnosticEngine:
             log.info("🔍 Diagnostics engine stopped")
     
     async def _periodic_report_loop(self):
-        """Periodically generate diagnostic reports."""
+        """Periodically generate diagnostic reports and auto-suggestions."""
         while True:
             try:
                 await asyncio.sleep(self.config.report_interval)
@@ -139,6 +139,11 @@ class DiagnosticEngine:
                 if report:
                     self._store_report(report)
                     await self._broadcast_report(report)
+                    # Auto-generate suggestions from report data
+                    try:
+                        await self._generate_suggestions_from_report(report)
+                    except Exception as e:
+                        log.warning(f"Failed to auto-generate suggestions: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -378,6 +383,239 @@ class DiagnosticEngine:
                 recs.append(f"{failed} failed delegations — check agent capabilities and LLM availability")
         
         return recs
+    
+    async def _generate_suggestions_from_report(self, report: DiagnosticReport) -> List[ConfigSuggestion]:
+        """Automatically generate config suggestions based on diagnostic report data.
+        
+        Each agent analyzes its own report and creates actionable suggestions
+        that appear in the dashboard with status tracking (pending/accepted/rejected/implemented).
+        """
+        new_suggestions = []
+        node_name = report.node
+        
+        # Helper: check if similar suggestion already exists to avoid duplicates
+        def _suggestion_exists(title_substring: str) -> bool:
+            return any(title_substring.lower() in s.title.lower() 
+                       for s in self._suggestions)
+        
+        # ─── Memory suggestions ────────────────────────────────────
+        mem = report.memory_stats
+        if mem:
+            sys_mem = mem.get("system_memory_percent", 0)
+            if sys_mem > 90 and not _suggestion_exists("memóriahasználat"):
+                s = await self.generate_suggestion(
+                    category="memory",
+                    priority="critical",
+                    title=f"Kritikus memóriahasználat ({sys_mem:.0f}%) — OOM kockázat",
+                    description=f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, ami OOM kill kockázatot jelent. Az agent processzek memóriafogyasztásának csökkentése vagy a rendszer memóriabővítése javasolt.",
+                    current_value=f"{sys_mem:.1f}%",
+                    suggested_value="<85%",
+                    rationale="OOM kill esetén az agent nem válaszol, a mesh instabillá válik, és adatvesztés történhet.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+            elif sys_mem > 80 and not _suggestion_exists("memóriahasználat"):
+                s = await self.generate_suggestion(
+                    category="memory",
+                    priority="high",
+                    title=f"Magas memóriahasználat ({sys_mem:.0f}%)",
+                    description=f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%. Ha a trend folytatódik, OOM kockázat léphet fel.",
+                    current_value=f"{sys_mem:.1f}%",
+                    suggested_value="<75%",
+                    rationale="A magas memóriahasználat ronthatja a teljesítményt és OOM kill-hez vezethet.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+            
+            rss = mem.get("process_rss_mb", 0)
+            if rss > 500 and not _suggestion_exists("RSS memória"):
+                s = await self.generate_suggestion(
+                    category="memory",
+                    priority="high",
+                    title=f"Magas RSS memória ({rss:.0f}MB) — lehetséges memóriaszivárgás",
+                    description=f"A {node_name} agent folyamata {rss:.0f}MB RSS memóriát használ. Ez memóriaszivárgásra utalhat.",
+                    current_value=f"{rss:.0f}MB",
+                    suggested_value="<400MB",
+                    rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Az agent újraindítása ideiglenesen megoldja, de a root cause vizsgálata szükséges.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        # ─── CPU suggestions ────────────────────────────────────────
+        if mem:
+            cpu = mem.get("system_cpu_percent", 0)
+            if cpu > 90 and not _suggestion_exists("CPU használat"):
+                s = await self.generate_suggestion(
+                    category="performance",
+                    priority="critical",
+                    title=f"Kritikus CPU használat ({cpu:.0f}%)",
+                    description=f"A {node_name} node CPU használata {cpu:.0f}%. Ez a mesh késleltetését és a válaszidő romlását okozza.",
+                    current_value=f"{cpu:.0f}%",
+                    suggested_value="<75%",
+                    rationale="A magas CPU használat lassítja az üzenetfeldolgozást, növeli a hálózati késleltetést, és ronthatja az agent válaszainak minőségét.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+            elif cpu > 75 and not _suggestion_exists("CPU használat"):
+                s = await self.generate_suggestion(
+                    category="performance",
+                    priority="medium",
+                    title=f"Magas CPU használat ({cpu:.0f}%)",
+                    description=f"A {node_name} node CPU használata {cpu:.0f}%. Ha tartósan magas, érdemes vizsgálni a CPU-igényes folyamatokat.",
+                    current_value=f"{cpu:.0f}%",
+                    suggested_value="<60%",
+                    rationale="A tartósan magas CPU használat ronthatja az agent válaszidejét.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        # ─── Disk suggestions ────────────────────────────────────────
+        if mem:
+            disk = mem.get("disk_usage_percent", 0)
+            if disk > 90 and not _suggestion_exists("lemezterület"):
+                s = await self.generate_suggestion(
+                    category="storage",
+                    priority="critical",
+                    title=f"Kritikus lemezterület ({disk:.0f}%)",
+                    description=f"A {node_name} node lemezterülete {disk:.0f}% használt. Ha elfogy a hely, a node leállhat.",
+                    current_value=f"{disk:.0f}%",
+                    suggested_value="<80%",
+                    rationale="A lemezterület hiánya megakadályozza a naplózást, az adatbázis működést és a fájlműveleteket.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+            elif disk > 80 and not _suggestion_exists("lemezterület"):
+                s = await self.generate_suggestion(
+                    category="storage",
+                    priority="medium",
+                    title=f"Magas lemezterület használat ({disk:.0f}%)",
+                    description=f"A {node_name} node lemezterülete {disk:.0f}% használt. Érdemes tisztítani a régi fájlokat.",
+                    current_value=f"{disk:.0f}%",
+                    suggested_value="<70%",
+                    rationale="A közelgő lemezterület hiány megakadályozhatja a normál működést.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        # ─── Mesh connectivity suggestions ──────────────────────────
+        health = report.mesh_health
+        if health:
+            peers = health.get("peer_count", 0)
+            if peers == 0 and not _suggestion_exists("peer csatlakozás"):
+                s = await self.generate_suggestion(
+                    category="network",
+                    priority="critical",
+                    title="Nincs peer csatlakozva — izolált node",
+                    description=f"A {node_name} node nem csatlakozott egyetlen peer-hez sem. A mesh kommunikáció megszakadhat.",
+                    current_value="0 peer",
+                    suggested_value="≥2 peer",
+                    rationale="Izolált node nem tud delegálni, üzeneteket küldeni vagy fogadni. A hálózati konfiguráció ellenőrzése szükséges.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+            elif peers == 1 and not _suggestion_exists("peer csatlakozás"):
+                s = await self.generate_suggestion(
+                    category="network",
+                    priority="medium",
+                    title=f"Csak {peers} peer csatlakozva — alacsony mesh reziliencia",
+                    description=f"A {node_name} node csak {peers} peer-hez csatlakozik. Ha az a peer leáll, a node izolálódik.",
+                    current_value=f"{peers} peer",
+                    suggested_value="≥2 peer",
+                    rationale="A mesh reziliencia növelése érdekében legalább 2 peer ajánlott.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+            
+            # Transport suggestions
+            transports = health.get("transports", {})
+            if isinstance(transports, dict):
+                unavailable = [name for name, info in transports.items() 
+                               if isinstance(info, dict) and not info.get("available", True)]
+                if unavailable and not _suggestion_exists("transport"):
+                    s = await self.generate_suggestion(
+                        category="network",
+                        priority="high",
+                        title=f"Transport nem elérhető: {', '.join(unavailable)}",
+                        description=f"A {node_name} node-on a következő transportok nem elérhetők: {', '.join(unavailable)}. Ez korlátozza a mesh kommunikációt.",
+                        current_value=f"Elérhetetlen: {', '.join(unavailable)}",
+                        suggested_value="Minden transport elérhető",
+                        rationale="A nem elérhető transportok miatt a node csak korlátozottan tud kommunikálni. Hálózati beállítások ellenőrzése javasolt.",
+                        affected_nodes=[node_name],
+                    )
+                    new_suggestions.append(s)
+            
+            # Connection count
+            connections = mem.get("connections", 0) if mem else 0
+            if connections > 100 and not _suggestion_exists("kapcsolatszám"):
+                s = await self.generate_suggestion(
+                    category="network",
+                    priority="medium",
+                    title=f"Nagy kapcsolatszám ({connections})",
+                    description=f"A {node_name} node {connections} aktív kapcsolattal rendelkezik. Ez kapcsolatszivárgásra utalhat.",
+                    current_value=f"{connections} kapcsolat",
+                    suggested_value="<50 kapcsolat",
+                    rationale="A felesleges kapcsolatok erőforrásokat fogyasztanak és kapcsolatszivárgásra utalnak.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        # ─── Performance suggestions ────────────────────────────────
+        perf = report.performance
+        if perf:
+            queue_size = perf.get("message_queue_size", 0)
+            if queue_size > 50 and not _suggestion_exists("üzenetsor"):
+                s = await self.generate_suggestion(
+                    category="performance",
+                    priority="high",
+                    title=f"Nagy üzenetsor ({queue_size} üzenet)",
+                    description=f"A {node_name} node üzenetsora {queue_size} üzenetet tartalmaz. Ez feldolgozási késleltetést jelent.",
+                    current_value=f"{queue_size} üzenet",
+                    suggested_value="<10 üzenet",
+                    rationale="A nagy üzenetsor késleltetést okoz a mesh kommunikációban. A feldolgozás gyorsítása vagy a terhelés csökkentése javasolt.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        # ─── Error suggestions ──────────────────────────────────────
+        errs = report.error_patterns
+        if errs:
+            total = errs.get("total_errors", 0)
+            if total > 10 and not _suggestion_exists("hibaszám"):
+                # Find most common error
+                error_counts = errs.get("error_counts", {})
+                top_error = max(error_counts.items(), key=lambda x: x[1]) if error_counts else ("ismeretlen", total)
+                s = await self.generate_suggestion(
+                    category="stability",
+                    priority="high" if total > 50 else "medium",
+                    title=f"Magas hibaszám ({total} hiba)",
+                    description=f"A {node_name} node {total} hibát észlelt. A leggyakoribb hiba: '{top_error[0]}' ({top_error[1]} előfordulás).",
+                    current_value=f"{total} hiba",
+                    suggested_value="0 hiba",
+                    rationale=f"A magas hibaszám instabilitást jelez. A leggyakoribb hiba ('{top_error[0]}') root cause vizsgálata javasolt.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        # ─── Delegation suggestions ─────────────────────────────────
+        if health:
+            failed = health.get("delegations_failed", 0)
+            if failed > 3 and not _suggestion_exists("delegáció"):
+                s = await self.generate_suggestion(
+                    category="delegation",
+                    priority="medium",
+                    title=f"Sikertelen delegációk ({failed})",
+                    description=f"A {node_name} node {failed} sikertelen delegációt észlelt. A cél agentek LLM elérhetősége vagy képességei ellenőrizendők.",
+                    current_value=f"{failed} sikertelen",
+                    suggested_value="0 sikertelen",
+                    rationale="A sikertelen delegációk rontják a mesh együttműködési képességét.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+        
+        if new_suggestions:
+            log.info(f"💡 Generated {len(new_suggestions)} auto-suggestions from report {report.report_id}")
+        
+        return new_suggestions
     
     def _assess_severity(self, report: DiagnosticReport) -> str:
         """Assess overall severity of the report."""

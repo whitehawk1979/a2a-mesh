@@ -4728,6 +4728,11 @@ class DashboardHandler:
         if report:
             diagnostics._store_report(report)
             await diagnostics._broadcast_report(report)
+            # Auto-generate suggestions from on-demand report
+            try:
+                await diagnostics._generate_suggestions_from_report(report)
+            except Exception as e:
+                log.warning(f"Failed to auto-generate suggestions from on-demand report: {e}")
             return web.json_response(report.to_dict(), status=201)
         return web.json_response({"error": "Failed to generate report"}, status=500)
 
