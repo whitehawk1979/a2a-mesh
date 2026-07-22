@@ -46,7 +46,22 @@ class DiagnosticReport:
     recommendations: List[str] = field(default_factory=list)
     
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # Replace Infinity/NaN values (invalid in JSON)
+        def _sanitize(obj):
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
+            if isinstance(obj, float):
+                if obj != obj:  # NaN
+                    return 0
+                if obj == float('inf'):
+                    return 1e18
+                if obj == float('-inf'):
+                    return -1e18
+            return obj
+        return _sanitize(d)
     
     @classmethod
     def from_dict(cls, d: dict) -> "DiagnosticReport":
