@@ -242,10 +242,22 @@ class DiagnosticEngine:
                 if isinstance(p2p_peers, list) and not peer_list:
                     peer_list = [{"name": name, "status": "connected", "version": "?"} for name in p2p_peers]
             
+            # Uptime: prefer status value, fallback to _start_time calculation
+            uptime_val = status.get("uptime", 0)
+            if uptime_val == 0 and hasattr(self.node, '_start_time') and self.node._start_time:
+                uptime_val = int(time.time() - self.node._start_time)
+            
+            # Version: prefer _resolved_version, fallback to config
+            version_val = getattr(self.node, '_resolved_version', None)
+            if not version_val or version_val == 'unknown':
+                version_val = getattr(self.node.config, '_resolve_version', lambda: 'unknown')()
+                if not version_val:
+                    version_val = 'unknown'
+            
             return {
                 "node_name": self.node.config.node_name,
-                "uptime_seconds": status.get("uptime", 0),
-                "version": getattr(self.node, '_resolved_version', 'unknown'),
+                "uptime_seconds": uptime_val,
+                "version": version_val,
                 "role": status.get("role", "unknown"),
                 "peer_count": connected_count,
                 "peers": peer_list,
@@ -330,8 +342,21 @@ class DiagnosticEngine:
         health = report.mesh_health
         if health:
             peers = health.get("peer_count", 0)
-            if peers < 2:
-                recs.append(f"Only {peers} peers connected — check network connectivity")
+            if peers == 0:
+                recs.append("No peers connected — node is isolated, check P2P transport and network connectivity")
+            elif peers < 2:
+                recs.append(f"Only {peers} peer(s) connected — mesh resilience is low, check network connectivity")
+            
+            # Check transport availability
+            transports = health.get("transports", {})
+            if isinstance(transports, dict):
+                unavailable = [name for name, info in transports.items() 
+                               if isinstance(info, dict) and not info.get("available", True)]
+                if len(unavailable) == len(transports) and transports:
+                    recs.append(f"All transports unavailable ({', '.join(unavailable)}) — node cannot communicate")
+                elif unavailable:
+                    recs.append(f"Transport(s) unavailable: {', '.join(unavailable)} — check connectivity")
+            
             failed = health.get("delegations_failed", 0)
             if failed > 5:
                 recs.append(f"{failed} failed delegations — check agent capabilities and LLM availability")
@@ -348,6 +373,19 @@ class DiagnosticEngine:
                 return "critical"
             if rss > 500 or sys_mem > 85:
                 return "warning"
+        
+        # Isolated node (0 peers) = warning
+        health = report.mesh_health
+        if health:
+            peers = health.get("peer_count", 0)
+            transports = health.get("transports", {})
+            all_down = (isinstance(transports, dict) and 
+                       all(not info.get("available", True) for info in transports.values() 
+                           if isinstance(info, dict)) and transports)
+            if peers == 0 and all_down:
+                return "critical"  # Node is completely isolated
+            if peers == 0:
+                return "warning"  # No peers but some transports available
         
         errs = report.error_patterns
         if errs and errs.get("total_errors", 0) > 20:
