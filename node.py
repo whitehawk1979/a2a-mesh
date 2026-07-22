@@ -2598,8 +2598,8 @@ echo "Status: ok"
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
-                                # regardless of priority level (file_transfer, memory_sync)
-                                if msg.type in ("file_transfer", "memory_sync"):
+                                # regardless of priority level (file_transfer, memory_sync, diagnostic)
+                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion"):
                                     log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:
