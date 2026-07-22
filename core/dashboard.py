@@ -4137,7 +4137,9 @@ class DashboardHandler:
                     file_rows.append(ef)
             if not file_rows:
                 return web.json_response({"files": [], "message": "No files attached"})
-            # Helper: decode file content
+            # Helper: decode file content — returns (decoded_content, is_binary, raw_bytes)
+            # For text files: (str, False, None)
+            # For binary files: (None, True, bytes)
             def decode_file(f):
                 fd = dict(f)
                 for k, v in fd.items():
@@ -4145,33 +4147,79 @@ class DashboardHandler:
                         fd[k] = str(v)
                     elif hasattr(v, 'isoformat'):
                         fd[k] = v.isoformat()
-                raw = fd.get("content", "")
-                if fd.get("encoding") == "base64" and raw:
-                    try:
-                        raw = base64.b64decode(raw).decode("utf-8")
-                    except Exception:
-                        try:
-                            raw = base64.b64decode(raw).decode("latin-1")
-                        except Exception:
-                            raw = base64.b64decode(raw).decode("utf-8", errors="replace")
-                fd["content"] = raw
-                # Fix filename: if .txt but content starts with ```python, change to .py
+                raw_b64 = fd.get("content", "")
                 fn = fd.get("filename", "result.txt")
-                if fn.endswith(".txt") and raw.strip().startswith("```python"):
-                    fn = fn[:-4] + ".py"
-                    fd["filename"] = fn
-                    fd["content_type"] = "text/x-python"
-                elif fn.endswith(".txt") and raw.strip().startswith("<!DOCTYPE") or raw.strip().startswith("<html"):
-                    fn = fn[:-4] + ".html"
-                    fd["filename"] = fn
-                    fd["content_type"] = "text/html"
-                # Strip code fences
-                if raw.strip().startswith("```python"):
-                    fd["content"] = "\n".join(raw.strip().split("\n")[1:-1]) if raw.strip().endswith("```") else raw.strip()[len("```python"):]
-                    if fd["content"].endswith("```"):
-                        fd["content"] = fd["content"][:-3]
-                elif raw.strip().startswith("```") and raw.strip().endswith("```"):
-                    fd["content"] = raw.strip()[3:-3]
+                # Determine if this is a binary file type
+                _BINARY_EXTS = {".pptx", ".xlsx", ".docx", ".pdf", ".png", ".jpg", ".jpeg",
+                                ".gif", ".webp", ".ico", ".zip", ".tar", ".gz", ".rar",
+                                ".mp3", ".wav", ".mp4", ".avi", ".mkv", ".sqlite", ".db",
+                                ".odt", ".ods", ".odp", ".rtf", ".psd", ".tiff", ".bmp"}
+                _, fext = os.path.splitext(fn) if 'os' in dir() else (None, fn[fn.rfind('.'):].lower() if '.' in fn else '')
+                fext_lower = fext.lower() if fext else ''
+                is_binary = fext_lower in _BINARY_EXTS
+
+                if fd.get("encoding") == "base64" and raw_b64:
+                    try:
+                        raw_bytes = base64.b64decode(raw_b64)
+                    except Exception:
+                        raw_bytes = raw_b64.encode("utf-8", errors="replace")
+
+                    if is_binary:
+                        # Keep as binary — don't try to decode
+                        fd["content"] = None  # text content not applicable
+                        fd["_raw_bytes"] = raw_bytes
+                        fd["_is_binary"] = True
+                    else:
+                        # Text file — try to decode
+                        try:
+                            text = raw_bytes.decode("utf-8")
+                        except UnicodeDecodeError:
+                            # Check for null bytes — treat as binary
+                            if b"\x00" in raw_bytes:
+                                fd["content"] = None
+                                fd["_raw_bytes"] = raw_bytes
+                                fd["_is_binary"] = True
+                            else:
+                                try:
+                                    text = raw_bytes.decode("latin-1")
+                                except Exception:
+                                    text = raw_bytes.decode("utf-8", errors="replace")
+                                fd["content"] = text
+                                fd["_is_binary"] = False
+                        else:
+                            fd["content"] = text
+                            fd["_is_binary"] = False
+                else:
+                    # Not base64 — plain text content
+                    raw = raw_b64
+                    # Check for null bytes
+                    if "\x00" in raw:
+                        fd["content"] = None
+                        fd["_raw_bytes"] = raw.encode("utf-8", errors="replace")
+                        fd["_is_binary"] = True
+                    else:
+                        fd["content"] = raw
+                        fd["_is_binary"] = False
+
+                # Fix filename: if .txt but content suggests otherwise
+                if not fd.get("_is_binary", False) and fd.get("content"):
+                    text_content = fd["content"]
+                    if fn.endswith(".txt"):
+                        if text_content.strip().startswith("```python"):
+                            fn = fn[:-4] + ".py"
+                            fd["filename"] = fn
+                            fd["content_type"] = "text/x-python"
+                        elif text_content.strip().startswith("<!DOCTYPE") or text_content.strip().startswith("<html"):
+                            fn = fn[:-4] + ".html"
+                            fd["filename"] = fn
+                            fd["content_type"] = "text/html"
+                    # Strip code fences
+                    if text_content.strip().startswith("```python"):
+                        fd["content"] = "\n".join(text_content.strip().split("\n")[1:-1]) if text_content.strip().endswith("```") else text_content.strip()[len("```python"):]
+                        if fd["content"].endswith("```"):
+                            fd["content"] = fd["content"][:-3]
+                    elif text_content.strip().startswith("```") and text_content.strip().endswith("```"):
+                        fd["content"] = text_content.strip()[3:-3]
                 return fd
 
             # Specific file download by file_id
@@ -4179,11 +4227,22 @@ class DashboardHandler:
                 for f in file_rows:
                     if str(f["id"]) == file_id_param:
                         fd = decode_file(f)
-                        return web.Response(
-                            text=fd["content"],
-                            content_type=fd.get("content_type", "text/plain"),
-                            headers={"Content-Disposition": f'attachment; filename="{fd.get("filename", "result.txt")}"'},
-                        )
+                        filename = fd.get("filename", "result.txt")
+                        content_type = fd.get("content_type", "application/octet-stream")
+                        if fd.get("_is_binary", False):
+                            # Binary file — send raw bytes
+                            return web.Response(
+                                body=fd["_raw_bytes"],
+                                content_type=content_type,
+                                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                            )
+                        else:
+                            # Text file — send as text
+                            return web.Response(
+                                text=fd.get("content", ""),
+                                content_type=content_type,
+                                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                            )
                 return web.json_response({"error": "File not found"}, status=404)
 
             # ZIP download of all files
@@ -4192,8 +4251,11 @@ class DashboardHandler:
                 with zipfile.ZipFile(zip_buf, 'w', zipfile.ZIP_DEFLATED) as zf:
                     for f in file_rows:
                         fd = decode_file(f)
-                        content_bytes = fd["content"].encode("utf-8")
-                        zf.writestr(fd["filename"], content_bytes)
+                        if fd.get("_is_binary", False):
+                            zf.writestr(fd.get("filename", "file"), fd["_raw_bytes"])
+                        else:
+                            content_bytes = (fd.get("content") or "").encode("utf-8")
+                            zf.writestr(fd.get("filename", "file"), content_bytes)
                 zip_buf.seek(0)
                 safe_subject = "".join(c if c.isalnum() or c in "- _" else "_" for c in subject)[:40]
                 return web.Response(
@@ -4205,25 +4267,41 @@ class DashboardHandler:
             # Single file download (backward compat)
             if download and len(file_rows) == 1:
                 fd = decode_file(file_rows[0])
-                return web.Response(
-                    text=fd["content"],
-                    content_type=fd.get("content_type", "text/plain"),
-                    headers={"Content-Disposition": f'attachment; filename="{fd.get("filename", "result.txt")}"'},
-                )
+                filename = fd.get("filename", "result.txt")
+                content_type = fd.get("content_type", "application/octet-stream")
+                if fd.get("_is_binary", False):
+                    return web.Response(
+                        body=fd["_raw_bytes"],
+                        content_type=content_type,
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                    )
+                else:
+                    return web.Response(
+                        text=fd.get("content", ""),
+                        content_type=content_type,
+                        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+                    )
 
             # JSON listing of all files
             files_list = []
             for f in file_rows:
                 fd = decode_file(f)
-                # Don't include full content in listing (too large), just metadata
+                # For binary files, don't include content in listing
+                is_binary = fd.get("_is_binary", False)
+                content_preview = ""
+                if not is_binary and fd.get("content"):
+                    content_preview = fd["content"][:500]
+                elif is_binary:
+                    content_preview = f"[Binary file — {fd.get('content_type', 'application/octet-stream')}]"
                 files_list.append({
                     "id": fd["id"],
-                    "filename": fd["filename"],
+                    "filename": fd.get("filename", "result.txt"),
                     "content_type": fd.get("content_type", "text/plain"),
-                    "file_size": fd.get("file_size", len(fd["content"])),
+                    "file_size": fd.get("file_size", len(fd.get("_raw_bytes", b"")) if is_binary else len(fd.get("content", "") or "")),
+                    "is_binary": is_binary,
                     "description": fd.get("description", ""),
                     "created_at": fd.get("created_at", ""),
-                    "preview": fd["content"][:500] if fd["content"] else "",
+                    "preview": content_preview,
                 })
             return web.json_response({"files": files_list, "count": len(files_list)})
         except Exception as e:

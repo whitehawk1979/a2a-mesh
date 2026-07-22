@@ -1116,12 +1116,169 @@ echo "Status: ok"
         except Exception:
             save_path = ""
 
-        return {
-            "result": f"[{node}] Generated {lang} code for '{task_summary[:50]}' at {now.isoformat()}",
-            "files": [{"filename": f"generated_{lang}_{node}_{now.strftime('%Y%m%d_%H%M%S')}.{lang}",
+        # ── Auto-execute Python/bash scripts ──
+        execution_result = None
+        execution_error = None
+        result_files = []
+
+        if lang in ("python", "bash") and save_path:
+            import subprocess as _sp
+            import os as _os
+            import time as _time
+
+            # Record timestamp BEFORE execution to find new files
+            pre_exec_time = _time.time()
+
+            # Determine correct extension and script path
+            ext = ".py" if lang == "python" else ".sh"
+            script_path = f"/tmp/a2a_task_{node}_{now.strftime('%Y%m%d_%H%M%S')}{ext}"
+            try:
+                with open(script_path, "w", encoding="utf-8") as f:
+                    f.write(code)
+                if lang == "bash":
+                    _os.chmod(script_path, 0o755)
+            except Exception:
+                script_path = save_path
+
+            try:
+                if lang == "python":
+                    venv_python = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/.venv/bin/python")
+                    python_bin = venv_python if _os.path.exists(venv_python) else "python3"
+                    proc = _sp.run([python_bin, script_path], capture_output=True, text=True, timeout=120, cwd="/tmp")
+                else:  # bash
+                    proc = _sp.run(["bash", script_path], capture_output=True, text=True, timeout=60, cwd="/tmp")
+
+                execution_result = proc.stdout[:5000] if proc.stdout else ""
+                if proc.returncode != 0:
+                    execution_error = proc.stderr[:2000] if proc.stderr else f"Exit code: {proc.returncode}"
+                    log.warning(f"Auto-execution of {script_path} failed: {execution_error[:200]}")
+                else:
+                    log.info(f"Auto-execution of {script_path} succeeded, output: {execution_result[:200]}")
+            except _sp.TimeoutExpired:
+                execution_error = f"Execution timed out after {120 if lang == 'python' else 60}s"
+                execution_result = ""
+            except Exception as exec_err:
+                execution_error = str(exec_err)[:500]
+                execution_result = ""
+
+            # ── Collect ALL new files created by the script ──
+            # Scan /tmp for any file modified/created after script start
+            try:
+                import base64 as _b64
+                # MIME type mapping for common extensions
+                _MIME_MAP = {
+                    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg", ".gif": "image/gif", ".svg": "image/svg+xml",
+                    ".webp": "image/webp", ".ico": "image/x-icon",
+                    ".html": "text/html", ".css": "text/css", ".js": "application/javascript",
+                    ".json": "application/json", ".xml": "application/xml",
+                    ".csv": "text/csv", ".txt": "text/plain", ".md": "text/markdown",
+                    ".py": "text/x-python", ".sh": "application/x-sh",
+                    ".zip": "application/zip", ".tar": "application/x-tar",
+                    ".gz": "application/gzip", ".rar": "application/vnd.rar",
+                    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".mp4": "video/mp4",
+                    ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
+                }
+                _BINARY_EXTS = {".pptx", ".xlsx", ".docx", ".pdf", ".png", ".jpg", ".jpeg",
+                                ".gif", ".webp", ".ico", ".zip", ".tar", ".gz", ".rar",
+                                ".mp3", ".wav", ".mp4", ".avi", ".mkv", ".sqlite", ".db"}
+
+                for fname in _os.listdir("/tmp"):
+                    fpath = _os.path.join("/tmp", fname)
+                    try:
+                        st = _os.stat(fpath)
+                        # Only collect files created/modified AFTER script started
+                        if st.st_mtime < pre_exec_time:
+                            continue
+                        if st.st_size == 0 or st.st_size > 50_000_000:  # skip empty or >50MB
+                            continue
+                        # Skip the script itself and known temp/lock files
+                        if fname == _os.path.basename(script_path) or fname.startswith(".") or fname.endswith(".lock") or fname.endswith("~"):
+                            continue
+                    except (OSError, PermissionError):
+                        continue
+
+                    # Determine content type
+                    _, fext = _os.path.splitext(fname)
+                    fext_lower = fext.lower()
+                    content_type = _MIME_MAP.get(fext_lower, "application/octet-stream")
+                    is_binary = fext_lower in _BINARY_EXTS
+
+                    try:
+                        if is_binary:
+                            with open(fpath, "rb") as bf:
+                                raw = bf.read()
+                            content = _b64.b64encode(raw).decode("ascii")
+                            result_files.append({
+                                "filename": fname,
+                                "content_type": content_type,
+                                "content": content,
+                                "size": len(raw),
+                                "encoding": "base64",
+                            })
+                        else:
+                            with open(fpath, "r", encoding="utf-8", errors="replace") as tf:
+                                content = tf.read()
+                            # Auto-detect: if content has null bytes, treat as binary
+                            if "\x00" in content:
+                                with open(fpath, "rb") as bf:
+                                    raw = bf.read()
+                                content = _b64.b64encode(raw).decode("ascii")
+                                result_files.append({
+                                    "filename": fname,
+                                    "content_type": content_type,
+                                    "content": content,
+                                    "size": len(raw),
+                                    "encoding": "base64",
+                                })
+                            else:
+                                result_files.append({
+                                    "filename": fname,
+                                    "content_type": content_type,
+                                    "content": content,
+                                    "size": len(content.encode("utf-8")),
+                                })
+                        # Clean up output file
+                        try:
+                            _os.remove(fpath)
+                        except Exception:
+                            pass
+                    except Exception as file_err:
+                        log.warning(f"Failed to collect output file {fname}: {file_err}")
+            except Exception as scan_err:
+                log.warning(f"Output file scan failed: {scan_err}")
+
+            # Clean up script
+            try:
+                _os.remove(script_path)
+            except Exception:
+                pass
+
+        # Build result text
+        result_text = f"[{node}] Generated {lang} code for '{task_summary[:50]}' at {now.isoformat()}"
+        if execution_result is not None:
+            result_text += f"\n\n── Execution Output ──\n{execution_result}"
+            if execution_error:
+                result_text += f"\n\n── Execution Error ──\n{execution_error}"
+        elif execution_error:
+            result_text += f"\n\n── Execution Error ──\n{execution_error}"
+
+        # Build files list — source code + execution output files
+        files_list = [{"filename": f"generated_{lang}_{node}_{now.strftime('%Y%m%d_%H%M%S')}.{lang}",
                         "content_type": "text/plain", "content": code,
-                        "size": len(code.encode("utf-8"))}],
-            "context_updates": {"task_type": "code_generation", "language": lang, "save_path": save_path},
+                        "size": len(code.encode("utf-8"))}]
+        files_list.extend(result_files)
+
+        return {
+            "result": result_text,
+            "files": files_list,
+            "context_updates": {"task_type": "code_generation", "language": lang,
+                                "save_path": save_path,
+                                "auto_executed": execution_result is not None,
+                                "execution_ok": execution_error is None or execution_error == ""},
         }
 
     async def _task_network_check(self, node: str, now, desc_text: str) -> dict:
