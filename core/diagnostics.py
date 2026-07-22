@@ -753,6 +753,11 @@ class DiagnosticEngine:
                 return
             self._store_report(report)
             log.info(f"📊 Received diagnostic report from {source}: {report.report_id}")
+            # Auto-generate suggestions from received report
+            try:
+                await self._generate_suggestions_from_report(report)
+            except Exception as e:
+                log.warning(f"Failed to auto-generate suggestions from received report: {e}")
         
         elif msg_type == "config_suggestion":
             suggestion = ConfigSuggestion.from_dict(data)
