@@ -80,6 +80,7 @@ mesh:
       - a2a_steer_channel
       - delegation_channel
       - mesh_channel
+      - diagnostic_channel
     p2p:
       enabled: true
       listen_host: 0.0.0.0
