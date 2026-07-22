@@ -2800,6 +2800,7 @@ echo "Status: ok"
 
     async def _stats_update_loop(self):
         """Periodically update node stats in PG (messages sent/received, uptime)."""
+        import gc
         while self._running:
             try:
                 await asyncio.sleep(60)  # Update every 60s
@@ -2814,6 +2815,8 @@ echo "Status: ok"
                 await self._cleanup_old_messages(max_age_days=7)
                 # Cleanup old debug logs (retention: 7 days)
                 await self._cleanup_debug_logs(max_age_hours=168)
+                # Periodic garbage collection to prevent memory buildup
+                gc.collect()
             except asyncio.CancelledError:
                 break
             except Exception as e:

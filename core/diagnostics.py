@@ -404,6 +404,11 @@ class DiagnosticEngine:
     def record_error(self, error_type: str):
         """Record an error occurrence for pattern analysis."""
         self._error_counts[error_type] = self._error_counts.get(error_type, 0) + 1
+        # Keep only top 50 error types to prevent unbounded growth
+        if len(self._error_counts) > 50:
+            # Remove least frequent error types
+            sorted_errors = sorted(self._error_counts.items(), key=lambda x: x[1])
+            self._error_counts = dict(sorted_errors[25:])  # Keep top 25
     
     def get_reports(self, limit: int = 20, severity: Optional[str] = None) -> List[DiagnosticReport]:
         """Get stored diagnostic reports, optionally filtered by severity."""

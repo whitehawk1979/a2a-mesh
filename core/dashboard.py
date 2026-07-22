@@ -89,7 +89,8 @@ class DashboardHandler:
         self.rate_limiter = RateLimiter(max_requests=300, window_seconds=60)
         self._users: Dict[str, DashboardUser] = {}
         self._message_history: List[dict] = []
-        self._max_history = 200
+        self._max_history = 100
+        self._html_cache: Optional[str] = None  # Cached dashboard HTML
 
     def register_routes(self, app):
         """Register dashboard routes on an existing aiohttp app."""
@@ -3602,11 +3603,15 @@ class DashboardHandler:
             return web.Response(text="<h1>Topology page not found</h1>", status=404)
 
     def _load_html(self) -> str:
-        """Load the dashboard HTML page from external file."""
+        """Load the dashboard HTML page from external file (cached)."""
+        # Cache HTML in memory — avoid reading file every request
+        if self._html_cache is not None:
+            return self._html_cache
         html_path = os.path.join(os.path.dirname(__file__), "dashboard.html")
         try:
             with open(html_path, "r", encoding="utf-8") as f:
-                return f.read()
+                self._html_cache = f.read()
+                return self._html_cache
         except FileNotFoundError:
             log.warning(f"Dashboard HTML not found at {html_path}")
             return '<html><body><h1>A2A Mesh Dashboard</h1><p>HTML not found.</p></body></html>'
