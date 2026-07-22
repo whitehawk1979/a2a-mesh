@@ -82,6 +82,7 @@ class ConfigSuggestion:
     suggested_value: str = ""
     rationale: str = ""
     affected_nodes: List[str] = field(default_factory=list)
+    status: str = "pending"  # pending, accepted, rejected, implemented
     
     def to_dict(self) -> dict:
         return asdict(self)
@@ -511,6 +512,19 @@ class DiagnosticEngine:
         if category:
             suggestions = [s for s in suggestions if s.category == category]
         return suggestions[-limit:]
+    
+    def update_suggestion_status(self, suggestion_id: str, new_status: str) -> Optional[ConfigSuggestion]:
+        """Update the status of a suggestion (pending/accepted/rejected/implemented)."""
+        valid = {"pending", "accepted", "rejected", "implemented"}
+        if new_status not in valid:
+            return None
+        for s in self._suggestions:
+            if s.suggestion_id == suggestion_id:
+                old_status = s.status
+                s.status = new_status
+                log.info(f"📋 Suggestion {suggestion_id}: {old_status} → {new_status}")
+                return s
+        return None
     
     def get_status(self) -> Dict[str, Any]:
         """Get current diagnostic engine status."""

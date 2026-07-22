@@ -185,6 +185,7 @@ class DashboardHandler:
         app.router.add_get("/api/diagnostics/suggestions", self._api_diagnostic_suggestions)
         app.router.add_post("/api/diagnostics/report", self._api_diagnostic_report_generate)
         app.router.add_post("/api/diagnostics/suggest", self._api_diagnostic_suggest)
+        app.router.add_patch("/api/diagnostics/suggestions/{id}", self._api_diagnostic_suggestion_update)
         # Queue management endpoints
         app.router.add_post("/api/queue/flush", self._api_queue_flush)
         app.router.add_post("/api/queue/cleanup", self._api_queue_cleanup)
@@ -4756,3 +4757,23 @@ class DashboardHandler:
             priority=data.get("priority", "medium"),
         )
         return web.json_response(suggestion.to_dict(), status=201)
+
+    async def _api_diagnostic_suggestion_update(self, request):
+        """PATCH /api/diagnostics/suggestions/:id — Update suggestion status."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        diagnostics = getattr(self.node, 'diagnostics', None)
+        if not diagnostics:
+            return web.json_response({"error": "Diagnostics not available"}, status=503)
+        suggestion_id = request.match_info.get("id", "")
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        new_status = data.get("status", "")
+        result = diagnostics.update_suggestion_status(suggestion_id, new_status)
+        if result is None:
+            return web.json_response({"error": "Suggestion not found or invalid status"}, status=404)
+        return web.json_response(result.to_dict())
