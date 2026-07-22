@@ -1007,25 +1007,165 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
 
             # Detect language/extension from generated code
             ext = "txt"
+            lang = "python"
             if generated.strip().startswith("<!DOCTYPE") or generated.strip().startswith("<html"):
                 ext = "html"
+                lang = "html"
             elif generated.strip().startswith("#!/bin/bash") or generated.strip().startswith("#!/bin/sh"):
                 ext = "bash"
+                lang = "bash"
             elif generated.strip().startswith("#!/usr/bin/env python") or "import " in generated[:200]:
                 ext = "py"
+                lang = "python"
             elif "function " in generated[:200] or "const " in generated[:200] or "=>" in generated[:200]:
                 ext = "js"
+                lang = "javascript"
 
             filename = f"generated_{ext}_{node}_{now.strftime('%Y%m%d_%H%M%S')}.{ext}"
             log.info(f"[{node}] LLM generated {len(generated)} chars, saved as {filename}")
 
+            # ── Auto-execute Python/bash scripts ──
+            execution_result = None
+            execution_error = None
+            result_files = []
+
+            if lang in ("python", "bash"):
+                import subprocess as _sp
+                import os as _os
+                import time as _time
+                import base64 as _b64
+
+                pre_exec_time = _time.time()
+                script_ext = ".py" if lang == "python" else ".sh"
+                script_path = f"/tmp/a2a_task_{node}_{now.strftime('%Y%m%d_%H%M%S')}{script_ext}"
+                try:
+                    with open(script_path, "w", encoding="utf-8") as sf:
+                        sf.write(generated)
+                    if lang == "bash":
+                        _os.chmod(script_path, 0o755)
+                except Exception:
+                    script_path = None
+
+                if script_path:
+                    try:
+                        timeout_val = self.config.task.python_timeout if hasattr(self, 'config') and hasattr(self.config, 'task') else 120
+                        cwd_val = self.config.task.tmp_dir if hasattr(self, 'config') and hasattr(self.config, 'task') else "/tmp"
+                        if lang == "python":
+                            venv_python = _os.path.expanduser(self.config.task.venv_python) if hasattr(self, 'config') and hasattr(self.config, 'task') else _os.path.expanduser("~/.hermes/scripts/a2a_mesh/.venv/bin/python")
+                            python_bin = venv_python if _os.path.exists(venv_python) else "python3"
+                            proc = _sp.run([python_bin, script_path], capture_output=True, text=True, timeout=timeout_val, cwd=cwd_val)
+                        else:
+                            bash_timeout = self.config.task.bash_timeout if hasattr(self, 'config') and hasattr(self.config, 'task') else 60
+                            proc = _sp.run(["bash", script_path], capture_output=True, text=True, timeout=bash_timeout, cwd=cwd_val)
+
+                        max_output = self.config.task.max_output_chars if hasattr(self, 'config') and hasattr(self.config, 'task') else 5000
+                        max_error = self.config.task.max_error_chars if hasattr(self, 'config') and hasattr(self.config, 'task') else 2000
+                        execution_result = proc.stdout[:max_output] if proc.stdout else ""
+                        if proc.returncode != 0:
+                            execution_error = proc.stderr[:max_error] if proc.stderr else f"Exit code: {proc.returncode}"
+                            log.warning(f"[{node}] LLM auto-exec of {script_path} failed: {execution_error[:200]}")
+                        else:
+                            log.info(f"[{node}] LLM auto-exec of {script_path} succeeded, output: {execution_result[:200]}")
+                    except _sp.TimeoutExpired:
+                        execution_error = f"Execution timed out after {timeout_val if lang == 'python' else 60}s"
+                        execution_result = ""
+                    except Exception as exec_err:
+                        execution_error = str(exec_err)[:500]
+                        execution_result = ""
+
+                    # Collect ALL new files created by the script
+                    _MIME_MAP = {
+                        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg", ".gif": "image/gif", ".svg": "image/svg+xml",
+                        ".webp": "image/webp", ".html": "text/html", ".css": "text/css",
+                        ".js": "application/javascript", ".json": "application/json",
+                        ".csv": "text/csv", ".txt": "text/plain", ".md": "text/markdown",
+                        ".py": "text/x-python", ".zip": "application/zip",
+                    }
+                    _BINARY_EXTS = {".pptx", ".xlsx", ".docx", ".pdf", ".png", ".jpg", ".jpeg",
+                                    ".gif", ".webp", ".zip", ".tar", ".gz", ".rar",
+                                    ".mp3", ".wav", ".mp4", ".avi", ".mkv", ".sqlite", ".db"}
+                    max_file_size = self.config.task.max_file_size if hasattr(self, 'config') and hasattr(self.config, 'task') else 50_000_000
+
+                    script_basename = _os.path.basename(script_path)
+                    tmp_dir = self.config.task.tmp_dir if hasattr(self, 'config') and hasattr(self.config, 'task') else "/tmp"
+                    for fname in _os.listdir(tmp_dir):
+                        fpath = _os.path.join(tmp_dir, fname)
+                        try:
+                            st = _os.stat(fpath)
+                            if st.st_mtime < pre_exec_time or st.st_size == 0 or st.st_size > max_file_size:
+                                continue
+                            if fname == script_basename or fname.startswith(".") or fname.endswith((".lock", "~")):
+                                continue
+                        except (OSError, PermissionError):
+                            continue
+
+                        _, fext = _os.path.splitext(fname)
+                        fext_lower = fext.lower()
+                        content_type = _MIME_MAP.get(fext_lower, "application/octet-stream")
+                        is_binary = fext_lower in _BINARY_EXTS
+
+                        try:
+                            if is_binary:
+                                with open(fpath, "rb") as bf:
+                                    raw = bf.read()
+                                content = _b64.b64encode(raw).decode("ascii")
+                                result_files.append({
+                                    "filename": fname, "content_type": content_type,
+                                    "content": content, "size": len(raw), "encoding": "base64",
+                                })
+                            else:
+                                with open(fpath, "r", encoding="utf-8", errors="replace") as tf:
+                                    content = tf.read()
+                                if "\x00" in content:
+                                    with open(fpath, "rb") as bf:
+                                        raw = bf.read()
+                                    content = _b64.b64encode(raw).decode("ascii")
+                                    result_files.append({
+                                        "filename": fname, "content_type": content_type,
+                                        "content": content, "size": len(raw), "encoding": "base64",
+                                    })
+                                else:
+                                    result_files.append({
+                                        "filename": fname, "content_type": content_type,
+                                        "content": content, "size": len(content.encode("utf-8")),
+                                    })
+                            try:
+                                _os.remove(fpath)
+                            except Exception:
+                                pass
+                        except Exception as file_err:
+                            log.warning(f"[{node}] Failed to collect output file {fname}: {file_err}")
+
+                    # Clean up script
+                    try:
+                        _os.remove(script_path)
+                    except Exception:
+                        pass
+
+            # Build result text
+            result_text = f"[{node}] LLM ({model}) generated code for '{subject[:50]}' — {len(generated)} chars"
+            if execution_result is not None:
+                result_text += f"\n\n── Execution Output ──\n{execution_result}"
+                if execution_error:
+                    result_text += f"\n\n── Execution Error ──\n{execution_error}"
+            elif execution_error:
+                result_text += f"\n\n── Execution Error ──\n{execution_error}"
+
+            files_list = [{"filename": filename,
+                            "content_type": "text/plain", "content": generated,
+                            "size": len(generated.encode("utf-8"))}]
+            files_list.extend(result_files)
+
             return {
-                "result": f"[{node}] LLM ({model}) generated code for '{subject[:50]}' — {len(generated)} chars",
-                "files": [{"filename": filename,
-                            "content_type": "text/plain",
-                            "content": generated,
-                            "size": len(generated.encode("utf-8"))}],
-                "context_updates": {"task_type": "code_generation", "language": ext, "model": model, "llm": True},
+                "result": result_text,
+                "files": files_list,
+                "context_updates": {"task_type": "code_generation", "language": ext, "model": model, "llm": True,
+                                    "auto_executed": execution_result is not None,
+                                    "execution_ok": execution_error is None or execution_error == ""},
             }
         except Exception as e:
             log.warning(f"[{node}] LLM generation error: {e}")
