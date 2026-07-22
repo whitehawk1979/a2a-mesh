@@ -121,6 +121,20 @@ async def read_frame(reader) -> tuple:
     first_byte = await reader.readexactly(1)
     version_byte = first_byte[0]
     
+    # ── HTTP probe detection: drop non-mesh connections early ──
+    # Common HTTP methods: GET(47), POST(50), PUT(50), HEAD(48), OPTIONS(4F), CONNECT(43)
+    # These are port scanners/probes hitting the P2P port with HTTP requests
+    HTTP_PROBE_MARKERS = {0x47, 0x50, 0x48, 0x43}  # G, P, H, C (HTTP method starts)
+    if version_byte in HTTP_PROBE_MARKERS and version_byte != V1_MARKER:
+        # Read a few more bytes to confirm it's an HTTP probe
+        try:
+            peek = await reader.read(8)  # Read enough to identify HTTP method
+            probe_data = first_byte + peek
+            probe_str = probe_data.decode('ascii', errors='replace')[:16]
+        except Exception:
+            probe_str = first_byte.decode('ascii', errors='replace')
+        raise ValueError(f"HTTP probe rejected on P2P port: {probe_str!r}")
+    
     if version_byte == V1_MARKER:
         # v1 frame: [0x01][4-byte length][payload]
         length_data = await reader.readexactly(4)

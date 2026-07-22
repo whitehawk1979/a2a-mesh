@@ -432,7 +432,11 @@ class P2PTransport(TransportAdapter):
         except ConnectionResetError:
             log.debug(f"Connection reset by peer {peer_addr}")
         except Exception as e:
-            log.error(f"Connection error from {peer_addr}: {e}")
+            # Log HTTP probes at DEBUG (they're just port scanners)
+            if 'HTTP probe rejected' in str(e):
+                log.debug(f"HTTP probe from {peer_addr}: {e}")
+            else:
+                log.error(f"Connection error from {peer_addr}: {e}")
         finally:
             try:
                 writer.close()
