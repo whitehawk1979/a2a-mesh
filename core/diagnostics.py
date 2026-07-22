@@ -226,17 +226,29 @@ class DiagnosticEngine:
         """Collect mesh health information."""
         try:
             status = self.node.get_status()
-            peers = status.get("peers", [])
+            # Extract peer info from peer_discovery stats (get_status uses "peer_discovery" key)
+            peer_disc = status.get("peer_discovery", {})
+            connected_count = peer_disc.get("connected_peers", 0)
+            peers_dict = peer_disc.get("peers", {})
+            peer_list = [
+                {"name": name, "status": "available" if p.get("p2p_available") else "unavailable", "version": p.get("version", "?")}
+                for name, p in peers_dict.items()
+            ] if isinstance(peers_dict, dict) else []
+            
+            # Also try P2P transport for live peer info
+            p2p_info = status.get("p2p", {})
+            if isinstance(p2p_info, dict) and "peers" in p2p_info:
+                p2p_peers = p2p_info.get("peers", [])
+                if isinstance(p2p_peers, list) and not peer_list:
+                    peer_list = [{"name": name, "status": "connected", "version": "?"} for name in p2p_peers]
+            
             return {
                 "node_name": self.node.config.node_name,
-                "uptime_seconds": status.get("uptime_seconds", 0),
-                "version": status.get("version", "unknown"),
+                "uptime_seconds": status.get("uptime", 0),
+                "version": getattr(self.node, '_resolved_version', 'unknown'),
                 "role": status.get("role", "unknown"),
-                "peer_count": len(peers),
-                "peers": [
-                    {"name": p.get("name", "?"), "status": p.get("status", "?"), "version": p.get("version", "?")}
-                    for p in peers
-                ],
+                "peer_count": connected_count,
+                "peers": peer_list,
                 "transports": status.get("transports", {}),
                 "delegations_active": status.get("delegations", {}).get("active", 0),
                 "delegations_completed": status.get("delegations", {}).get("completed", 0),

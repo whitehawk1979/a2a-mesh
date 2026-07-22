@@ -14,6 +14,7 @@ import logging
 import os
 import signal
 import sys
+import resource
 import time
 from typing import Optional, Dict, List, Callable, Tuple
 
@@ -453,6 +454,69 @@ class MeshNode:
             except Exception as e:
                 log.error(f"Handler error: {e}")
 
+    def apply_resource_limits(self) -> None:
+        """Apply process-level resource limits from config (memory, nice, open files, etc.).
+        
+        Called early in start() to prevent OOM and control priority.
+        Silently skips any limits that require elevated privileges.
+        """
+        rl = self.config.resource_limits
+        if not rl:
+            return
+        
+        log.info(f"Applying resource limits: memory_max_mb={rl.memory_max_mb}, nice={rl.nice}, "
+                 f"open_files={rl.open_files}, cpu_time={rl.cpu_time_seconds}")
+        
+        # Memory limit (RLIMIT_AS — virtual memory, works on both Linux and macOS)
+        if rl.memory_max_mb is not None and rl.memory_max_mb > 0:
+            mem_bytes = rl.memory_max_mb * 1024 * 1024
+            mem_soft = (rl.memory_soft_mb * 1024 * 1024) if rl.memory_soft_mb else mem_bytes
+            try:
+                resource.setrlimit(resource.RLIMIT_AS, (mem_soft, mem_bytes))
+                log.info(f"  ✅ Memory limit set: soft={rl.memory_soft_mb or rl.memory_max_mb}MB, hard={rl.memory_max_mb}MB")
+            except (ValueError, OSError) as e:
+                # macOS may not support RLIMIT_AS; try RLIMIT_RSS as fallback
+                try:
+                    resource.setrlimit(resource.RLIMIT_RSS, (mem_soft, mem_bytes))
+                    log.info(f"  ✅ Memory limit set (RSS): soft={rl.memory_soft_mb or rl.memory_max_mb}MB, hard={rl.memory_max_mb}MB")
+                except (ValueError, OSError) as e2:
+                    log.warning(f"  ⚠️ Could not set memory limit: {e2}")
+        
+        # Nice (process priority) — requires no special privileges for positive values
+        if rl.nice is not None and rl.nice > 0:
+            try:
+                os.nice(rl.nice)
+                log.info(f"  ✅ Nice set to {rl.nice} (lower priority)")
+            except OSError as e:
+                log.warning(f"  ⚠️ Could not set nice to {rl.nice}: {e}")
+        
+        # Open file descriptors limit
+        if rl.open_files is not None and rl.open_files > 0:
+            try:
+                soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+                new_soft = min(rl.open_files, hard)
+                resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+                log.info(f"  ✅ Open files limit set: {new_soft} (hard={hard})")
+            except (ValueError, OSError) as e:
+                log.warning(f"  ⚠️ Could not set open files limit: {e}")
+        
+        # CPU time limit
+        if rl.cpu_time_seconds is not None and rl.cpu_time_seconds > 0:
+            try:
+                resource.setrlimit(resource.RLIMIT_CPU, (rl.cpu_time_seconds, rl.cpu_time_seconds))
+                log.info(f"  ✅ CPU time limit set: {rl.cpu_time_seconds}s")
+            except (ValueError, OSError) as e:
+                log.warning(f"  ⚠️ Could not set CPU time limit: {e}")
+        
+        # Core dump size (0 = no core dumps)
+        if rl.core_size_mb is not None:
+            core_bytes = rl.core_size_mb * 1024 * 1024
+            try:
+                resource.setrlimit(resource.RLIMIT_CORE, (core_bytes, core_bytes))
+                log.info(f"  ✅ Core dump limit set: {rl.core_size_mb}MB")
+            except (ValueError, OSError) as e:
+                log.warning(f"  ⚠️ Could not set core dump limit: {e}")
+
     async def start(self) -> bool:
         """Start all transports and discovery."""
         # Validate node_name
@@ -472,6 +536,9 @@ class MeshNode:
 
         log.info(f"Starting mesh node '{self.node_name}' (role={self.role.value})")
         self._start_time = time.time()
+
+        # Apply resource limits early (memory cap, nice, etc.)
+        self.apply_resource_limits()
 
         # Initialize direct PG connection for writes
         if not await self._init_pg_write_conn():

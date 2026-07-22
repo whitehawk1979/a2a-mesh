@@ -217,3 +217,11 @@ diagnostic:
   include_mesh_health: true
   include_performance: true
   include_config_suggestions: true
+
+resource_limits:
+  memory_max_mb: 256        # Hard memory limit (RLIMIT_AS) — OOM protection
+  memory_soft_mb: 192       # Soft memory limit — graceful warning before hard limit
+  nice: 5                   # Lower priority — reduce impact on other processes
+  open_files: null           # Keep system default
+  cpu_time_seconds: null     # No CPU time limit
+  core_size_mb: 0            # No core dumps

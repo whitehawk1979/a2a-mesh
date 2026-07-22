@@ -1,16 +1,18 @@
+# A2A Mesh Configuration — Runa node
+
 mesh:
-  node_name: lennie
-  node_id: ''
+  node_name: runa
+  node_id: ""
+  
   transport_priority:
-  - p2p
-  - pg_notify
-  - http
+    - p2p
+    - pg_notify
+    - http
+  
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
   telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
-  telegram_bot_token: ${A2A_TELEGRAM_BOT_TOKEN}
-  telegram_auto_image: true
-  log_file: a2a_mesh.log
+  log_file: ~/a2a_mesh/a2a_mesh.log
   auth_mode: open
   health_port: 8650
   transports:
@@ -25,7 +27,6 @@ mesh:
       - a2a_steer_channel
       - delegation_channel
       - mesh_channel
-      - diagnostic_channel
     p2p:
       enabled: true
       listen_host: 0.0.0.0
@@ -33,6 +34,7 @@ mesh:
       max_connections: 50
       idle_timeout: 300
       tls_enabled: false
+    
     http:
       url: http://192.168.1.30:8199
       health_url: http://192.168.1.30:8198/health
@@ -45,54 +47,22 @@ mesh:
       port: 8645
     static:
       nodes:
-      - name: nova
-        ip: 192.168.1.8
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: nova
-        ip: 100.75.253.52
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: morzsa
-        ip: 192.168.1.30
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: morzsa
-        ip: 100.65.232.47
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: runa
-        ip: 192.168.1.100
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: runa
-        ip: 100.125.223.24
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: lennie
-        ip: 192.168.1.15
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: lennie
-        ip: 100.121.92.95
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-  auto_update:
-    enabled: true
-    check_interval: 300
-    apply_automatically: true
-    gitea_url: http://192.168.1.100:3001
-    gitea_repo: nova/a2a-mesh
-    gitea_user: zsolt
-    gitea_pass: admin1234
+        - name: nova
+          ip: 192.168.1.8
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
+        - name: morzsa
+          ip: 192.168.1.30
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
+        - name: runa
+          ip: 192.168.1.100
+          p2p_port: 8645
+          health_port: 8650
+          transport: p2p
+  
   security:
     signing_key: ''
     trusted_keys: {}
@@ -113,9 +83,9 @@ mesh:
     critical_threshold: 900
     silent_on_success: true
   topology:
-    node_role: end_device
+    node_role: router
     routing_mode: hybrid
-    max_children: 5
+    max_children: 20
     max_routers: 6
     max_depth: 5
     trust_center_enabled: true
@@ -137,27 +107,18 @@ mesh:
     min_observations: 10
     cooldown: 600
     auto_apply: false
+
+# ── Plugins ──────────────────────────────────────────────────────
 plugins:
   task_dispatch:
     enabled: true
     max_concurrent_tasks: 5
     task_timeout_seconds: 300
     allowed_actions:
-    - shell
-    - scan
-    - status
-    - ping
-    - custom
+      - shell
+      - scan
+      - status
+      - ping
+      - custom
     require_confirmation_for:
-    - shell
-diagnostic:
-  enabled: true
-  report_interval: 300
-  max_reports_stored: 100
-  developer_nodes:
-  - nova
-  include_memory_stats: true
-  include_error_patterns: true
-  include_mesh_health: true
-  include_performance: true
-  include_config_suggestions: true
+      - shell

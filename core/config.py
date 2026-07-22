@@ -167,6 +167,23 @@ class DiagnosticConfig:
 
 
 @dataclass
+class ResourceLimitsConfig:
+    """Process-level resource limits applied at startup to prevent OOM and control priority.
+    
+    On Linux: uses setrlimit for memory and os.nice for priority.
+    On macOS: uses setrlimit for memory (soft limit only — hard limit requires privileges).
+    If values are 0/None, the limit is not applied (left at system default).
+    """
+    memory_max_mb: Optional[int] = None       # Max RSS in MB (RLIMIT_AS / RLIMIT_RSS). None = no limit.
+    memory_soft_mb: Optional[int] = None      # Soft memory limit in MB. None = same as memory_max_mb.
+    nice: Optional[int] = None                # Process niceness (0-19, higher = lower priority). None = no change.
+    open_files: Optional[int] = None          # Max open file descriptors (RLIMIT_NOFILE). None = no limit.
+    cpu_time_seconds: Optional[int] = None     # Max CPU time in seconds (RLIMIT_CPU). None = no limit.
+    core_size_mb: Optional[int] = 0            # Max core file size in MB (0 = no core). None = no limit.
+
+
+
+@dataclass
 class MeshConfig:
     """Full mesh configuration."""
     node_name: str = "nova"
@@ -281,6 +298,7 @@ class MeshConfig:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     topology: TopologyConfig = field(default_factory=TopologyConfig)
     auto_update: AutoUpdateConfig = field(default_factory=AutoUpdateConfig)
+    resource_limits: ResourceLimitsConfig = field(default_factory=ResourceLimitsConfig)
     task: TaskConfig = field(default_factory=TaskConfig)
 
     # Webhook config
@@ -491,6 +509,18 @@ class MeshConfig:
                 gitea_repo=au_data.get('gitea_repo', 'nova/a2a-mesh'),
                 gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'zsolt')),
                 gitea_pass=au_data.get('gitea_pass', os.environ.get('A2A_GITEA_PASS', 'admin1234')),
+            )
+
+        # Resource limits config — check top-level first, then mesh section
+        rl_data = data.get('resource_limits', {}) or mesh.get('resource_limits', {})
+        if rl_data:
+            config.resource_limits = ResourceLimitsConfig(
+                memory_max_mb=rl_data.get('memory_max_mb'),
+                memory_soft_mb=rl_data.get('memory_soft_mb'),
+                nice=rl_data.get('nice'),
+                open_files=rl_data.get('open_files'),
+                cpu_time_seconds=rl_data.get('cpu_time_seconds'),
+                core_size_mb=rl_data.get('core_size_mb', 0),
             )
 
         return config
