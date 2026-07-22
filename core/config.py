@@ -124,6 +124,17 @@ class TopologyConfig:
 
 
 @dataclass
+class TaskConfig:
+    """Configuration for task execution and file handling."""
+    python_timeout: int = 120       # seconds — Python script execution timeout
+    bash_timeout: int = 60          # seconds — Bash script execution timeout
+    max_output_chars: int = 5000     # max chars captured from stdout
+    max_error_chars: int = 2000      # max chars captured from stderr
+    max_file_size: int = 50_000_000  # 50MB — max file size to collect from /tmp
+    tmp_dir: str = "/tmp"            # directory to scan for output files
+    venv_python: str = "~/.hermes/scripts/a2a_mesh/.venv/bin/python"  # Python binary for task execution
+
+@dataclass
 class AutoUpdateConfig:
     """Auto-update configuration for checking and applying updates from Gitea."""
     enabled: bool = False
@@ -250,6 +261,7 @@ class MeshConfig:
     heartbeat: HeartbeatConfig = field(default_factory=HeartbeatConfig)
     topology: TopologyConfig = field(default_factory=TopologyConfig)
     auto_update: AutoUpdateConfig = field(default_factory=AutoUpdateConfig)
+    task: TaskConfig = field(default_factory=TaskConfig)
 
     # Webhook config
     webhook_port: int = 8644
