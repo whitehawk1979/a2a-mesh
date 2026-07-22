@@ -48,7 +48,7 @@ class PGTransport(TransportAdapter):
         self._running = False
         self._incoming_queue: asyncio.Queue = asyncio.Queue()
         self._channels = config.pg.channels if config else [
-            "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel"
+            "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel", "diagnostic_channel"
         ]
         self._reconnect_count = 0
         self._max_reconnects = 5

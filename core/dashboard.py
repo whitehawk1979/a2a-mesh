@@ -178,6 +178,12 @@ class DashboardHandler:
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
+        # Diagnostics endpoints
+        app.router.add_get("/api/diagnostics", self._api_diagnostics)
+        app.router.add_get("/api/diagnostics/reports", self._api_diagnostic_reports)
+        app.router.add_get("/api/diagnostics/suggestions", self._api_diagnostic_suggestions)
+        app.router.add_post("/api/diagnostics/report", self._api_diagnostic_report_generate)
+        app.router.add_post("/api/diagnostics/suggest", self._api_diagnostic_suggest)
         # Queue management endpoints
         app.router.add_post("/api/queue/flush", self._api_queue_flush)
         app.router.add_post("/api/queue/cleanup", self._api_queue_cleanup)
@@ -4641,3 +4647,107 @@ class DashboardHandler:
                 pass
         except Exception as e:
             log.warning(f"Telegram: image send error: {e}")
+
+    # ─── Diagnostics API ────────────────────────────────────────────────
+    async def _api_diagnostics(self, request):
+        """GET /api/diagnostics — Diagnostic engine status."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        diagnostics = getattr(self.node, 'diagnostics', None)
+        if not diagnostics:
+            return web.json_response({"error": "Diagnostics not available"}, status=503)
+        return web.json_response({
+            "status": diagnostics.get_status(),
+            "recent_reports": [
+                {"id": r.report_id, "node": r.node, "severity": r.severity, "summary": r.summary, "timestamp": r.timestamp}
+                for r in diagnostics.get_reports(limit=5)
+            ],
+            "recent_suggestions": [
+                {"id": s.suggestion_id, "node": s.node, "category": s.category, "priority": s.priority, "title": s.title, "timestamp": s.timestamp}
+                for s in diagnostics.get_suggestions(limit=5)
+            ],
+        })
+
+    async def _api_diagnostic_reports(self, request):
+        """GET /api/diagnostics/reports — List diagnostic reports."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        diagnostics = getattr(self.node, 'diagnostics', None)
+        if not diagnostics:
+            return web.json_response({"error": "Diagnostics not available"}, status=503)
+        limit = int(request.query.get("limit", "20"))
+        severity = request.query.get("severity")
+        reports = diagnostics.get_reports(limit=limit, severity=severity)
+        return web.json_response({
+            "count": len(reports),
+            "reports": [r.to_dict() for r in reports],
+        })
+
+    async def _api_diagnostic_suggestions(self, request):
+        """GET /api/diagnostics/suggestions — List config suggestions."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        diagnostics = getattr(self.node, 'diagnostics', None)
+        if not diagnostics:
+            return web.json_response({"error": "Diagnostics not available"}, status=503)
+        limit = int(request.query.get("limit", "20"))
+        category = request.query.get("category")
+        suggestions = diagnostics.get_suggestions(limit=limit, category=category)
+        return web.json_response({
+            "count": len(suggestions),
+            "suggestions": [s.to_dict() for s in suggestions],
+        })
+
+    async def _api_diagnostic_report_generate(self, request):
+        """POST /api/diagnostics/report — Generate a diagnostic report on demand."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        diagnostics = getattr(self.node, 'diagnostics', None)
+        if not diagnostics:
+            return web.json_response({"error": "Diagnostics not available"}, status=503)
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        report_type = data.get("report_type", "on_demand")
+        report = await diagnostics.generate_report(report_type=report_type)
+        if report:
+            diagnostics._store_report(report)
+            await diagnostics._broadcast_report(report)
+            return web.json_response(report.to_dict(), status=201)
+        return web.json_response({"error": "Failed to generate report"}, status=500)
+
+    async def _api_diagnostic_suggest(self, request):
+        """POST /api/diagnostics/suggest — Submit a config suggestion."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        diagnostics = getattr(self.node, 'diagnostics', None)
+        if not diagnostics:
+            return web.json_response({"error": "Diagnostics not available"}, status=503)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        required = ["title", "description"]
+        if not all(data.get(k) for k in required):
+            return web.json_response({"error": f"Required fields: {required}"}, status=400)
+        suggestion = await diagnostics.generate_suggestion(
+            category=data.get("category", "general"),
+            title=data["title"],
+            description=data["description"],
+            current_value=data.get("current_value", ""),
+            suggested_value=data.get("suggested_value", ""),
+            rationale=data.get("rationale", ""),
+            priority=data.get("priority", "medium"),
+        )
+        return web.json_response(suggestion.to_dict(), status=201)

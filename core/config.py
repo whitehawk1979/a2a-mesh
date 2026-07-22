@@ -145,6 +145,26 @@ class AutoUpdateConfig:
     gitea_user: str = "zsolt"
     gitea_pass: str = "admin1234"
 
+@dataclass
+class DiagnosticConfig:
+    """Diagnostic channel configuration for self-analysis and development suggestions.
+    
+    Only developer_nodes can generate diagnostic_report and config_suggestion messages.
+    Other nodes receive and store them but cannot originate them.
+    The developer role can be changed via config to allow other nodes to contribute.
+    """
+    enabled: bool = True
+    report_interval: int = 300             # seconds between periodic diagnostic reports
+    max_reports_stored: int = 100         # max reports kept in memory
+    developer_nodes: List[str] = field(default_factory=lambda: ["nova"])  # nodes that can generate reports
+    channels: List[str] = field(default_factory=lambda: ["diagnostic_channel"])
+    # What to include in diagnostic reports
+    include_memory_stats: bool = True
+    include_error_patterns: bool = True
+    include_mesh_health: bool = True
+    include_performance: bool = True
+    include_config_suggestions: bool = True
+
 
 @dataclass
 class MeshConfig:

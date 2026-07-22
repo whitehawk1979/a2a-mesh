@@ -214,6 +214,8 @@ class MeshNode:
 
         # Initialize topology tuner (health-score-based auto-tuning)
         self.topology_tuner = TopologyTuner(self, config=self.config)
+        # Initialize diagnostic engine
+        self.diagnostics = DiagnosticEngine(self)
         # Debounce peer offline broadcasts — prevent broadcast storms during P2P flapping
         self._peer_offline_debounce: dict[str, float] = {}  # peer_name -> last_broadcast_time
         # Grace period tasks — delayed offline broadcasts cancelled on reconnect
@@ -335,6 +337,18 @@ class MeshNode:
         if message.type == "memory_sync":
             payload = message.payload if isinstance(message.payload, dict) else {}
             self.memory_sync.handle_incoming_memory(payload)
+            return
+
+        # Handle diagnostic messages (diagnostic_report, config_suggestion)
+        if message.type in ("diagnostic_report", "config_suggestion"):
+            try:
+                payload = message.payload if isinstance(message.payload, dict) else {}
+                if isinstance(message.payload, str):
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                await self.diagnostics.handle_diagnostic_message(payload)
+            except Exception as e:
+                log.warning(f"Failed to handle diagnostic message: {e}")
             return
 
         # Handle skills announcement — P2P auto-discovery of agent skills
@@ -599,6 +613,12 @@ class MeshNode:
             await self.topology_tuner.start()
         except Exception as e:
             log.warning(f"Topology tuner start failed (non-fatal): {e}")
+
+        # Start diagnostic engine
+        try:
+            await self.diagnostics.start()
+        except Exception as e:
+            log.warning(f"Diagnostic engine start failed (non-fatal): {e}")
 
         # At least one transport must be working
         any_ok = any(results.values())
