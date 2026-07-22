@@ -424,7 +424,12 @@ class DelegationManager:
                 for f in files:
                     try:
                         raw_content = f.get("content", "")
-                        encoded_content = base64.b64encode(raw_content.encode("utf-8")).decode("ascii")
+                        file_encoding = f.get("encoding", "")
+                        # If content is already base64-encoded (e.g. binary files like .pptx), use as-is
+                        if file_encoding == "base64" and isinstance(raw_content, str):
+                            encoded_content = raw_content
+                        else:
+                            encoded_content = base64.b64encode(raw_content.encode("utf-8") if isinstance(raw_content, str) else raw_content).decode("ascii")
                         file_id = await self.pg_pool.fetchval(
                             """INSERT INTO shared_files 
                                (sender_agent, recipient_agent, filename, content_type, file_size, encoding, content, description, status)
@@ -434,7 +439,7 @@ class DelegationManager:
                             task.get("from_agent", ""),
                             f.get("filename", "result.txt"),
                             f.get("content_type", "text/plain"),
-                            f.get("size", len(raw_content)),
+                            f.get("size", len(raw_content) if isinstance(raw_content, str) else len(raw_content.encode("utf-8"))),
                             "base64",
                             encoded_content,
                             f"Task result: {subject}",
