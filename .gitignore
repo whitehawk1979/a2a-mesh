@@ -57,3 +57,4 @@ mesh.mesh_nodes
 # Backup files
 *.bak
 backups/
+core/diagnostics.py.orig
