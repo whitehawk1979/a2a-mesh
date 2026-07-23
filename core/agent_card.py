@@ -105,7 +105,8 @@ def build_agent_card(node_name: str, registry: Any = None,
                      health_score: float = 1.0, load: float = 0.0,
                      queue_size: int = 0, uptime: float = 0.0,
                      base_url: str = "", mesh_address: str = "",
-                     config_skills: Optional[list] = None) -> AgentCard:
+                     config_skills: Optional[list] = None,
+                     version: str = "") -> AgentCard:
     """Build an agent card from the current node state.
     
     Args:
@@ -124,7 +125,7 @@ def build_agent_card(node_name: str, registry: Any = None,
     card = AgentCard(
         name=node_name,
         description=f"A2A Mesh Agent '{node_name}'",
-        version="0.8.0",
+        version=version or "0.8.0",
         url=base_url,
         node_id=node_name,
         mesh_address=mesh_address,

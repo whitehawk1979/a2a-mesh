@@ -367,7 +367,10 @@ class P2PTransport(TransportAdapter):
                                             f"raw RTT={raw_rtt_ms:.2f}ms (negative). "
                                             f"Consider enabling NTP on all nodes.")
                             rtt_ms = max(0, raw_rtt_ms)  # Clamp negative (clock skew)
-                            old_rtt = self._peer_latency.get(connected_peer_name, 0) or rtt_ms
+                            # Use rtt_ms if no valid previous measurement (0 or negative = stale)
+                            old_rtt = self._peer_latency.get(connected_peer_name, 0)
+                            if old_rtt <= 0:
+                                old_rtt = rtt_ms  # First valid measurement or replacing stale negative
                             self._peer_latency[connected_peer_name] = old_rtt * 0.7 + rtt_ms * 0.3  # EWMA
                         if self._ack_callback and ack_for_id:
                             try:
@@ -1004,14 +1007,24 @@ class P2PTransport(TransportAdapter):
         return self._available
 
     def get_status(self) -> TransportStatus:
-        avg_latency = 1.0  # Default estimate for P2P
-        if self._peer_latency:
+        # Clean up any stale negative latency values (clock skew artifacts)
+        for peer_name in list(self._peer_latency):
+            if self._peer_latency[peer_name] < 0:
+                log.warning(f"Removing negative latency for peer {peer_name}: {self._peer_latency[peer_name]:.2f}ms (clock skew artifact)")
+                del self._peer_latency[peer_name]
+
+        if self._peers:
+            # Connected peers exist — compute average latency from real measurements
             valid_latencies = [v for v in self._peer_latency.values() if v > 0]
-            avg_latency = sum(valid_latencies) / len(valid_latencies) if valid_latencies else 1.0
+            avg_latency = sum(valid_latencies) / len(valid_latencies) if valid_latencies else 5.0
+        else:
+            # No peers connected — report as isolated
+            avg_latency = -1  # -1 = available but isolated
+
         return TransportStatus(
-            available=self._available,
-            latency_ms=avg_latency if self._available else float('inf'),
-            error="" if self._available else "not started",
+            available=self._available and len(self._peers) > 0,  # True only if peers connected
+            latency_ms=avg_latency,
+            error="" if (self._available and self._peers) else ("no peers connected" if self._available else "not started"),
         )
 
     def get_peer_count(self) -> int:

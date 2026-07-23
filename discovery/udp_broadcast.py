@@ -41,13 +41,15 @@ class UDPBroadcastDiscovery:
                  health_port: int = 8650,
                  discovery_port: int = DEFAULT_DISCOVERY_PORT,
                  broadcast_addr: str = "255.255.255.255",
-                 interfaces: Optional[List[str]] = None):
+                 interfaces: Optional[List[str]] = None,
+                 version: str = ""):
         self.node_name = node_name
         self.p2p_port = p2p_port
         self.health_port = health_port
         self.discovery_port = discovery_port
         self.broadcast_addr = broadcast_addr
         self.interfaces = interfaces  # Specific interfaces to broadcast on
+        self.version = version
 
         self._running = False
         self._sock: Optional[socket.socket] = None
@@ -136,7 +138,7 @@ class UDPBroadcastDiscovery:
             "p2p_port": self.p2p_port,
             "health_port": self.health_port,
             "ts": time.time(),
-            "version": "0.9.0",
+            "version": self.version or "unknown",
         }
 
         data = json.dumps(announcement).encode("utf-8")
@@ -196,6 +198,7 @@ class UDPBroadcastDiscovery:
             host = addr[0]  # IP from the sender
 
             # Update or add discovered node
+            peer_version = announcement.get("version", "unknown")
             is_new = name not in self._discovered_nodes
             self._discovered_nodes[name] = {
                 "name": name,
@@ -203,6 +206,7 @@ class UDPBroadcastDiscovery:
                 "port": p2p_port,
                 "health_port": health_port,
                 "transport": "p2p",
+                "version": peer_version,
                 "ts": ts,
                 "last_seen": time.time(),
             }

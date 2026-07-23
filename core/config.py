@@ -86,7 +86,7 @@ class LoopPreventionConfig:
     not_for_me_filter: bool = True
     re_chain_limit: int = 4
     dedup_cache_size: int = 5000
-    dedup_ttl: int = 300
+    dedup_ttl: int = 600
 
 
 @dataclass

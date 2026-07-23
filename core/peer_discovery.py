@@ -240,13 +240,16 @@ class PeerDiscovery:
 
     def add_peer(self, name: str, host: str, p2p_port: int = 8645,
                  role: str = "router", health_port: int = 8650,
-                 capabilities: Optional[list] = None) -> PeerInfo:
+                 capabilities: Optional[list] = None,
+                 version: Optional[str] = None,
+                 port: int = 0) -> PeerInfo:
         """Add or update a peer and register it with the agent registry."""
         peer = PeerInfo(
-            name=name, host=host, port=p2p_port, role=role,
+            name=name, host=host, port=port or p2p_port, role=role,
             p2p_port=p2p_port, health_port=health_port,
             last_seen=time.time(),
             capabilities=capabilities or [],
+            version=version,
         )
         self._peers[name] = peer
 

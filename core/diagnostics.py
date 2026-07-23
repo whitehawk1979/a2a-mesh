@@ -185,7 +185,8 @@ class DiagnosticEngine:
     
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
-                                     rationale: str = "", priority: str = "medium") -> ConfigSuggestion:
+                                     rationale: str = "", priority: str = "medium",
+                                     affected_nodes: Optional[List[str]] = None) -> ConfigSuggestion:
         """Generate a config suggestion."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
@@ -199,7 +200,7 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            affected_nodes=[self.node.config.node_name],
+            affected_nodes=affected_nodes if affected_nodes is not None else [self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
         # Keep only last N suggestions
@@ -298,16 +299,32 @@ class DiagnosticEngine:
         P2P ACK-based RTT measurement uses (local_time - remote_timestamp).
         If clocks are not NTP-synchronized, this can produce negative values.
         Clamp them to 0 to prevent nonsensical negative latency in reports.
+        
+        Also converts TransportStatus dataclass objects to dicts so they
+        serialize properly in diagnostic reports.
         """
         sanitized = {}
         for name, info in transports.items():
+            # Convert TransportStatus dataclass objects to dicts
+            if hasattr(info, '__dataclass_fields__'):
+                from dataclasses import asdict as _asdict
+                info = _asdict(info)
             if isinstance(info, dict):
                 info = dict(info)  # shallow copy
                 lat = info.get("latency_ms")
-                if isinstance(lat, (int, float)) and lat < 0:
-                    log.warning(f"Transport {name} reported negative latency ({lat:.2f}ms) — "
-                                f"likely clock skew. Clamping to 0.")
-                    info["latency_ms"] = 0.0
+                if isinstance(lat, (int, float)):
+                    if lat == -1:
+                        # -1 = available but isolated (no peers connected)
+                        info["latency_ms"] = -1
+                        info["isolated"] = True
+                        info["note"] = "Transport available but no peers connected"
+                    elif lat < 0:
+                        log.warning(f"Transport {name} reported negative latency ({lat:.2f}ms) — "
+                                    f"likely clock skew. Clamping to 0.")
+                        info["latency_ms"] = 0.0
+                    elif lat == float('inf'):
+                        # Infinity is not valid JSON — replace with large but finite value
+                        info["latency_ms"] = 1e6  # 1,000,000ms = 1000s = effectively "unavailable"
                 # Also sanitize per-peer RTT if present
                 peers = info.get("peers")
                 if isinstance(peers, list):
@@ -367,6 +384,13 @@ class DiagnosticEngine:
         if health:
             peers = health.get("peer_count", 0)
             parts.append(f"Mesh: {peers} peers connected")
+            # Check for isolated transports
+            transports = health.get("transports", {})
+            if isinstance(transports, dict):
+                isolated = [name for name, info in transports.items()
+                            if isinstance(info, dict) and info.get("isolated", False)]
+                if isolated:
+                    parts.append(f"ISOLATED: {', '.join(isolated)} (available but no peers)")
         
         return " | ".join(parts)
     
@@ -382,7 +406,19 @@ class DiagnosticEngine:
                 recs.append(f"High memory usage ({rss}MB) — consider restarting or investigating memory leaks")
             sys_mem = mem.get("system_memory_percent", 0)
             if sys_mem > 85:
-                recs.append(f"System memory at {sys_mem}% — risk of OOM kill")
+                if rss < 100 and sys_mem > 90:
+                    # Node itself is lightweight — memory pressure is external
+                    recs.append(f"System memory at {sys_mem}% (OOM risk) — node RSS only {rss}MB, external processes consuming memory. Investigate other services on the host.")
+                else:
+                    recs.append(f"System memory at {sys_mem}% — risk of OOM kill")
+        
+        # CPU recommendations
+        if mem:
+            cpu = mem.get("system_cpu_percent", 0)
+            if cpu > 90:
+                recs.append(f"Critical CPU usage ({cpu:.0f}%) — investigate high-load processes or scale resources")
+            elif cpu > 75:
+                recs.append(f"High CPU usage ({cpu:.0f}%) — monitor for sustained load")
         
         # Error recommendations
         errs = report.error_patterns
@@ -435,11 +471,17 @@ class DiagnosticEngine:
         if mem:
             sys_mem = mem.get("system_memory_percent", 0)
             if sys_mem > 90 and not _suggestion_exists("memóriahasználat"):
+                # Distinguish: is the node itself consuming memory or external processes?
+                rss_mb = mem.get("process_rss_mb", 0)
+                if rss_mb < 100:
+                    desc = f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, de az agent maga csak {rss_mb:.0f}MB-t használ. Külső folyamatok fogyasztják a memóriát — vizsgáld a gazdagépen futó más szolgáltatásokat (pl. docker, adatbázis, más agentek)."
+                else:
+                    desc = f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, ami OOM kill kockázatot jelent. Az agent processzek memóriafogyasztásának csökkentése vagy a rendszer memóriabővítése javasolt."
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="critical",
                     title=f"Kritikus memóriahasználat ({sys_mem:.0f}%) — OOM kockázat",
-                    description=f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, ami OOM kill kockázatot jelent. Az agent processzek memóriafogyasztásának csökkentése vagy a rendszer memóriabővítése javasolt.",
+                    description=desc,
                     current_value=f"{sys_mem:.1f}%",
                     suggested_value="<85%",
                     rationale="OOM kill esetén az agent nem válaszol, a mesh instabillá válik, és adatvesztés történhet.",
@@ -747,6 +789,11 @@ class DiagnosticEngine:
         
         if msg_type == "diagnostic_report":
             report = DiagnosticReport.from_dict(data)
+            # Sanitize transport latencies from remote reports (clock skew, invalid values)
+            if report.mesh_health and isinstance(report.mesh_health, dict):
+                transports = report.mesh_health.get("transports", {})
+                if isinstance(transports, dict):
+                    report.mesh_health["transports"] = self._sanitize_transport_latencies(transports)
             # Deduplicate by report_id — same report may arrive via P2P and PG NOTIFY
             if any(r.report_id == report.report_id for r in self._reports):
                 log.debug(f"📊 Duplicate diagnostic report from {source}: {report.report_id} — skipping")

@@ -51,7 +51,6 @@ class PGTransport(TransportAdapter):
             "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel", "diagnostic_channel"
         ]
         self._reconnect_count = 0
-        self._max_reconnects = 5
 
     async def start(self) -> bool:
         """Start PG LISTEN connection using asyncpg.
@@ -160,29 +159,29 @@ class PGTransport(TransportAdapter):
             except Exception as e:
                 log.error(f"PG listen error: {e}")
                 # Try to reconnect
-                if self._reconnect_count < self._max_reconnects:
-                    self._reconnect_count += 1
-                    backoff = min(5 * (2 ** (self._reconnect_count - 1)), 60)
-                    log.info(f"PG reconnect attempt {self._reconnect_count}/{self._max_reconnects} in {backoff}s")
-                    await asyncio.sleep(backoff)
-                    try:
-                        # Reset listener connection
-                        if self._listener_conn:
-                            try:
-                                await self._pool._pool.release(self._listener_conn)
-                            except Exception:
-                                pass
-                        self._listener_conn = await self._pool._pool.acquire()
-                        for ch in self._channels:
-                            await self._listener_conn.add_listener(ch, _on_notification)
-                            await self._listener_conn.execute(f"LISTEN {ch}")
-                        self._available = True
-                        self._reconnect_count = 0
-                        log.info("PG reconnected successfully")
-                    except Exception as re:
-                        log.error(f"PG reconnect failed: {re}")
-                else:
-                    await asyncio.sleep(5)
+                # Infinite reconnect with capped exponential backoff
+                self._reconnect_count += 1
+                backoff = min(5 * (2 ** min(self._reconnect_count - 1, 4)), 60)
+                log.info(f"PG reconnect attempt {self._reconnect_count} in {backoff}s")
+                self._available = False
+                await asyncio.sleep(backoff)
+                try:
+                    # Reset listener connection
+                    if self._listener_conn:
+                        try:
+                            await self._pool._pool.release(self._listener_conn)
+                        except Exception:
+                            pass
+                    self._listener_conn = await self._pool._pool.acquire()
+                    for ch in self._channels:
+                        await self._listener_conn.add_listener(ch, _on_notification)
+                        await self._listener_conn.execute(f"LISTEN {ch}")
+                    self._available = True
+                    attempts = self._reconnect_count
+                    self._reconnect_count = 0
+                    log.info(f"PG reconnected successfully after {attempts} attempt(s)")
+                except Exception as re:
+                    log.error(f"PG reconnect failed: {re}")
 
     async def _process_notification(self, channel: str, payload: str):
         """Process a single PG NOTIFY payload."""
@@ -399,6 +398,6 @@ class PGTransport(TransportAdapter):
     def get_status(self) -> TransportStatus:
         return TransportStatus(
             available=self._available,
-            latency_ms=0.5 if self._available else float('inf'),
+            latency_ms=0.5 if self._available else 1e6,  # 1e6ms = effectively "unavailable"
             error="" if self._available else "not connected",
         )

@@ -78,7 +78,7 @@ class A2AMessage:
     payload: Dict[str, Any] = field(default_factory=dict)
 
     # Routing
-    ttl: int = 10  # Max hops remaining
+    ttl: int = 3  # Max hops remaining — small mesh default
     transport_hint: str = ""  # Preferred transport (optional)
     hop_count: int = 0  # How many nodes forwarded this
     path: list = field(default_factory=list)  # Nodes that forwarded
@@ -110,7 +110,7 @@ class A2AMessage:
 
     @classmethod
     def create(cls, sender: str, recipient: str, msg_type: str,
-                payload: dict, priority: int = 5, ttl: int = 10) -> 'A2AMessage':
+                payload: dict, priority: int = 5, ttl: int = 3) -> "A2AMessage":
         """Create a new message with auto-generated ID and timestamp."""
         return cls(
             sender=sender,

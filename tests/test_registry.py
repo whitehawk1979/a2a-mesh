@@ -77,7 +77,7 @@ class TestAgentCard:
         card = AgentCard(name="test_agent")
         assert card.name == "test_agent"
         assert card.capabilities == []
-        assert card.version == "1.0.0"
+        assert card.version == ""
         assert card.max_concurrent == 10
         assert card.cost_per_task == 0.0
 

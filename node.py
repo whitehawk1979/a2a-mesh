@@ -611,6 +611,7 @@ class MeshNode:
             health_port=self.config.health_port or 8650,
             discovery_port=self.config.discovery.udp_broadcast_port,
             interfaces=udp_interfaces,
+            version=self._resolved_version,
         )
         self._udp_discovery.on_discover(self._on_mdns_discover)  # Same handler for both
         udp_ok = await self._udp_discovery.start()
@@ -1779,13 +1780,16 @@ echo "Status: ok"
             return
 
         # Add or update peer in peer_discovery (mDNS port takes priority over stale data)
+        # Extract version from discovery info (UDP broadcast or mDNS)
+        peer_version = node_info.get("version") or None
         peer = self.peer_discovery.add_peer(
             name=name,
             host=host,
             port=port,
             role="router",
             p2p_port=port,
-            health_port=self.config.health_port,  # Use configured health_port instead of hardcoded convention
+            health_port=node_info.get("health_port") or self.config.health_port,
+            version=peer_version,
         )
 
         # Auto-approve discovered peer

@@ -239,7 +239,7 @@ class BLETransport(TransportAdapter):
     def get_status(self) -> TransportStatus:
         return TransportStatus(
             available=self._available,
-            latency_ms=50.0 if self._available else float('inf'),
+            latency_ms=50.0 if self._available else 1e6,  # 1e6ms = effectively "unavailable"
             error="" if self._available else "BLE not started"
         )
 

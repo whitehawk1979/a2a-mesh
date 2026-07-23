@@ -152,6 +152,6 @@ class HTTPTransport(TransportAdapter):
     def get_status(self) -> TransportStatus:
         return TransportStatus(
             available=self._available,
-            latency_ms=100.0 if self._available else float('inf'),
+            latency_ms=100.0 if self._available else 1e6,  # 1e6ms = effectively "unavailable"
             error="" if self._available else "unavailable",
         )
