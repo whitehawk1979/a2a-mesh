@@ -462,15 +462,19 @@ class DiagnosticEngine:
         node_name = report.node
         
         # Helper: check if similar suggestion already exists to avoid duplicates
-        def _suggestion_exists(title_substring: str) -> bool:
-            return any(title_substring.lower() in s.title.lower() 
-                       for s in self._suggestions)
+        # Checks both title substring AND affected node to prevent cross-node duplicates
+        def _suggestion_exists(title_substring: str, node: str = None) -> bool:
+            for s in self._suggestions:
+                if title_substring.lower() in s.title.lower():
+                    if node is None or node in getattr(s, 'affected_nodes', []) or node in str(getattr(s, 'description', '')):
+                        return True
+            return False
         
         # ─── Memory suggestions ────────────────────────────────────
         mem = report.memory_stats
         if mem:
             sys_mem = mem.get("system_memory_percent", 0)
-            if sys_mem > 90 and not _suggestion_exists("memóriahasználat"):
+            if sys_mem > 90 and not _suggestion_exists("memóriahasználat", node_name):
                 # Distinguish: is the node itself consuming memory or external processes?
                 rss_mb = mem.get("process_rss_mb", 0)
                 if rss_mb < 100:
@@ -488,7 +492,7 @@ class DiagnosticEngine:
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
-            elif sys_mem > 80 and not _suggestion_exists("memóriahasználat"):
+            elif sys_mem > 80 and not _suggestion_exists("memóriahasználat", node_name):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="high",
@@ -502,7 +506,7 @@ class DiagnosticEngine:
                 new_suggestions.append(s)
             
             rss = mem.get("process_rss_mb", 0)
-            if rss > 500 and not _suggestion_exists("RSS memória"):
+            if rss > 500 and not _suggestion_exists("RSS memória", node_name):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="high",
@@ -518,7 +522,7 @@ class DiagnosticEngine:
         # ─── CPU suggestions ────────────────────────────────────────
         if mem:
             cpu = mem.get("system_cpu_percent", 0)
-            if cpu > 90 and not _suggestion_exists("CPU használat"):
+            if cpu > 90 and not _suggestion_exists("CPU használat", node_name):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="critical",
@@ -530,7 +534,7 @@ class DiagnosticEngine:
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
-            elif cpu > 75 and not _suggestion_exists("CPU használat"):
+            elif cpu > 75 and not _suggestion_exists("CPU használat", node_name):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="medium",
@@ -546,7 +550,7 @@ class DiagnosticEngine:
         # ─── Disk suggestions ────────────────────────────────────────
         if mem:
             disk = mem.get("disk_usage_percent", 0)
-            if disk > 90 and not _suggestion_exists("lemezterület"):
+            if disk > 90 and not _suggestion_exists("lemezterület", node_name):
                 s = await self.generate_suggestion(
                     category="storage",
                     priority="critical",
@@ -558,7 +562,7 @@ class DiagnosticEngine:
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
-            elif disk > 80 and not _suggestion_exists("lemezterület"):
+            elif disk > 80 and not _suggestion_exists("lemezterület", node_name):
                 s = await self.generate_suggestion(
                     category="storage",
                     priority="medium",
@@ -575,7 +579,7 @@ class DiagnosticEngine:
         health = report.mesh_health
         if health:
             peers = health.get("peer_count", 0)
-            if peers == 0 and not _suggestion_exists("peer csatlakozás"):
+            if peers == 0 and not _suggestion_exists("peer csatlakozás", node_name):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="critical",
@@ -587,7 +591,7 @@ class DiagnosticEngine:
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
-            elif peers == 1 and not _suggestion_exists("peer csatlakozás"):
+            elif peers == 1 and not _suggestion_exists("peer csatlakozás", node_name):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="medium",
@@ -605,7 +609,7 @@ class DiagnosticEngine:
             if isinstance(transports, dict):
                 unavailable = [name for name, info in transports.items() 
                                if isinstance(info, dict) and not info.get("available", True)]
-                if unavailable and not _suggestion_exists("transport"):
+                if unavailable and not _suggestion_exists("transport", node_name):
                     s = await self.generate_suggestion(
                         category="network",
                         priority="high",
@@ -620,7 +624,7 @@ class DiagnosticEngine:
             
             # Connection count
             connections = mem.get("connections", 0) if mem else 0
-            if connections > 100 and not _suggestion_exists("kapcsolatszám"):
+            if connections > 100 and not _suggestion_exists("kapcsolatszám", node_name):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="medium",
@@ -637,7 +641,7 @@ class DiagnosticEngine:
         perf = report.performance
         if perf:
             queue_size = perf.get("message_queue_size", 0)
-            if queue_size > 50 and not _suggestion_exists("üzenetsor"):
+            if queue_size > 50 and not _suggestion_exists("üzenetsor", node_name):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="high",
@@ -654,7 +658,7 @@ class DiagnosticEngine:
         errs = report.error_patterns
         if errs:
             total = errs.get("total_errors", 0)
-            if total > 10 and not _suggestion_exists("hibaszám"):
+            if total > 10 and not _suggestion_exists("hibaszám", node_name):
                 # Find most common error
                 error_counts = errs.get("error_counts", {})
                 top_error = max(error_counts.items(), key=lambda x: x[1]) if error_counts else ("ismeretlen", total)
@@ -673,7 +677,7 @@ class DiagnosticEngine:
         # ─── Delegation suggestions ─────────────────────────────────
         if health:
             failed = health.get("delegations_failed", 0)
-            if failed > 3 and not _suggestion_exists("delegáció"):
+            if failed > 3 and not _suggestion_exists("delegáció", node_name):
                 s = await self.generate_suggestion(
                     category="delegation",
                     priority="medium",
