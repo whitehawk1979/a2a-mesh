@@ -269,6 +269,7 @@ class MeshNode:
         self._tasks: List[asyncio.Task] = []
         self._start_time = 0
         self._pg_pool: Optional[AsyncDBPool] = None  # asyncpg connection pool for all DB ops
+        self._cpu_baseline_initialized: bool = False  # Track if psutil CPU baseline is ready
 
         # Setup logging
         self._setup_logging()
@@ -3035,15 +3036,23 @@ echo "Status: ok"
             disk_pct = 0.0
             try:
                 import psutil
-                cpu_pct = psutil.cpu_percent(interval=0.1)
+                # Use non-blocking measurement after baseline is established
+                # First call ever: interval=0 returns 0.0, so we need a blocking call once
+                if not self._cpu_baseline_initialized:
+                    psutil.cpu_percent(interval=0.5)  # Establish baseline
+                    self._cpu_baseline_initialized = True
+                cpu_pct = psutil.cpu_percent(interval=0)  # Non-blocking: returns delta since last call
                 memory_pct = psutil.virtual_memory().percent
                 disk_pct = psutil.disk_usage('/').percent
             except ImportError:
                 try:
                     import os, multiprocessing
-                    load1, _, _ = os.getloadavg()
+                    load1, load5, load15 = os.getloadavg()
                     cpu_count = multiprocessing.cpu_count() or 1
-                    cpu_pct = min((load1 / cpu_count) * 100, 100.0)
+                    # Use 5-min load average for more stability, cap at 100%
+                    # load average > cpu_count means over-subscribed, report 100%
+                    raw_pct = (load5 / cpu_count) * 100
+                    cpu_pct = min(raw_pct, 100.0)
                     memory_pct = 50.0
                     disk_pct = 50.0
                 except Exception:
