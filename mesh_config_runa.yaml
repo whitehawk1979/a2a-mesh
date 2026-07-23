@@ -87,7 +87,11 @@ mesh:
       listen_port: 8645
       max_connections: 50
       idle_timeout: 300
-      tls_enabled: false
+      tls_enabled: true
+      tls_cert: ~/.hermes/scripts/a2a_mesh/certs/runa.crt
+      tls_key: ~/.hermes/scripts/a2a_mesh/certs/runa.key
+      tls_ca: ~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt
+      tls_verify_peer: false
     http:
       url: http://192.168.1.30:8199
       health_url: http://192.168.1.30:8198/health
@@ -205,13 +209,12 @@ plugins:
     - custom
     require_confirmation_for:
     - shell
-
 diagnostic:
   enabled: true
   report_interval: 300
   max_reports_stored: 100
   developer_nodes:
-    - nova
+  - nova
   include_memory_stats: true
   include_error_patterns: true
   include_mesh_health: true

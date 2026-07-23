@@ -1,15 +1,35 @@
-## 2026-06-24 A2A Mesh Status
+## 2026-07-23 A2A Mesh Status
 
-### Nova (192.168.1.8)
-- **Uptime:** 30228s (~8h 24min)
-- **Transports:** pg_notify, p2p, http, ble — all 4 active
-- **Role:** coordinator, status: active
-- **Last heartbeat:** 2026-06-24 ~17:00 UTC
+### Nova (192.168.1.8 / Mac Pro)
+- **Status:** running, coordinator
+- **Version:** 0.18.91
+- **Transports:** PG=True, P2P=True, HTTP=True, BLE=True
+- **P2P TLS:** Config ready (tls_enabled=true in config, requires restart)
+- **P2P Peers:** morzsa, runa, lennie (all connected)
+- **Role:** coordinator (assigned 2026-07-23)
 
-### Morzsa (openclaw / 192.168.1.30)
-- **Role:** router, status: active
-- **Transports:** pg_notify, p2p, http (health proxy 8198 + MCP bridge 8199 running)
-- **Last heartbeat:** 2026-06-24 ~17:00 UTC
-- **Note:** http_available=false in mesh_nodes DB — health proxy/MCP bridge run on separate ports
+### Morzsa (192.168.1.30 / OpenClaw)
+- **Status:** running, router
+- **Version:** 0.18.92 (auto-updated)
+- **Transports:** PG=True, P2P=True, HTTP=True, BLE=False
+- **P2P TLS:** Config ready (requires restart)
+- **P2P Peers:** nova, runa (lennie: backoff)
+- **Health:** WARNING high load (13.97), swap 7.9G/8G
 
-Both nodes operational. Nova BLE transport confirmed active.
+### Runa (192.168.1.100 / Linux)
+- **Status:** running, router
+- **Version:** 0.18.91
+- **Transports:** PG=True, P2P=True, HTTP=True
+- **P2P TLS:** Config ready (requires restart)
+- **P2P Peers:** nova, morzsa
+
+### Lennie (100.121.92.95 / Lenovo)
+- **Status:** active but health endpoint unreachable
+- **Transports:** P2P=True, PG=True, HTTP=False
+- **Health:** WARNING CPU 100%, Memory 97.5%
+
+### Mesh Topology
+  nova (0x1E54, coordinator)
+    lennie (0x0000, end_device)
+    runa (0x622E, router)
+    morzsa (0xE984, router)
