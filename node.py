@@ -2851,7 +2851,7 @@ echo "Status: ok"
                         except Exception as e:
                             log.error(f"PG pool reconnect failed: {e}")
                     # Sync PG transport _available flag with actual pool state
-                    pg_transport = self.router.transports.get('pg')
+                    pg_transport = self.router.transports.get('pg_notify')
                     if pg_transport is not None:
                         pg_flag = pg_transport.is_available()
                         if pool_ok and not pg_flag:
