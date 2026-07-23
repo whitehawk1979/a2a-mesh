@@ -2995,6 +2995,124 @@ function loadDiagSuggestions() {
   }).catch(function(e) { el.innerHTML = '<div style="color:#ef4444">❌ Hiba: '+e.message+'</div>'; });
 }
 
+
+// ─── Suggestion detail view ──────────────────────────────────
+function showSuggestionDetail(idx) {
+  var s = _diagSuggestions[idx];
+  if (!s) return;
+  var prColor = s.priority === 'critical' ? '#ef4444' : s.priority === 'high' ? '#f59e0b' : s.priority === 'medium' ? '#3b82f6' : '#10b981';
+  var prIcon = s.priority === 'critical' ? '🔴' : s.priority === 'high' ? '🟠' : s.priority === 'medium' ? '🔵' : '🟢';
+  var prLabel = s.priority === 'critical' ? 'Kritikus' : s.priority === 'high' ? 'Magas' : s.priority === 'medium' ? 'Közepes' : 'Alacsony';
+  var stLabel = s.status || 'pending';
+  var stColor = stLabel === 'implemented' ? '#10b981' : stLabel === 'accepted' ? '#3b82f6' : stLabel === 'rejected' ? '#ef4444' : '#f59e0b';
+  var stIcon = stLabel === 'implemented' ? '✅' : stLabel === 'accepted' ? '👍' : stLabel === 'rejected' ? '❌' : '⏳';
+  var stText = stLabel === 'implemented' ? 'Megvalósítva' : stLabel === 'accepted' ? 'Elfogadva' : stLabel === 'rejected' ? 'Elutasítva' : 'Függőben';
+  var catIcons = {memory:'💾',performance:'⚡',network:'🌐',storage:'💿',stability:'🔧',security:'🔒',general:'📋'};
+  var catIcon = catIcons[s.category] || '📋';
+  var html = '';
+  // Back button
+  html += '<div style="margin-bottom:12px"><button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:12px;padding:4px 12px" onclick="loadDiagSuggestions()">← Vissza a javaslatokhoz</button></div>';
+  // Header card
+  html += '<div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:12px;border-left:4px solid '+prColor+'">';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">';
+  html += '<h3 style="margin:0;font-size:15px">'+prIcon+' '+(s.title||'Javaslat')+'</h3>';
+  html += '<span style="background:'+stColor+';color:#fff;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600">'+stIcon+' '+stText+'</span>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:16px;font-size:12px;color:var(--text3)">';
+  html += '<span>'+prIcon+' '+prLabel+'</span>';
+  html += '<span>'+catIcon+' '+(s.category||'általános')+'</span>';
+  html += '<span>📡 '+(s.node||'?')+'</span>';
+  if (s.affected_nodes && s.affected_nodes.length > 0) {
+    html += '<span>🔗 '+s.affected_nodes.join(', ')+'</span>';
+  }
+  html += '</div>';
+  html += '<div style="font-size:11px;color:var(--text3);margin-top:4px">'+(s.timestamp?s.timestamp.replace('T',' '):'')+' · ID: '+(s.suggestion_id||'')+'</div>';
+  html += '</div>';
+  // Description card
+  if (s.description) {
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:10px">';
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">📝 Leírás</div>';
+    html += '<div style="font-size:13px;color:var(--text);line-height:1.5">'+s.description+'</div>';
+    html += '</div>';
+  }
+  // Values card
+  if (s.current_value || s.suggested_value) {
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:10px">';
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">📊 Értékek</div>';
+    html += '<div style="display:flex;gap:12px">';
+    if (s.current_value) {
+      html += '<div style="flex:1;background:var(--surface);border-radius:6px;padding:10px">';
+      html += '<div style="font-size:10px;color:var(--text3);margin-bottom:4px">Jelenlegi érték</div>';
+      html += '<div style="font-size:14px;font-weight:600;color:var(--text)">'+s.current_value+'</div>';
+      html += '</div>';
+    }
+    if (s.suggested_value) {
+      html += '<div style="flex:1;background:var(--surface);border-radius:6px;padding:10px;border:1px solid var(--primary)">';
+      html += '<div style="font-size:10px;color:var(--primary);margin-bottom:4px">Javasolt érték</div>';
+      html += '<div style="font-size:14px;font-weight:600;color:var(--text)">'+s.suggested_value+'</div>';
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+  // Rationale card
+  if (s.rationale) {
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:10px">';
+    html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">💭 Indoklás</div>';
+    html += '<div style="font-size:13px;color:var(--text);line-height:1.5;font-style:italic">'+s.rationale+'</div>';
+    html += '</div>';
+  }
+  // Error context card (if available in description)
+  if (s.description && (s.description.toLowerCase().includes('hiba') || s.description.toLowerCase().includes('error') || s.description.toLowerCase().includes('OOM'))) {
+    html += '<div style="background:#1a1a2e;border:1px solid #ef4444;border-radius:8px;padding:12px;margin-bottom:10px">';
+    html += '<div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:6px">⚠️ Észlelt hiba</div>';
+    html += '<div style="font-size:13px;color:var(--text);line-height:1.5">'+s.description+'</div>';
+    html += '<div style="font-size:11px;color:var(--text3);margin-top:6px">💡 Javasolt megoldás: '+(s.suggested_value||s.rationale||'—')+'</div>';
+    html += '</div>';
+  }
+  // Action buttons card
+  html += '<div style="background:var(--surface2);border-radius:8px;padding:12px">';
+  html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🎯 Műveletek</div>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  if (stLabel === 'pending') {
+    html += '<button class="btn btn-sm" style="background:#3b82f6;color:#fff;font-size:12px;padding:6px 16px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'accepted\','+idx+')">👍 Elfogad</button>';
+    html += '<button class="btn btn-sm" style="background:#ef4444;color:#fff;font-size:12px;padding:6px 16px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'rejected\','+idx+')">❌ Elutasít</button>';
+  } else if (stLabel === 'accepted') {
+    html += '<button class="btn btn-sm" style="background:#10b981;color:#fff;font-size:12px;padding:6px 16px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'implemented\','+idx+')">✅ Megvalósítva</button>';
+    html += '<button class="btn btn-sm" style="background:#6b7280;color:#fff;font-size:12px;padding:6px 16px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'rejected\','+idx+')">❌ Elutasít</button>';
+  } else if (stLabel === 'implemented') {
+    html += '<span style="font-size:12px;color:#10b981;font-weight:600">✅ Megvalósítva</span>';
+    html += '<button class="btn btn-sm" style="background:var(--surface);color:var(--text);font-size:12px;padding:6px 16px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'pending\','+idx+')">↩ Újra megnyit</button>';
+  } else if (stLabel === 'rejected') {
+    html += '<button class="btn btn-sm" style="background:#3b82f6;color:#fff;font-size:12px;padding:6px 16px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'pending\','+idx+')">↩ Újra megnyit</button>';
+  }
+  // Auto-implement button
+  if (stLabel === 'pending' || stLabel === 'accepted') {
+    html += '<button class="btn btn-sm" style="background:#8b5cf6;color:#fff;font-size:12px;padding:6px 16px" onclick="autoImplementSuggestion(\''+s.suggestion_id+'\','+idx+')">🤖 Auto-megvalósítás</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+  var el = document.getElementById('diagContent');
+  if (el) el.innerHTML = html;
+}
+
+function autoImplementSuggestion(id, idx) {
+  _diagAuth().then(function(token) {
+    return fetch('/api/diagnostics/auto-implement', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
+      body:JSON.stringify({})
+    });
+  }).then(function(r){return r.json()}).then(function(data) {
+    if (data.implemented !== undefined) {
+      alert('Auto-implement: '+data.implemented+' javaslat megvalósítva');
+      loadDiagSuggestions();
+    } else {
+      alert('Hiba: '+(data.error||'Ismeretlen'));
+    }
+  }).catch(function(e) { alert('Hiba: '+e.message); });
+}
+
 function updateSuggestionStatus(id, status, idx) {
   _diagAuth().then(function(token) {
     return fetch('/api/diagnostics/suggestions/'+encodeURIComponent(id), {
