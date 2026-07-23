@@ -2027,7 +2027,9 @@ echo "Status: ok"
                     log.info(f"P2P skill announcement sent to {peer_name}: {[s.get('id','?') for s in skills]}")
                 except Exception as e:
                     log.debug(f"P2P skills announcement failed for {peer_name}: {e}")
-            # Always send via PG NOTIFY as backup (guaranteed delivery)
+            # Store via PG for offline resilience, but skip NOTIFY if P2P already delivered.
+            # P2P already sent this directly to the peer — PG NOTIFY would cause
+            # duplicate delivery on all nodes, inflating dedup hit rate from ~0% to ~50%.
             if hasattr(self, '_pg_transport') and self._pg_transport and self._pg_transport.is_available():
                 try:
                     from .core.message import A2AMessage
@@ -2035,7 +2037,7 @@ echo "Status: ok"
                     pg_skills_msg = A2AMessage(
                         id=str(uuid.uuid4()),
                         sender=self.node_name,
-                        recipient="*",
+                        recipient="broadcast",
                         payload={
                             "type": "skills_announcement",
                             "skills": skills,
@@ -2044,9 +2046,10 @@ echo "Status: ok"
                         type="skills_announcement",
                         priority=5,
                     )
-                    await self._pg_transport.send(pg_skills_msg)
-                    sent_via.append("pg")
-                    log.info(f"PG skill announcement sent to {peer_name}: {[s.get('id','?') for s in skills]}")
+                    p2p_delivered = "p2p" in sent_via
+                    await self._pg_transport.send(pg_skills_msg, notify=not p2p_delivered)
+                    sent_via.append("pg_store" if p2p_delivered else "pg")
+                    log.info(f"PG skill announcement {'store-only' if p2p_delivered else 'full'} for {peer_name}")
                 except Exception as e:
                     log.debug(f"PG skills announcement failed for {peer_name}: {e}")
             if sent_via:
@@ -2148,27 +2151,33 @@ echo "Status: ok"
             return
         capabilities = list(getattr(self.config, 'capabilities', []) or [])
         
-        # Always send via PG NOTIFY as broadcast (guaranteed delivery to all nodes)
-        if hasattr(self, '_pg_transport') and self._pg_transport and self._pg_transport.is_available():
-            try:
-                from .core.message import A2AMessage
-                import uuid
-                pg_msg = A2AMessage(
-                    id=str(uuid.uuid4()),
-                    sender=self.node_name,
-                    recipient="*",
-                    payload={
-                        "type": "skills_announcement",
-                        "skills": skills,
-                        "capabilities": capabilities,
-                    },
-                    type="skills_announcement",
-                    priority=5,
-                )
-                await self._pg_transport.send(pg_msg)
-                log.info(f"PG skills announcement broadcast on peer discovery: {[s.get('id','?') for s in skills]}")
-            except Exception as e:
-                log.warning(f"PG skills announcement broadcast failed on peer discovery: {e}")
+        # Use router broadcast for skills announcement — this applies smart dedup
+        # (P2P first + PG store-only) instead of direct PG NOTIFY which causes
+        # duplicate delivery on all nodes (~50% dedup hit rate).
+        # If P2P is available, it delivers in real-time and PG only stores for
+        # offline resilience (notify=False). Without P2P, PG NOTIFY delivers.
+        try:
+            from .core.message import A2AMessage
+            import uuid
+            skills_msg = A2AMessage(
+                id=str(uuid.uuid4()),
+                sender=self.node_name,
+                recipient="broadcast",
+                payload={
+                    "type": "skills_announcement",
+                    "skills": skills,
+                    "capabilities": capabilities,
+                },
+                type="skills_announcement",
+                priority=5,
+            )
+            result = await self.router.send(skills_msg)
+            if result.success:
+                log.info(f"Skills announcement broadcast via router on peer discovery: {[s.get('id','?') for s in skills]}")
+            else:
+                log.warning(f"Skills announcement broadcast failed: {result.error}")
+        except Exception as e:
+            log.warning(f"Skills announcement broadcast failed on peer discovery: {e}")
 
     # ─── Health Endpoint ─────────────────────────────────────────────
 
@@ -2706,8 +2715,8 @@ echo "Status: ok"
                                         await self.router.enqueue(msg)
                                         self.auto_steer._stats["normal_priority_dispatched"] += 1
 
-                            # Process broadcast messages that were "forwarded" by the router
-                            # (e.g., skills_announcement with recipient="*" is forwarded, not processed)
+                            # Process forwarded messages — some broadcasts may be forwarded by the router
+                            # (skills_announcement is now broadcast, processed normally)
                             if result.status == "forwarded":
                                 log.info(f"Forwarded msg: id={msg.id[:8]} type='{msg.type}' sender={msg.sender} recipient={msg.recipient}")
                                 if msg.type == "skills_announcement":

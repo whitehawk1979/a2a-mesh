@@ -192,8 +192,13 @@ class A2AMessage:
             raise
 
     def is_broadcast(self) -> bool:
-        """Check if this is a broadcast message."""
-        return self.recipient == "broadcast"
+        """Check if this is a broadcast message.
+        
+        Recognizes both 'broadcast' and '*' as broadcast recipients.
+        '*' was used in legacy skills_announcement code — treating it as
+        broadcast prevents unnecessary forwarding and dedup duplication.
+        """
+        return self.recipient in ("broadcast", "*")
 
     def is_expired(self) -> bool:
         """Check if TTL has expired."""
