@@ -112,8 +112,6 @@ class DiagnosticEngine:
         self._max_samples: int = 60  # Keep last 60 samples
         self._cpu_baseline_initialized: bool = False  # Track if psutil CPU baseline is ready
         self._last_cpu_percent: float = 0.0  # Cached non-blocking CPU reading
-        self._cpu_ema: float = 0.0  # Exponential Moving Average for CPU (alpha=0.3)
-        self._cpu_ema_initialized: bool = False
     
     async def start(self):
         """Start the periodic diagnostic report generator."""
@@ -228,28 +226,11 @@ class DiagnosticEngine:
         try:
             process = psutil.Process(os.getpid())
             mem_info = process.memory_info()
-
-            # Non-blocking CPU measurement: first call establishes baseline,
-            # subsequent calls return delta since last call (interval=0).
-            # This avoids blocking the event loop and gives more accurate readings
-            # than psutil.cpu_percent(interval=0.1) which can spike to 100%.
-            if not self._cpu_baseline_initialized:
-                psutil.cpu_percent(interval=0.5)  # Establish baseline
-                self._cpu_baseline_initialized = True
-            cpu_pct = psutil.cpu_percent(interval=0)  # Non-blocking
-            # Apply EMA smoothing to reduce spike artifacts
-            if not self._cpu_ema_initialized:
-                self._cpu_ema = cpu_pct
-                self._cpu_ema_initialized = True
-            else:
-                self._cpu_ema = 0.3 * cpu_pct + 0.7 * self._cpu_ema  # EMA alpha=0.3
-            self._last_cpu_percent = self._cpu_ema
-
             return {
                 "process_rss_mb": round(mem_info.rss / 1024 / 1024, 1),
                 "process_vms_mb": round(mem_info.vms / 1024 / 1024, 1),
                 "system_memory_percent": psutil.virtual_memory().percent,
-                "system_cpu_percent": self._cpu_ema,
+                "system_cpu_percent": psutil.cpu_percent(interval=0.1),
                 "disk_usage_percent": psutil.disk_usage('/').percent,
                 "open_files": len(process.open_files()) if hasattr(process, 'open_files') else 0,
                 "connections": len(process.connections()) if hasattr(process, 'connections') else 0,

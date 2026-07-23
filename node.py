@@ -270,6 +270,8 @@ class MeshNode:
         self._start_time = 0
         self._pg_pool: Optional[AsyncDBPool] = None  # asyncpg connection pool for all DB ops
         self._cpu_baseline_initialized: bool = False  # Track if psutil CPU baseline is ready
+        self._cpu_ema: float = 0.0  # Exponential Moving Average for CPU (alpha=0.3)
+        self._cpu_ema_initialized: bool = False
 
         # Setup logging
         self._setup_logging()
@@ -3041,7 +3043,14 @@ echo "Status: ok"
                 if not self._cpu_baseline_initialized:
                     psutil.cpu_percent(interval=0.5)  # Establish baseline
                     self._cpu_baseline_initialized = True
-                cpu_pct = psutil.cpu_percent(interval=0)  # Non-blocking: returns delta since last call
+                raw_cpu = psutil.cpu_percent(interval=0)  # Non-blocking: returns delta since last call
+                # Apply EMA smoothing to reduce spike artifacts from psutil
+                if not self._cpu_ema_initialized:
+                    self._cpu_ema = raw_cpu
+                    self._cpu_ema_initialized = True
+                else:
+                    self._cpu_ema = 0.3 * raw_cpu + 0.7 * self._cpu_ema  # EMA alpha=0.3
+                cpu_pct = self._cpu_ema
                 memory_pct = psutil.virtual_memory().percent
                 disk_pct = psutil.disk_usage('/').percent
             except ImportError:
