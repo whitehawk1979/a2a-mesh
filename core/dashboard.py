@@ -2838,7 +2838,7 @@ class DashboardHandler:
     async def _api_p2p_reset_backoff(self, request):
         """POST /api/p2p/reset-backoff — Reset P2P backoff for all or specific peers."""
         from aiohttp import web
-        p2p = self.node.p2p_transport
+        p2p = self.node._p2p_transport
         if not p2p:
             return web.json_response({"error": "P2P transport not available"}, status=503)
         body = await request.json() if request.content_type == 'application/json' else {}
@@ -2862,7 +2862,7 @@ class DashboardHandler:
         if not discovery:
             return web.json_response({"error": "Peer discovery not available"}, status=503)
         # Reset all backoffs first
-        p2p = self.node.p2p_transport
+        p2p = self.node._p2p_transport
         if p2p:
             p2p._peer_backoff.clear()
             p2p._peer_retry_count.clear()
