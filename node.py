@@ -640,6 +640,9 @@ class MeshNode:
         # Start priority queue processor
         self.router.start_priority_queue()
 
+        # Start GossipSub for efficient topic-based broadcast
+        asyncio.create_task(self.router._gossipsub.start())
+
         # Start peer discovery (link P2P transport and PG pool for auto-connect)
         self.peer_discovery.p2p_transport = self._p2p_transport
         self.peer_discovery._pg_pool = self._pg_pool
@@ -1723,6 +1726,9 @@ echo "Status: ok"
         # Stop priority queue processor
         await self.router.stop_priority_queue()
 
+        # Stop GossipSub
+        await self.router._gossipsub.stop()
+
         # Stop peer discovery
         await self.peer_discovery.stop()
 
@@ -1955,6 +1961,10 @@ echo "Status: ok"
             await self.debug_log("INFO", "transport", f"Peer {peer_name} connected via P2P")
             peer.p2p_available = True
             self.peer_discovery._register_discovered_peer(peer)
+            # Register peer with GossipSub for efficient topic-based broadcast
+            if hasattr(self, 'router') and hasattr(self.router, 'register_gossipsub_peer'):
+                self.router.register_gossipsub_peer(peer_name, topics={'mesh', 'broadcast', 'diagnostic'})
+                log.debug(f"GossipSub: registered peer {peer_name} for topic-based broadcast")
         else:
             log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
 
@@ -2056,6 +2066,10 @@ echo "Status: ok"
         # Mark P2P unavailable immediately (routing accuracy)
         if self.peer_discovery and peer_name in self.peer_discovery._peers:
             self.peer_discovery._peers[peer_name].p2p_available = False
+
+        # Remove peer from GossipSub
+        if hasattr(self, 'router') and hasattr(self.router, 'remove_gossipsub_peer'):
+            self.router.remove_gossipsub_peer(peer_name)
 
         # Cancel any existing grace task for this peer (shouldn't happen, but be safe)
         existing_task = self._peer_offline_grace_tasks.get(peer_name)

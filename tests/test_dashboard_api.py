@@ -90,6 +90,7 @@ class MockConfig:
         self.pg.dbname = "agent_memory"
         self.pg.user = "nova"
         self.pg.password = "test"
+        self.skills = []
 
 
 class TestAgentsEndpoint(unittest.TestCase):
