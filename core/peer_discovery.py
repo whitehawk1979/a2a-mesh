@@ -573,15 +573,54 @@ class PeerDiscovery:
                 peer.p2p_available = True
                 already_connected += 1
                 continue
-            # Skip peers still in backoff (on the P2P transport)
+            # Skip peers in backoff only if we have enough peers (resilience ok)
+            # If below min_target_peers, force backoff reset to try reconnecting
             if self.p2p_transport and peer.name in self.p2p_transport._peer_backoff:
-                if time.time() < self.p2p_transport._peer_backoff[peer.name]:
+                min_target = getattr(self.config.discovery, "min_target_peers", 2)
+                current_connected = len(self.p2p_transport._peers) if self.p2p_transport else 0
+                if current_connected < min_target and time.time() < self.p2p_transport._peer_backoff[peer.name]:
+                    log.info(f"Low resilience ({current_connected}/{min_target} peers) — resetting backoff for {peer.name}")
+                    del self.p2p_transport._peer_backoff[peer.name]
+                elif time.time() < self.p2p_transport._peer_backoff[peer.name]:
                     continue
             if await self.connect_to_peer(peer):
                 connected += 1
-
         if connected > 0 or already_connected > 0:
             log.debug(f"Discovery: {connected} new, {already_connected} already connected")
+
+        # Auto-register P2P-connected peers that are missing from discovery
+        # This fixes the bug where peers connected via P2P (e.g., incoming connections)
+        # are not tracked by peer_discovery, causing connected_count to be incorrect
+        if self.p2p_transport:
+            p2p_peer_names = set(self.p2p_transport._peers.keys())
+            untracked = p2p_peer_names - set(self._peers.keys())
+            if untracked:
+                log.info(f"Auto-registering {len(untracked)} P2P-connected peers not in discovery: {untracked}")
+                for peer_name in untracked:
+                    peer_addr = self.p2p_transport._peer_addresses.get(peer_name)
+                    if peer_addr:
+                        host, port_str = peer_addr.rsplit(":", 1)
+                        port = int(port_str)
+                        peer = self.add_peer(
+                            name=peer_name, host=host, p2p_port=port,
+                            role="router", health_port=port + 5,
+                        )
+                        peer.p2p_available = True
+                    else:
+                        peer = self.add_peer(
+                            name=peer_name, host="unknown", p2p_port=8645,
+                            role="router", health_port=8650,
+                        )
+                        peer.p2p_available = True
+
+        # Log resilience status
+        min_target = getattr(self.config.discovery, "min_target_peers", 2)
+        current_connected = len(self.p2p_transport._peers) if self.p2p_transport else 0
+        if current_connected < min_target:
+            log.warning(f"Mesh resilience LOW: {current_connected}/{min_target} peers connected (target: ≥{min_target})")
+        else:
+            log.debug(f"Mesh resilience OK: {current_connected}/{min_target} peers connected")
+
         return connected
 
     async def start(self):
