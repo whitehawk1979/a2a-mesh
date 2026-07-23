@@ -100,6 +100,8 @@ class PeerDiscovery:
 
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
+        # Track static peers (from config) — never prune these
+        self._static_peer_names: set = set()
         # Thread-safe event queue for PG NOTIFY → async loop communication
         self._pg_event_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
 
@@ -117,6 +119,7 @@ class PeerDiscovery:
                     version=node.get("version"),  # None if missing
                 )
                 self._peers[name] = peer
+                self._static_peer_names.add(name)
                 log.info(f"Loaded static peer: {name} at {peer.host}:{peer.p2p_port}")
 
         # Discovery state
@@ -898,9 +901,11 @@ class PeerDiscovery:
                     self._pg_event_queue.get(), timeout=5.0
                 )
                 if event_type == "deregister":
-                    if node_name in self._peers:
+                    if node_name in self._peers and node_name not in self._static_peer_names:
                         del self._peers[node_name]
                         log.info(f"Removed offline peer (PG event): {node_name}")
+                    elif node_name in self._static_peer_names:
+                        log.debug(f"Skipping deregister for static peer: {node_name}")
                 # Future: add more event types (register, update, etc.)
             except asyncio.TimeoutError:
                 continue  # No events, loop again
@@ -913,9 +918,10 @@ class PeerDiscovery:
         while self._running:
             try:
                 await self.discover_and_connect()
-                # Prune stale peers not seen in 30 minutes
+                # Prune stale peers not seen in 30 minutes (never prune static config peers)
                 cutoff = time.time() - 1800
-                stale = [name for name, p in self._peers.items() if p.last_seen > 0 and p.last_seen < cutoff]
+                stale = [name for name, p in self._peers.items()
+                         if p.last_seen > 0 and p.last_seen < cutoff and name not in self._static_peer_names]
                 for name in stale:
                     log.info(f"Pruning stale peer: {name} (last seen {int(time.time() - self._peers[name].last_seen)}s ago)")
                     del self._peers[name]
@@ -925,9 +931,26 @@ class PeerDiscovery:
 
     def get_stats(self) -> dict:
         """Return discovery statistics."""
+        # P2 FIX: Include P2P transport peers that may not be in discovery yet
+        p2p_connected = set()
+        if self.p2p_transport:
+            p2p_connected = set(self.p2p_transport._peers.keys())
+        
+        # Build merged peers dict: discovery peers + any P2P-connected peers not yet tracked
+        merged_peers = dict(self._peers)
+        for name in p2p_connected:
+            if name not in merged_peers:
+                # P2P-connected but not in discovery — count as connected
+                merged_peers[name] = PeerInfo(
+                    name=name, host="unknown", port=8645, p2p_port=8645,
+                    role="router", health_port=8650, p2p_available=True,
+                )
+        
+        connected_count = len([p for p in merged_peers.values() if p.p2p_available or p.name in p2p_connected])
+        
         return {
-            "known_peers": len(self._peers),
-            "connected_peers": len([p for p in self._peers.values() if p.p2p_available]),
+            "known_peers": len(merged_peers),
+            "connected_peers": connected_count,
             "available_peers": len(self.get_available_peers()),
-            "peers": {name: peer.to_dict() for name, peer in self._peers.items()},
+            "peers": {name: peer.to_dict() for name, peer in merged_peers.items()},
         }

@@ -256,12 +256,21 @@ class DiagnosticEngine:
                 for name, p in peers_dict.items()
             ] if isinstance(peers_dict, dict) else []
             
-            # Also try P2P transport for live peer info
+            # Also try P2P transport for live peer info — merge with discovery data
             p2p_info = status.get("p2p", {})
+            p2p_peer_names = set()
             if isinstance(p2p_info, dict) and "peers" in p2p_info:
                 p2p_peers = p2p_info.get("peers", [])
-                if isinstance(p2p_peers, list) and not peer_list:
-                    peer_list = [{"name": name, "status": "connected", "version": "?"} for name in p2p_peers]
+                if isinstance(p2p_peers, list):
+                    p2p_peer_names = set(p2p_peers)
+                    # Add P2P-connected peers not yet in peer_list (e.g. connected before discovery tracked them)
+                    existing_names = {p["name"] for p in peer_list}
+                    for name in p2p_peers:
+                        if name not in existing_names:
+                            peer_list.append({"name": name, "status": "connected", "version": "?"})
+                    # Correct connected_count: P2P-connected peers count even if discovery missed them
+                    if len(p2p_peer_names) > connected_count:
+                        connected_count = len(p2p_peer_names)
             
             # Uptime: prefer status value, fallback to _start_time calculation
             uptime_val = status.get("uptime", 0)
