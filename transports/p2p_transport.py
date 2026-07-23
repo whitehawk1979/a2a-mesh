@@ -103,6 +103,8 @@ class P2PTransport(TransportAdapter):
         self._peer_connected_callback = None  # Callable[[str], Awaitable[None]]
         # Peer disconnect callback (for mesh-wide offline broadcast)
         self._on_peer_disconnect = None  # Callable[[str], Awaitable[None]]
+        # Heartbeat callback — receives (peer_name, version_str) from heartbeat payload
+        self._heartbeat_callback = None  # Callable[[str, str], Awaitable[None]]
 
         # Peer address resolver (set by node.py)
         self._peer_address_resolver = None  # Callable[[str], Optional[Tuple[str, int]]]
@@ -349,6 +351,14 @@ class P2PTransport(TransportAdapter):
                     # Handle heartbeat messages
                     if message.type == MSG_TYPE_HEARTBEAT:
                         log.debug(f"Heartbeat received from {message.sender}")
+                        # Update peer version from heartbeat payload
+                        hb_payload = message.payload if isinstance(message.payload, dict) else {}
+                        hb_version = hb_payload.get("version") if hb_payload else None
+                        if hb_version and self._heartbeat_callback and connected_peer_name:
+                            try:
+                                asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version))
+                            except Exception as e:
+                                log.debug(f"Heartbeat callback error for {connected_peer_name}: {e}")
                         # Don't re-queue heartbeats for normal processing
                         continue
 
@@ -561,6 +571,14 @@ class P2PTransport(TransportAdapter):
         Used for mesh-wide offline notification broadcast.
         """
         self._on_peer_disconnect = callback
+
+    def set_heartbeat_callback(self, callback):
+        """Set callback invoked when a heartbeat is received from a peer.
+
+        Callback signature: async def callback(peer_name: str, version: str)
+        Used to update peer version in peer_discovery from heartbeat payload.
+        """
+        self._heartbeat_callback = callback
 
     async def _connect_to_peer_multi(self, name: str, addresses: List[Tuple[str, int]]):
         """Connect to a peer trying multiple addresses in order (multi-address fallback).

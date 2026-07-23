@@ -110,6 +110,16 @@ class DiagnosticEngine:
         self._error_counts: Dict[str, int] = {}  # error_type -> count
         self._performance_samples: List[Dict] = []
         self._max_samples: int = 60  # Keep last 60 samples
+
+    def _get_min_target_peers(self) -> int:
+        """Get the minimum target peers from config, default 2."""
+        try:
+            discovery_cfg = getattr(self.node.config, "discovery", None)
+            if discovery_cfg:
+                return getattr(discovery_cfg, "min_target_peers", 2)
+        except Exception:
+            pass
+        return 2
     
     async def start(self):
         """Start the periodic diagnostic report generator."""
@@ -215,11 +225,19 @@ class DiagnosticEngine:
         try:
             process = psutil.Process(os.getpid())
             mem_info = process.memory_info()
+            # Collect CPU times to separate steal time from real usage
+            cpu_times_pct = psutil.cpu_times_percent(interval=0.1)
+            cpu_steal = getattr(cpu_times_pct, 'steal', 0.0)
+            cpu_raw = psutil.cpu_percent(interval=0.0)  # non-blocking, uses previous measurement
+            cpu_effective = max(0.0, cpu_raw - cpu_steal) if cpu_steal > 0 else cpu_raw
+
             return {
                 "process_rss_mb": round(mem_info.rss / 1024 / 1024, 1),
                 "process_vms_mb": round(mem_info.vms / 1024 / 1024, 1),
                 "system_memory_percent": psutil.virtual_memory().percent,
-                "system_cpu_percent": psutil.cpu_percent(interval=0.1),
+                "system_cpu_percent": cpu_raw,
+                "cpu_effective_percent": round(cpu_effective, 1),
+                "cpu_steal_percent": round(cpu_steal, 1),
                 "disk_usage_percent": psutil.disk_usage('/').percent,
                 "open_files": len(process.open_files()) if hasattr(process, 'open_files') else 0,
                 "connections": len(process.connections()) if hasattr(process, 'connections') else 0,
@@ -406,8 +424,8 @@ class DiagnosticEngine:
             peers = health.get("peer_count", 0)
             if peers == 0:
                 recs.append("No peers connected — node is isolated, check P2P transport and network connectivity")
-            elif peers < 2:
-                recs.append(f"Only {peers} peer(s) connected — mesh resilience is low, check network connectivity")
+            elif peers < self._get_min_target_peers():
+                recs.append(f"Only {peers} peer(s) connected (target: ≥{self._get_min_target_peers()}) — mesh resilience is low, check network connectivity")
             
             # Check transport availability
             transports = health.get("transports", {})
@@ -485,18 +503,37 @@ class DiagnosticEngine:
                 )
                 new_suggestions.append(s)
         
-        # ─── CPU suggestions ────────────────────────────────────────
+        # ─── CPU suggestions (using effective CPU, accounting for steal time) ──
         if mem:
-            cpu = mem.get("system_cpu_percent", 0)
+            cpu_raw = mem.get("system_cpu_percent", 0)
+            cpu_steal = mem.get("cpu_steal_percent", 0)
+            cpu_effective = mem.get("cpu_effective_percent", cpu_raw)
+            # Use effective CPU for thresholds (excludes hypervisor steal)
+            cpu = cpu_effective
+
+            # Steal time warning (KVM/VM environments)
+            if cpu_steal > 20 and not _suggestion_exists("steal time"):
+                s = await self.generate_suggestion(
+                    category="performance",
+                    priority="high",
+                    title=f"Magas CPU steal time ({cpu_steal:.0f}%) — hipervízor túlterheltség",
+                    description=f"A {node_name} node CPU steal time {cpu_steal:.0f}%, ami azt jelenti, hogy a hipervízor ennyi CPU időt vesz el a VM-től. A valós (effektív) CPU használat {cpu_effective:.0f}%, a nyers érték {cpu_raw:.0f}% lenne steal nélkül. A probléma a gazdagépen (Proxmox) oldható meg: CPU pinning, kevesebb VM, vagy erősebb gazdagép.",
+                    current_value=f"steal={cpu_steal:.0f}% eff={cpu_effective:.0f}%",
+                    suggested_value="steal<10%",
+                    rationale="A magas steal time a gazdagép túlterheltségét jelzi, nem a VM lokális problémáját. Az agent válaszideje lassulhat, de a megoldás a Proxmox szinten van.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+
             if cpu > 90 and not _suggestion_exists("CPU használat"):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="critical",
-                    title=f"Kritikus CPU használat ({cpu:.0f}%)",
-                    description=f"A {node_name} node CPU használata {cpu:.0f}%. Ez a mesh késleltetését és a válaszidő romlását okozza.",
-                    current_value=f"{cpu:.0f}%",
-                    suggested_value="<75%",
-                    rationale="A magas CPU használat lassítja az üzenetfeldolgozást, növeli a hálózati késleltetést, és ronthatja az agent válaszainak minőségét.",
+                    title=f"Kritikus effektív CPU használat ({cpu:.0f}%)",
+                    description=f"A {node_name} node effektív CPU használata {cpu:.0f}% (steal: {cpu_steal:.0f}%). Ez a mesh késleltetését és a válaszidő romlását okozza.",
+                    current_value=f"eff={cpu:.0f}% steal={cpu_steal:.0f}%",
+                    suggested_value="eff<75%",
+                    rationale="A magas effektív CPU használat lassítja az üzenetfeldolgozást, növeli a hálózati késleltetést, és ronthatja az agent válaszainak minőségét.",
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
@@ -504,11 +541,11 @@ class DiagnosticEngine:
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="medium",
-                    title=f"Magas CPU használat ({cpu:.0f}%)",
-                    description=f"A {node_name} node CPU használata {cpu:.0f}%. Ha tartósan magas, érdemes vizsgálni a CPU-igényes folyamatokat.",
-                    current_value=f"{cpu:.0f}%",
-                    suggested_value="<60%",
-                    rationale="A tartósan magas CPU használat ronthatja az agent válaszidejét.",
+                    title=f"Magas effektív CPU használat ({cpu:.0f}%)",
+                    description=f"A {node_name} node effektív CPU használata {cpu:.0f}% (steal: {cpu_steal:.0f}%). Ha tartósan magas, érdemes vizsgálni a CPU-igényes folyamatokat.",
+                    current_value=f"eff={cpu:.0f}% steal={cpu_steal:.0f}%",
+                    suggested_value="eff<60%",
+                    rationale="A tartósan magas effektív CPU használat ronthatja az agent válaszidejét.",
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
@@ -552,20 +589,20 @@ class DiagnosticEngine:
                     title="Nincs peer csatlakozva — izolált node",
                     description=f"A {node_name} node nem csatlakozott egyetlen peer-hez sem. A mesh kommunikáció megszakadhat.",
                     current_value="0 peer",
-                    suggested_value="≥2 peer",
+                    suggested_value=f"≥{self._get_min_target_peers()} peer",
                     rationale="Izolált node nem tud delegálni, üzeneteket küldeni vagy fogadni. A hálózati konfiguráció ellenőrzése szükséges.",
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)
-            elif peers == 1 and not _suggestion_exists("peer csatlakozás"):
+            elif peers < self._get_min_target_peers() and not _suggestion_exists("peer csatlakozás"):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="medium",
                     title=f"Csak {peers} peer csatlakozva — alacsony mesh reziliencia",
                     description=f"A {node_name} node csak {peers} peer-hez csatlakozik. Ha az a peer leáll, a node izolálódik.",
                     current_value=f"{peers} peer",
-                    suggested_value="≥2 peer",
-                    rationale="A mesh reziliencia növelése érdekében legalább 2 peer ajánlott.",
+                    suggested_value=f"≥{self._get_min_target_peers()} peer",
+                    rationale=f"A mesh reziliencia növelése érdekében legalább {self._get_min_target_peers()} peer ajánlott.",
                     affected_nodes=[node_name],
                 )
                 new_suggestions.append(s)

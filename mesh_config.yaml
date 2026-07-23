@@ -93,6 +93,7 @@ mesh:
       timeout: 5
       retries: 3
   discovery:
+    min_target_peers: 2  # Minimum connected peers for mesh resilience
     mdns:
       enabled: true
       service: _a2a._tcp

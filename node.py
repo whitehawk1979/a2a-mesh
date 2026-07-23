@@ -368,6 +368,7 @@ class MeshNode:
                     payload = {}
             peer_skills = payload.get("skills", [])
             peer_capabilities = payload.get("capabilities", [])
+            peer_version = payload.get("version") or None
             peer_name = message.sender
             log.info(f"Skills announcement from {peer_name}: skills={[s.get('id','?') if isinstance(s, dict) else s for s in peer_skills]}, caps={peer_capabilities}")
             # Update the peer's AgentCard in registry with their skills
@@ -564,7 +565,9 @@ class MeshNode:
             self._p2p_transport.set_peer_connected_callback(self._on_p2p_peer_connected)
             # Wire up P2P peer disconnect callback — broadcasts offline notification to mesh
             self._p2p_transport.set_peer_disconnect_callback(self._on_p2p_peer_disconnected)
-            log.info("✅ P2P callbacks registered (ACK + peer_connected + peer_disconnected)")
+            # Wire up P2P heartbeat callback — updates peer version in peer_discovery
+            self._p2p_transport.set_heartbeat_callback(self._on_p2p_heartbeat)
+            log.info("✅ P2P callbacks registered (ACK + peer_connected + peer_disconnected + heartbeat)")
         else:
             log.warning("❌ P2P TCP transport failed")
             await self.debug_log("ERROR", "transport", "P2P TCP transport failed to start")
@@ -1939,6 +1942,19 @@ echo "Status: ok"
         result = await self.send(complete_msg)
         log.info(f"FILE_COMPLETE sent for {file_id} → {recipient} (result: {result.success})")
 
+    async def _on_p2p_heartbeat(self, peer_name: str, version: str):
+        """Callback when a P2P heartbeat is received — update peer version in peer_discovery."""
+        if not self.peer_discovery:
+            return
+        peer = self.peer_discovery.get_peer(peer_name)
+        if peer:
+            if not peer.version or peer.version == 'unknown' or peer.version == '1.0.0':
+                peer.version = version
+                log.info(f"Updated peer {peer_name} version from heartbeat: {version}")
+            elif peer.version != version:
+                peer.version = version
+                log.info(f"Updated peer {peer_name} version from heartbeat: {version} (was {peer.version})")
+
     async def _on_p2p_ack(self, ack_for_id: str, ack_type: str):
         """Callback when a P2P ACK is received — update message status in PG."""
         if not self._pg_pool or not self._pg_pool.is_connected():
@@ -2045,6 +2061,7 @@ echo "Status: ok"
                             "type": "skills_announcement",
                             "skills": skills,
                             "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                            "version": self._resolved_version,
                         },
                         type="skills_announcement",
                         priority=5,
@@ -2069,6 +2086,7 @@ echo "Status: ok"
                             "type": "skills_announcement",
                             "skills": skills,
                             "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                            "version": self._resolved_version,
                         },
                         type="skills_announcement",
                         priority=5,
@@ -2193,6 +2211,7 @@ echo "Status: ok"
                 payload={
                     "type": "skills_announcement",
                     "skills": skills,
+                    "version": self._resolved_version,
                     "capabilities": capabilities,
                 },
                 type="skills_announcement",
@@ -2780,7 +2799,7 @@ echo "Status: ok"
                     sender=self.node_name,
                     recipient="broadcast",
                     msg_type=MSG_TYPE_HEARTBEAT,
-                    payload={"uptime": uptime, "transports": list(self.router.transports.keys())},
+                    payload={"uptime": uptime, "transports": list(self.router.transports.keys()), "version": self._resolved_version},
                     priority=1,
                 )
 

@@ -70,6 +70,7 @@ class DiscoveryConfig:
     udp_broadcast_interval: int = 15  # seconds between announcements
     tailscale_interface: str = ""  # Tailscale IP for cross-subnet discovery
     static_nodes: List[Dict] = field(default_factory=list)
+    min_target_peers: int = 2  # Minimum connected peers for mesh resilience
 
 
 @dataclass
@@ -416,6 +417,7 @@ class MeshConfig:
                 udp_broadcast_interval=disc_data.get('udp_broadcast', {}).get('interval', 15),
                 tailscale_interface=disc_data.get('tailscale_interface', ''),
                 static_nodes=static_nodes,
+                min_target_peers=disc_data.get('min_target_peers', 2),
             )
 
         # Security config
