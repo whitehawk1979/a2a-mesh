@@ -1969,7 +1969,31 @@ echo "Status: ok"
                 self.router.register_gossipsub_peer(peer_name, topics={'mesh', 'broadcast', 'diagnostic'})
                 log.debug(f"GossipSub: registered peer {peer_name} for topic-based broadcast")
         else:
-            log.warning(f"P2P peer_connected callback: peer {peer_name} not found in discovery, skipping registry")
+            # Peer connected via P2P but not in peer_discovery — create entry from transport data
+            # This happens when static config peers get pruned or when incoming connections
+            # arrive before discovery has tracked the peer.
+            peer_addr = self._p2p_transport._peer_addresses.get(peer_name) if self._p2p_transport else None
+            if peer_addr:
+                host, port_str = peer_addr.rsplit(":", 1)
+                port = int(port_str)
+                log.info(f"P2P peer_connected callback: creating discovery entry for {peer_name} from P2P transport ({peer_addr})")
+                peer = self.peer_discovery.add_peer(
+                    name=peer_name, host=host, p2p_port=port,
+                    role="router", health_port=port + 5,
+                )
+                peer.p2p_available = True
+            else:
+                # No address info — create minimal entry so discovery tracks it
+                log.info(f"P2P peer_connected callback: creating minimal discovery entry for {peer_name}")
+                peer = self.peer_discovery.add_peer(
+                    name=peer_name, host="unknown", p2p_port=8645,
+                    role="router", health_port=8650,
+                )
+                peer.p2p_available = True
+            # Register with GossipSub for efficient topic-based broadcast
+            if hasattr(self, 'router') and hasattr(self.router, 'register_gossipsub_peer'):
+                self.router.register_gossipsub_peer(peer_name, topics={'mesh', 'broadcast', 'diagnostic'})
+                log.debug(f"GossipSub: registered peer {peer_name} for topic-based broadcast (recovered from P2P)")
 
         # Cancel pending grace-period offline broadcast — peer reconnected
         pending_task = self._peer_offline_grace_tasks.pop(peer_name, None)
