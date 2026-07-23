@@ -88,6 +88,18 @@ class AutoUpdater:
         self.last_check: Optional[datetime] = None
         self.last_update: Optional[datetime] = None
         self._http_session: Optional[aiohttp.ClientSession] = None
+        # Read Gitea config from node config (overrides module-level defaults)
+        self._gitea_base = GITEA_BASE
+        self._gitea_repo = GITEA_REPO
+        self._gitea_user = GITEA_USER
+        self._gitea_pass = GITEA_PASS
+        if node and hasattr(node, 'config'):
+            au_cfg = getattr(node.config, 'auto_update', None)
+            if au_cfg:
+                self._gitea_base = getattr(au_cfg, 'gitea_url', GITEA_BASE) or GITEA_BASE
+                self._gitea_repo = getattr(au_cfg, 'gitea_repo', GITEA_REPO) or GITEA_REPO
+                self._gitea_user = getattr(au_cfg, 'gitea_user', GITEA_USER) or GITEA_USER
+                self._gitea_pass = getattr(au_cfg, 'gitea_pass', GITEA_PASS) or GITEA_PASS
 
     @property
     def current_version(self) -> str:
@@ -102,18 +114,18 @@ class AutoUpdater:
 
     @property
     def gitea_releases_url(self) -> str:
-        return f"{GITEA_BASE}/api/v1/repos/{GITEA_REPO}/releases"
+        return f"{self._gitea_base}/api/v1/repos/{self._gitea_repo}/releases"
 
     @property
     def gitea_tags_url(self) -> str:
-        return f"{GITEA_BASE}/api/v1/repos/{GITEA_REPO}/tags"
+        return f"{self._gitea_base}/api/v1/repos/{self._gitea_repo}/tags"
 
     # ─── HTTP Session Management ───
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
             self._http_session = aiohttp.ClientSession(
-                auth=aiohttp.BasicAuth(GITEA_USER, GITEA_PASS),
+                auth=aiohttp.BasicAuth(self._gitea_user, self._gitea_pass),
                 timeout=aiohttp.ClientTimeout(total=30),
             )
         return self._http_session
