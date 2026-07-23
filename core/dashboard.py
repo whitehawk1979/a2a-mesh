@@ -186,6 +186,7 @@ class DashboardHandler:
         app.router.add_post("/api/diagnostics/report", self._api_diagnostic_report_generate)
         app.router.add_post("/api/diagnostics/suggest", self._api_diagnostic_suggest)
         app.router.add_patch("/api/diagnostics/suggestions/{id}", self._api_diagnostic_suggestion_update)
+        app.router.add_post("/api/diagnostics/auto-implement", self._api_diagnostic_auto_implement)
         # Queue management endpoints
         app.router.add_post("/api/queue/flush", self._api_queue_flush)
         app.router.add_post("/api/queue/cleanup", self._api_queue_cleanup)
@@ -4782,3 +4783,23 @@ class DashboardHandler:
         if result is None:
             return web.json_response({"error": "Suggestion not found or invalid status"}, status=404)
         return web.json_response(result.to_dict())
+
+    async def _api_diagnostic_auto_implement(self, request):
+        """Auto-accept and implement pending diagnostic suggestions."""
+        try:
+            diagnostics = self.node.diagnostics if hasattr(self.node, 'diagnostics') and self.node.diagnostics else None
+            if not diagnostics:
+                return web.json_response({"error": "Diagnostics engine not available"}, status=503)
+            
+            implemented = await diagnostics.auto_implement_suggestions()
+            
+            # Return updated suggestions
+            suggestions = diagnostics.get_suggestions()
+            return web.json_response({
+                "implemented": len(implemented),
+                "implemented_ids": implemented,
+                "suggestions": [s.to_dict() for s in suggestions],
+            })
+        except Exception as e:
+            log.error(f"Error auto-implementing suggestions: {e}")
+            return web.json_response({"error": str(e)}, status=500)
