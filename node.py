@@ -2839,14 +2839,27 @@ echo "Status: ok"
                 if not self._running:
                     break
 
-                # Check PG pool connection
-                if self._pg_pool and not self._pg_pool.is_connected():
-                    log.warning("PG pool connection lost — attempting reconnect")
-                    try:
-                        if await self._pg_pool.connect():
-                            log.info("PG pool connection restored")
-                    except Exception as e:
-                        log.error(f"PG pool reconnect failed: {e}")
+                # Check PG pool connection and transport flag consistency
+                if self._pg_pool:
+                    pool_ok = self._pg_pool.is_connected()
+                    if not pool_ok:
+                        log.warning("PG pool connection lost — attempting reconnect")
+                        try:
+                            if await self._pg_pool.connect():
+                                log.info("PG pool connection restored")
+                                pool_ok = True
+                        except Exception as e:
+                            log.error(f"PG pool reconnect failed: {e}")
+                    # Sync PG transport _available flag with actual pool state
+                    pg_transport = self.router.transports.get('pg_notify')
+                    if pg_transport is not None:
+                        pg_flag = pg_transport.is_available()
+                        if pool_ok and not pg_flag:
+                            pg_transport._available = True
+                            log.info("PG transport _available synced to True (pool connected)")
+                        elif not pool_ok and pg_flag:
+                            pg_transport._available = False
+                            log.info("PG transport _available synced to False (pool disconnected)")
 
                 # Check transport availability
                 for name, transport in self.router.transports.items():
