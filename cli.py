@@ -923,7 +923,7 @@ def cmd_topology():
         nodes_by_parent[parent_key].append((short_addr, name, role, icon))
         all_nodes[short_addr] = (short_addr, name, role, icon)
         if role == "coordinator":
-            root = (short_addr, name, role, role_icon)
+            root = (short_addr, name, role, icon)
     # Fallback: if no coordinator, pick first node with no parent
     if root is None and nodes_by_parent.get(None):
         root = nodes_by_parent[None][0]
