@@ -4786,6 +4786,7 @@ class DashboardHandler:
 
     async def _api_diagnostic_auto_implement(self, request):
         """Auto-accept and implement pending diagnostic suggestions."""
+        from aiohttp import web
         try:
             diagnostics = self.node.diagnostics if hasattr(self.node, 'diagnostics') and self.node.diagnostics else None
             if not diagnostics:
