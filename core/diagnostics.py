@@ -110,10 +110,6 @@ class DiagnosticEngine:
         self._error_counts: Dict[str, int] = {}  # error_type -> count
         self._performance_samples: List[Dict] = []
         self._max_samples: int = 60  # Keep last 60 samples
-        self._cpu_baseline_initialized: bool = False  # Track if psutil CPU baseline is ready
-        self._last_cpu_percent: float = 0.0  # Cached non-blocking CPU reading
-        self._cpu_ema: float = 0.0  # Exponential Moving Average for CPU (alpha=0.3)
-        self._cpu_ema_initialized: bool = False
     
     async def start(self):
         """Start the periodic diagnostic report generator."""
@@ -148,13 +144,6 @@ class DiagnosticEngine:
                         await self._generate_suggestions_from_report(report)
                     except Exception as e:
                         log.warning(f"Failed to auto-generate suggestions: {e}")
-                    # Auto-accept and implement suggestions
-                    try:
-                        implemented = await self.auto_implement_suggestions()
-                        if implemented:
-                            log.info(f"🔧 Auto-implemented {len(implemented)} suggestions")
-                    except Exception as e:
-                        log.warning(f"Failed to auto-implement suggestions: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -196,14 +185,12 @@ class DiagnosticEngine:
     
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
-                                     rationale: str = "", priority: str = "medium",
-                                     affected_nodes: Optional[List[str]] = None,
-                                     source_node: str = None) -> ConfigSuggestion:
+                                     rationale: str = "", priority: str = "medium") -> ConfigSuggestion:
         """Generate a config suggestion."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
-            suggestion_id=f"sugg-{source_node or self.node.config.node_name}-{int(now.timestamp())}",
-            node=source_node or self.node.config.node_name,
+            suggestion_id=f"sugg-{self.node.config.node_name}-{int(now.timestamp())}",
+            node=self.node.config.node_name,
             timestamp=now.isoformat(),
             category=category,
             priority=priority,
@@ -212,7 +199,7 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            affected_nodes=affected_nodes if affected_nodes is not None else [source_node or self.node.config.node_name],
+            affected_nodes=[self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
         # Keep only last N suggestions
@@ -228,28 +215,11 @@ class DiagnosticEngine:
         try:
             process = psutil.Process(os.getpid())
             mem_info = process.memory_info()
-
-            # Non-blocking CPU measurement: first call establishes baseline,
-            # subsequent calls return delta since last call (interval=0).
-            # This avoids blocking the event loop and gives more accurate readings
-            # than psutil.cpu_percent(interval=0.1) which can spike to 100%.
-            if not self._cpu_baseline_initialized:
-                psutil.cpu_percent(interval=0.5)  # Establish baseline
-                self._cpu_baseline_initialized = True
-            cpu_pct = psutil.cpu_percent(interval=0)  # Non-blocking
-            # Apply EMA smoothing to reduce spike artifacts
-            if not self._cpu_ema_initialized:
-                self._cpu_ema = cpu_pct
-                self._cpu_ema_initialized = True
-            else:
-                self._cpu_ema = 0.3 * cpu_pct + 0.7 * self._cpu_ema  # EMA alpha=0.3
-            self._last_cpu_percent = self._cpu_ema
-
             return {
                 "process_rss_mb": round(mem_info.rss / 1024 / 1024, 1),
                 "process_vms_mb": round(mem_info.vms / 1024 / 1024, 1),
                 "system_memory_percent": psutil.virtual_memory().percent,
-                "system_cpu_percent": self._cpu_ema,
+                "system_cpu_percent": psutil.cpu_percent(interval=0.1),
                 "disk_usage_percent": psutil.disk_usage('/').percent,
                 "open_files": len(process.open_files()) if hasattr(process, 'open_files') else 0,
                 "connections": len(process.connections()) if hasattr(process, 'connections') else 0,
@@ -328,32 +298,16 @@ class DiagnosticEngine:
         P2P ACK-based RTT measurement uses (local_time - remote_timestamp).
         If clocks are not NTP-synchronized, this can produce negative values.
         Clamp them to 0 to prevent nonsensical negative latency in reports.
-        
-        Also converts TransportStatus dataclass objects to dicts so they
-        serialize properly in diagnostic reports.
         """
         sanitized = {}
         for name, info in transports.items():
-            # Convert TransportStatus dataclass objects to dicts
-            if hasattr(info, '__dataclass_fields__'):
-                from dataclasses import asdict as _asdict
-                info = _asdict(info)
             if isinstance(info, dict):
                 info = dict(info)  # shallow copy
                 lat = info.get("latency_ms")
-                if isinstance(lat, (int, float)):
-                    if lat == -1:
-                        # -1 = available but isolated (no peers connected)
-                        info["latency_ms"] = -1
-                        info["isolated"] = True
-                        info["note"] = "Transport available but no peers connected"
-                    elif lat < 0:
-                        log.warning(f"Transport {name} reported negative latency ({lat:.2f}ms) — "
-                                    f"likely clock skew. Clamping to 0.")
-                        info["latency_ms"] = 0.0
-                    elif lat == float('inf'):
-                        # Infinity is not valid JSON — replace with large but finite value
-                        info["latency_ms"] = 1e6  # 1,000,000ms = 1000s = effectively "unavailable"
+                if isinstance(lat, (int, float)) and lat < 0:
+                    log.warning(f"Transport {name} reported negative latency ({lat:.2f}ms) — "
+                                f"likely clock skew. Clamping to 0.")
+                    info["latency_ms"] = 0.0
                 # Also sanitize per-peer RTT if present
                 peers = info.get("peers")
                 if isinstance(peers, list):
@@ -413,13 +367,6 @@ class DiagnosticEngine:
         if health:
             peers = health.get("peer_count", 0)
             parts.append(f"Mesh: {peers} peers connected")
-            # Check for isolated transports
-            transports = health.get("transports", {})
-            if isinstance(transports, dict):
-                isolated = [name for name, info in transports.items()
-                            if isinstance(info, dict) and info.get("isolated", False)]
-                if isolated:
-                    parts.append(f"ISOLATED: {', '.join(isolated)} (available but no peers)")
         
         return " | ".join(parts)
     
@@ -435,19 +382,7 @@ class DiagnosticEngine:
                 recs.append(f"High memory usage ({rss}MB) — consider restarting or investigating memory leaks")
             sys_mem = mem.get("system_memory_percent", 0)
             if sys_mem > 85:
-                if rss < 100 and sys_mem > 90:
-                    # Node itself is lightweight — memory pressure is external
-                    recs.append(f"System memory at {sys_mem}% (OOM risk) — node RSS only {rss}MB, external processes consuming memory. Investigate other services on the host.")
-                else:
-                    recs.append(f"System memory at {sys_mem}% — risk of OOM kill")
-        
-        # CPU recommendations
-        if mem:
-            cpu = mem.get("system_cpu_percent", 0)
-            if cpu > 90:
-                recs.append(f"Critical CPU usage ({cpu:.0f}%) — investigate high-load processes or scale resources")
-            elif cpu > 75:
-                recs.append(f"High CPU usage ({cpu:.0f}%) — monitor for sustained load")
+                recs.append(f"System memory at {sys_mem}% — risk of OOM kill")
         
         # Error recommendations
         errs = report.error_patterns
@@ -491,38 +426,30 @@ class DiagnosticEngine:
         node_name = report.node
         
         # Helper: check if similar suggestion already exists to avoid duplicates
-        # Checks both title substring AND affected node to prevent cross-node duplicates
-        def _suggestion_exists(title_substring: str, node: str = None) -> bool:
-            for s in self._suggestions:
-                if title_substring.lower() in s.title.lower():
-                    if node is None or node in getattr(s, 'affected_nodes', []) or node in str(getattr(s, 'description', '')):
-                        return True
-            return False
+        # Check title substring AND node name AND not rejected (so pending/accepted/implemented blocks re-creation)
+        def _suggestion_exists(title_substring: str) -> bool:
+            return any(title_substring.lower() in s.title.lower()
+                       and s.node == node_name
+                       and s.status in ("pending", "accepted", "implemented")
+                       for s in self._suggestions)
         
         # ─── Memory suggestions ────────────────────────────────────
         mem = report.memory_stats
         if mem:
             sys_mem = mem.get("system_memory_percent", 0)
-            if sys_mem > 90 and not _suggestion_exists("memóriahasználat", node_name):
-                # Distinguish: is the node itself consuming memory or external processes?
-                rss_mb = mem.get("process_rss_mb", 0)
-                if rss_mb < 100:
-                    desc = f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, de az agent maga csak {rss_mb:.0f}MB-t használ. Külső folyamatok fogyasztják a memóriát — vizsgáld a gazdagépen futó más szolgáltatásokat (pl. docker, adatbázis, más agentek)."
-                else:
-                    desc = f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, ami OOM kill kockázatot jelent. Az agent processzek memóriafogyasztásának csökkentése vagy a rendszer memóriabővítése javasolt."
+            if sys_mem > 90 and not _suggestion_exists("memóriahasználat"):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="critical",
                     title=f"Kritikus memóriahasználat ({sys_mem:.0f}%) — OOM kockázat",
-                    description=desc,
+                    description=f"A {node_name} node rendszer memóriahasználata {sys_mem:.0f}%, ami OOM kill kockázatot jelent. Az agent processzek memóriafogyasztásának csökkentése vagy a rendszer memóriabővítése javasolt.",
                     current_value=f"{sys_mem:.1f}%",
                     suggested_value="<85%",
                     rationale="OOM kill esetén az agent nem válaszol, a mesh instabillá válik, és adatvesztés történhet.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
-            elif sys_mem > 80 and not _suggestion_exists("memóriahasználat", node_name):
+            elif sys_mem > 80 and not _suggestion_exists("memóriahasználat"):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="high",
@@ -532,12 +459,11 @@ class DiagnosticEngine:
                     suggested_value="<75%",
                     rationale="A magas memóriahasználat ronthatja a teljesítményt és OOM kill-hez vezethet.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
             
             rss = mem.get("process_rss_mb", 0)
-            if rss > 500 and not _suggestion_exists("RSS memória", node_name):
+            if rss > 500 and not _suggestion_exists("RSS memória"):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="high",
@@ -547,14 +473,13 @@ class DiagnosticEngine:
                     suggested_value="<400MB",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Az agent újraindítása ideiglenesen megoldja, de a root cause vizsgálata szükséges.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         # ─── CPU suggestions ────────────────────────────────────────
         if mem:
             cpu = mem.get("system_cpu_percent", 0)
-            if cpu > 90 and not _suggestion_exists("CPU használat", node_name):
+            if cpu > 90 and not _suggestion_exists("CPU használat"):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="critical",
@@ -564,10 +489,9 @@ class DiagnosticEngine:
                     suggested_value="<75%",
                     rationale="A magas CPU használat lassítja az üzenetfeldolgozást, növeli a hálózati késleltetést, és ronthatja az agent válaszainak minőségét.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
-            elif cpu > 75 and not _suggestion_exists("CPU használat", node_name):
+            elif cpu > 75 and not _suggestion_exists("CPU használat"):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="medium",
@@ -577,14 +501,13 @@ class DiagnosticEngine:
                     suggested_value="<60%",
                     rationale="A tartósan magas CPU használat ronthatja az agent válaszidejét.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         # ─── Disk suggestions ────────────────────────────────────────
         if mem:
             disk = mem.get("disk_usage_percent", 0)
-            if disk > 90 and not _suggestion_exists("lemezterület", node_name):
+            if disk > 90 and not _suggestion_exists("lemezterület"):
                 s = await self.generate_suggestion(
                     category="storage",
                     priority="critical",
@@ -594,10 +517,9 @@ class DiagnosticEngine:
                     suggested_value="<80%",
                     rationale="A lemezterület hiánya megakadályozza a naplózást, az adatbázis működést és a fájlműveleteket.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
-            elif disk > 80 and not _suggestion_exists("lemezterület", node_name):
+            elif disk > 80 and not _suggestion_exists("lemezterület"):
                 s = await self.generate_suggestion(
                     category="storage",
                     priority="medium",
@@ -607,15 +529,14 @@ class DiagnosticEngine:
                     suggested_value="<70%",
                     rationale="A közelgő lemezterület hiány megakadályozhatja a normál működést.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         # ─── Mesh connectivity suggestions ──────────────────────────
         health = report.mesh_health
         if health:
             peers = health.get("peer_count", 0)
-            if peers == 0 and not _suggestion_exists("peer csatlakozás", node_name):
+            if peers == 0 and not _suggestion_exists("peer csatlakozás"):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="critical",
@@ -625,10 +546,9 @@ class DiagnosticEngine:
                     suggested_value="≥2 peer",
                     rationale="Izolált node nem tud delegálni, üzeneteket küldeni vagy fogadni. A hálózati konfiguráció ellenőrzése szükséges.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
-            elif peers == 1 and not _suggestion_exists("peer csatlakozás", node_name):
+            elif peers == 1 and not _suggestion_exists("peer csatlakozás"):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="medium",
@@ -638,8 +558,7 @@ class DiagnosticEngine:
                     suggested_value="≥2 peer",
                     rationale="A mesh reziliencia növelése érdekében legalább 2 peer ajánlott.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
             
             # Transport suggestions
@@ -647,7 +566,7 @@ class DiagnosticEngine:
             if isinstance(transports, dict):
                 unavailable = [name for name, info in transports.items() 
                                if isinstance(info, dict) and not info.get("available", True)]
-                if unavailable and not _suggestion_exists("transport", node_name):
+                if unavailable and not _suggestion_exists("transport"):
                     s = await self.generate_suggestion(
                         category="network",
                         priority="high",
@@ -657,13 +576,12 @@ class DiagnosticEngine:
                         suggested_value="Minden transport elérhető",
                         rationale="A nem elérhető transportok miatt a node csak korlátozottan tud kommunikálni. Hálózati beállítások ellenőrzése javasolt.",
                         affected_nodes=[node_name],
-                    
-                    source_node=node_name)
+                    )
                     new_suggestions.append(s)
             
             # Connection count
             connections = mem.get("connections", 0) if mem else 0
-            if connections > 100 and not _suggestion_exists("kapcsolatszám", node_name):
+            if connections > 100 and not _suggestion_exists("kapcsolatszám"):
                 s = await self.generate_suggestion(
                     category="network",
                     priority="medium",
@@ -673,15 +591,14 @@ class DiagnosticEngine:
                     suggested_value="<50 kapcsolat",
                     rationale="A felesleges kapcsolatok erőforrásokat fogyasztanak és kapcsolatszivárgásra utalnak.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         # ─── Performance suggestions ────────────────────────────────
         perf = report.performance
         if perf:
             queue_size = perf.get("message_queue_size", 0)
-            if queue_size > 50 and not _suggestion_exists("üzenetsor", node_name):
+            if queue_size > 50 and not _suggestion_exists("üzenetsor"):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="high",
@@ -691,15 +608,14 @@ class DiagnosticEngine:
                     suggested_value="<10 üzenet",
                     rationale="A nagy üzenetsor késleltetést okoz a mesh kommunikációban. A feldolgozás gyorsítása vagy a terhelés csökkentése javasolt.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         # ─── Error suggestions ──────────────────────────────────────
         errs = report.error_patterns
         if errs:
             total = errs.get("total_errors", 0)
-            if total > 10 and not _suggestion_exists("hibaszám", node_name):
+            if total > 10 and not _suggestion_exists("hibaszám"):
                 # Find most common error
                 error_counts = errs.get("error_counts", {})
                 top_error = max(error_counts.items(), key=lambda x: x[1]) if error_counts else ("ismeretlen", total)
@@ -712,14 +628,13 @@ class DiagnosticEngine:
                     suggested_value="0 hiba",
                     rationale=f"A magas hibaszám instabilitást jelez. A leggyakoribb hiba ('{top_error[0]}') root cause vizsgálata javasolt.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         # ─── Delegation suggestions ─────────────────────────────────
         if health:
             failed = health.get("delegations_failed", 0)
-            if failed > 3 and not _suggestion_exists("delegáció", node_name):
+            if failed > 3 and not _suggestion_exists("delegáció"):
                 s = await self.generate_suggestion(
                     category="delegation",
                     priority="medium",
@@ -729,8 +644,7 @@ class DiagnosticEngine:
                     suggested_value="0 sikertelen",
                     rationale="A sikertelen delegációk rontják a mesh együttműködési képességét.",
                     affected_nodes=[node_name],
-                
-                    source_node=node_name)
+                )
                 new_suggestions.append(s)
         
         if new_suggestions:
@@ -836,11 +750,6 @@ class DiagnosticEngine:
         
         if msg_type == "diagnostic_report":
             report = DiagnosticReport.from_dict(data)
-            # Sanitize transport latencies from remote reports (clock skew, invalid values)
-            if report.mesh_health and isinstance(report.mesh_health, dict):
-                transports = report.mesh_health.get("transports", {})
-                if isinstance(transports, dict):
-                    report.mesh_health["transports"] = self._sanitize_transport_latencies(transports)
             # Deduplicate by report_id — same report may arrive via P2P and PG NOTIFY
             if any(r.report_id == report.report_id for r in self._reports):
                 log.debug(f"📊 Duplicate diagnostic report from {source}: {report.report_id} — skipping")
@@ -895,151 +804,6 @@ class DiagnosticEngine:
                 return s
         return None
     
-
-    async def auto_implement_suggestions(self) -> List[str]:
-        """Auto-accept and implement pending suggestions where possible.
-        
-        Returns list of implemented suggestion IDs.
-        For suggestions that can't be auto-implemented, they stay as 'accepted'.
-        """
-        implemented = []
-        for s in self._suggestions:
-            if s.status != 'pending':
-                continue
-            
-            # Auto-accept all pending suggestions
-            s.status = 'accepted'
-            log.info(f"📋 Auto-accepted suggestion: {s.title} ({s.suggestion_id})")
-            
-            # Try to auto-implement based on category
-            try:
-                result = await self._implement_suggestion(s)
-                if result:
-                    s.status = 'implemented'
-                    implemented.append(s.suggestion_id)
-                    log.info(f"✅ Auto-implemented suggestion: {s.title} ({s.suggestion_id})")
-                    # Broadcast the status change
-                    await self._broadcast_suggestion(s)
-            except Exception as e:
-                log.warning(f"⚠️ Could not auto-implement suggestion {s.suggestion_id}: {e}")
-        
-        return implemented
-    
-    async def _implement_suggestion(self, suggestion: ConfigSuggestion) -> bool:
-        """Try to auto-implement a suggestion. Returns True if successful.
-        
-        Implementation logic by category:
-        - memory: restart self if OOM risk, set memory limits
-        - performance: log CPU-intensive processes for investigation
-        - network: trigger peer reconnect, restart P2P transport
-        - storage: clean old logs and temp files
-        - stability: restart error-prone subsystems
-        """
-        cat = suggestion.category
-        node_name = suggestion.node
-        
-        if cat == 'memory':
-            # Check if this node is the affected one
-            if node_name == self.node.config.node_name:
-                # High memory: try garbage collection and memory optimization
-                import gc
-                gc.collect()
-                log.info(f"🧹 Triggered garbage collection for memory suggestion on {node_name}")
-                
-                # If RSS is very high, consider restarting the agent
-                rss_mb = float(suggestion.current_value.replace('MB', '').strip()) if 'MB' in suggestion.current_value else 0
-                if rss_mb > 500:
-                    log.warning(f"🔴 RSS memory {rss_mb}MB exceeds 500MB — agent restart recommended")
-                    # Don't auto-restart to avoid loop, just log
-                
-                return True  # GC was triggered
-            
-            # For remote nodes: send a directive to trigger GC
-            if hasattr(self.node, 'broadcast'):
-                try:
-                    await self.node.broadcast(
-                        msg_type="directive",
-                        payload={
-                            "type": "gc_collect",
-                            "target": node_name,
-                            "reason": suggestion.title,
-                            "suggestion_id": suggestion.suggestion_id,
-                        },
-                    )
-                    log.info(f"📡 Sent GC directive to {node_name}")
-                    return True
-                except Exception as e:
-                    log.warning(f"Failed to send GC directive to {node_name}: {e}")
-        
-        elif cat == 'performance':
-            # Log current CPU usage for investigation
-            import psutil
-            cpu = psutil.cpu_percent(interval=0.1)
-            log.info(f"⚡ CPU investigation: current CPU={cpu}%, suggestion says {suggestion.current_value}")
-            
-            # For remote nodes, send CPU investigation directive
-            if node_name != self.node.config.node_name and hasattr(self.node, 'broadcast'):
-                try:
-                    await self.node.broadcast(
-                        msg_type="directive",
-                        payload={
-                            "type": "cpu_investigate",
-                            "target": node_name,
-                            "reason": suggestion.title,
-                            "suggestion_id": suggestion.suggestion_id,
-                        },
-                    )
-                    log.info(f"📡 Sent CPU investigation directive to {node_name}")
-                    return True
-                except Exception:
-                    pass
-            return True  # Logged investigation
-        
-        elif cat == 'network':
-            # Try to reconnect isolated peers
-            if 'izolált' in suggestion.title or 'peer' in suggestion.title.lower():
-                if hasattr(self.node, 'peer_discovery') and self.node.peer_discovery:
-                    log.info(f"🌐 Triggering peer discovery refresh for network suggestion")
-                    try:
-                        await self.node.peer_discovery.discover_peers()
-                        return True
-                    except Exception as e:
-                        log.warning(f"Peer discovery refresh failed: {e}")
-            return False  # Can't fully auto-implement network issues
-        
-        elif cat == 'storage':
-            # Clean old logs and temp files
-            if node_name == self.node.config.node_name:
-                import glob
-                import os
-                cleaned = 0
-                # Clean __pycache__
-                for f in glob.glob(os.path.join(os.path.dirname(__file__), '..', '**', '__pycache__'), recursive=True):
-                    try:
-                        import shutil
-                        shutil.rmtree(f)
-                        cleaned += 1
-                    except Exception:
-                        pass
-                # Clean old log files
-                log_dir = os.path.expanduser('~/.hermes/logs')
-                if os.path.isdir(log_dir):
-                    for f in glob.glob(os.path.join(log_dir, '*.log.*')):
-                        try:
-                            os.remove(f)
-                            cleaned += 1
-                        except Exception:
-                            pass
-                log.info(f"🧹 Cleaned {cleaned} files for storage suggestion")
-                return cleaned > 0
-            return False
-        
-        elif cat == 'stability':
-            # Restart error-prone subsystems
-            log.info(f"🔧 Stability suggestion logged: {suggestion.title}")
-            return True  # Logged, manual intervention recommended
-        
-        return False  # Unknown category — manual implementation needed
     def get_status(self) -> Dict[str, Any]:
         """Get current diagnostic engine status."""
         return {
