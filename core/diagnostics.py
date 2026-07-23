@@ -186,12 +186,13 @@ class DiagnosticEngine:
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
                                      rationale: str = "", priority: str = "medium",
-                                     affected_nodes: Optional[List[str]] = None) -> ConfigSuggestion:
+                                     affected_nodes: Optional[List[str]] = None,
+                                     source_node: str = None) -> ConfigSuggestion:
         """Generate a config suggestion."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
-            suggestion_id=f"sugg-{self.node.config.node_name}-{int(now.timestamp())}",
-            node=self.node.config.node_name,
+            suggestion_id=f"sugg-{source_node or self.node.config.node_name}-{int(now.timestamp())}",
+            node=source_node or self.node.config.node_name,
             timestamp=now.isoformat(),
             category=category,
             priority=priority,
@@ -200,7 +201,7 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            affected_nodes=affected_nodes if affected_nodes is not None else [self.node.config.node_name],
+            affected_nodes=affected_nodes if affected_nodes is not None else [source_node or self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
         # Keep only last N suggestions
@@ -490,7 +491,8 @@ class DiagnosticEngine:
                     suggested_value="<85%",
                     rationale="OOM kill esetén az agent nem válaszol, a mesh instabillá válik, és adatvesztés történhet.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
             elif sys_mem > 80 and not _suggestion_exists("memóriahasználat", node_name):
                 s = await self.generate_suggestion(
@@ -502,7 +504,8 @@ class DiagnosticEngine:
                     suggested_value="<75%",
                     rationale="A magas memóriahasználat ronthatja a teljesítményt és OOM kill-hez vezethet.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
             
             rss = mem.get("process_rss_mb", 0)
@@ -516,7 +519,8 @@ class DiagnosticEngine:
                     suggested_value="<400MB",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Az agent újraindítása ideiglenesen megoldja, de a root cause vizsgálata szükséges.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         # ─── CPU suggestions ────────────────────────────────────────
@@ -532,7 +536,8 @@ class DiagnosticEngine:
                     suggested_value="<75%",
                     rationale="A magas CPU használat lassítja az üzenetfeldolgozást, növeli a hálózati késleltetést, és ronthatja az agent válaszainak minőségét.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
             elif cpu > 75 and not _suggestion_exists("CPU használat", node_name):
                 s = await self.generate_suggestion(
@@ -544,7 +549,8 @@ class DiagnosticEngine:
                     suggested_value="<60%",
                     rationale="A tartósan magas CPU használat ronthatja az agent válaszidejét.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         # ─── Disk suggestions ────────────────────────────────────────
@@ -560,7 +566,8 @@ class DiagnosticEngine:
                     suggested_value="<80%",
                     rationale="A lemezterület hiánya megakadályozza a naplózást, az adatbázis működést és a fájlműveleteket.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
             elif disk > 80 and not _suggestion_exists("lemezterület", node_name):
                 s = await self.generate_suggestion(
@@ -572,7 +579,8 @@ class DiagnosticEngine:
                     suggested_value="<70%",
                     rationale="A közelgő lemezterület hiány megakadályozhatja a normál működést.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         # ─── Mesh connectivity suggestions ──────────────────────────
@@ -589,7 +597,8 @@ class DiagnosticEngine:
                     suggested_value="≥2 peer",
                     rationale="Izolált node nem tud delegálni, üzeneteket küldeni vagy fogadni. A hálózati konfiguráció ellenőrzése szükséges.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
             elif peers == 1 and not _suggestion_exists("peer csatlakozás", node_name):
                 s = await self.generate_suggestion(
@@ -601,7 +610,8 @@ class DiagnosticEngine:
                     suggested_value="≥2 peer",
                     rationale="A mesh reziliencia növelése érdekében legalább 2 peer ajánlott.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
             
             # Transport suggestions
@@ -619,7 +629,8 @@ class DiagnosticEngine:
                         suggested_value="Minden transport elérhető",
                         rationale="A nem elérhető transportok miatt a node csak korlátozottan tud kommunikálni. Hálózati beállítások ellenőrzése javasolt.",
                         affected_nodes=[node_name],
-                    )
+                    
+                    source_node=node_name)
                     new_suggestions.append(s)
             
             # Connection count
@@ -634,7 +645,8 @@ class DiagnosticEngine:
                     suggested_value="<50 kapcsolat",
                     rationale="A felesleges kapcsolatok erőforrásokat fogyasztanak és kapcsolatszivárgásra utalnak.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         # ─── Performance suggestions ────────────────────────────────
@@ -651,7 +663,8 @@ class DiagnosticEngine:
                     suggested_value="<10 üzenet",
                     rationale="A nagy üzenetsor késleltetést okoz a mesh kommunikációban. A feldolgozás gyorsítása vagy a terhelés csökkentése javasolt.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         # ─── Error suggestions ──────────────────────────────────────
@@ -671,7 +684,8 @@ class DiagnosticEngine:
                     suggested_value="0 hiba",
                     rationale=f"A magas hibaszám instabilitást jelez. A leggyakoribb hiba ('{top_error[0]}') root cause vizsgálata javasolt.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         # ─── Delegation suggestions ─────────────────────────────────
@@ -687,7 +701,8 @@ class DiagnosticEngine:
                     suggested_value="0 sikertelen",
                     rationale="A sikertelen delegációk rontják a mesh együttműködési képességét.",
                     affected_nodes=[node_name],
-                )
+                
+                    source_node=node_name)
                 new_suggestions.append(s)
         
         if new_suggestions:
