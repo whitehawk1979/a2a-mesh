@@ -300,11 +300,18 @@ class PGTransport(TransportAdapter):
             log.error(f"Failed to fetch message {msg_id}: {e}")
         return None
 
-    async def send(self, message: A2AMessage) -> SendResult:
+    async def send(self, message: A2AMessage, notify: bool = True) -> SendResult:
         """Send message via PG — INSERT into mesh.mesh_messages (async).
 
         Uses parameterized queries ($1, $2, ...) for SQL injection prevention.
         NOTIFY triggers on mesh_channel deliver instant notifications to connected agents.
+
+        Args:
+            message: A2AMessage to send.
+            notify: If True (default), send PG NOTIFY for instant delivery.
+                    If False, only INSERT into DB (store-only for offline resilience).
+                    Use notify=False when another transport (e.g. P2P) already delivered
+                    the message in real-time — avoids duplicate delivery.
         """
         if not self._pool or not self._pool.is_connected():
             return SendResult(transport="pg_notify", success=False, error="not connected")
@@ -346,18 +353,23 @@ class PGTransport(TransportAdapter):
                 None,  # dst_addr
             )
 
-            # Send PG NOTIFY for instant delivery
-            try:
-                notify_payload = json.dumps({
-                    "id": str(message.id),
-                    "sender": message.sender,
-                    "recipient": message.recipient,
-                    "msg_type": message.type,
-                    "priority": message.priority,
-                }, ensure_ascii=True)
-                await self._pool.notify("mesh_channel", notify_payload)
-            except Exception as notify_err:
-                log.debug(f"PG NOTIFY failed (non-critical): {notify_err}")
+            # Send PG NOTIFY for instant delivery (skip if notify=False)
+            # notify=False means another transport already delivered this message
+            # in real-time — we only store it in DB for offline resilience
+            if notify:
+                try:
+                    notify_payload = json.dumps({
+                        "id": str(message.id),
+                        "sender": message.sender,
+                        "recipient": message.recipient,
+                        "msg_type": message.type,
+                        "priority": message.priority,
+                    }, ensure_ascii=True)
+                    await self._pool.notify("mesh_channel", notify_payload)
+                except Exception as notify_err:
+                    log.debug(f"PG NOTIFY failed (non-critical): {notify_err}")
+            else:
+                log.debug(f"PG store-only (no NOTIFY) for {message.id[:8]} — delivered via another transport")
 
             return SendResult(transport="pg_notify", success=True, latency_ms=1.0)
 

@@ -283,6 +283,13 @@ class MeshRouter:
         duplication roughly in half for 3-node meshes.
         
         For directed messages, the fallback chain (P2P→PG→HTTP) still applies.
+        
+        Smart dedup strategy:
+        - P2P available → send via P2P (fastest, peer-to-peer)
+        - PG available, no P2P → send via PG with NOTIFY (reliable shared medium)
+        - Both available → P2P delivers in real-time, PG stores for offline
+          resilience but WITHOUT NOTIFY (avoids duplicate delivery)
+        - This reduces broadcast duplication from ~50% to near 0%
         """
         p2p = self.transports.get("p2p")
         pg = self.transports.get("pg_notify")
@@ -293,7 +300,7 @@ class MeshRouter:
         
         results = []
         
-        # Smart broadcast: if P2P is available, prefer P2P for broadcasts
+        # Smart broadcast: if P2P is available, prefer P2P for broadcasts.
         # PG NOTIFY is a shared broadcast medium — every node listening on PG
         # gets the message. Sending the same broadcast on BOTH P2P and PG
         # causes each receiving node to get 2 copies (1 via P2P, 1 via PG),
@@ -301,9 +308,11 @@ class MeshRouter:
         #
         # Strategy:
         # - P2P available → send via P2P (fastest, peer-to-peer)
-        # - PG available, no P2P → send via PG (reliable shared medium)
-        # - Both available → send via P2P first, PG as backup only if P2P fails
-        # - This reduces broadcast duplication from ~51% to near 0%
+        # - PG available, no P2P → send via PG with NOTIFY (reliable shared medium)
+        # - Both available → P2P delivers in real-time, PG stores for offline
+        #   resilience but WITHOUT NOTIFY (store-only, notify=False).
+        #   This avoids each receiving node getting 2 copies of the same broadcast.
+        # - This reduces broadcast duplication from ~50% to near 0%
         
         if p2p_available:
             try:
@@ -313,15 +322,18 @@ class MeshRouter:
                 log.warning(f"Broadcast on p2p failed: {e}")
                 results.append(SendResult(transport="p2p", success=False, error=str(e)))
             
-            # If P2P succeeded, also send via PG for offline resilience
-            # but mark this as a PG-sync broadcast (PG stores it for offline nodes)
+            # If P2P succeeded, also store via PG for offline resilience
+            # BUT skip PG NOTIFY — P2P already delivered in real-time.
+            # Without notify=False, each node would receive the broadcast twice
+            # (once via P2P, once via PG NOTIFY), causing ~50% dedup hit rate.
             if any(r.success for r in results):
                 if pg_available:
                     try:
-                        result = await pg.send(message)
+                        result = await pg.send(message, notify=False)
                         results.append(result)
+                        self._stats["broadcast_suppressed"] += 1
                     except Exception as e:
-                        log.debug(f"Broadcast PG backup (non-critical): {e}")
+                        log.debug(f"Broadcast PG store-only (non-critical): {e}")
                 self._stats["sent"] += 1
                 # Mark broadcast as pg_synced in local_store
                 if self.local_store:
