@@ -4770,15 +4770,15 @@ class DashboardHandler:
         # Auto-delegate high/critical development suggestions
         if suggestion.category == "development" and suggestion.priority in ("high", "critical"):
             try:
-                delegation_mgr = getattr(self.node, 'delegation_manager', None)
+                delegation_mgr = getattr(self.node, 'delegation', None)
                 if delegation_mgr:
                     task_title = f"[DEV] {suggestion.title}"
                     task_desc = f"**Fejlesztési javaslat ({suggestion.priority} prioritás)**\n\n{suggestion.description}\n\n**Jelenlegi érték:** {suggestion.current_value}\n**Célérték:** {suggestion.suggested_value}\n**Indoklás:** {suggestion.rationale}\n\n**Érintett node:** {', '.join(suggestion.affected_nodes)}\n**Javaslat ID:** {suggestion.suggestion_id}"
-                    await delegation_mgr.create_task(
-                        title=task_title,
-                        description=task_desc,
-                        from_agent=suggestion.node,
+                    await delegation_mgr.delegate_task(
                         to_agent="nova",
+                        subject=task_title,
+                        description=task_desc,
+                        task_type="code",
                         priority=7 if suggestion.priority == "critical" else 5,
                     )
                     log.info(f"📋 Auto-delegated manual suggestion: {suggestion.title}")
