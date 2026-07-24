@@ -140,8 +140,9 @@ class P2PTransport(TransportAdapter):
                 # Server context (for incoming connections)
                 self._ssl_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_SERVER)
                 self._ssl_context.load_cert_chain(tls_cert, tls_key)
-                # P1: Remove DHE ciphers, use only ECDHE+AESGCM (TLS 1.3 compatible)
-                self._ssl_context.set_ciphers('ECDHE+AESGCM')
+                # P1: Use broad cipher string — TLS 1.3 ciphers are not configurable via set_ciphers
+                # Allow TLS 1.2+ with ECDHE for forward secrecy
+                self._ssl_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM:ECDHE+CHACHA20')
                 self._ssl_context.minimum_version = _ssl.TLSVersion.TLSv1_2
                 # Load CA for peer verification if configured
                 if tls_ca:
@@ -158,7 +159,7 @@ class P2PTransport(TransportAdapter):
                 self._ssl_client_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
                 self._ssl_client_context.load_cert_chain(tls_cert, tls_key)
                 self._ssl_client_context.minimum_version = _ssl.TLSVersion.TLSv1_2
-                self._ssl_client_context.set_ciphers('ECDHE+AESGCM')
+                self._ssl_client_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM:ECDHE+CHACHA20')
                 if tls_ca:
                     self._ssl_client_context.load_verify_locations(tls_ca)
                 if tls_verify_peer:
