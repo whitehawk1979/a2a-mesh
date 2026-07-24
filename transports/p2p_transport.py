@@ -330,7 +330,12 @@ class P2PTransport(TransportAdapter):
         - Handles incoming connections from known peers (reconnection)
         """
         peer_addr = writer.get_extra_info('peername')
-        log.debug(f"New connection from {peer_addr}")
+        # Log TLS state for incoming connections
+        ssl_obj = writer.get_extra_info('ssl_object')
+        if ssl_obj:
+            log.info(f"TLS connection from {peer_addr}: {ssl_obj.version()} cipher={ssl_obj.cipher()}")
+        else:
+            log.warning(f"PLAIN TCP connection from {peer_addr} (no TLS handshake)")
 
         # Try to identify which peer this connection is from
         connected_peer_name = None
