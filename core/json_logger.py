@@ -162,28 +162,33 @@ def setup_json_logging(node_name: str = '', log_file: str = None, json_mode: str
         console_formatter = HumanFormatter(use_color=True)
         file_formatter = JSONFormatter()
     
-    # Configure root a2a_mesh logger
-    root_logger = logging.getLogger('a2a_mesh')
-    root_logger.setLevel(logging.DEBUG)
-    root_logger.addFilter(trace_filter)
+    # Configure root logger — this catches all a2a.delegation, a2a_mesh.*, etc.
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    # Remove existing handlers to avoid duplicates
+    for h in list(root.handlers):
+        root.removeHandler(h)
     
-    # Remove existing handlers
-    root_logger.handlers.clear()
-    
-    # Console handler
+    # Console handler on root (human-readable, catches everything)
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
     console_handler.addFilter(trace_filter)
-    root_logger.addHandler(console_handler)
+    root.addHandler(console_handler)
     
-    # File handler (JSON structured logs)
+    # File handler on root (JSON, catches everything)
     if log_file:
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(file_formatter)
         file_handler.addFilter(trace_filter)
-        root_logger.addHandler(file_handler)
+        root.addHandler(file_handler)
+    
+    # Also configure a2a_mesh logger specifically (propagation will send to root)
+    mesh_logger = logging.getLogger('a2a_mesh')
+    mesh_logger.setLevel(logging.DEBUG)
+    mesh_logger.addFilter(trace_filter)
+    # Don't add handlers here — propagation sends to root
     
     # Also set node_name on any future log records from this node
     if node_name:
