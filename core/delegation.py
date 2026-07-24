@@ -66,6 +66,12 @@ class DelegationManager:
         # Fan-out dedup: track (from_agent, subject) combos we've already claimed
         self._claimed_subjects: set = set()
         self._claimed_subjects_timestamps: Dict[tuple, float] = {}  # TTL tracking
+        # Race condition protection for claim_task
+        self._claim_lock = asyncio.Lock()
+        # Circuit breaker per peer: {peer_name: {"failures": int, "last_fail": float, "open": bool}}
+        self._circuit_breakers: Dict[str, Dict] = {}
+        self._circuit_breaker_threshold = 3   # consecutive failures before opening
+        self._circuit_breaker_cooldown = 60.0  # seconds to wait before retrying
 
     async def start(self):
         """Start polling for delegated tasks."""
@@ -125,7 +131,37 @@ class DelegationManager:
             eligible_agents: Optional list of agent names that can claim this task
                             (only used when available=True)
         """
+        # ── Input validation ──
+        if not subject or not subject.strip():
+            raise ValueError("delegate_task: subject is required")
+        if not to_agent or not to_agent.strip():
+            raise ValueError("delegate_task: to_agent is required")
+        subject = subject.strip()[:500]  # Limit subject length
+        to_agent = to_agent.strip()
+        if priority < 1:
+            priority = 1
+        elif priority > 10:
+            priority = 10
+        if timeout_minutes < 1:
+            timeout_minutes = 30
+        # Prevent self-delegation
+        if to_agent == self.node_name and not available:
+            log.warning(f"Skipping self-delegation: {self.node_name} → {to_agent} (use available=True instead)")
+            return ""
+        # Check circuit breaker for target agent
+        if not available and to_agent != "any":
+            cb = self._circuit_breakers.get(to_agent)
+            if cb and cb.get("open"):
+                if time.time() - cb.get("last_fail", 0) < self._circuit_breaker_cooldown:
+                    log.warning(f"Circuit breaker OPEN for {to_agent}: skipping delegation (failures={cb.get('failures',0)})")
+                    return ""
+                else:
+                    # Cooldown expired, half-open — allow one attempt
+                    log.info(f"Circuit breaker HALF-OPEN for {to_agent}: allowing one attempt")
+                    cb["open"] = False
         task_id = str(uuid.uuid4())
+        trace_id = f"trace-{self.node_name}-{task_id[:8]}"
+        log.info(f"[{trace_id}] Delegating task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
         # Parse description: if it's already a valid JSON with "type", use it as-is
         try:
@@ -155,7 +191,7 @@ class DelegationManager:
             status, priority, expires_at, None, max_retries,
         )
 
-        log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
+        log.info(f"[trace-{self.node_name}-{task_id[:8]}] Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
 
         # ── Fan-out: create identical tasks for N agents ──
         if fan_out > 0:
@@ -192,32 +228,34 @@ class DelegationManager:
 
     async def claim_task(self, task_id: str, agent_name: Optional[str] = None) -> bool:
         """Claim an available task. Agent can claim tasks marked as 'available'.
-        If eligible_agents is set in the task description, only those agents can claim."""
-        agent = agent_name or self.node_name
-        # Check eligible_agents constraint
-        task_row = await self.pg_pool.fetchrow(
-            "SELECT description FROM shared_delegations WHERE task_id = $1 AND status = $2",
-            task_id, STATUS_AVAILABLE,
-        )
-        if task_row:
-            try:
-                desc = json.loads(task_row["description"]) if isinstance(task_row["description"], str) else task_row["description"]
-                eligible = desc.get("eligible_agents") if isinstance(desc, dict) else None
-                if eligible and isinstance(eligible, list) and agent not in eligible:
-                    log.warning(f"Agent {agent} not in eligible_agents for task {task_id}: {eligible}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
-        result = await self.pg_pool.execute(
-            """UPDATE shared_delegations 
-               SET status = $1, assigned_agent = $2, accepted_at = NOW()
-               WHERE task_id = $3 AND status = $4""",
-            STATUS_ACCEPTED, agent, task_id, STATUS_AVAILABLE,
-        )
-        if "UPDATE 1" in result:
-            log.info(f"Agent {agent} claimed task {task_id}")
-            return True
-        return False
+        If eligible_agents is set in the task description, only those agents can claim.
+        Uses asyncio.Lock to prevent race conditions between concurrent polls."""
+        async with self._claim_lock:
+            agent = agent_name or self.node_name
+            # Check eligible_agents constraint
+            task_row = await self.pg_pool.fetchrow(
+                "SELECT description FROM shared_delegations WHERE task_id = $1 AND status = $2",
+                task_id, STATUS_AVAILABLE,
+            )
+            if task_row:
+                try:
+                    desc = json.loads(task_row["description"]) if isinstance(task_row["description"], str) else task_row["description"]
+                    eligible = desc.get("eligible_agents") if isinstance(desc, dict) else None
+                    if eligible and isinstance(eligible, list) and agent not in eligible:
+                        log.warning(f"Agent {agent} not in eligible_agents for task {task_id}: {eligible}")
+                        return False
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            result = await self.pg_pool.execute(
+                """UPDATE shared_delegations 
+                   SET status = $1, assigned_agent = $2, accepted_at = NOW()
+                   WHERE task_id = $3 AND status = $4""",
+                STATUS_ACCEPTED, agent, task_id, STATUS_AVAILABLE,
+            )
+            if "UPDATE 1" in result:
+                log.info(f"Agent {agent} claimed task {task_id}")
+                return True
+            return False
 
     async def reassign_task(self, task_id: str, new_agent: str) -> bool:
         """Reassign a task to a different agent."""
@@ -294,7 +332,11 @@ class DelegationManager:
                 break
             except Exception as e:
                 log.error(f"Delegation poll error: {e}")
-                await asyncio.sleep(self._poll_interval * 2)
+                # Exponential backoff: double the poll interval, max 60s
+                backoff = min(self._poll_interval * 2, 60.0)
+                log.warning(f"Backing off delegation poll to {backoff:.1f}s after error")
+                await asyncio.sleep(backoff)
+                continue
 
     async def _check_expired(self):
         """Mark expired tasks."""
@@ -415,6 +457,8 @@ class DelegationManager:
         """Execute a delegated task using registered handlers."""
         task_id = str(task.get("task_id", ""))
         subject = task.get("subject", "unknown")
+        trace_id = f"trace-{self.node_name}-{task_id[:8]}"
+        log.info(f"[{trace_id}] Executing task {task_id}: {subject}")
         description_data = task.get("description", "{}")
 
         try:
@@ -514,6 +558,10 @@ class DelegationManager:
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
 
+            # Record success in circuit breaker for the assigned agent
+            assigned = task.get("assigned_agent") or task.get("to_agent", "") or self.node_name
+            self.record_success(assigned)
+
             # ── Fan-out: cancel sibling tasks with same subject from same sender ──
             try:
                 subject_val = task.get("subject", "")
@@ -535,6 +583,10 @@ class DelegationManager:
 
         except Exception as e:
             log.error(f"Task {task_id} failed: {e}")
+            # Record failure in circuit breaker for the assigned agent
+            assigned = task.get("assigned_agent") or task.get("to_agent", "")
+            if assigned:
+                self.record_failure(assigned)
             # Check retry count — if under max_retries, re-queue for another node
             retry_count = task.get("retry_count", 0) if task.get("retry_count") is not None else 0
             max_retries = task.get("max_retries", 2) if task.get("max_retries") is not None else 2
@@ -705,3 +757,36 @@ class DelegationManager:
             "DELETE FROM shared_context WHERE context_key = $1", key
         )
         return "DELETE 1" in result
+
+    # ── Circuit Breaker ──
+
+    def record_success(self, peer: str):
+        """Record a successful interaction with a peer — reset circuit breaker."""
+        if peer in self._circuit_breakers:
+            self._circuit_breakers[peer]["failures"] = 0
+            self._circuit_breakers[peer]["open"] = False
+
+    def record_failure(self, peer: str):
+        """Record a failed interaction with a peer — increment circuit breaker."""
+        if peer not in self._circuit_breakers:
+            self._circuit_breakers[peer] = {"failures": 0, "last_fail": 0.0, "open": False}
+        cb = self._circuit_breakers[peer]
+        cb["failures"] = cb.get("failures", 0) + 1
+        cb["last_fail"] = time.time()
+        if cb["failures"] >= self._circuit_breaker_threshold:
+            cb["open"] = True
+            log.warning(f"Circuit breaker OPEN for {peer}: {cb['failures']} consecutive failures")
+
+    def is_circuit_open(self, peer: str) -> bool:
+        """Check if the circuit breaker is open for a peer."""
+        cb = self._circuit_breakers.get(peer)
+        if not cb:
+            return False
+        if cb.get("open"):
+            # Check if cooldown has expired — half-open state
+            if time.time() - cb.get("last_fail", 0) >= self._circuit_breaker_cooldown:
+                log.info(f"Circuit breaker HALF-OPEN for {peer}: cooldown expired, allowing attempt")
+                cb["open"] = False
+                return False
+            return True
+        return False
