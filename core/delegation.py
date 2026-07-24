@@ -160,6 +160,8 @@ class DelegationManager:
                     log.info(f"Circuit breaker HALF-OPEN for {to_agent}: allowing one attempt")
                     cb["open"] = False
         task_id = str(uuid.uuid4())
+        status = STATUS_AVAILABLE if available else STATUS_PENDING
+        actual_to = "any" if available else to_agent
         trace_id = f"trace-{self.node_name}-{task_id[:8]}"
         log.info(f"[{trace_id}] Delegating task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
@@ -180,8 +182,6 @@ class DelegationManager:
                 desc_json = json.dumps(desc_data)
             except (json.JSONDecodeError, TypeError):
                 pass
-        status = STATUS_AVAILABLE if available else STATUS_PENDING
-        actual_to = "any" if available else to_agent
 
         await self.pg_pool.execute(
             """INSERT INTO shared_delegations 
