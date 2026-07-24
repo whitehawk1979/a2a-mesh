@@ -51,9 +51,9 @@ class CoordinatorInfo:
 @dataclass
 class ElectionConfig:
     """Election configuration."""
-    heartbeat_interval: float = 300.0    # 5 minutes (same as mesh heartbeat)
-    suspect_threshold: float = 600.0     # 2 missed heartbeats = 10 min
-    down_threshold: float = 900.0        # 3 missed heartbeats = 15 min
+    heartbeat_interval: float = 60.0     # 1 minute (aligned with mesh heartbeat)
+    suspect_threshold: float = 180.0     # 3 missed heartbeats = 3 min
+    down_threshold: float = 420.0        # 7 missed heartbeats = 7 min
     election_timeout: float = 5.0        # Wait 5 seconds for claims
     reclaim_delay: float = 30.0          # Original coordinator waits before reclaiming
 

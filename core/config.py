@@ -43,7 +43,7 @@ class P2PConfig:
     listen_host: str = "0.0.0.0"
     listen_port: int = 8645
     max_connections: int = 50
-    idle_timeout: int = 300  # seconds
+    idle_timeout: int = 120  # seconds (was 300, reduced for faster peer detection)
     reconnect_interval: int = 5  # base retry interval in seconds (exponential backoff)
     tls_enabled: bool = False
     tls_cert: str = ""       # Path to TLS certificate (PEM)
@@ -98,9 +98,9 @@ class AutoSteerConfig:
 
 @dataclass
 class HeartbeatConfig:
-    interval: int = 300  # seconds
-    warning_threshold: int = 300  # 5 min
-    critical_threshold: int = 900  # 15 min
+    interval: int = 60        # seconds between heartbeats (was 300)
+    warning_threshold: int = 180  # 3 min without heartbeat → warning
+    critical_threshold: int = 420  # 7 min without heartbeat → critical
     silent_on_success: bool = True
 
 

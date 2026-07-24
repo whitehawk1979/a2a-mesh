@@ -25,6 +25,7 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Union
+from core.json_logger import set_trace_id, get_trace_id, clear_trace_id
 
 log = logging.getLogger("a2a.delegation")
 
@@ -163,7 +164,8 @@ class DelegationManager:
         status = STATUS_AVAILABLE if available else STATUS_PENDING
         actual_to = "any" if available else to_agent
         trace_id = f"trace-{self.node_name}-{task_id[:8]}"
-        log.info(f"[{trace_id}] Delegating task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
+        set_trace_id(trace_id)
+        log.info(f"Delegating task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=timeout_minutes)
         # Parse description: if it's already a valid JSON with "type", use it as-is
         try:
@@ -191,7 +193,8 @@ class DelegationManager:
             status, priority, expires_at, None, max_retries,
         )
 
-        log.info(f"[trace-{self.node_name}-{task_id[:8]}] Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
+        log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
+        clear_trace_id()
 
         # ── Fan-out: create identical tasks for N agents ──
         if fan_out > 0:
@@ -458,7 +461,8 @@ class DelegationManager:
         task_id = str(task.get("task_id", ""))
         subject = task.get("subject", "unknown")
         trace_id = f"trace-{self.node_name}-{task_id[:8]}"
-        log.info(f"[{trace_id}] Executing task {task_id}: {subject}")
+        set_trace_id(trace_id)
+        log.info(f"Executing task {task_id}: {subject}")
         description_data = task.get("description", "{}")
 
         try:
@@ -614,6 +618,7 @@ class DelegationManager:
 
         finally:
             self._active_tasks.pop(task_id, None)
+            clear_trace_id()
 
     async def _check_results(self):
         """Check for completed tasks that we delegated out."""

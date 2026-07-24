@@ -280,21 +280,20 @@ class MeshNode:
         self._setup_logging()
 
     def _setup_logging(self):
-        """Configure logging to file and console."""
+        """Configure structured JSON logging to file and human-readable to console."""
+        from core.json_logger import setup_json_logging
+        
         log_dir = os.path.dirname(self.config.log_file)
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
-
-        handlers = []
-        if self.config.log_file:
-            handlers.append(logging.FileHandler(self.config.log_file))
-        handlers.append(logging.StreamHandler())
-
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s [%(name)s] %(levelname)s: %(message)s',
-            handlers=handlers,
+        
+        # Use structured JSON logging: JSON to file, human-readable to console
+        setup_json_logging(
+            node_name=self.config.node_name,
+            log_file=self.config.log_file,
+            json_mode='auto',  # JSON to file, human to console
         )
+        log.info(f"📝 Structured logging initialized (JSON→file, human→console, node={self.config.node_name})")
 
     def add_handler(self, handler: Callable):
         """Add a message handler."""
