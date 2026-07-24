@@ -313,6 +313,7 @@ class MeshConfig:
     resource_limits: ResourceLimitsConfig = field(default_factory=ResourceLimitsConfig)
     task: TaskConfig = field(default_factory=TaskConfig)
     gossipsub: GossipSubConfig = field(default_factory=GossipSubConfig)
+    diagnostic: DiagnosticConfig = field(default_factory=DiagnosticConfig)
 
     # Webhook config
     webhook_port: int = 8644
