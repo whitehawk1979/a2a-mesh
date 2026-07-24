@@ -2840,7 +2840,7 @@ echo "Status: ok"
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
-                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
+                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
