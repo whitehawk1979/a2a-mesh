@@ -3,6 +3,7 @@
 import logging
 import asyncio
 import json
+import time
 from typing import Dict, List, Optional, Callable
 from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
 from ..core.dedup import DedupCache
@@ -13,6 +14,67 @@ from ..core.health_scorer import HealthScorer
 from ..core.offline_queue import OfflineQueue
 
 log = logging.getLogger("a2a_mesh.router")
+
+
+class TransportCircuitBreaker:
+    """Circuit breaker for transport-level failure tracking.
+    
+    Opens a circuit after N consecutive failures, auto-closes after cooldown.
+    Provides degraded-mode detection for the health endpoint.
+    """
+    
+    def __init__(self, failure_threshold: int = 3, cooldown_seconds: float = 60.0):
+        self.failure_threshold = failure_threshold
+        self.cooldown_seconds = cooldown_seconds
+        self._circuits: Dict[str, Dict] = {}  # transport_name → {failures, last_fail, open}
+    
+    def record_success(self, transport_name: str):
+        """Reset failure count and close circuit on success."""
+        if transport_name in self._circuits:
+            self._circuits[transport_name]["failures"] = 0
+            self._circuits[transport_name]["open"] = False
+    
+    def record_failure(self, transport_name: str, error: str = ""):
+        """Increment failure count. Open circuit at threshold."""
+        if transport_name not in self._circuits:
+            self._circuits[transport_name] = {"failures": 0, "last_fail": 0.0, "open": False}
+        self._circuits[transport_name]["failures"] += 1
+        self._circuits[transport_name]["last_fail"] = time.monotonic()
+        if self._circuits[transport_name]["failures"] >= self.failure_threshold:
+            self._circuits[transport_name]["open"] = True
+    
+    def is_available(self, transport_name: str) -> bool:
+        """Check if transport is available (circuit closed or cooldown expired)."""
+        if transport_name not in self._circuits:
+            return True
+        circuit = self._circuits[transport_name]
+        if not circuit["open"]:
+            return True
+        # Auto-close after cooldown (half-open semantics)
+        if time.monotonic() - circuit["last_fail"] > self.cooldown_seconds:
+            circuit["open"] = False
+            circuit["failures"] = 0
+            return True
+        return False
+    
+    @property
+    def stats(self) -> Dict:
+        """Snapshot of all circuit breaker states."""
+        result = {}
+        for name, circuit in self._circuits.items():
+            remaining = max(0.0, self.cooldown_seconds - (time.monotonic() - circuit["last_fail"]))
+            result[name] = {
+                "state": "open" if circuit["open"] and not self.is_available(name) else "closed",
+                "failure_count": circuit["failures"],
+                "last_fail": circuit["last_fail"],
+                "cooldown_remaining": round(remaining, 1),
+            }
+        return result
+    
+    @property
+    def degraded_mode(self) -> bool:
+        """True if any transport circuit is open (degraded operation)."""
+        return any(c["open"] and not self.is_available(n) for n, c in self._circuits.items())
 
 class MeshRouter:
     """Routes messages through the mesh using flood/gossip protocol.
@@ -68,6 +130,10 @@ class MeshRouter:
         # Health Scorer (sushaan-k/a2a-mesh inspired: trust-based agent scoring)
         self._health_scorer = HealthScorer()
 
+        # Transport circuit breaker — tracks failures per transport, auto-disables
+        # failing transports for a cooldown period (graceful degradation).
+        self._transport_breakers = TransportCircuitBreaker(failure_threshold=3, cooldown_seconds=60.0)
+
         # Offline queue — persists messages when all transports are down,
         # automatically flushes when a transport comes back online.
         self._offline_queue: Optional[OfflineQueue] = None
@@ -120,6 +186,8 @@ class MeshRouter:
         attempt to resend any messages that were queued while all transports
         were down.
         """
+        # Reset circuit breaker for this transport
+        self._transport_breakers.record_success(transport_name)
         # A transport is back online — try to flush any queued offline messages.
         if self._offline_queue is not None:
             try:
@@ -128,6 +196,10 @@ class MeshRouter:
             except RuntimeError:
                 # No running loop — can't flush now, will flush on next success.
                 pass
+
+    def record_transport_failure(self, transport_name: str, error: str = "") -> None:
+        """Record a transport failure — increments circuit breaker counter."""
+        self._transport_breakers.record_failure(transport_name, error)
 
     def register_gossipsub_peer(self, peer_id: str, topics: Optional[set] = None):
         """Register a peer with GossipSub for topic-based broadcast."""
@@ -248,7 +320,7 @@ class MeshRouter:
         
         # ── P2P shortcut: check if P2P has a direct connection to the recipient ──
         p2p_transport = self.transports.get("p2p")
-        if p2p_transport and p2p_transport.is_available():
+        if p2p_transport and p2p_transport.is_available() and self._transport_breakers.is_available("p2p"):
             recipient = message.recipient
             # If P2P has a direct peer connection, try it first regardless of config order
             if recipient and hasattr(p2p_transport, '_peers') and recipient in p2p_transport._peers:
@@ -275,6 +347,9 @@ class MeshRouter:
             transport = self.transports.get(transport_name)
             if not transport or not transport.is_available():
                 failures.append(f"{transport_name}: unavailable")
+                continue
+            if not self._transport_breakers.is_available(transport_name):
+                failures.append(f"{transport_name}: circuit open")
                 continue
             try:
                 result = await transport.send(message)
@@ -610,4 +685,7 @@ class MeshRouter:
         }
         # Include offline queue attachment status
         stats["offline_queue_attached"] = self._offline_queue is not None
+        # Include circuit breaker status
+        stats["circuit_breakers"] = self._transport_breakers.stats
+        stats["degraded_mode"] = self._transport_breakers.degraded_mode
         return stats
