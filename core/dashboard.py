@@ -4775,11 +4775,13 @@ class DashboardHandler:
                     task_title = f"[DEV] {suggestion.title}"
                     task_desc = f"**Fejlesztési javaslat ({suggestion.priority} prioritás)**\n\n{suggestion.description}\n\n**Jelenlegi érték:** {suggestion.current_value}\n**Célérték:** {suggestion.suggested_value}\n**Indoklás:** {suggestion.rationale}\n\n**Érintett node:** {', '.join(suggestion.affected_nodes)}\n**Javaslat ID:** {suggestion.suggestion_id}"
                     await delegation_mgr.delegate_task(
-                        to_agent="nova",
+                        to_agent="any",
                         subject=task_title,
                         description=task_desc,
                         task_type="code",
                         priority=7 if suggestion.priority == "critical" else 5,
+                        available=True,
+                        eligible_agents=["morzsa", "runa"],
                     )
                     log.info(f"📋 Auto-delegated manual suggestion: {suggestion.title}")
             except Exception as e:

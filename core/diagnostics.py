@@ -829,11 +829,13 @@ class DiagnosticEngine:
                     task_title = f"[DEV] {s.title}"
                     task_desc = f"**Fejlesztési javaslat ({s.priority} prioritás)**\n\n{s.description}\n\n**Jelenlegi érték:** {s.current_value}\n**Célérték:** {s.suggested_value}\n**Indoklás:** {s.rationale}\n\n**Érintett node:** {', '.join(s.affected_nodes)}\n**Javaslat ID:** {s.suggestion_id}"
                     await self.node.delegation.delegate_task(
-                        to_agent="nova",
+                        to_agent="any",
                         subject=task_title,
                         description=task_desc,
                         task_type="code",
                         priority=7 if s.priority == "critical" else 5,
+                        available=True,
+                        eligible_agents=["morzsa", "runa"],
                     )
                     log.info(f"📋 Auto-delegated development suggestion: {s.title}")
                 except Exception as e:
