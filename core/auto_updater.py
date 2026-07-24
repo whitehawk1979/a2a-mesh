@@ -47,7 +47,7 @@ GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "nova/a2a-mesh")
 GITEA_USER = os.environ.get("A2A_GITEA_USER", "zsolt")
 GITEA_PASS = os.environ.get("A2A_GITEA_PASS", "admin1234")
 
-HEALTH_TIMEOUT = 30       # seconds to wait for health check after restart
+HEALTH_TIMEOUT = 90       # seconds to wait for health check after restart
 DRAIN_TIMEOUT = 60        # seconds to wait for in-flight messages
 ROLLBACK_RETENTION = 3    # number of backups to keep
 RESTART_COOLDOWN = 300    # seconds between auto-updates (5 min)
