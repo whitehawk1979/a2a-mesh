@@ -79,6 +79,8 @@ class SecurityConfig:
     trusted_keys: Dict[str, str] = field(default_factory=dict)
     encryption: str = "nacl"  # "nacl" or "none"
     transport_auth: str = "hmac"  # "hmac" or "none"
+    auth_rotation_interval: int = 3600  # Seconds between HMAC key rotation (default: 1 hour)
+    auth_rate_limit: int = 100  # Max auth failures per peer per window before blocking
 
 
 @dataclass
@@ -441,6 +443,8 @@ class MeshConfig:
                 trusted_keys=sec_data.get('trusted_keys', {}),
                 encryption=sec_data.get('encryption', 'nacl'),
                 transport_auth=sec_data.get('transport_auth', 'hmac'),
+                auth_rotation_interval=sec_data.get('auth_rotation_interval', 3600),
+                auth_rate_limit=sec_data.get('auth_rate_limit', 100),
             )
 
         # Loop prevention

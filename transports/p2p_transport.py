@@ -1,7 +1,9 @@
 """A2A Mesh TCP P2P Transport — Direct TCP peer-to-peer connections.
 
 Each agent runs a TCP server that other agents can connect to.
-Messages use versioned binary framing: [1-byte version][4-byte length][payload].
+Messages use versioned binary framing with HMAC authentication (v2):
+    [0x02][4-byte length][4-byte timestamp][8-byte nonce][4-byte HMAC_len][HMAC][payload]
+Legacy v1/v0 frames are still accepted for backward compatibility.
 Discovery via mDNS (zeroconf) or static config.
 """
 
@@ -18,7 +20,9 @@ from core.exceptions import ConfigurationError
 
 from .base import TransportAdapter, TransportStatus
 from ..core.message import A2AMessage, SendResult, MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT
-from ..core.framing import encode_frame, read_frame, FRAME_VERSION, V1_MARKER
+from ..core.framing import (encode_frame, read_frame, FRAME_VERSION,
+                              V1_MARKER, V2_MARKER, compute_hmac)
+from ..core.message_auth import MessageAuth
 
 log = logging.getLogger("a2a_mesh.transports.p2p")
 
@@ -122,6 +126,29 @@ class P2PTransport(TransportAdapter):
         # Adaptive backoff state
         self._backoff_random = __import__('random').Random()  # Per-instance RNG for jitter
 
+        # ── Message Authentication (v2 frames with HMAC) ──────────────
+        self._message_auth: Optional[MessageAuth] = None
+        self._frame_version: Dict[str, int] = {}  # peer_name → negotiated frame version (1 or 2)
+        self._auth_stats: Dict[str, int] = {
+            "frames_signed": 0,
+            "frames_verified": 0,
+            "frames_v1_fallback": 0,
+            "frames_auth_rejected": 0,
+        }
+        # Initialize MessageAuth if transport_auth is enabled
+        security_config = getattr(config, 'security', None)
+        if security_config and getattr(security_config, 'transport_auth', 'none') != 'none':
+            try:
+                self._message_auth = MessageAuth(config)
+                log.info(f"P2P MessageAuth initialized (mode={security_config.transport_auth}, "
+                         f"rotation_interval={getattr(security_config, 'auth_rotation_interval', 3600)}s, "
+                         f"rate_limit={getattr(security_config, 'auth_rate_limit', 100)}/min)")
+            except Exception as e:
+                log.error(f"P2P MessageAuth init FAILED: {e}")
+                self._message_auth = None
+        else:
+            log.info("P2P transport_auth disabled — using v1 frames without authentication")
+
         # Setup TLS if configured
         p2p_config = getattr(config, 'p2p', None)
         tls_enabled = getattr(p2p_config, 'tls_enabled', False) if p2p_config else False
@@ -185,6 +212,15 @@ class P2PTransport(TransportAdapter):
     async def start(self) -> bool:
         """Start TCP server and connect to known peers."""
         try:
+            # Initialize MessageAuth if enabled
+            if self._message_auth:
+                try:
+                    await self._message_auth.start()
+                    log.info("P2P MessageAuth started successfully")
+                except Exception as e:
+                    log.error(f"P2P MessageAuth start failed: {e} — falling back to v1 frames")
+                    self._message_auth = None
+
             # Debug: log SSL context state
             if self._ssl_context:
                 log.info(f"P2P starting TLS server: ssl_context={self._ssl_context} verify_mode={self._ssl_context.verify_mode} check_hostname={self._ssl_context.check_hostname}")
@@ -293,6 +329,14 @@ class P2PTransport(TransportAdapter):
         """Shutdown TCP server and close all connections."""
         self._running = False
 
+        # Stop MessageAuth subsystem
+        if self._message_auth:
+            try:
+                await self._message_auth.stop()
+                log.info("P2P MessageAuth stopped")
+            except Exception as e:
+                log.warning(f"MessageAuth stop error: {e}")
+
         # Cancel all send loop tasks
         for peer_name, task in list(self._send_tasks.items()):
             if not task.done():
@@ -353,12 +397,29 @@ class P2PTransport(TransportAdapter):
             while self._running:
                 # Read versioned frame with timeout for heartbeat check
                 try:
-                    frame_data = await asyncio.wait_for(read_frame(reader), timeout=self.HEARTBEAT_INTERVAL)
+                    # Pass HMAC key for v2 frame verification if MessageAuth is available
+                    hmac_key = None
+                    if self._message_auth:
+                        secret = self._message_auth._token_manager.current_secret
+                        if secret:
+                            hmac_key = bytes.fromhex(secret) if len(secret) == 64 else secret.encode('utf-8')
+
+                    frame_data = await asyncio.wait_for(
+                        read_frame(reader, hmac_key=hmac_key),
+                        timeout=self.HEARTBEAT_INTERVAL
+                    )
                     if frame_data is None:
                         log.debug(f"Connection from {peer_addr} closed (read_frame returned None)")
                         break
                     version, data = frame_data
-                    message = A2AMessage.from_bytes(data)
+
+                    # Verify v2 authenticated frames
+                    verified_data = await self._verify_authenticated_frame(version, data, connected_peer_name)
+                    if verified_data is None:
+                        log.warning(f"Authentication failed for frame from {connected_peer_name or peer_addr} (v{version}) — dropping")
+                        continue  # Drop the frame but keep the connection
+
+                    message = A2AMessage.from_bytes(verified_data)
 
                     last_received = time.time()
 
@@ -368,6 +429,14 @@ class P2PTransport(TransportAdapter):
                         # Update peer version from heartbeat payload
                         hb_payload = message.payload if isinstance(message.payload, dict) else {}
                         hb_version = hb_payload.get("version") if hb_payload else None
+                        # ── v2 frame version negotiation ──
+                        # If the peer advertises frame_version=2 in its heartbeat,
+                        # upgrade our negotiated version to v2 for this peer
+                        peer_frame_version = hb_payload.get("frame_version") if hb_payload else None
+                        if peer_frame_version == 2 and connected_peer_name:
+                            if connected_peer_name not in self._frame_version or self._frame_version[connected_peer_name] < 2:
+                                log.info(f"Peer {connected_peer_name} supports v2 frames — upgrading from v{self._frame_version.get(connected_peer_name, 1)} to v2")
+                            self._frame_version[connected_peer_name] = 2
                         if hb_version and self._heartbeat_callback and connected_peer_name:
                             try:
                                 asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version))
@@ -503,6 +572,8 @@ class P2PTransport(TransportAdapter):
                     self._connection_tasks.pop(pname, None)
                     # Clean up generation tracking
                     self._peer_generation.pop(pname, None)
+                    # Clean up negotiated frame version for disconnected peer
+                    self._frame_version.pop(pname, None)
                     # Clean up priority send queue for disconnected peer
                     send_task = self._send_tasks.pop(pname, None)
                     if send_task and not send_task.done():
@@ -519,20 +590,106 @@ class P2PTransport(TransportAdapter):
             if removed is None:
                 log.debug(f"Connection from {peer_addr} closed (was not in peers dict)")
 
+    def _negotiated_frame_version(self, peer_name: Optional[str]) -> int:
+        """Get the negotiated frame version for a peer.
+
+        Returns v2 if both this node and the peer support authenticated frames,
+        v1 otherwise (for backward compatibility or when auth is disabled).
+        """
+        if self._message_auth is None:
+            return 1  # Auth disabled — always v1
+        if peer_name and peer_name in self._frame_version:
+            return self._frame_version[peer_name]
+        # Default to v1 until handshake confirms v2 support
+        return 1
+
+    def _encode_authenticated_frame(self, data: bytes, peer_name: Optional[str]) -> bytes:
+        """Encode a payload into a frame with the appropriate version for the peer.
+
+        If MessageAuth is active and the peer supports v2, signs with HMAC (v2).
+        Otherwise, falls back to v1 frames (no authentication).
+        """
+        version = self._negotiated_frame_version(peer_name)
+
+        if version == 2 and self._message_auth is not None:
+            # v2 authenticated frame: use HMAC key from MessageAuth token
+            # The HMAC key is derived from the current token secret
+            secret = self._message_auth._token_manager.current_secret
+            if secret:
+                hmac_key = bytes.fromhex(secret) if len(secret) == 64 else secret.encode('utf-8')
+                self._auth_stats["frames_signed"] += 1
+                return encode_frame(data, version=2, hmac_key=hmac_key)
+            else:
+                # No token available — fall back to v1
+                self._auth_stats["frames_v1_fallback"] += 1
+                log.warning(f"P2P: No auth token for v2 frame to {peer_name}, falling back to v1")
+
+        # v1 or v0 frame (no authentication)
+        return encode_frame(data, version=1)
+
+    async def _verify_authenticated_frame(self, version: int, data: bytes,
+                                            peer_name: Optional[str]) -> Optional[bytes]:
+        """Verify an incoming frame's authentication if it's v2.
+
+        For v2 frames: verifies HMAC and checks rate limits.
+        For v1/v0 frames: passes through (backward compatibility).
+        Updates the negotiated frame version for this peer based on what it sends.
+
+        Returns the payload bytes if verified, None if rejected.
+        """
+        if version < 2:
+            # v1/v0 — no authentication, record that this peer uses v1
+            if peer_name and peer_name not in self._frame_version:
+                self._frame_version[peer_name] = 1
+            return data
+
+        # v2 frame — need to verify HMAC
+        if self._message_auth is None:
+            log.warning(f"P2P: Received v2 authenticated frame from {peer_name} "
+                        f"but MessageAuth is not initialized — rejecting")
+            self._auth_stats["frames_auth_rejected"] += 1
+            return None
+
+        # Check rate limit for this peer
+        peer_key = peer_name or "unknown"
+        if not self._message_auth.check_rate_limit(peer_key):
+            log.warning(f"P2P: Auth rate limit exceeded for peer {peer_key} — rejecting v2 frame")
+            self._auth_stats["frames_auth_rejected"] += 1
+            return None
+
+        # v2 frame data is already decoded by read_frame() which handles HMAC verification.
+        # The data returned by read_frame() for v2 is the verified payload.
+        # Update negotiated version for this peer
+        if peer_name:
+            self._frame_version[peer_name] = 2
+        self._auth_stats["frames_verified"] += 1
+        return data
+
     async def _send_heartbeat(self, writer: asyncio.StreamWriter, peer_name: Optional[str]):
-        """Send a heartbeat ping to keep the connection alive."""
+        """Send a heartbeat ping to keep the connection alive.
+
+        Heartbeats also carry version negotiation info:
+        - frame_version: the max frame version this node supports (2 if auth enabled, 1 otherwise)
+        - This allows the peer to upgrade to v2 frames once both sides support it.
+        """
         try:
+            hb_payload = {"ts": time.time(), "version": self._node_version}
+            # Include frame version negotiation in heartbeat
+            max_frame_version = 2 if self._message_auth else 1
+            hb_payload["frame_version"] = max_frame_version
+
             hb_msg = A2AMessage.create(
                 sender=getattr(self.config, 'node_name', ''),
                 recipient=peer_name or '',
                 msg_type=MSG_TYPE_HEARTBEAT,
                 priority=0,
-                payload={"ts": time.time(), "version": self._node_version},
+                payload=hb_payload,
             )
             data = hb_msg.to_bytes()
-            writer.write(encode_frame(data))
+            frame = self._encode_authenticated_frame(data, peer_name)
+            writer.write(frame)
             await writer.drain()
-            log.debug(f"Heartbeat sent to {peer_name or 'unknown'}")
+            log.debug(f"Heartbeat sent to {peer_name or 'unknown'} (frame v{self._negotiated_frame_version(peer_name)})")
         except Exception as e:
             log.warning(f"Heartbeat send failed to {peer_name}: {e}")
             raise  # Let the caller handle the broken connection
@@ -556,9 +713,9 @@ class P2PTransport(TransportAdapter):
             )
 
             data = ack_msg.to_bytes()
-            payload_bytes = encode_frame(data)
+            frame = self._encode_authenticated_frame(data, peer_name)
 
-            writer.write(payload_bytes)
+            writer.write(frame)
             await writer.drain()
             log.info(f"P2P ACK sent for {original_message.id[:8]} → {original_message.sender}")
         except Exception as e:
@@ -821,20 +978,20 @@ class P2PTransport(TransportAdapter):
                 _, writer = peer
                 try:
                     data = message.to_bytes()
-                    payload = encode_frame(data)
+                    frame = self._encode_authenticated_frame(data, peer_name)
                     
                     # High-priority messages (heartbeat=1, ACK=2): send immediately
                     # Lower-priority messages (3-7): batch for efficiency
                     if priority <= 2:
                         # Drain any pending batch first (to maintain order)
                         await self._flush_write_batch(peer_name)
-                        writer.write(payload)
+                        writer.write(frame)
                         await writer.drain()
                     else:
                         # Add to write batch for this peer
                         if peer_name not in self._write_batch:
                             self._write_batch[peer_name] = []
-                        self._write_batch[peer_name].append(payload)
+                        self._write_batch[peer_name].append(frame)
                         
                         # Flush if batch is full or this is a file chunk (priority 7)
                         if len(self._write_batch[peer_name]) >= self.WRITE_BATCH_SIZE or priority >= 7:
@@ -1059,6 +1216,17 @@ class P2PTransport(TransportAdapter):
             error="" if (self._available and self._peers) else ("no peers connected" if self._available else "not started"),
         )
 
+    def get_auth_stats(self) -> dict:
+        """Return authentication and rate limiting statistics for health monitoring."""
+        stats = dict(self._auth_stats)
+        stats["auth_enabled"] = self._message_auth is not None
+        stats["transport_auth_mode"] = "hmac" if self._message_auth else "none"
+        stats["peers_v2"] = sum(1 for v in self._frame_version.values() if v == 2)
+        stats["peers_v1"] = sum(1 for v in self._frame_version.values() if v == 1)
+        if self._message_auth:
+            stats["message_auth"] = self._message_auth.stats
+        return stats
+
     def get_peer_count(self) -> int:
         """Return number of connected peers."""
         return len(self._peers)
@@ -1068,7 +1236,7 @@ class P2PTransport(TransportAdapter):
         return self._peer_latency.get(peer_name, 0.0)
 
     def get_peer_stats(self) -> dict:
-        """Return detailed per-peer stats for routing decisions."""
+        """Return detailed per-peer stats for routing decisions, including auth and rate limit info."""
         now = time.time()
         stats = {}
         for name in self._peers:
@@ -1078,6 +1246,7 @@ class P2PTransport(TransportAdapter):
                 "connected_s": round(now - connected_at, 1) if connected_at else 0,
                 "rtt_ms": round(self._peer_latency.get(name, 0), 1),
                 "queue_size": self._send_queues[name].qsize() if name in self._send_queues else 0,
+                "frame_version": self._frame_version.get(name, 1),
             }
         return stats
 
