@@ -236,7 +236,7 @@ class MeshConfig:
                             return line.split("=", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
-        return "0.18.37"
+        return "0.19.0"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
