@@ -184,6 +184,12 @@ class P2PTransport(TransportAdapter):
     async def start(self) -> bool:
         """Start TCP server and connect to known peers."""
         try:
+            # Debug: log SSL context state
+            if self._ssl_context:
+                log.info(f"P2P starting TLS server: ssl_context={self._ssl_context} verify_mode={self._ssl_context.verify_mode} check_hostname={self._ssl_context.check_hostname}")
+            else:
+                log.warning("P2P starting PLAIN TCP server (no SSL context)")
+
             self._server = await asyncio.start_server(
                 self._handle_connection,
                 self._listen_host,
