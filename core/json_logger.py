@@ -123,13 +123,16 @@ class HumanFormatter(logging.Formatter):
         # Base format
         ts = datetime.fromtimestamp(record.created, tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         trace_id = getattr(record, 'trace_id', None)
-        trace_part = f' [{trace_id}]' if trace_id else ''
+        trace_part = f' \033[36m[{trace_id}]\033[0m' if trace_id else ''
+        node_name = getattr(record, 'node_name', None)
+        node_part = f' \033[33m{node_name}\033[0m' if node_name else ''
         
-        msg = f'{ts} [{record.name}]{trace_part} {record.levelname}: {record.getMessage()}'
+        msg = f'{ts} [{record.name}]{trace_part}{node_part} {record.levelname}: {record.getMessage()}'
         
         if self.use_color:
             color = self.COLORS.get(record.levelname, self.RESET)
-            msg = f'{color}{msg}{self.RESET}'
+            # Only color the level and message part, not the whole line
+            msg = f'{ts} [{record.name}]{trace_part}{node_part} {color}{record.levelname}: {record.getMessage()}{self.RESET}'
         
         if record.exc_info and record.exc_info[0]:
             msg += '\n' + self.formatException(record.exc_info)
@@ -183,11 +186,16 @@ def setup_json_logging(node_name: str = '', log_file: str = None, json_mode: str
     
     # File handler on root (JSON, catches everything)
     if log_file:
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(file_formatter)
-        file_handler.addFilter(trace_filter)
-        root.addHandler(file_handler)
+        try:
+            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(file_formatter)
+            file_handler.addFilter(trace_filter)
+            root.addHandler(file_handler)
+        except (OSError, PermissionError) as e:
+            # Fall back to console-only if file handler fails
+            import sys
+            print(f"⚠️  Failed to create JSON log file '{log_file}': {e}", file=sys.stderr)
     
     # Also configure a2a_mesh logger specifically (propagation will send to root)
     mesh_logger = logging.getLogger('a2a_mesh')
