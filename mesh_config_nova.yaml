@@ -135,16 +135,6 @@ mesh:
         p2p_port: 8645
         health_port: 8650
         transport: p2p
-      - name: lennie
-        ip: 192.168.1.15
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: lennie
-        ip: 100.121.92.95
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
   auto_update:
     enabled: true
     check_interval: 300

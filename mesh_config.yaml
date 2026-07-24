@@ -93,7 +93,7 @@ mesh:
       timeout: 5
       retries: 3
   discovery:
-    min_target_peers: 2  # Minimum connected peers for mesh resilience
+    min_target_peers: 2
     mdns:
       enabled: true
       service: _a2a._tcp
@@ -127,16 +127,6 @@ mesh:
         transport: p2p
       - name: runa
         ip: 100.125.223.24
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: lennie
-        ip: 192.168.1.15
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: lennie
-        ip: 100.121.92.95
         p2p_port: 8645
         health_port: 8650
         transport: p2p
@@ -205,13 +195,12 @@ plugins:
     - custom
     require_confirmation_for:
     - shell
-
 diagnostic:
   enabled: true
   report_interval: 300
   max_reports_stored: 100
   developer_nodes:
-    - nova
+  - nova
   include_memory_stats: true
   include_error_patterns: true
   include_mesh_health: true
