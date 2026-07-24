@@ -1,13 +1,15 @@
-[ req_ext ]
-basicConstraints = CA:TRUE
-keyUsage = digitalSignature, keyCertSign, cRLSign
-subjectAltName = @alt_names
+[req]
+distinguished_name = req_dn
+x509_extensions = v3_ca
+prompt = no
 
-[ alt_names ]
-DNS.1 = a2a-mesh
-DNS.2 = nova.a2a.mesh
-DNS.3 = morzsa.a2a.mesh
-DNS.4 = runa.a2a.mesh
-IP.1 = 192.168.1.8
-IP.2 = 192.168.1.30
-IP.3 = 192.168.1.100
+[req_dn]
+CN = A2A Mesh CA
+O = A2A Mesh
+C = RO
+
+[v3_ca]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, digitalSignature, keyCertSign, cRLSign

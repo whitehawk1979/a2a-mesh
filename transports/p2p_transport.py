@@ -192,7 +192,8 @@ class P2PTransport(TransportAdapter):
             )
             self._running = True
             self._available = True
-            log.info(f"P2P transport started on {self._listen_host}:{self._listen_port}")
+            tls_info = f" (TLS v1.2+, verify={self._ssl_context is not None and self._ssl_context.verify_mode != 0})" if self._ssl_context else " (plain TCP)"
+            log.info(f"P2P transport started on {self._listen_host}:{self._listen_port}{tls_info}")
 
             # Connect to static peers — group by name for multi-address fallback
             peer_addresses: Dict[str, List[Tuple[str, int]]] = {}
