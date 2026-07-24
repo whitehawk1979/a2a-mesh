@@ -1,108 +1,189 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hu">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A2A Mesh — Star Topology</title>
+<title>A2A Mesh — Hálózati Topológia</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; }
-  #header { background: #161b22; border-bottom: 1px solid #30363d; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; }
-  #header h1 { font-size: 18px; color: #58a6ff; }
-  #header .status { font-size: 13px; color: #8b949e; }
-  #canvas-container { flex: 1; position: relative; }
-  canvas { display: block; }
-  #legend { position: absolute; bottom: 20px; right: 20px; background: #161b22cc; border: 1px solid #30363d; border-radius: 8px; padding: 12px 16px; font-size: 12px; }
-  #legend .item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-  #legend .dot { width: 12px; height: 12px; border-radius: 50%; }
-  #node-info { position: absolute; top: 20px; right: 20px; background: #161b22cc; border: 1px solid #30363d; border-radius: 8px; padding: 16px; font-size: 13px; min-width: 220px; display: none; }
-  #node-info h3 { color: #58a6ff; margin-bottom: 8px; }
-  #node-info .row { display: flex; justify-content: space-between; padding: 3px 0; }
-  #node-info .label { color: #8b949e; }
-  #refresh-btn { background: #238636; color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --border: #30363d; --text: #c9d1d9;
+    --text2: #8b949e; --accent: #58a6ff; --green: #238636; --yellow: #d29922;
+    --red: #f85149; --purple: #bc8cff;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overflow: hidden; height: 100dvh; }
+
+  /* Header */
+  #header { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  #header h1 { font-size: 16px; color: var(--accent); white-space: nowrap; }
+  #header .stats { font-size: 12px; color: var(--text2); display: flex; gap: 12px; flex-wrap: wrap; }
+  #header .stats span { white-space: nowrap; }
+  #header .badge { background: var(--border); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  #header .badge.green { background: #23863644; color: var(--green); }
+  #header .badge.yellow { background: #d2992244; color: var(--yellow); }
+  #header .badge.red { background: #f8514944; color: var(--red); }
+  #refresh-btn { background: var(--green); color: white; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-left: auto; }
   #refresh-btn:hover { background: #2ea043; }
-  .pulse { animation: pulse 2s ease-in-out infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  #auto-refresh { font-size: 11px; color: var(--text2); margin-left: 4px; }
+
+  /* Main layout */
+  #main { display: flex; height: calc(100dvh - 48px); }
+  #canvas-container { flex: 1; position: relative; min-width: 0; }
+  canvas { display: block; }
+
+  /* Side panel */
+  #side-panel { width: 280px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 12px; display: none; }
+  #side-panel.active { display: block; }
+  #side-panel h3 { color: var(--accent); font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  #side-panel .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
+  #side-panel .label { color: var(--text2); }
+  #side-panel .value { color: var(--text); font-weight: 500; }
+  #side-panel .skills { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  #side-panel .skill-tag { background: var(--border); padding: 2px 6px; border-radius: 4px; font-size: 10px; color: var(--purple); }
+  #side-panel .close-btn { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 16px; margin-left: auto; }
+  #side-panel .close-btn:hover { color: var(--text); }
+  #side-panel .task-list { margin-top: 8px; }
+  #side-panel .task-item { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; margin: 4px 0; font-size: 11px; }
+  #side-panel .task-item .task-subject { color: var(--accent); font-weight: 500; }
+  #side-panel .task-item .task-status { float: right; font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+  #side-panel .task-item .task-status.pending { background: #d2992244; color: var(--yellow); }
+  #side-panel .task-item .task-status.in_progress { background: #58a6ff44; color: var(--accent); }
+  #side-panel .task-item .task-status.completed { background: #23863644; color: var(--green); }
+  #side-panel .task-item .task-status.failed { background: #f8514944; color: var(--red); }
+
+  /* Legend */
+  #legend { position: absolute; bottom: 12px; left: 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 11px; }
+  #legend .item { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  #legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* Tuner */
+  #tuner { position: absolute; bottom: 12px; right: 12px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 11px; max-width: 300px; display: none; }
+  #tuner h4 { color: var(--accent); margin: 0 0 4px 0; font-size: 12px; }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  @keyframes flowDot { 0% { offset-distance: 0%; } 100% { offset-distance: 100%; } }
+
+  @media (max-width: 768px) {
+    #side-panel { width: 100%; position: absolute; bottom: 0; left: 0; right: 0; max-height: 50vh; border-left: none; border-top: 1px solid var(--border); z-index: 10; }
+    #legend { font-size: 10px; }
+  }
 </style>
 </head>
 <body>
 <div id="header">
-  <h1>⭐ A2A Mesh — Star Topology</h1>
-  <div class="status" id="status-text">Connecting...</div>
-  <button id="refresh-btn" onclick="fetchTopology()">⟳ Refresh</button>
+  <h1>🌐 Hálózati Topológia</h1>
+  <div class="stats" id="stats">
+    <span>⏳ Betöltés...</span>
+  </div>
+  <button id="refresh-btn" onclick="fetchTopology()">⟳ Frissítés</button>
+  <label id="auto-refresh"><input type="checkbox" checked onchange="toggleAutoRefresh(this.checked)"> Auto</label>
 </div>
-<div id="canvas-container">
-  <canvas id="topology-canvas"></canvas>
+<div id="main">
+  <div id="canvas-container">
+    <canvas id="topology-canvas"></canvas>
+  </div>
+  <div id="side-panel">
+    <h3><span id="panel-node-name">Node</span><button class="close-btn" onclick="closePanel()">✕</button></h3>
+    <div id="panel-content"></div>
+  </div>
 </div>
 <div id="legend">
-  <div class="item"><div class="dot" style="background:#238636"></div> P2P Connected</div>
-  <div class="item"><div class="dot" style="background:#d29922"></div> P2P Backoff</div>
-  <div class="item"><div class="dot" style="background:#f85149"></div> P2P Disconnected</div>
-  <div class="item"><div class="dot" style="background:#58a6ff"></div> PG Transport</div>
-  <div class="item"><div class="dot" style="background:#8b949e"></div> Unknown</div>
+  <div class="item"><div class="dot" style="background:var(--green)"></div> P2P Connected</div>
+  <div class="item"><div class="dot" style="background:var(--yellow)"></div> P2P Backoff</div>
+  <div class="item"><div class="dot" style="background:var(--red)"></div> Offline</div>
+  <div class="item"><div class="dot" style="background:var(--accent)"></div> PG Transport</div>
 </div>
-<div id="node-info"></div>
-<div id="tuner-panel" style="position:absolute;bottom:20px;left:20px;background:#161b22cc;border:1px solid #30363d;border-radius:8px;padding:12px 16px;font-size:12px;max-width:320px;display:none;">
-  <h4 style="color:#58a6ff;margin:0 0 8px 0">🔧 Topology Tuner</h4>
-  <div id="tuner-stats"></div>
-</div>
+<div id="tuner"></div>
 
 <script>
-const canvas = document.getElementById('topology-canvas');
-const ctx = canvas.getContext('2d');
+// ── State ──
 let topologyData = null;
 let nodes = [];
 let connections = [];
+let positions = {};
 let hoveredNode = null;
+let selectedNode = null;
 let animFrame = 0;
+let autoRefresh = true;
+let refreshTimer = null;
+let flowParticles = [];  // animated data flow particles
+let delegationTasks = [];
 
+const canvas = document.getElementById('topology-canvas');
+const ctx = canvas.getContext('2d');
+
+// ── Canvas sizing ──
 function resizeCanvas() {
   const container = document.getElementById('canvas-container');
-  canvas.width = container.clientWidth;
-  canvas.height = container.clientHeight;
+  canvas.width = container.clientWidth * (window.devicePixelRatio || 1);
+  canvas.height = container.clientHeight * (window.devicePixelRatio || 1);
+  canvas.style.width = container.clientWidth + 'px';
+  canvas.style.height = container.clientHeight + 'px';
+  ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
 }
 window.addEventListener('resize', () => { resizeCanvas(); draw(); });
 resizeCanvas();
 
+// ── Auth helper ──
+function getToken() { return localStorage.getItem('mesh_token') || ''; }
+function authHeaders() { const t = getToken(); return t ? { 'Authorization': 'Bearer ' + t } : {}; }
+
+// ── Fetch topology ──
 async function fetchTopology() {
   try {
-    // Get auth token
-    const token = localStorage.getItem('mesh_token') || '';
-    const resp = await fetch('/api/mesh/topology', {
-      headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-    });
-    if (resp.status === 401) {
-      document.getElementById('status-text').textContent = '⚠️ Auth required — login first';
-      return;
-    }
+    const resp = await fetch('/api/mesh/topology', { headers: authHeaders() });
+    if (resp.status === 401) { document.getElementById('stats').innerHTML = '<span style="color:var(--red)">⚠️ Auth szükséges</span>'; return; }
     topologyData = await resp.json();
     nodes = Object.values(topologyData.nodes || {});
     connections = topologyData.connections || [];
-    document.getElementById('status-text').textContent = 
-      `✅ ${nodes.length} nodes · ${connections.filter(c => c.transport === 'p2p' && c.status === 'connected').length} P2P links · ${new Date().toLocaleTimeString()}`;
+
+    // Fetch delegation tasks for selected node
+    if (selectedNode) await fetchDelegations(selectedNode);
+
+    updateStats();
     draw();
   } catch (e) {
-    document.getElementById('status-text').textContent = '❌ Connection error';
-    console.error(e);
+    document.getElementById('stats').innerHTML = '<span style="color:var(--red)">❌ Hiba: ' + e.message + '</span>';
   }
 }
 
-function draw() {
-  if (!nodes.length) return;
-  const w = canvas.width, h = canvas.height;
-  const cx = w / 2, cy = h / 2;
-  const radius = Math.min(w, h) * 0.32;
+// ── Fetch delegations for a node ──
+async function fetchDelegations(nodeName) {
+  try {
+    const resp = await fetch('/api/delegations?limit=20', { headers: authHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    delegationTasks = (data.tasks || data.delegations || []).filter(t =>
+      t.from_agent === nodeName || t.assigned_agent === nodeName || t.to_agent === nodeName || t.to_agent === 'any'
+    );
+  } catch (e) { /* ignore */ }
+}
 
-  ctx.clearRect(0, 0, w, h);
+// ── Update header stats ──
+function updateStats() {
+  const local = topologyData?.local_node || '?';
+  const online = nodes.filter(n => n.status === 'online' || n.status === 'connected').length;
+  const p2pLinks = connections.filter(c => c.transport === 'p2p' && c.status === 'connected').length;
+  const totalLinks = connections.length;
 
-  // Calculate positions — local node in center, others in circle
+  let html = `<span class="badge green">${online}/${nodes.length} node</span>`;
+  html += `<span class="badge ${p2pLinks > 0 ? 'green' : 'red'}">${p2pLinks} P2P</span>`;
+  html += `<span class="badge">${totalLinks} link</span>`;
+  html += `<span style="color:var(--text2)">⭐ ${local}</span>`;
+  document.getElementById('stats').innerHTML = html;
+}
+
+// ── Calculate node positions ──
+function calcPositions() {
+  const w = canvas.width / (window.devicePixelRatio || 1);
+  const h = canvas.height / (window.devicePixelRatio || 1);
+  const cx = w / 2;
+  const cy = h / 2;
+  const radius = Math.min(w, h) * 0.3;
   const localName = topologyData?.local_node || '';
-  const localNode = nodes.find(n => n.name === localName);
+  positions = {};
+  positions[localName] = { x: cx, y: cy };
   const remoteNodes = nodes.filter(n => n.name !== localName);
-  const localPos = { x: cx, y: cy };
-  const positions = {};
-  positions[localName] = localPos;
-  
   remoteNodes.forEach((node, i) => {
     const angle = (2 * Math.PI * i / remoteNodes.length) - Math.PI / 2;
     positions[node.name] = {
@@ -110,8 +191,37 @@ function draw() {
       y: cy + radius * Math.sin(angle)
     };
   });
+}
 
-  // Draw connections
+// ── Spawn flow particles ──
+function spawnFlowParticles() {
+  connections.forEach(conn => {
+    if (conn.transport !== 'p2p' || conn.status !== 'connected') return;
+    if (Math.random() > 0.02) return;  // 2% chance per frame per connection
+    const from = positions[conn.source];
+    const to = positions[conn.target];
+    if (!from || !to) return;
+    flowParticles.push({
+      x: from.x, y: from.y,
+      dx: to.x - from.x, dy: to.y - from.y,
+      progress: 0, speed: 0.02 + Math.random() * 0.02,
+      color: '#238636'
+    });
+  });
+}
+
+// ── Draw ──
+function draw() {
+  if (!nodes.length) return;
+  const w = canvas.width / (window.devicePixelRatio || 1);
+  const h = canvas.height / (window.devicePixelRatio || 1);
+  const cx = w / 2, cy = h / 2;
+  const localName = topologyData?.local_node || '';
+
+  calcPositions();
+  ctx.clearRect(0, 0, w, h);
+
+  // ── Draw connections ──
   connections.forEach(conn => {
     const from = positions[conn.source];
     const to = positions[conn.target];
@@ -122,7 +232,6 @@ function draw() {
       if (conn.status === 'connected') {
         ctx.strokeStyle = '#238636';
         ctx.lineWidth = 3;
-        // Animated dash for active connections
         ctx.setLineDash([]);
       } else if (conn.status === 'backoff') {
         ctx.strokeStyle = '#d29922';
@@ -134,68 +243,64 @@ function draw() {
         ctx.setLineDash([4, 4]);
       }
     } else {
-      // PG transport — subtle dotted line
       ctx.strokeStyle = '#58a6ff44';
       ctx.lineWidth = 1;
       ctx.setLineDash([2, 6]);
     }
-
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
     ctx.setLineDash([]);
   });
 
-  // Draw nodes
+  // ── Draw flow particles ──
+  spawnFlowParticles();
+  flowParticles = flowParticles.filter(p => {
+    p.progress += p.speed;
+    if (p.progress > 1) return false;
+    const x = p.x + p.dx * p.progress;
+    const y = p.y + p.dy * p.progress;
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = 0.7;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    return true;
+  });
+
+  // ── Draw nodes ──
   nodes.forEach(node => {
     const pos = positions[node.name];
     if (!pos) return;
-
     const isLocal = node.name === localName;
     const isHovered = hoveredNode === node.name;
-    const nodeRadius = isLocal ? 40 : 30;
+    const isSelected = selectedNode === node.name;
+    const nodeRadius = isLocal ? 36 : 28;
 
-    // Determine status color
-    let color = '#8b949e'; // unknown
-    if (node.status === 'online' || node.status === 'connected' || isLocal) {
-      color = '#238636'; // green
-    } else if (node.status === 'backoff') {
-      color = '#d29922'; // yellow
-    } else if (node.status === 'disconnected' || node.status === 'offline') {
-      color = '#f85149'; // red
-    }
-
-    // Check P2P status from connections
-    const p2pConns = connections.filter(c => 
-      (c.source === node.name || c.target === node.name) && c.transport === 'p2p');
+    // Status color
+    let color = '#8b949e';
+    const p2pConns = connections.filter(c => (c.source === node.name || c.target === node.name) && c.transport === 'p2p');
     const p2pConnected = p2pConns.some(c => c.status === 'connected');
     const p2pBackoff = p2pConns.some(c => c.status === 'backoff');
-    if (p2pConnected) color = '#238636';
-    else if (p2pBackoff) color = '#d29922';
+    if (node.status === 'online' || isLocal || p2pConnected) color = '#238636';
+    else if (node.status === 'backoff' || p2pBackoff) color = '#d29922';
+    else if (node.status === 'disconnected' || node.status === 'offline') color = '#f85149';
 
-    // Glow effect
-    if (isLocal || isHovered) {
-      const gradient = ctx.createRadialGradient(pos.x, pos.y, nodeRadius * 0.5, pos.x, pos.y, nodeRadius * 2);
-      gradient.addColorStop(0, color + '44');
+    // Glow for local/selected/hovered
+    if (isLocal || isSelected || isHovered) {
+      const gradient = ctx.createRadialGradient(pos.x, pos.y, nodeRadius * 0.5, pos.x, pos.y, nodeRadius * 2.5);
+      gradient.addColorStop(0, color + '33');
       gradient.addColorStop(1, 'transparent');
       ctx.fillStyle = gradient;
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, nodeRadius * 2, 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, nodeRadius * 2.5, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Node circle
-    ctx.beginPath();
-    ctx.arc(pos.x, pos.y, nodeRadius, 0, Math.PI * 2);
-    ctx.fillStyle = '#161b22';
-    ctx.fill();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = isHovered ? 4 : 2.5;
-    ctx.stroke();
-
-    // Pulsing ring for connected nodes
+    // Pulsing ring
     if (p2pConnected || isLocal) {
-      const pulseRadius = nodeRadius + 4 + 3 * Math.sin(animFrame * 0.05);
+      const pulseRadius = nodeRadius + 4 + 3 * Math.sin(animFrame * 0.04);
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, pulseRadius, 0, Math.PI * 2);
       ctx.strokeStyle = color + '44';
@@ -203,153 +308,195 @@ function draw() {
       ctx.stroke();
     }
 
-    // Node label
-    ctx.fillStyle = isHovered ? '#ffffff' : '#c9d1d9';
-    ctx.font = isLocal ? 'bold 15px -apple-system' : '13px -apple-system';
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, nodeRadius, 0, Math.PI * 2);
+    ctx.fillStyle = isSelected ? '#1c2333' : '#161b22';
+    ctx.fill();
+    ctx.strokeStyle = isSelected ? '#58a6ff' : (isHovered ? '#ffffff' : color);
+    ctx.lineWidth = isSelected ? 3 : (isHovered ? 3 : 2);
+    ctx.stroke();
+
+    // Node name
+    ctx.fillStyle = isLocal ? '#ffffff' : '#c9d1d9';
+    ctx.font = isLocal ? 'bold 13px -apple-system' : '12px -apple-system';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(node.name, pos.x, pos.y);
+    ctx.fillText(node.name, pos.x, pos.y - 3);
 
-    // Status indicator below
+    // Version line
+    const ver = node.version || '?';
+    ctx.font = '9px -apple-system';
+    ctx.fillStyle = '#8b949e';
+    ctx.fillText('v' + ver, pos.x, pos.y + 10);
+
+    // Role badge below
     ctx.font = '10px -apple-system';
     ctx.fillStyle = color;
-    const statusText = isLocal ? '⭐ self' : (p2pConnected ? '🟢 p2p' : (p2pBackoff ? '🟡 backoff' : '🔴 offline'));
-    ctx.fillText(statusText, pos.x, pos.y + nodeRadius + 14);
+    const role = node.role || 'router';
+    const statusEmoji = p2pConnected ? '🟢' : (p2pBackoff ? '🟡' : (isLocal ? '⭐' : '🔴'));
+    ctx.fillText(statusEmoji + ' ' + role, pos.x, pos.y + nodeRadius + 14);
 
-    // Capabilities (small text)
-    if (isHovered && node.capabilities && node.capabilities.length) {
-      const caps = node.capabilities.slice(0, 4).join(', ');
-      ctx.font = '9px -apple-system';
-      ctx.fillStyle = '#8b949e';
-      ctx.fillText(caps, pos.x, pos.y + nodeRadius + 26);
+    // Health score bar (small arc)
+    const healthPct = Math.max(0, Math.min(1, node.health_score || 0));
+    if (healthPct > 0) {
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, nodeRadius + 1, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * healthPct);
+      ctx.strokeStyle = healthPct > 0.8 ? '#23863644' : (healthPct > 0.5 ? '#d2992244' : '#f8514944');
+      ctx.lineWidth = 2;
+      ctx.stroke();
     }
   });
 
   animFrame++;
 }
 
-// Animation loop
-function animate() {
-  draw();
-  requestAnimationFrame(animate);
-}
+// ── Animation loop ──
+function animate() { draw(); requestAnimationFrame(animate); }
 
-// Mouse interaction
+// ── Mouse interaction ──
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
   const localName = topologyData?.local_node || '';
-  const radius = Math.min(canvas.width, canvas.height) * 0.32;
-  const cx = canvas.width / 2, cy = canvas.height / 2;
 
   let found = null;
   nodes.forEach(node => {
     const pos = positions[node.name];
     if (!pos) return;
     const dist = Math.hypot(mx - pos.x, my - pos.y);
-    const nodeRadius = node.name === localName ? 40 : 30;
-    if (dist < nodeRadius + 5) found = node.name;
+    const r = node.name === localName ? 36 : 28;
+    if (dist < r + 5) found = node.name;
   });
 
   hoveredNode = found;
   canvas.style.cursor = found ? 'pointer' : 'default';
+});
 
-  // Show node info panel
-  const infoEl = document.getElementById('node-info');
-  if (found) {
-    const node = nodes.find(n => n.name === found);
-    if (node) {
-      const p2pConns = connections.filter(c => 
-        (c.source === found || c.target === found) && c.transport === 'p2p');
-      const pgConns = connections.filter(c => 
-        (c.source === found || c.target === found) && c.transport === 'pg');
-      infoEl.innerHTML = `
-        <h3>${node.name}</h3>
-        <div class="row"><span class="label">Host:</span> ${node.host || 'unknown'}</div>
-        <div class="row"><span class="label">Port:</span> ${node.port || 8650}</div>
-        <div class="row"><span class="label">P2P Port:</span> ${node.p2p_port || 8645}</div>
-        <div class="row"><span class="label">Role:</span> ${node.role || 'router'}</div>
-        <div class="row"><span class="label">Status:</span> ${node.status || 'unknown'}</div>
-        <div class="row"><span class="label">Health:</span> ${(node.health_score * 100).toFixed(0)}%</div>
-        <div class="row"><span class="label">P2P Links:</span> ${p2pConns.length}</div>
-        <div class="row"><span class="label">PG Links:</span> ${pgConns.length}</div>
-        ${node.capabilities?.length ? `<div style="margin-top:8px;color:#8b949e">Caps: ${node.capabilities.join(', ')}</div>` : ''}
-      `;
-      infoEl.style.display = 'block';
-    }
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const localName = topologyData?.local_node || '';
+
+  let clicked = null;
+  nodes.forEach(node => {
+    const pos = positions[node.name];
+    if (!pos) return;
+    const dist = Math.hypot(mx - pos.x, my - pos.y);
+    const r = node.name === localName ? 36 : 28;
+    if (dist < r + 5) clicked = node.name;
+  });
+
+  if (clicked) {
+    selectedNode = clicked;
+    showPanel(clicked);
   } else {
-    infoEl.style.display = 'none';
+    selectedNode = null;
+    closePanel();
   }
 });
 
-// Store positions for mouse interaction
-let positions = {};
+// ── Side panel ──
+function showPanel(nodeName) {
+  const node = nodes.find(n => n.name === nodeName);
+  if (!node) return;
+  const panel = document.getElementById('side-panel');
+  panel.classList.add('active');
+  document.getElementById('panel-node-name').textContent = node.name;
 
-// Override draw to update positions
-const origDraw = draw;
-draw = function() {
-  const w = canvas.width, h = canvas.height;
-  const cx = w / 2, cy = h / 2;
-  const radius = Math.min(w, h) * 0.32;
-  const localName = topologyData?.local_node || '';
-  
-  positions = {};
-  positions[localName] = { x: cx, y: cy };
-  const remoteNodes = nodes.filter(n => n.name !== localName);
-  remoteNodes.forEach((node, i) => {
-    const angle = (2 * Math.PI * i / remoteNodes.length) - Math.PI / 2;
-    positions[node.name] = {
-      x: cx + radius * Math.cos(angle),
-      y: cy + radius * Math.sin(angle)
-    };
-  });
-  origDraw();
-};
+  const p2pConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'p2p');
+  const pgConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'pg');
+  const isLocal = node.name === (topologyData?.local_node || '');
+  const healthPct = Math.round((node.health_score || 0) * 100);
 
-// Initial load and auto-refresh
-fetchTopology();
-animate();
-setInterval(fetchTopology, 10000); // Refresh every 10s
+  let html = '';
+  html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
+  html += `<div class="row"><span class="label">Szerep:</span><span class="value">${node.role || 'router'}</span></div>`;
+  html += `<div class="row"><span class="label">Verzió:</span><span class="value">v${node.version || '?'}</span></div>`;
+  html += `<div class="row"><span class="label">Egészség:</span><span class="value">${healthPct}%</span></div>`;
+  html += `<div class="row"><span class="label">Host:</span><span class="value">${node.host || '?'}:${node.port || 8650}</span></div>`;
+  html += `<div class="row"><span class="label">P2P port:</span><span class="value">${node.p2p_port || 8645}</span></div>`;
+  html += `<div class="row"><span class="label">P2P linkek:</span><span class="value">${p2pConns.length}</span></div>`;
+  html += `<div class="row"><span class="label">PG linkek:</span><span class="value">${pgConns.length}</span></div>`;
+  if (node.uptime_seconds) html += `<div class="row"><span class="label">Uptime:</span><span class="value">${formatUptime(node.uptime_seconds)}</span></div>`;
+  if (node.message_count) html += `<div class="row"><span class="label">Üzenetek:</span><span class="value">${node.message_count}</span></div>`;
 
-// Topology Tuner stats
+  // Skills
+  if (node.skills && node.skills.length > 0) {
+    html += `<div style="margin-top:10px;color:var(--text2);font-size:11px;font-weight:600">Képességek</div>`;
+    html += `<div class="skills">${node.skills.map(s => `<span class="skill-tag">${s}</span>`).join('')}</div>`;
+  }
+
+  // Capabilities
+  if (node.capabilities && node.capabilities.length > 0) {
+    html += `<div style="margin-top:10px;color:var(--text2);font-size:11px;font-weight:600">Funkciók</div>`;
+    html += `<div class="skills">${node.capabilities.map(c => `<span class="skill-tag" style="color:var(--accent);background:#58a6ff22">${c}</span>`).join('')}</div>`;
+  }
+
+  // Delegation tasks
+  if (delegationTasks.length > 0) {
+    html += `<div style="margin-top:10px;color:var(--text2);font-size:11px;font-weight:600">Feladatok (${delegationTasks.length})</div>`;
+    html += `<div class="task-list">`;
+    delegationTasks.slice(0, 10).forEach(t => {
+      const status = t.status || 'pending';
+      const statusClass = status.includes('progress') ? 'in_progress' : status.includes('complete') ? 'completed' : status.includes('fail') ? 'failed' : 'pending';
+      html += `<div class="task-item"><span class="task-subject">${t.subject || t.task_id?.slice(0,8) || '?'}</span><span class="task-status ${statusClass}">${status}</span><div style="clear:both"></div></div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('panel-content').innerHTML = html;
+
+  // Fetch delegation tasks for this node
+  fetchDelegations(nodeName);
+}
+
+function closePanel() {
+  document.getElementById('side-panel').classList.remove('active');
+  selectedNode = null;
+}
+
+function formatUptime(seconds) {
+  if (!seconds) return '?';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}nap ${h}ó`;
+  if (h > 0) return `${h}ó ${m}p`;
+  return `${m}p`;
+}
+
+// ── Auto-refresh ──
+function toggleAutoRefresh(enabled) {
+  autoRefresh = enabled;
+  if (refreshTimer) clearInterval(refreshTimer);
+  if (enabled) refreshTimer = setInterval(fetchTopology, 5000);
+}
+toggleAutoRefresh(true);
+
+// ── Tuner stats ──
 async function fetchTunerStats() {
   try {
-    const token = localStorage.getItem('mesh_token') || '';
-    const resp = await fetch('/api/status', {
-      headers: token ? { 'Authorization': 'Bearer ' + token } : {}
-    });
+    const resp = await fetch('/api/status', { headers: authHeaders() });
     if (!resp.ok) return;
     const data = await resp.json();
     const tuner = data.topology_tuner;
-    if (!tuner) {
-      document.getElementById('tuner-panel').style.display = 'none';
-      return;
-    }
-    document.getElementById('tuner-panel').style.display = 'block';
-    const enabled = tuner.enabled ? '✅ Enabled' : '❌ Disabled';
-    const autoApply = tuner.auto_apply ? '🟢 Auto' : '🟡 Manual';
-    let html = `<div style="margin:2px 0"><span style="color:#8b949e">Status:</span> ${enabled}</div>`;
-    html += `<div style="margin:2px 0"><span style="color:#8b949e">Mode:</span> ${autoApply}</div>`;
-    html += `<div style="margin:2px 0"><span style="color:#8b949e">Evaluations:</span> ${tuner.evaluations || 0}</div>`;
-    html += `<div style="margin:2px 0"><span style="color:#8b949e">Promotions:</span> <span style="color:#238636">${tuner.promotions || 0}</span> · <span style="color:#8b949e">Demotions:</span> <span style="color:#f85149">${tuner.demotions || 0}</span></div>`;
-    html += `<div style="margin:2px 0"><span style="color:#8b949e">No changes:</span> ${tuner.no_changes || 0}</div>`;
-    const recs = tuner.recent_recommendations || [];
-    if (recs.length > 0) {
-      html += `<div style="margin:6px 0 2px;color:#d29922;font-weight:bold">Recent Recommendations:</div>`;
-      recs.forEach(r => {
-        const actionColor = r.action?.includes('promote') ? '#238636' : r.action?.includes('demote') ? '#f85149' : '#58a6ff';
-        html += `<div style="margin:2px 0;color:${actionColor}">${r.action || '?'}: ${r.node_name || '?'} (${r.current_role}→${r.recommended_role})</div>`;
-        html += `<div style="color:#8b949e;font-size:11px">${r.reason || ''}</div>`;
-      });
-    }
-    document.getElementById('tuner-stats').innerHTML = html;
-  } catch (e) {
-    console.error('Tuner stats error:', e);
-  }
+    if (!tuner) { document.getElementById('tuner').style.display = 'none'; return; }
+    document.getElementById('tuner').style.display = 'block';
+    const enabled = tuner.enabled ? '✅ Aktív' : '❌ Inaktív';
+    let html = `<h4>🔧 Topológia Hangoló</h4>`;
+    html += `<div>${enabled} · Értékelés: ${tuner.evaluations || 0} · Előléptetés: ${tuner.promotions || 0} · Visszaminősítés: ${tuner.demotions || 0}</div>`;
+    document.getElementById('tuner').innerHTML = html;
+  } catch (e) { /* ignore */ }
 }
 fetchTunerStats();
 setInterval(fetchTunerStats, 15000);
+
+// ── Initial load ──
+fetchTopology();
+animate();
 </script>
 </body>
 </html>
