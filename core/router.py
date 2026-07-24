@@ -10,6 +10,7 @@ from ..core.bounded_queue import BoundedQueue
 from ..core.stream_mux import StreamMultiplexer, create_default_mux
 from ..core.gossipsub import GossipSub
 from ..core.health_scorer import HealthScorer
+from ..core.offline_queue import OfflineQueue
 
 log = logging.getLogger("a2a_mesh.router")
 
@@ -28,6 +29,7 @@ class MeshRouter:
     - Bounded queues with oldest-drop overflow protection
     - Protocol versioning for compatibility
     - Smart broadcast: avoid dual-transport duplication for broadcasts
+    - Offline queue: persists messages when all transports fail, flushes on recovery
     """
 
     def __init__(self, node_name: str, config=None, local_store=None):
@@ -66,6 +68,10 @@ class MeshRouter:
         # Health Scorer (sushaan-k/a2a-mesh inspired: trust-based agent scoring)
         self._health_scorer = HealthScorer()
 
+        # Offline queue — persists messages when all transports are down,
+        # automatically flushes when a transport comes back online.
+        self._offline_queue: Optional[OfflineQueue] = None
+
         # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
         self._p2p_semaphore = asyncio.Semaphore(128)
         self._pq_running = False
@@ -94,9 +100,34 @@ class MeshRouter:
         self.transports[name] = transport
         log.info(f"Registered transport: {name}")
 
+    def set_offline_queue(self, queue: OfflineQueue) -> None:
+        """Set the offline queue for persisting messages when all transports fail.
+
+        Typically called by MeshNode after initializing the OfflineQueue with
+        an asyncpg pool.
+        """
+        self._offline_queue = queue
+        log.info("Offline queue attached to MeshRouter")
+
     def add_handler(self, handler: Callable):
         """Add a message handler (called when a message is for this node)."""
         self._handlers.append(handler)
+
+    def record_transport_success(self, transport_name: str) -> None:
+        """Mark a transport as healthy — resets circuit-breaker and flushes offline queue.
+
+        When a transport recovers (e.g. P2P reconnects), this triggers an
+        attempt to resend any messages that were queued while all transports
+        were down.
+        """
+        # A transport is back online — try to flush any queued offline messages.
+        if self._offline_queue is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._flush_offline_queue())
+            except RuntimeError:
+                # No running loop — can't flush now, will flush on next success.
+                pass
 
     def register_gossipsub_peer(self, peer_id: str, topics: Optional[set] = None):
         """Register a peer with GossipSub for topic-based broadcast."""
@@ -267,12 +298,30 @@ class MeshRouter:
                 log.warning(f"Transport {transport_name} failed: {e}")
                 continue
 
-        # All transports failed — message stays in local_store for later sync
+        # All transports failed — enqueue in offline queue for later delivery
         self._stats["errors"] += 1
         # Health scorer: record failure for recipient
         self._health_scorer.record_failure(message.recipient or "unknown")
         error_detail = "; ".join(failures)
         log.warning(f"All transports failed for {message.id[:8]}: {error_detail}")
+
+        # Offline queue fallback: persist the message for automatic redelivery
+        # when a transport comes back online (triggered by record_transport_success).
+        if self._offline_queue is not None and message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
+            try:
+                queued = await self._offline_queue.enqueue(message)
+                if queued:
+                    log.info(f"Message {message.id[:8]} enqueued in offline queue for later delivery")
+                    return SendResult(
+                        transport="offline_queue",
+                        success=False,
+                        error=f"all transports failed, queued offline: {error_detail}",
+                    )
+                else:
+                    log.warning(f"Offline queue unavailable for {message.id[:8]}, message lost")
+            except Exception as e:
+                log.error(f"Failed to enqueue {message.id[:8]} in offline queue: {e}")
+
         return SendResult(transport="none", success=False, error=f"all transports failed: {error_detail}")
 
     async def _send_broadcast(self, message: A2AMessage) -> SendResult:
@@ -480,9 +529,72 @@ class MeshRouter:
             except Exception:
                 continue
 
+    async def _flush_offline_queue(self) -> int:
+        """Try to resend pending offline messages now that a transport is back online.
+
+        Called automatically by ``record_transport_success()`` when a transport
+        recovers.  Fetches queued messages from the offline queue and attempts
+        to deliver each one via ``send()``.  Successfully sent messages are
+        marked as delivered in the offline queue; failures are left for the
+        next flush attempt.
+
+        Returns:
+            Number of messages successfully flushed.
+        """
+        if self._offline_queue is None:
+            return 0
+
+        # Only flush for this node's own queued messages — dequeue uses
+        # the router's node_name as the recipient filter.
+        try:
+            pending = await self._offline_queue.dequeue(self.node_name, limit=50)
+        except Exception as e:
+            log.error(f"Offline queue dequeue failed: {e}")
+            return 0
+
+        if not pending:
+            return 0
+
+        log.info(f"Flushing {len(pending)} offline message(s) for {self.node_name}")
+        flushed = 0
+
+        for entry in pending:
+            try:
+                # Reconstruct A2AMessage from the stored queue entry
+                msg = A2AMessage(
+                    id=entry["id"],
+                    sender=entry["sender"],
+                    recipient=entry["recipient"],
+                    type=entry["msg_type"],
+                    priority=entry["priority"],
+                    payload=entry["payload"],
+                    routing_mode=entry.get("routing_mode", "hybrid"),
+                )
+                result = await self.send(msg)
+                if result.success:
+                    await self._offline_queue.mark_delivered(entry["id"])
+                    flushed += 1
+                    log.info(f"Flushed offline message {entry['id'][:8]} via {result.transport}")
+                else:
+                    # Re-delivery failed — increment retry count
+                    await self._offline_queue.mark_failed(
+                        entry["id"],
+                        error=result.error or "flush send failed",
+                        increment_retry=True,
+                    )
+                    log.debug(f"Flush failed for {entry['id'][:8]}: {result.error}")
+            except Exception as e:
+                log.error(f"Error flushing offline message {entry.get('id', '?')[:8]}: {e}")
+                # Don't mark as failed here — the dequeue already has retry tracking
+                continue
+
+        if flushed > 0:
+            log.info(f"Flushed {flushed}/{len(pending)} offline messages for {self.node_name}")
+        return flushed
+
     def get_stats(self) -> dict:
         """Return routing statistics including stream mux and bounded queue stats."""
-        return {
+        stats = {
             **self._stats,
             "dedup": self.dedup.stats,
             "inbound_queue": self._inbound_queue.stats,
@@ -496,3 +608,6 @@ class MeshRouter:
                 for name, transport in self.transports.items()
             },
         }
+        # Include offline queue attachment status
+        stats["offline_queue_attached"] = self._offline_queue is not None
+        return stats
