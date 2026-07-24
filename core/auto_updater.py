@@ -103,7 +103,19 @@ class AutoUpdater:
 
     @property
     def current_version(self) -> str:
-        """Read current version from pyproject.toml."""
+        """Determine the actually running version.
+
+        Priority:
+        1. node._resolved_version (git tag — single source of truth, set at startup)
+        2. pyproject.toml version (fallback when node not available)
+        """
+        # Prefer the node's resolved version (from git tag at startup) — this is
+        # the *running* version, not the pyproject.toml version which may have
+        # drifted ahead due to a partial git pull without restart.
+        if self.node and hasattr(self.node, '_resolved_version'):
+            rv = self.node._resolved_version
+            if rv and rv != 'unknown':
+                return rv
         toml_path = self.mesh_dir / "pyproject.toml"
         if toml_path.exists():
             for line in toml_path.read_text().splitlines():
