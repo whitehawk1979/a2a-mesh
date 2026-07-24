@@ -1128,7 +1128,7 @@ class DiagnosticEngine:
     async def _load_suggestions_from_pg(self):
         """Load suggestions from PG on startup."""
         try:
-            pg_pool = getattr(self.node, 'pg_pool', None)
+            pg_pool = getattr(self.node, '_pg_pool', None)
             if not pg_pool:
                 log.debug("No PG pool available for loading suggestions")
                 return
@@ -1162,7 +1162,7 @@ class DiagnosticEngine:
     async def _persist_suggestion_to_pg(self, suggestion: ConfigSuggestion):
         """Persist a suggestion to the mesh_suggestions PG table."""
         try:
-            pg_pool = getattr(self.node, 'pg_pool', None)
+            pg_pool = getattr(self.node, '_pg_pool', None)
             if not pg_pool:
                 return
             affected_nodes = suggestion.affected_nodes or []
@@ -1188,7 +1188,7 @@ class DiagnosticEngine:
     async def _update_suggestion_status_pg(self, suggestion_id: str, new_status: str):
         """Update suggestion status in PG."""
         try:
-            pg_pool = getattr(self.node, 'pg_pool', None)
+            pg_pool = getattr(self.node, '_pg_pool', None)
             if not pg_pool:
                 return
             implemented_at = "NOW()" if new_status == "implemented" else None

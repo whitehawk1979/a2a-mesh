@@ -4718,7 +4718,7 @@ class DashboardHandler:
         suggestion_ids = {s.suggestion_id for s in suggestions}
         
         # Also load from PG for cross-node visibility and persistence
-        pg_pool = getattr(self.node, 'pg_pool', None)
+        pg_pool = getattr(self.node, '_pg_pool', None)
         if pg_pool:
             try:
                 query = "SELECT * FROM mesh_suggestions ORDER BY created_at DESC LIMIT $1"
