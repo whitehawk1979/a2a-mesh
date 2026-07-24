@@ -54,7 +54,7 @@ class P2PTransport(TransportAdapter):
     BASE_RECONNECT = 5            # Base reconnect interval (seconds)
     MAX_BACKOFF = 300             # Max exponential backoff (5 minutes)
     NAGLE_DISABLED = True         # Disable Nagle for low-latency
-    WRITE_BATCH_SIZE = 8          # Max frames to coalesce per drain()
+    WRITE_BATCH_SIZE = 16         # Max frames to coalesce per drain() (doubled for throughput)
     WRITE_BATCH_TIMEOUT = 0.005   # Max seconds to wait before draining batched writes
     FILE_CHUNK_DELAY = 0.01       # Inter-chunk delay for file transfers
     FILE_BANDWIDTH_LIMIT = 0     # Max bytes/sec for file transfers (0 = unlimited)

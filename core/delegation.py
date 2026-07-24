@@ -55,6 +55,8 @@ def _safe_ascii(text: str) -> str:
 class DelegationManager:
     """Manages task delegation between mesh nodes via shared_delegations table."""
 
+    MAX_CONCURRENT_TASKS = 8  # Max concurrent delegation tasks per node
+
     def __init__(self, pg_pool, node_name: str):
         self.pg_pool = pg_pool  # AsyncDBPool instance
         self.node_name = node_name
@@ -64,6 +66,8 @@ class DelegationManager:
         self._handlers: Dict[str, callable] = {}
         self._poll_interval = 5.0
         self._on_result_callback = None
+        # Semaphore to limit concurrent task execution
+        self._task_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TASKS)
         # Fan-out dedup: track (from_agent, subject) combos we've already claimed
         self._claimed_subjects: set = set()
         self._claimed_subjects_timestamps: Dict[tuple, float] = {}  # TTL tracking
@@ -457,7 +461,15 @@ class DelegationManager:
                 asyncio.create_task(self._execute_task(task_dict))
 
     async def _execute_task(self, task: Dict):
-        """Execute a delegated task using registered handlers."""
+        """Execute a delegated task using registered handlers.
+        
+        Uses a semaphore to limit concurrent task execution to MAX_CONCURRENT_TASKS.
+        """
+        async with self._task_semaphore:
+            await self._execute_task_inner(task)
+
+    async def _execute_task_inner(self, task: Dict):
+        """Inner implementation of task execution (called under semaphore)."""
         task_id = str(task.get("task_id", ""))
         subject = task.get("subject", "unknown")
         trace_id = f"trace-{self.node_name}-{task_id[:8]}"
