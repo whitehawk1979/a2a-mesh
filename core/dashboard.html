@@ -823,6 +823,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
     <!-- Suggestions list -->
     <div id="diagSuggestionsSection" style="display:none">
+      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="filterSuggestions('all')">📋 Összes</button>
+        <button class="btn btn-sm" style="background:#f59e0b;color:#fff" onclick="filterSuggestions('pending')">⏳ Függőben</button>
+        <button class="btn btn-sm" style="background:#3b82f6;color:#fff" onclick="filterSuggestions('accepted')">👍 Elfogadva</button>
+        <button class="btn btn-sm" style="background:#10b981;color:#fff" onclick="filterSuggestions('implemented')">✅ Megvalósítva</button>
+        <button class="btn btn-sm" style="background:#ef4444;color:#fff" onclick="filterSuggestions('rejected')">❌ Elutasítva</button>
+      </div>
       <div id="diagSuggestionsList" style="font-size:13px;color:var(--text3)">Betöltés...</div>
     </div>
   </div>
@@ -2921,11 +2928,17 @@ function _renderDetailObj(obj, depth) {
 }
 
 // ─── Suggestions list ────────────────────────────────────
-function loadDiagSuggestions() {
+function filterSuggestions(status) {
+  loadDiagSuggestions(status);
+}
+
+function loadDiagSuggestions(filter) {
   var el = document.getElementById('diagSuggestionsList');
   el.innerHTML = '<div style="text-align:center;padding:20px">⏳ Betöltés...</div>';
+  var url = '/api/diagnostics/suggestions?limit=50';
+  if (filter && filter !== 'all') url += '&status=' + filter;
   _diagAuth().then(function(token) {
-    return fetch('/api/diagnostics/suggestions', {headers:{'Authorization':'Bearer '+token}});
+    return fetch(url, {headers:{'Authorization':'Bearer '+token}});
   }).then(function(r){return r.json()}).then(function(data) {
     _diagSuggestions = data.suggestions || [];
     if (_diagSuggestions.length === 0) {
