@@ -748,6 +748,108 @@ class DiagnosticEngine:
                 )
                 new_suggestions.append(s)
 
+        # ─── Proactive development suggestions (mesh optimization) ─────
+        if health:
+            # Peer connection quality
+            peers_data = health.get("peers", [])
+            if isinstance(peers_data, list):
+                offline_peers = [p for p in peers_data if not p.get("p2p_available", True)]
+                if offline_peers and not _suggestion_exists("peer elérhetőség"):
+                    peer_names = ", ".join(p.get("name", "?") for p in offline_peers)
+                    s = await self.generate_suggestion(
+                        category="development",
+                        priority="medium",
+                        title=f"Peer elérhetőség javítása — {peer_names}",
+                        description=f"A {node_name} node {len(offline_peers)} peer nem elérhető: {peer_names}. A P2P kapcsolat stabilitásának javítása, reconnection logika finomhangolása javasolt.",
+                        current_value=f"{len(offline_peers)}/{len(peers_data)} peer offline",
+                        suggested_value="0 offline peer",
+                        rationale="A nem elérhető peer-ek csökkentik a mesh rugalmasságát. A reconnection backoff és heartbeat timeout optimalizálása javasolt.",
+                        affected_nodes=[node_name],
+                    )
+                    new_suggestions.append(s)
+
+            # CPU load optimization
+            cpu_load = health.get("cpu_percent", 0)
+            if cpu_load > 70 and not _suggestion_exists("CPU terhelés"):
+                s = await self.generate_suggestion(
+                    category="development",
+                    priority="high" if cpu_load > 90 else "medium",
+                    title=f"Magas CPU terhelés — {node_name}: {cpu_load:.0f}%",
+                    description=f"A {node_name} node CPU terhelése {cpu_load:.0f}%. A diagnosztikai ciklusok és polling optimalizálása javasolt.",
+                    current_value=f"{cpu_load:.0f}% CPU",
+                    suggested_value="<50% CPU",
+                    rationale="A magas CPU terhelés lassítja a mesh kommunikációt és delegációkat. A felesleges polling ciklusok csökkentése, async optimalizálás javasolt.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+
+            # Dashboard external access
+            http = health.get("transports", {}).get("http", True)
+            if not http and not _suggestion_exists("Dashboard"):
+                s = await self.generate_suggestion(
+                    category="development",
+                    priority="low",
+                    title=f"Dashboard külső hozzáférés — {node_name}",
+                    description=f"A {node_name} node HTTP transzport nem elérhető külsőleg. A host binding 0.0.0.0-ra módosítása javasolt a távoli eléréshez.",
+                    current_value="127.0.0.1 (csak localhost)",
+                    suggested_value="0.0.0.0 (minden interfész)",
+                    rationale="A dashboard csak localhost-on elérhető. A 0.0.0.0 binding engedélyezi a hálózati monitorozást és adminisztrációt.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+
+            # Delegation throughput optimization
+            delegations_completed = health.get("delegations_completed", 0)
+            delegations_failed = health.get("delegations_failed", 0)
+            total_delegations = delegations_completed + delegations_failed
+            if total_delegations > 5 and delegations_failed / total_delegations > 0.2 and not _suggestion_exists("delegáció sikeresség"):
+                fail_rate = delegations_failed / total_delegations * 100
+                s = await self.generate_suggestion(
+                    category="development",
+                    priority="medium",
+                    title=f"Delegáció sikeresség javítása — {fail_rate:.0f}% hiba",
+                    description=f"A {node_name} node delegációinak {fail_rate:.0f}%-a sikertelen ({delegations_failed}/{total_delegations}). A timeout értékek és retry logika finomhangolása javasolt.",
+                    current_value=f"{fail_rate:.0f}% sikertelen",
+                    suggested_value="<5% sikertelen",
+                    rationale="A magas delegációs hibaarány csökkenti a mesh együttműködési hatékonyságát. A timeout növelése és az exponential backoff javasolt.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+
+            # Uptime stability — frequent restarts
+            uptime = health.get("uptime_seconds", 0)
+            if 0 < uptime < 600 and not _suggestion_exists("restart stabilitás"):
+                mins = uptime / 60
+                s = await self.generate_suggestion(
+                    category="development",
+                    priority="high",
+                    title=f"Gyakori restart — {node_name} uptime: {mins:.0f} perc",
+                    description=f"A {node_name} node csak {mins:.0f} perce fut. Ez gyakori restart-ra utal, amit OOM kill, nem kezelt exception vagy auto-updater okozhat.",
+                    current_value=f"{mins:.0f} perc uptime",
+                    suggested_value=">24 óra uptime",
+                    rationale="A gyakori restartok szolgáltatáskimaradást és adatvesztést okozhatnak. A root cause (OOM, crash, update rollback) azonosítása és javítása javasolt.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+
+            # Message throughput
+            msgs_sent = health.get("messages_sent", 0)
+            msgs_received = health.get("messages_received", 0)
+            if msgs_sent > 0 and msgs_received > 0:
+                ratio = msgs_sent / msgs_received if msgs_received > 0 else 0
+                if ratio > 3 and not _suggestion_exists("üzenet arány"):
+                    s = await self.generate_suggestion(
+                        category="development",
+                        priority="low",
+                        title=f"Üzenet arány egyensúly — {node_name} küld/fogad: {ratio:.1f}x",
+                        description=f"A {node_name} node {ratio:.1f}x több üzenetet küld mint fogad ({msgs_sent} küldött, {msgs_received} fogadott). Ez aszimmetrikus kommunikációt jelez.",
+                        current_value=f"Küldés/fogadás: {ratio:.1f}x",
+                        suggested_value="Küldés/fogadás: ~1.0x",
+                        rationale="Az aszimmetrikus üzenetarány jelzi, hogy a node többet kommunikál, mint amennyit feldolgoz. A delegációk és üzenetek optimalizálása javasolt.",
+                        affected_nodes=[node_name],
+                    )
+                    new_suggestions.append(s)
+
         if new_suggestions:
             log.info(f"💡 Generated {len(new_suggestions)} auto-suggestions from report {report.report_id}")
             # Auto-delegate high/critical suggestions to the developer (nova)
