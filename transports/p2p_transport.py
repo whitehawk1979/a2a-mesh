@@ -513,7 +513,7 @@ class P2PTransport(TransportAdapter):
                 recipient=peer_name or '',
                 msg_type=MSG_TYPE_HEARTBEAT,
                 priority=0,
-                payload={"ts": time.time()},
+                payload={"ts": time.time(), "version": getattr(self.config, "_resolved_version", "")},
             )
             data = hb_msg.to_bytes()
             writer.write(encode_frame(data))

@@ -83,6 +83,8 @@ class MeshNode:
         self.node_name = self.config.node_name
         # Resolve version from git tag (auto-updates on deploy)
         self._resolved_version = self.config._resolve_version()
+        # Also store on config so P2P transport can include it in heartbeat payload
+        self.config._resolved_version = self._resolved_version
 
         # Initialize encryption
         self.encryption: Optional[MeshEncryption] = None
