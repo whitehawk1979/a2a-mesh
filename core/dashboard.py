@@ -1677,14 +1677,19 @@ class DashboardHandler:
             log.info(f"Waking self ({self.node.node_name}) via hermes -z with chat context ({len(prompt)} chars)")
             
             # Run hermes -z (one-shot query) with terminal toolset
+            import os as _os
+            _hermes_bin = _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes")
+            if not _os.path.exists(_hermes_bin):
+                _hermes_bin = "hermes"  # fallback to PATH
+            _hermes_home = _os.path.expanduser("~/.hermes")
             proc = await aio.create_subprocess_exec(
-                "/Users/zsolt/.hermes/hermes-agent/venv/bin/hermes",
+                _hermes_bin,
                 "-z", prompt,
                 "-t", "terminal",
                 "--yolo",
                 stdout=aio.subprocess.PIPE,
                 stderr=aio.subprocess.PIPE,
-                env={**__import__('os').environ, "HERMES_HOME": "/Users/zsolt/.hermes"},
+                env={**_os.environ, "HERMES_HOME": _hermes_home},
             )
             
             stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)

@@ -667,6 +667,7 @@ class MeshNode:
         self.delegation.register_handler("research", self._handle_generic_task)
         self.delegation.register_handler("code", self._handle_generic_task)
         self.delegation.register_handler("analysis", self._handle_generic_task)
+        self.delegation.on_result(self._on_delegation_result)
         await self.delegation.start()
         await self.peer_discovery.start()
 
@@ -710,6 +711,93 @@ class MeshNode:
             log.error("All transports failed!")
 
         return any_ok
+
+    # ── Outbound delegation: proactive task forwarding ──
+
+    def _get_known_peer_count(self) -> int:
+        """Return the number of known peers (excluding self)."""
+        if not self.peer_discovery:
+            return 0
+        return len(self.peer_discovery._peers)
+
+    def _is_overloaded(self) -> bool:
+        """Check if this node is overloaded and should delegate out."""
+        try:
+            import psutil
+            cpu = psutil.cpu_percent(interval=0.1)
+            mem = psutil.virtual_memory().percent
+            # Overloaded if CPU > 75% OR memory > 85%
+            return cpu > 75 or mem > 85
+        except ImportError:
+            return False
+
+    async def _maybe_auto_delegate(self, task: dict) -> bool:
+        """Check if an incoming task should be forwarded to other peers.
+
+        Delegates out when:
+        - This node is overloaded (high CPU/memory)
+        - There are known peers who could pick it up
+        - The task wasn't already delegated by someone else (avoid loops)
+
+        Returns True if the task was forwarded (caller should skip local execution).
+        """
+        from_agent = task.get("from_agent", "")
+        task_id = str(task.get("task_id", ""))
+        subject = task.get("subject", "")
+
+        # Don't auto-delegate if no peers available
+        peer_count = self._get_known_peer_count()
+        if peer_count < 1:
+            return False
+
+        # Don't auto-delegate if we're not overloaded
+        if not self._is_overloaded():
+            return False
+
+        # Don't create delegation loops: skip if task came from another agent
+        # (only forward tasks that originated from dashboard/API, not from peers)
+        # We detect this: if from_agent != self.node_name, it came from a peer
+        if from_agent != self.node_name:
+            log.debug(f"Auto-delegate skip: task {task_id} from {from_agent} (not our origin)")
+            return False
+
+        # Re-post as available for any peer to claim
+        desc_raw = task.get("description", "")
+        try:
+            import json as _json
+            desc_data = _json.loads(desc_raw) if isinstance(desc_raw, str) else desc_raw
+            task_type = desc_data.get("type", "generic") if isinstance(desc_data, dict) else "generic"
+        except Exception:
+            task_type = "generic"
+
+        try:
+            new_task_id = await self.delegation.delegate_task(
+                to_agent="any",
+                subject=f"[fwd] {subject}",
+                description=desc_raw,
+                task_type=task_type,
+                priority=int(task.get("priority", 5)),
+                available=True,
+                timeout_minutes=30,
+                max_retries=int(task.get("max_retries", 2)),
+            )
+            log.info(f"Auto-delegated overloaded task '{subject}' as available (new task_id={new_task_id}, peers={peer_count})")
+            return True
+        except Exception as e:
+            log.warning(f"Auto-delegate failed for '{subject}': {e} — will execute locally")
+            return False
+
+    async def _on_delegation_result(self, task_row: dict):
+        """Callback when a task we delegated out completes."""
+        status = task_row.get("status", "")
+        subject = task_row.get("subject", "?")
+        result = task_row.get("result", "")
+        assigned = task_row.get("assigned_agent", "?")
+        if status == "completed":
+            log.info(f"Delegated task '{subject}' completed by {assigned}: {result[:200]}")
+        elif status == "failed":
+            log.warning(f"Delegated task '{subject}' FAILED on {assigned}: {result[:200]}")
+
 
     # ── Delegation task handlers ──
 
@@ -795,6 +883,14 @@ class MeshNode:
         import subprocess
         import json as _json
         from datetime import datetime, timezone
+
+        # Auto-delegate if overloaded and peers are available
+        if await self._maybe_auto_delegate(task):
+            return {
+                "result": f"[{self.node_name}] Task forwarded to available peers (overloaded)",
+                "files": [],
+                "context_updates": {"auto_delegated": "true"},
+            }
 
         subject = task.get("subject", "unknown")
         desc_raw = task.get("description", "")

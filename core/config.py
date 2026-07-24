@@ -167,6 +167,17 @@ class DiagnosticConfig:
     include_config_suggestions: bool = True
 
 
+
+@dataclass
+class GossipSubConfig:
+    """GossipSub broadcast configuration.
+    
+    Controls the flood→gossipsub mode switch. In flood mode (≤flood_threshold peers),
+    messages go to all peers. Above the threshold, mesh mode kicks in for efficiency.
+    """
+    flood_threshold: int = 10  # peers ≤ this → flood mode; above → gossipsub mesh
+
+
 @dataclass
 class ResourceLimitsConfig:
     """Process-level resource limits applied at startup to prevent OOM and control priority.
@@ -301,6 +312,7 @@ class MeshConfig:
     auto_update: AutoUpdateConfig = field(default_factory=AutoUpdateConfig)
     resource_limits: ResourceLimitsConfig = field(default_factory=ResourceLimitsConfig)
     task: TaskConfig = field(default_factory=TaskConfig)
+    gossipsub: GossipSubConfig = field(default_factory=GossipSubConfig)
 
     # Webhook config
     webhook_port: int = 8644
@@ -524,5 +536,13 @@ class MeshConfig:
                 cpu_time_seconds=rl_data.get('cpu_time_seconds'),
                 core_size_mb=rl_data.get('core_size_mb', 0),
             )
+
+        # GossipSub config
+        gs_data = mesh.get('gossipsub', {})
+        if gs_data:
+            config.gossipsub = GossipSubConfig(
+                flood_threshold=gs_data.get('flood_threshold', 10),
+            )
+
 
         return config

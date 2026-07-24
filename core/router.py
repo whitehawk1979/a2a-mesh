@@ -60,7 +60,8 @@ class MeshRouter:
         self._mux = create_default_mux()
 
         # GossipSub broadcast (AXL-inspired: efficient broadcast for >10 nodes)
-        self._gossipsub = GossipSub(node_name)
+        _flood_threshold = config.gossipsub.flood_threshold if config and hasattr(config, 'gossipsub') else 10
+        self._gossipsub = GossipSub(node_name, flood_threshold=_flood_threshold)
 
         # Health Scorer (sushaan-k/a2a-mesh inspired: trust-based agent scoring)
         self._health_scorer = HealthScorer()

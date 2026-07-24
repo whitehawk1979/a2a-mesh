@@ -126,6 +126,11 @@ class TestAgentsEndpoint(unittest.TestCase):
         # Health scorer
         node.health_scorer = MagicMock()
 
+        # Fix attributes that would otherwise be MagicMock (not JSON serializable)
+        node._health_port = 8650
+        node._resolved_version = "0.18.96"
+        node._pg_pool = None  # skip DB version lookup in tests
+
         return node
 
     def test_agents_endpoint_returns_self_and_peers(self):

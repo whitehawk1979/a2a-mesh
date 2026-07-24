@@ -107,8 +107,7 @@ mesh:
     tags:
     - health
     - monitoring
-  - description: Coordinate multi-agent decisions with voting, consensus, and ranking
-      protocols
+  - description: Coordinate multi-agent decisions with voting, consensus, and ranking protocols
     id: gdm
     name: Group Decision Making
     tags:
@@ -124,9 +123,7 @@ mesh:
     - task
     - execution
     - delegation
-  - description: Generate images from text prompts using Pollinations.ai (Flux, Flux
-      Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram
-      chats.
+  - description: Generate images from text prompts using Pollinations.ai (Flux, Flux Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram chats.
     id: image_gen
     name: Image Generation
     tags:
