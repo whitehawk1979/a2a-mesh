@@ -282,15 +282,19 @@ class MeshNode:
     def _setup_logging(self):
         """Configure structured JSON logging to file and human-readable to console."""
         from core.json_logger import setup_json_logging
+        import os
         
-        log_dir = os.path.dirname(self.config.log_file)
+        log_file = self.config.log_file
+        if log_file:
+            log_file = os.path.expanduser(log_file)
+        log_dir = os.path.dirname(log_file) if log_file else ''
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
         
         # Use structured JSON logging: JSON to file, human-readable to console
         setup_json_logging(
             node_name=self.config.node_name,
-            log_file=self.config.log_file,
+            log_file=log_file,
             json_mode='auto',  # JSON to file, human to console
         )
         log.info(f"📝 Structured logging initialized (JSON→file, human→console, node={self.config.node_name})")

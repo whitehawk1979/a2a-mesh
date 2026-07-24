@@ -142,9 +142,14 @@ def setup_json_logging(node_name: str = '', log_file: str = None, json_mode: str
     
     Args:
         node_name: Name of this mesh node (injected into every log record)
-        log_file: Optional log file path
+        log_file: Optional log file path (supports ~ expansion)
         json_mode: 'json' (always JSON), 'human' (always human), 'auto' (JSON to file, human to console)
     """
+    import os
+    
+    # Expand ~ in log_file path
+    if log_file:
+        log_file = os.path.expanduser(log_file)
     # Set node_name in thread-local context
     _trace_context.node_name = node_name
     
