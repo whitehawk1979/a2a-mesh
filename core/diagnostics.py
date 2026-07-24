@@ -693,10 +693,151 @@ class DiagnosticEngine:
                 )
                 new_suggestions.append(s)
         
+        # ─── Development suggestions (actionable improvement proposals) ───
+        # Analyze error patterns for development opportunities
+        errs = report.error_patterns
+        if errs:
+            error_counts = errs.get("error_counts", {})
+            # Common recurring errors → development suggestions
+            for err_type, count in error_counts.items():
+                if count >= 5:
+                    # Map common error patterns to dev suggestions
+                    dev_suggestion = self._map_error_to_dev_suggestion(node_name, err_type, count)
+                    if dev_suggestion and not _suggestion_exists(dev_suggestion["title_substring"]):
+                        s = await self.generate_suggestion(**dev_suggestion)
+                        new_suggestions.append(s)
+
+        # Version mismatch across nodes → development suggestion
+        if health:
+            peers = health.get("peers", [])
+            if isinstance(peers, list) and len(peers) > 0:
+                versions = set()
+                for p in peers:
+                    v = p.get("version", "?")
+                    if v and v != "?":
+                        versions.add(v)
+                own_ver = getattr(self.node, '_resolved_version', None) or 'unknown'
+                if own_ver and own_ver != 'unknown':
+                    versions.add(own_ver)
+                if len(versions) > 1 and not _suggestion_exists("verzió"):
+                    s = await self.generate_suggestion(
+                        category="development",
+                        priority="medium",
+                        title=f"Verzióeltérés a mesh-ben ({', '.join(sorted(versions))})",
+                        description=f"A {node_name} node és a peer-ek között verzióeltérés van: {', '.join(sorted(versions))}. Ez kompatibilitási problémákat okozhat.",
+                        current_value=", ".join(sorted(versions)),
+                        suggested_value="Egyetlen verzió",
+                        rationale="A verzióeltérés miatt delegációk, üzenetek és funkciók nem kompatibilisek lehetnek. Minden node frissítése ajánlott.",
+                        affected_nodes=[node_name],
+                    )
+                    new_suggestions.append(s)
+
+        # OOM risk → development suggestion for restart resilience
+        if mem:
+            rss = mem.get("process_rss_mb", 0)
+            if rss > 300 and not _suggestion_exists("OOM védelem"):
+                s = await self.generate_suggestion(
+                    category="development",
+                    priority="medium",
+                    title=f"OOM védelem javítása — {node_name} RSS: {rss:.0f}MB",
+                    description=f"A {node_name} agent folyamata {rss:.0f}MB memóriát használ. A Restart=always beállítás véd, de a root cause (memóriaszivárgás) vizsgálata javasolt.",
+                    current_value=f"{rss:.0f}MB RSS",
+                    suggested_value="<200MB RSS",
+                    rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Restart=always biztosítja az újraindítást, de a szivárgás forrását is meg kell találni.",
+                    affected_nodes=[node_name],
+                )
+                new_suggestions.append(s)
+
         if new_suggestions:
             log.info(f"💡 Generated {len(new_suggestions)} auto-suggestions from report {report.report_id}")
+            # Auto-delegate high/critical suggestions to the developer (nova)
+            await self._auto_delegate_suggestions(new_suggestions)
         
         return new_suggestions
+
+    def _map_error_to_dev_suggestion(self, node_name: str, err_type: str, count: int) -> Optional[Dict]:
+        """Map recurring error patterns to development suggestions."""
+        err_lower = err_type.lower() if isinstance(err_type, str) else ""
+
+        # Common error patterns → dev suggestions
+        if "time" in err_lower and "not defined" in err_lower:
+            return dict(
+                category="development",
+                priority="high",
+                title=f"Bug: import hiányzik — {err_type[:40]}",
+                description=f"A {node_name} node {count} alkalommal észlelte a '{err_type[:60]}' hibát. Ez valószínűleg hiányzó import (pl. 'import time') miatt van.",
+                current_value=f"{count} hiba",
+                suggested_value="0 hiba (import javítása)",
+                rationale="A hiányzó import futásidőű hibát okoz, ami megakadályozza a funkció működését. Gyors javítás: import hozzáadása.",
+                affected_nodes=[node_name],
+            )
+        if "timeout" in err_lower or "timed out" in err_lower:
+            return dict(
+                category="development",
+                priority="medium",
+                title=f"Timeout probléma — {err_type[:40]}",
+                description=f"A {node_name} node {count} alkalommal észlelte a '{err_type[:60]}' timeout hibát. A timeout értékek növelése vagy a hálózati stabilitás javítása szükséges.",
+                current_value=f"{count} timeout",
+                suggested_value="0 timeout",
+                rationale="A gyakori timeoutok instabil hálózatot vagy túl alacsony timeout értékeket jeleznek. A retry logika és timeout értékek finomhangolása javasolt.",
+                affected_nodes=[node_name],
+            )
+        if "connection" in err_lower or "connect" in err_lower:
+            return dict(
+                category="development",
+                priority="medium",
+                title=f"Kapcsolódási hiba — {err_type[:40]}",
+                description=f"A {node_name} node {count} alkalommal észlelt kapcsolódási hibát: '{err_type[:60]}'. A reconnection logika és a connection pooling javítása javasolt.",
+                current_value=f"{count} connection error",
+                suggested_value="Robusztus reconnection",
+                rationale="A gyakori kapcsolódási hibák rontják a mesh stabilitását. Exponenciális backoff és connection pooling bevezetése javasolt.",
+                affected_nodes=[node_name],
+            )
+        if "none" in err_lower and ("subscript" in err_lower or "attribute" in err_lower):
+            return dict(
+                category="development",
+                priority="high",
+                title=f"NoneType hiba — {err_type[:40]}",
+                description=f"A {node_name} node {count} alkalommal észlelte: '{err_type[:60]}'. Ez nem kezelt None értéket jelez, ami None-safe kódolást igényel.",
+                current_value=f"{count} NoneType error",
+                suggested_value="0 hiba (None-check hozzáadása)",
+                rationale="A NoneType hibák nem kezelt edge case-eket jeleznek. None-safe kódolás (pl. 'x or default' minták) javasolt.",
+                affected_nodes=[node_name],
+            )
+
+        # Generic recurring error → development suggestion
+        if count >= 10:
+            return dict(
+                category="development",
+                priority="medium",
+                title=f"Ismétlődő hiba vizsgálata — {err_type[:40]}",
+                description=f"A {node_name} node {count} alkalommal észlelte: '{err_type[:60]}'. A root cause vizsgálata és javítása javasolt.",
+                current_value=f"{count} előfordulás",
+                suggested_value="0 előfordulás",
+                rationale=f"A {count} alkalommal ismétlődő hiba root cause vizsgálatot igényel. A hibaüzenet alapján a forráskód megfelelő javítása javasolt.",
+                affected_nodes=[node_name],
+            )
+        return None
+
+    async def _auto_delegate_suggestions(self, suggestions: List[ConfigSuggestion]):
+        """Auto-delegate high/critical development suggestions as tasks to nova (developer)."""
+        if not hasattr(self.node, 'delegation_manager') or not self.node.delegation_manager:
+            return
+        for s in suggestions:
+            if s.category == "development" and s.priority in ("high", "critical"):
+                try:
+                    task_title = f"[DEV] {s.title}"
+                    task_desc = f"**Fejlesztési javaslat ({s.priority} prioritás)**\n\n{s.description}\n\n**Jelenlegi érték:** {s.current_value}\n**Célérték:** {s.suggested_value}\n**Indoklás:** {s.rationale}\n\n**Érintett node:** {', '.join(s.affected_nodes)}\n**Javaslat ID:** {s.suggestion_id}"
+                    await self.node.delegation_manager.create_task(
+                        title=task_title,
+                        description=task_desc,
+                        from_agent=s.node,
+                        to_agent="nova",
+                        priority=7 if s.priority == "critical" else 5,
+                    )
+                    log.info(f"📋 Auto-delegated development suggestion: {s.title}")
+                except Exception as e:
+                    log.warning(f"Failed to auto-delegate suggestion {s.suggestion_id}: {e}")
     
     def _assess_severity(self, report: DiagnosticReport) -> str:
         """Assess overall severity of the report."""

@@ -199,7 +199,7 @@ plugins:
     - shell
 diagnostic:
   enabled: true
-  report_interval: 300
+  report_interval: 120
   max_reports_stored: 100
   developer_nodes:
   - nova
