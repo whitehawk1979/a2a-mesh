@@ -544,5 +544,17 @@ class MeshConfig:
                 flood_threshold=gs_data.get('flood_threshold', 10),
             )
 
+        # Diagnostic config — top-level 'diagnostic' section
+        diag_data = data.get('diagnostic', {})
+        if diag_data:
+            config.diagnostic = DiagnosticConfig(
+                enabled=diag_data.get('enabled', config.diagnostic.enabled),
+                report_interval=diag_data.get('report_interval', config.diagnostic.report_interval),
+                max_reports_stored=diag_data.get('max_reports_stored', config.diagnostic.max_reports_stored),
+                developer_nodes=diag_data.get('developer_nodes', config.diagnostic.developer_nodes),
+                channels=diag_data.get('channels', config.diagnostic.channels),
+                include_memory_stats=diag_data.get('include_memory_stats', config.diagnostic.include_memory_stats),
+                include_error_patterns=diag_data.get('include_error_patterns', config.diagnostic.include_error_patterns),
+            )
 
         return config
