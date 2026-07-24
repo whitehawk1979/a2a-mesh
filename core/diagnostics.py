@@ -93,7 +93,11 @@ class ConfigSuggestion:
 
 
 class DiagnosticEngine:
-    """Generates and manages diagnostic reports and config suggestions."""
+    """Generates and manages diagnostic reports and config suggestions.
+    
+    Suggestions are persisted to the mesh_suggestions PG table for long-term storage.
+    In-memory list is used as a cache; on startup, suggestions are loaded from PG.
+    """
     
     def __init__(self, node):
         """Initialize with reference to the mesh node."""
@@ -110,6 +114,7 @@ class DiagnosticEngine:
         self._error_counts: Dict[str, int] = {}  # error_type -> count
         self._performance_samples: List[Dict] = []
         self._max_samples: int = 60  # Keep last 60 samples
+        self._pg_loaded: bool = False  # Whether we've loaded suggestions from PG
 
     def _get_min_target_peers(self) -> int:
         """Get the minimum target peers from config, default 2."""
@@ -127,7 +132,10 @@ class DiagnosticEngine:
             log.info("Diagnostics disabled by config")
             return
         
-        log.info(f"🔍 Diagnostics engine started (interval={self.config.report_interval}s)")
+        # Load persisted suggestions from PG
+        await self._load_suggestions_from_pg()
+        
+        log.info(f"🔍 Diagnostics engine started (interval={self.config.report_interval}s, {len(self._suggestions)} persisted suggestions loaded)")
         self._task = asyncio.create_task(self._periodic_report_loop())
     
     async def stop(self):
@@ -196,7 +204,7 @@ class DiagnosticEngine:
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
                                      rationale: str = "", priority: str = "medium") -> ConfigSuggestion:
-        """Generate a config suggestion."""
+        """Generate a config suggestion and persist it to PG."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
             suggestion_id=f"sugg-{self.node.config.node_name}-{int(now.timestamp())}",
@@ -212,9 +220,12 @@ class DiagnosticEngine:
             affected_nodes=[self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
-        # Keep only last N suggestions
+        # Keep only last N suggestions in memory
         if len(self._suggestions) > self.config.max_reports_stored:
             self._suggestions = self._suggestions[-self.config.max_reports_stored:]
+        
+        # Persist to PG
+        await self._persist_suggestion_to_pg(suggestion)
         
         await self._broadcast_suggestion(suggestion)
         return suggestion
@@ -1083,7 +1094,8 @@ class DiagnosticEngine:
         return suggestions[-limit:]
     
     def update_suggestion_status(self, suggestion_id: str, new_status: str) -> Optional[ConfigSuggestion]:
-        """Update the status of a suggestion (pending/accepted/rejected/implemented)."""
+        """Update the status of a suggestion (pending/accepted/rejected/implemented).
+        Also persists the status change to PG."""
         valid = {"pending", "accepted", "rejected", "implemented"}
         if new_status not in valid:
             return None
@@ -1092,6 +1104,8 @@ class DiagnosticEngine:
                 old_status = s.status
                 s.status = new_status
                 log.info(f"📋 Suggestion {suggestion_id}: {old_status} → {new_status}")
+                # Persist status change to PG (fire and forget)
+                asyncio.ensure_future(self._update_suggestion_status_pg(suggestion_id, new_status))
                 return s
         return None
     
@@ -1106,4 +1120,92 @@ class DiagnosticEngine:
             "last_report_time": self._last_report_time,
             "error_types_tracked": len(self._error_counts),
             "performance_samples": len(self._performance_samples),
+            "pg_loaded": self._pg_loaded,
         }
+
+    # ── PG Persistence ──
+
+    async def _load_suggestions_from_pg(self):
+        """Load suggestions from PG on startup."""
+        try:
+            pg_pool = getattr(self.node, 'pg_pool', None)
+            if not pg_pool:
+                log.debug("No PG pool available for loading suggestions")
+                return
+            rows = await pg_pool.fetch(
+                """SELECT * FROM mesh_suggestions 
+                   ORDER BY created_at DESC LIMIT 100"""
+            )
+            for row in rows:
+                d = dict(row)
+                suggestion = ConfigSuggestion(
+                    suggestion_id=d.get("suggestion_id", ""),
+                    node=d.get("node", ""),
+                    timestamp=d.get("created_at", datetime.now(timezone.utc)).isoformat() if d.get("created_at") else "",
+                    category=d.get("category", "general"),
+                    priority=d.get("priority", "low"),
+                    title=d.get("title", ""),
+                    description=d.get("description", ""),
+                    current_value=d.get("current_value", ""),
+                    suggested_value=d.get("suggested_value", ""),
+                    rationale=d.get("rationale", ""),
+                    affected_nodes=d.get("affected_nodes", []),
+                    status=d.get("status", "pending"),
+                )
+                self._suggestions.append(suggestion)
+            self._pg_loaded = True
+            log.info(f"📋 Loaded {len(rows)} persisted suggestions from PG")
+        except Exception as e:
+            log.warning(f"Failed to load suggestions from PG: {e}")
+            self._pg_loaded = False
+
+    async def _persist_suggestion_to_pg(self, suggestion: ConfigSuggestion):
+        """Persist a suggestion to the mesh_suggestions PG table."""
+        try:
+            pg_pool = getattr(self.node, 'pg_pool', None)
+            if not pg_pool:
+                return
+            affected_nodes = suggestion.affected_nodes or []
+            await pg_pool.execute(
+                """INSERT INTO mesh_suggestions 
+                   (suggestion_id, node, category, priority, title, description,
+                    current_value, suggested_value, rationale, affected_nodes, status, source)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                   ON CONFLICT (suggestion_id) DO UPDATE SET
+                   status = EXCLUDED.status, updated_at = NOW()""",
+                suggestion.suggestion_id, suggestion.node, suggestion.category,
+                suggestion.priority, _safe_ascii(suggestion.title),
+                _safe_ascii(suggestion.description),
+                _safe_ascii(suggestion.current_value),
+                _safe_ascii(suggestion.suggested_value),
+                _safe_ascii(suggestion.rationale),
+                affected_nodes, suggestion.status, "auto",
+            )
+            log.debug(f"📋 Persisted suggestion {suggestion.suggestion_id} to PG")
+        except Exception as e:
+            log.warning(f"Failed to persist suggestion to PG: {e}")
+
+    async def _update_suggestion_status_pg(self, suggestion_id: str, new_status: str):
+        """Update suggestion status in PG."""
+        try:
+            pg_pool = getattr(self.node, 'pg_pool', None)
+            if not pg_pool:
+                return
+            implemented_at = "NOW()" if new_status == "implemented" else None
+            if new_status == "implemented":
+                await pg_pool.execute(
+                    """UPDATE mesh_suggestions 
+                       SET status = $1, implemented_at = NOW(), updated_at = NOW()
+                       WHERE suggestion_id = $2""",
+                    new_status, suggestion_id,
+                )
+            else:
+                await pg_pool.execute(
+                    """UPDATE mesh_suggestions 
+                       SET status = $1, updated_at = NOW()
+                       WHERE suggestion_id = $2""",
+                    new_status, suggestion_id,
+                )
+            log.info(f"📋 Updated suggestion {suggestion_id} → {new_status} in PG")
+        except Exception as e:
+            log.warning(f"Failed to update suggestion status in PG: {e}")

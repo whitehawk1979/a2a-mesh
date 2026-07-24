@@ -4700,7 +4700,8 @@ class DashboardHandler:
         })
 
     async def _api_diagnostic_suggestions(self, request):
-        """GET /api/diagnostics/suggestions — List config suggestions."""
+        """GET /api/diagnostics/suggestions — List config suggestions.
+        Merges in-memory suggestions with PG-persisted ones for cross-node visibility."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
@@ -4708,12 +4709,59 @@ class DashboardHandler:
         diagnostics = getattr(self.node, 'diagnostics', None)
         if not diagnostics:
             return web.json_response({"error": "Diagnostics not available"}, status=503)
-        limit = int(request.query.get("limit", "20"))
+        limit = int(request.query.get("limit", "50"))
         category = request.query.get("category")
+        status_filter = request.query.get("status")
+        
+        # Start with in-memory suggestions
         suggestions = diagnostics.get_suggestions(limit=limit, category=category)
+        suggestion_ids = {s.suggestion_id for s in suggestions}
+        
+        # Also load from PG for cross-node visibility and persistence
+        pg_pool = getattr(self.node, 'pg_pool', None)
+        if pg_pool:
+            try:
+                query = "SELECT * FROM mesh_suggestions ORDER BY created_at DESC LIMIT $1"
+                params = [limit]
+                if category:
+                    query = "SELECT * FROM mesh_suggestions WHERE category = $1 ORDER BY created_at DESC LIMIT $2"
+                    params = [category, limit]
+                rows = await pg_pool.fetch(query, *params)
+                for row in rows:
+                    d = dict(row)
+                    sid = d.get("suggestion_id", "")
+                    if sid not in suggestion_ids:
+                        from core.diagnostics import ConfigSuggestion
+                        s = ConfigSuggestion(
+                            suggestion_id=sid,
+                            node=d.get("node", ""),
+                            timestamp=d.get("created_at", "").isoformat() if hasattr(d.get("created_at"), "isoformat") else str(d.get("created_at", "")),
+                            category=d.get("category", "general"),
+                            priority=d.get("priority", "low"),
+                            title=d.get("title", ""),
+                            description=d.get("description", ""),
+                            current_value=d.get("current_value", ""),
+                            suggested_value=d.get("suggested_value", ""),
+                            rationale=d.get("rationale", ""),
+                            affected_nodes=d.get("affected_nodes", []),
+                            status=d.get("status", "pending"),
+                        )
+                        suggestions.append(s)
+                        suggestion_ids.add(sid)
+            except Exception as e:
+                log.debug(f"Failed to load PG suggestions: {e}")
+        
+        # Apply status filter after merging
+        if status_filter:
+            suggestions = [s for s in suggestions if s.status == status_filter]
+        
+        # Sort by priority then timestamp
+        priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        suggestions.sort(key=lambda s: (priority_order.get(s.priority, 4), s.timestamp or ""), reverse=False)
+        
         return web.json_response({
             "count": len(suggestions),
-            "suggestions": [s.to_dict() for s in suggestions],
+            "suggestions": [s.to_dict() for s in suggestions[-limit:]],
         })
 
     async def _api_diagnostic_report_generate(self, request):
