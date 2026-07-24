@@ -56,8 +56,9 @@ class P2PTransport(TransportAdapter):
     FILE_BANDWIDTH_LIMIT = 0     # Max bytes/sec for file transfers (0 = unlimited)
     INITIAL_BACKOFF_JITTER = 0.5 # Jitter factor for backoff (0-1)
 
-    def __init__(self, config):
+    def __init__(self, config, node_version: str = "unknown"):
         self.config = config
+        self._node_version = node_version
         self._available = False
         self._server: Optional[asyncio.Server] = None
         self._peers: Dict[str, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
@@ -513,7 +514,7 @@ class P2PTransport(TransportAdapter):
                 recipient=peer_name or '',
                 msg_type=MSG_TYPE_HEARTBEAT,
                 priority=0,
-                payload={"ts": time.time(), "version": getattr(self.config, "_resolved_version", "")},
+                payload={"ts": time.time(), "version": self._node_version},
             )
             data = hb_msg.to_bytes()
             writer.write(encode_frame(data))

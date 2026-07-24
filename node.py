@@ -247,7 +247,7 @@ class MeshNode:
 
         # Initialize transports
         self._pg_transport = PGTransport(self.config)
-        self._p2p_transport = P2PTransport(self.config)
+        self._p2p_transport = P2PTransport(self.config, node_version=self._resolved_version)
         self._http_transport = HTTPTransport(self.config)
         self._ble_transport = BLETransport(self.config)
 
