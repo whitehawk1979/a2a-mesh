@@ -915,6 +915,10 @@ class MeshNode:
         nfkd = unicodedata.normalize('NFKD', lower_raw)
         lower = ''.join(c for c in nfkd if not unicodedata.combining(c))
 
+        # --- Development suggestions / LLM analysis (check BEFORE system analysis) ---
+        if any(kw in lower for kw in ("javaslat", "suggestion", "fejlesztesi", "development", "improvement", "optimalizal", "optimize", "refactor", "hiba", "bug", "fix", "problema", "problem", "issue", "hiány", "missing", "javit", "improve")):
+            return await self._task_code_generation(node, now, subject, desc_text)
+
         # --- Code generation (check BEFORE file/network/diagnostic) ---
         if any(kw in lower for kw in ("kod", "code", "script", "python", "bash", "javascript", "generalj", "generate", "irj", "write", "szamold", "szamol", "oldd", "hatarozd", "keszits", "csinalj", "compute", "calcul")):
             return await self._task_code_generation(node, now, subject, desc_text)
