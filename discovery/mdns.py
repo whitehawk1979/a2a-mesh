@@ -38,10 +38,12 @@ class MeshDiscovery:
     """
 
     def __init__(self, node_name: str, port: int = 8645,
-                 service_type: str = A2A_SERVICE_TYPE):
+                 service_type: str = A2A_SERVICE_TYPE,
+                 version: str = ""):
         self.node_name = node_name
         self.port = port
         self.service_type = service_type
+        self.version = version
         self._running = False
         self._discovered_nodes: Dict[str, dict] = {}
         self._zeroconf: Optional[Zeroconf] = None
@@ -73,6 +75,7 @@ class MeshDiscovery:
                 "node": self.node_name,
                 "transport": "p2p",
                 "port": str(self.port),
+                "version": self.version or "unknown",
             }
 
             # Build addresses list
@@ -209,11 +212,13 @@ class MeshDiscovery:
                 properties = info.properties or {}
                 peer_role = properties.get(b"role", b"router").decode("utf-8", errors="ignore") if b"role" in properties else "router"
 
+                peer_version = properties.get(b"version", b"unknown").decode("utf-8", errors="ignore") if b"version" in properties else "unknown"
                 node_info = {
                     "name": node_name,
                     "host": peer_host,
                     "port": peer_port,
                     "transport": properties.get(b"transport", b"p2p").decode("utf-8", errors="ignore"),
+                    "version": peer_version,
                 }
 
                 self._discovered_nodes[node_name] = node_info

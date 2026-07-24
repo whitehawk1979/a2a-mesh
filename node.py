@@ -261,6 +261,7 @@ class MeshNode:
         self._discovery = MeshDiscovery(
             node_name=self.node_name,
             port=self.config.p2p.listen_port,
+            version=self._resolved_version,
         )
 
         # Message handlers
