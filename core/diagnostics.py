@@ -239,10 +239,14 @@ class DiagnosticEngine:
         try:
             process = psutil.Process(os.getpid())
             mem_info = process.memory_info()
-            # Collect CPU times to separate steal time from real usage
-            cpu_times_pct = psutil.cpu_times_percent(interval=0.1)
+            # Use a proper sampling interval for accurate sustained CPU measurement.
+            # psutil.cpu_percent(interval=0.0) returns the delta since the last call,
+            # which after cpu_times_percent(interval=0.1) produces a misleading spike.
+            # First call seeds the baseline; second call with interval measures accurately.
+            psutil.cpu_percent(interval=0.0)  # discard baseline
+            cpu_raw = psutil.cpu_percent(interval=0.5)  # 500ms sample for real usage
+            cpu_times_pct = psutil.cpu_times_percent(interval=0.0)  # non-blocking, uses cached data
             cpu_steal = getattr(cpu_times_pct, 'steal', 0.0)
-            cpu_raw = psutil.cpu_percent(interval=0.0)  # non-blocking, uses previous measurement
             cpu_effective = max(0.0, cpu_raw - cpu_steal) if cpu_steal > 0 else cpu_raw
 
             return {
