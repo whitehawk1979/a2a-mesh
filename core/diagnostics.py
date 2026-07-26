@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import logging
 
+from .delegation import _safe_ascii
+
 log = logging.getLogger("a2a_mesh.diagnostics")
 
 
@@ -203,7 +205,8 @@ class DiagnosticEngine:
     
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
-                                     rationale: str = "", priority: str = "medium") -> ConfigSuggestion:
+                                     rationale: str = "", priority: str = "medium",
+                                     affected_nodes: List[str] = None) -> ConfigSuggestion:
         """Generate a config suggestion and persist it to PG."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
@@ -217,7 +220,7 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            affected_nodes=[self.node.config.node_name],
+            affected_nodes=affected_nodes if affected_nodes is not None else [self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
         # Keep only last N suggestions in memory

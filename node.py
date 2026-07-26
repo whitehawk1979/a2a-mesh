@@ -3346,7 +3346,7 @@ echo "Status: ok"
                 headers["Content-Type"] = "application/json"
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                     if resp.status == 200:
                         log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
                         return  # Success, no need for fallback
@@ -3365,7 +3365,7 @@ echo "Status: ok"
                 try:
                     import aiohttp as _aiohttp_fallback
                     async with _aiohttp_fallback.ClientSession() as session:
-                        async with session.post(fallback, json=payload, timeout=_aiohttp_fallback.ClientTimeout(total=5)) as resp:
+                        async with session.post(fallback, json=payload, timeout=_aiohttp_fallback.ClientTimeout(total=120)) as resp:
                             if resp.status == 200:
                                 log.info(f"Wake-agent triggered via fallback {fallback}")
                             else:

@@ -341,6 +341,7 @@ class PGTransport(TransportAdapter):
                     (id, sender, recipient, msg_type, priority, payload,
                      routing_mode, src_addr, dst_addr, status)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent')
+                ON CONFLICT (id) DO NOTHING
             """,
                 message.id,
                 message.sender,

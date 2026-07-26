@@ -1380,7 +1380,7 @@ class DashboardHandler:
             if set(payload.keys()) <= {"uptime", "transports"}:
                 return
 
-        content = payload.get("text", "") or message.content or json.dumps(payload, ensure_ascii=True)
+        content = payload.get("text", "") or getattr(message, "content", "") or json.dumps(payload, ensure_ascii=True)
         username = payload.get("username", "") or message.sender
 
         self._message_history.append({
