@@ -91,6 +91,9 @@ class DashboardHandler:
         self._message_history: List[dict] = []
         self._max_history = 100
         self._html_cache: Optional[str] = None  # Cached dashboard HTML
+        self._last_wake_agent_time: float = 0.0  # Rate limit: last wake-agent call
+        self._wake_agent_cooldown: float = 30.0  # Min seconds between wake-agent calls
+        self._wake_agent_in_progress: bool = False  # Prevent concurrent wake-agent calls
 
     def register_routes(self, app):
         """Register dashboard routes on an existing aiohttp app."""
@@ -1676,6 +1679,21 @@ class DashboardHandler:
             
             log.info(f"Waking self ({self.node.node_name}) via hermes -z with chat context ({len(prompt)} chars)")
             
+            # Rate limit: prevent wake-agent storm
+            import time as _time_mod
+            now = _time_mod.monotonic()
+            if hasattr(self, '_wake_agent_in_progress') and self._wake_agent_in_progress:
+                log.warning("Self-wake already in progress — skipping (rate limit)")
+                return
+            elapsed = now - getattr(self, '_last_wake_agent_time', 0.0)
+            cooldown = getattr(self, '_wake_agent_cooldown', 30.0)
+            if elapsed < cooldown:
+                remaining = cooldown - elapsed
+                log.warning(f"Self-wake rate limited — cooldown {remaining:.0f}s remaining")
+                return
+            self._last_wake_agent_time = now
+            self._wake_agent_in_progress = True
+            
             # Run hermes -z (one-shot query) with terminal toolset
             import os as _os
             _hermes_bin = _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes")
@@ -1704,6 +1722,8 @@ class DashboardHandler:
             log.warning("Nova CLI timed out (90s)")
         except Exception as e:
             log.warning(f"Nova CLI wake failed: {e}")
+        finally:
+            self._wake_agent_in_progress = False
 
     async def _call_webhook(self, agent_name, webhook_url, payload, sig, original_message):
         """Call a single agent's webhook URL. Non-blocking — logs result.
@@ -2497,6 +2517,20 @@ class DashboardHandler:
             
             log.info(f"Wake-agent request for '{agent_name}' — prompt {len(prompt)} chars")
             
+            # Rate limit: prevent wake-agent storm (Ollama 429 + OOM SIGKILL root cause)
+            import time as _time
+            now = _time.monotonic()
+            if self._wake_agent_in_progress:
+                log.warning(f"Wake-agent already in progress — skipping (rate limit)")
+                return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
+            elapsed = now - self._last_wake_agent_time
+            if elapsed < self._wake_agent_cooldown:
+                remaining = self._wake_agent_cooldown - elapsed
+                log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining")
+                return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
+            self._last_wake_agent_time = now
+            self._wake_agent_in_progress = True
+            
             # Run hermes -z locally (same as _wake_self_via_cli but on this node)
             import asyncio as aio
             import os
@@ -2561,10 +2595,14 @@ class DashboardHandler:
                 return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
             except FileNotFoundError:
                 log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")
+                self._wake_agent_in_progress = False
                 return web.json_response({"error": "Hermes CLI not found"}, status=500)
             except Exception as e:
                 log.error(f"Wake-agent CLI failed: {e}")
+                self._wake_agent_in_progress = False
                 return web.json_response({"error": str(e)}, status=500)
+            finally:
+                self._wake_agent_in_progress = False
                 
         except Exception as e:
             log.error(f"Wake-agent endpoint failed: {e}")
