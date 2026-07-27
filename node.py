@@ -3289,7 +3289,14 @@ echo "Status: ok"
         
         Tries webhook URL first (Hermes webhook), then health_port dashboard API.
         The webhook triggers `hermes -z` which wakes the agent to process the message.
+        
+        LLM-independent: if wake_agent_on_message=False (default), this is a no-op.
+        The mesh infrastructure (routing, delivery, storage) works without any LLM calls.
         """
+        # LLM wake control — skip entirely if disabled
+        if not getattr(self.config, 'wake_agent_on_message', False):
+            log.debug(f"Wake-agent skipped (wake_agent_on_message=False) for {message.id[:8]} from {message.sender}")
+            return
         # Determine the correct URL for waking the agent
         # Priority: webhook_port (Hermes webhook) > health_port (dashboard API) > HTTP transport
         wake_url = None

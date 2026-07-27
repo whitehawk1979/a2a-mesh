@@ -69,6 +69,7 @@ mesh:
         p2p_port: 8645
         transport: p2p
   health_port: 8650
+  wake_agent_on_message: false  # LLM-independent mesh infra — no wake-agent calls
   heartbeat:
     critical_threshold: 900
     interval: 300
@@ -177,7 +178,7 @@ mesh:
       max_connections: 50
       tls_ca: ~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt
       tls_cert: ~/.hermes/scripts/a2a_mesh/certs/morzsa.crt
-      tls_enabled: false
+      tls_enabled: true
       tls_key: ~/.hermes/scripts/a2a_mesh/certs/morzsa.key
       tls_verify_peer: false
     pg_notify:
