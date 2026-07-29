@@ -216,7 +216,7 @@ class DelegationManager:
             log.info(f"Fan-out: created {len(task_ids)} tasks for '{subject}' (P{priority})")
             return task_ids
 
-        # Notify via A2A message
+        # Notify via A2A message + PG NOTIFY
         try:
             from .a2a_message import A2AMessage
             recipient = "broadcast" if available else to_agent
@@ -228,8 +228,21 @@ class DelegationManager:
                 content=f"New {'available' if available else ''} task: {subject}",
                 priority=priority,
             )
+            # Send via router (P2P/PG transports)
+            if hasattr(self, 'router') and self.router:
+                await self.router.send(msg)
+                log.info(f"Delegation message sent to {recipient} via router")
+            else:
+                log.debug("No router available — delegation stored in DB only")
+            # Also send PG NOTIFY for immediate pickup by listeners
+            if hasattr(self, 'pg_pool') and self.pg_pool:
+                await self.pg_pool.execute(
+                    "SELECT pg_notify('delegation_channel', $1)",
+                    json.dumps({"task_id": task_id, "to_agent": actual_to, "subject": subject, "from_agent": self.node_name})
+                )
+                log.debug(f"PG NOTIFY sent on delegation_channel for task {task_id}")
         except Exception as e:
-            log.debug(f"Could not send delegation notification: {e}")
+            log.warning(f"Could not send delegation notification: {e}")
 
         return task_id
 

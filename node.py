@@ -185,6 +185,7 @@ class MeshNode:
             pg_pool=None,  # Will be set after PG connection is established
             node_name=self.node_name,
         )
+        self.delegation.router = self.router  # Wire router for A2A message sending
 
         # Initialize P2P file transfer
         self.file_transfer = P2PFileTransfer(
