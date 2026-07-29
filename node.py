@@ -2636,6 +2636,22 @@ echo "Status: ok"
             capabilities.extend(["coordinator", "dashboard", "registry"])
         capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
+        # Get skills from config — these are the node's own skills (not from plugins)
+        config_skills = list(getattr(self.config, 'skills', []) or [])
+        db_skills = []
+        for s in config_skills:
+            if isinstance(s, dict):
+                db_skills.append(s.get('id', str(s)))
+            elif isinstance(s, str):
+                db_skills.append(s)
+        # Merge with plugin-announced skills (if already loaded)
+        if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
+            for name, plugin in self.plugin_loader.plugins.items():
+                for cap in plugin.capabilities:
+                    sid = f"{name}_{cap}"
+                    if sid not in db_skills:
+                        db_skills.append(sid)
+
         # Determine host address for other nodes to connect to
         import socket
         try:
@@ -2656,8 +2672,8 @@ echo "Status: ok"
                 INSERT INTO mesh.mesh_nodes 
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
-                     pg_available, p2p_available, http_available, capabilities, version)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15)
+                     pg_available, p2p_available, http_available, capabilities, skills, version)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
@@ -2670,6 +2686,7 @@ echo "Status: ok"
                     p2p_available = EXCLUDED.p2p_available,
                     http_available = EXCLUDED.http_available,
                     capabilities = EXCLUDED.capabilities,
+                    skills = EXCLUDED.skills,
                     version = EXCLUDED.version
             """,
                 self.node_name,
@@ -2686,9 +2703,10 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
+                json.dumps(db_skills, ensure_ascii=True),
                 self._resolved_version,
             )
-            log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
+            log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh with {len(db_skills)} skills")
             await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
             # Notify other nodes immediately about our registration
             try:
