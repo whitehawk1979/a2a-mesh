@@ -2800,11 +2800,13 @@ echo "Status: ok"
                 UPDATE mesh.mesh_nodes SET 
                     last_heartbeat = NOW(), 
                     status = 'active',
-                    pg_available = $1,
-                    p2p_available = $2,
-                    http_available = $3
-                WHERE node_name = $4
+                    health_port = $1,
+                    pg_available = $2,
+                    p2p_available = $3,
+                    http_available = $4
+                WHERE node_name = $5
             """,
+                getattr(self.config, 'health_port', 8650),
                 bool(self._pg_pool and self._pg_pool.is_connected()),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
