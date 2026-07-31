@@ -226,6 +226,9 @@ class MeshNode:
         # Grace period tasks — delayed offline broadcasts cancelled on reconnect
         self._peer_offline_grace_tasks: dict[str, asyncio.Task] = {}  # peer_name -> pending broadcast task
         self._peer_offline_grace_seconds: int = 30  # wait before declaring peer offline
+        # Track which peers we've broadcast as offline — so we can send peer_online on reconnect
+        self._peer_offline_broadcasted: set[str] = set()  # peer_names currently believed offline by mesh
+        self._peer_online_debounce: dict[str, float] = {}  # peer_name -> last peer_online broadcast time
 
         # Rate limit skills announcements — min 60s between announcements to prevent flooding
         self._last_skills_announcement: float = 0
@@ -447,6 +450,30 @@ class MeshNode:
             except Exception as e:
                 log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
             return
+
+        # Handle peer_offline / peer_online status broadcasts — update peer_discovery
+        if message.type in ("peer_offline", "peer_online"):
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            offline_peer_name = payload.get("peer_name", "")
+            if offline_peer_name and offline_peer_name != self.node_name and self.peer_discovery:
+                peer = self.peer_discovery.get_peer(offline_peer_name)
+                if peer:
+                    if message.type == "peer_offline":
+                        peer.p2p_available = False
+                        peer.http_available = False
+                        log.info(f"Received peer_offline from {message.sender}: marked {offline_peer_name} as unavailable")
+                    else:  # peer_online
+                        peer.p2p_available = True
+                        peer.pg_available = True
+                        log.info(f"Received peer_online from {message.sender}: marked {offline_peer_name} as available")
+                else:
+                    log.debug(f"Received {message.type} for unknown peer {offline_peer_name} from {message.sender}")
 
         # Dispatch to plugins first (they can intercept/transform messages)
         if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
@@ -2124,6 +2151,37 @@ echo "Status: ok"
             pending_task.cancel()
             log.info(f"Cancelled pending offline broadcast for {peer_name} — peer reconnected during grace period")
 
+        # If we previously broadcast peer_offline for this peer, send peer_online to restore mesh state.
+        # This handles the case where the grace period already expired (offline was broadcast)
+        # but the peer reconnected shortly after.
+        if peer_name in self._peer_offline_broadcasted:
+            import time as _t
+            now = _t.time()
+            last_online = self._peer_online_debounce.get(peer_name, 0)
+            if now - last_online >= 30:  # debounce: min 30s between peer_online broadcasts
+                self._peer_online_debounce[peer_name] = now
+                self._peer_offline_broadcasted.discard(peer_name)
+                log.info(f"Peer {peer_name} reconnected after offline broadcast — sending peer_online to mesh")
+                try:
+                    online_msg = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient="broadcast",
+                        msg_type="peer_online",
+                        payload={
+                            "type": "peer_online",
+                            "peer_name": peer_name,
+                            "source": self.node_name,
+                            "timestamp": now,
+                        },
+                        priority=7,
+                    )
+                    asyncio.create_task(self.router.send(online_msg))
+                    log.info(f"Broadcast peer_online for {peer_name}")
+                except Exception as e:
+                    log.error(f"Failed to broadcast peer_online for {peer_name}: {e}")
+            else:
+                self._peer_offline_broadcasted.discard(peer_name)
+                log.debug(f"Peer {peer_name} reconnected — debouncing peer_online (last sent {now - last_online:.0f}s ago)")
         # Notify plugins about peer connection
         if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
             asyncio.create_task(self.plugin_loader.dispatch_peer_connected(peer_name, peer or {}))
@@ -2253,6 +2311,7 @@ echo "Status: ok"
                 return
 
             self._peer_offline_debounce[peer_name] = now
+            self._peer_offline_broadcasted.add(peer_name)
             log.warning(f"Peer {peer_name} offline grace expired — broadcasting offline notification")
 
             # Record failure in health scorer

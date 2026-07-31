@@ -433,10 +433,12 @@ class P2PTransport(TransportAdapter):
                         # If the peer advertises frame_version=2 in its heartbeat,
                         # upgrade our negotiated version to v2 for this peer
                         peer_frame_version = hb_payload.get("frame_version") if hb_payload else None
+                        # v2 upgrade disabled — see comment in _send_heartbeat.
+                        # Keep negotiated version at v1 even if peer advertises v2.
                         if peer_frame_version == 2 and connected_peer_name:
-                            if connected_peer_name not in self._frame_version or self._frame_version[connected_peer_name] < 2:
-                                log.info(f"Peer {connected_peer_name} supports v2 frames — upgrading from v{self._frame_version.get(connected_peer_name, 1)} to v2")
-                            self._frame_version[connected_peer_name] = 2
+                            if connected_peer_name not in self._frame_version:
+                                self._frame_version[connected_peer_name] = 1
+                            log.debug(f"Peer {connected_peer_name} advertises v2 frames — keeping v1 (v2 auth disabled)")
                         if hb_version and self._heartbeat_callback and connected_peer_name:
                             try:
                                 asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version))
@@ -675,7 +677,12 @@ class P2PTransport(TransportAdapter):
         try:
             hb_payload = {"ts": time.time(), "version": self._node_version}
             # Include frame version negotiation in heartbeat
-            max_frame_version = 2 if self._message_auth else 1
+            # v2 frame auth disabled — the v2 HMAC design is broken (receiver uses
+            # its own secret to verify, but sender signs with its own — different
+            # nodes have different secrets, so HMAC always fails). TLS v1.3
+            # already provides transport-level authentication and integrity.
+            # Always advertise v1 so peers never try to upgrade to v2.
+            max_frame_version = 1
             hb_payload["frame_version"] = max_frame_version
 
             hb_msg = A2AMessage.create(

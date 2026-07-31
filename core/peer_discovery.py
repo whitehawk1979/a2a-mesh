@@ -465,6 +465,13 @@ class PeerDiscovery:
         """Check if a peer is healthy by hitting its health endpoint.
         Uses shared HTTP session for connection pooling (P0 optimization)."""
         import aiohttp
+        # Safety: health_port must differ from p2p_port (different services).
+        # If they're equal, the HTTP probe hits the TLS P2P listener and fails,
+        # producing false http_available=False. Auto-correct to p2p_port+5.
+        if peer.health_port == peer.p2p_port:
+            corrected = peer.p2p_port + 5
+            log.warning(f"check_peer_health: {peer.name} health_port==p2p_port ({peer.p2p_port}), auto-correcting to {corrected}")
+            peer.health_port = corrected
         url = f"http://{peer.host}:{peer.health_port}/health"
         try:
             # P0: Reuse shared session instead of creating new one per call
