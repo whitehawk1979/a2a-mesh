@@ -464,10 +464,26 @@ class MeshNode:
             if offline_peer_name and offline_peer_name != self.node_name and self.peer_discovery:
                 peer = self.peer_discovery.get_peer(offline_peer_name)
                 if peer:
+                    import time as _time
+                    # Check our own direct P2P link to this peer before trusting
+                    # a remote peer_offline broadcast. If we have an active,
+                    # fresh P2P connection, the peer is reachable from us —
+                    # the remote report refers to a different link, not ours.
+                    our_p2p_active = (
+                        peer.p2p_available
+                        and peer.last_seen > 0
+                        and (_time.time() - peer.last_seen) < 120  # seen in last 2 min
+                    )
                     if message.type == "peer_offline":
-                        peer.p2p_available = False
-                        peer.http_available = False
-                        log.info(f"Received peer_offline from {message.sender}: marked {offline_peer_name} as unavailable")
+                        if our_p2p_active:
+                            log.info(
+                                f"Received peer_offline from {message.sender} for {offline_peer_name} "
+                                f"but our P2P link is active (last_seen {_time.time() - peer.last_seen:.0f}s ago) — ignoring false offline"
+                            )
+                        else:
+                            peer.p2p_available = False
+                            peer.http_available = False
+                            log.info(f"Received peer_offline from {message.sender}: marked {offline_peer_name} as unavailable")
                     else:  # peer_online
                         peer.p2p_available = True
                         peer.pg_available = True
