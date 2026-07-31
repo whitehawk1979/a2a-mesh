@@ -2318,8 +2318,21 @@ echo "Status: ok"
                 self._peer_offline_debounce.pop(peer_name, None)
                 return
 
-            # Grace period expired — peer is genuinely offline
+            # Grace period expired — but re-check: is the peer actually unreachable?
+            # The P2P connection may have been re-established from the peer's side
+            # (incoming connection) without triggering our _on_p2p_peer_connected callback.
+            # If our own peer_discovery shows the peer as p2p_available and recently
+            # seen, broadcasting peer_offline would be a false alarm.
             now = time.time()
+            if self.peer_discovery:
+                peer = self.peer_discovery.get_peer(peer_name)
+                if peer and peer.p2p_available and peer.last_seen > 0 and (now - peer.last_seen) < 120:
+                    log.info(
+                        f"Peer {peer_name} grace expired but P2P link is active "
+                        f"(last_seen {now - peer.last_seen:.0f}s ago) — skipping false offline broadcast"
+                    )
+                    self._peer_offline_grace_tasks.pop(peer_name, None)
+                    return
             last_broadcast = self._peer_offline_debounce.get(peer_name, 0)
             if now - last_broadcast < 60:
                 log.info(f"Peer {peer_name} offline grace expired — debouncing (last broadcast {now - last_broadcast:.0f}s ago)")
@@ -2936,12 +2949,12 @@ echo "Status: ok"
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
-                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply"):
+                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "peer_offline", "peer_online"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
                                 # regardless of priority level (file_transfer, memory_sync, diagnostic)
-                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion"):
+                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online"):
                                     log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:
