@@ -206,30 +206,20 @@ class MeshConfig:
     version: str = ""
 
     def _resolve_version(self) -> str:
-        """Resolve version from git tag, fallback to pyproject.toml, then hardcoded default.
+        """Resolve version from pyproject.toml, fallback to git tag, then hardcoded.
         
         Priority:
         1. Explicit version in config YAML (if set)
-        2. Git tag (most accurate — single source of truth)
-        3. pyproject.toml version
-        4. Hardcoded fallback
+        2. pyproject.toml version (most reliable — no git state dependency)
+        3. Git tag (fallback)
+        4. Hardcoded default
         """
         if self.version:
             return self.version
         import subprocess, os
-        # Try git tag first (single source of truth)
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # Try pyproject.toml first (most reliable — no git state dependency)
         try:
-            repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            tag = subprocess.check_output(
-                ["git", "describe", "--tags", "--abbrev=0"],
-                cwd=repo_dir, stderr=subprocess.DEVNULL
-            ).decode().strip().lstrip("v")
-            return tag
-        except Exception:
-            pass
-        # Fallback: read pyproject.toml
-        try:
-            repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             pyproject = os.path.join(repo_dir, "pyproject.toml")
             if os.path.exists(pyproject):
                 with open(pyproject) as f:
@@ -238,7 +228,16 @@ class MeshConfig:
                             return line.split("=", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
-        return "0.19.3"
+        # Fallback: git tag
+        try:
+            tag = subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=repo_dir, stderr=subprocess.DEVNULL
+            ).decode().strip().lstrip("v")
+            return tag
+        except Exception:
+            pass
+        return "0.20.0"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
