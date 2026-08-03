@@ -419,6 +419,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">🧠</span>
       <span class="nav-label">Skills</span>
     </button>
+    <button class="nav-item" onclick="showWorkflows()" id="navWorkflows">
+      <span class="nav-icon">🔀</span>
+      <span class="nav-label">Workflow</span>
+    </button>
     <button class="nav-item" onclick="showTopology()" id="navTopology">
       <span class="nav-icon">🕸️</span>
       <span class="nav-label">Topológia</span>
@@ -834,6 +838,38 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
+<!-- Workflow Modal -->
+<div class="file-modal-overlay" id="workflowModal" style="display:none">
+  <div class="file-modal" style="width:90vw;max-width:900px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+      <h2 style="margin:0">Workflow DAG</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('workflowModal').style.display='none'">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="loadWorkflows()">Listazas</button>
+      <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="showWorkflowForm()">Uj workflow</button>
+    </div>
+    <div id="workflowList" style="flex:1;overflow-y:auto;padding:4px 0;min-height:200px"></div>
+    <div id="workflowForm" style="display:none;flex-shrink:0;padding:12px;border-top:1px solid var(--border);background:var(--surface2);border-radius:8px;margin-top:8px;max-height:300px;overflow-y:auto">
+      <h3 style="margin:0 0 8px">Uj workflow inditasa</h3>
+      <input type="text" id="wfName" placeholder="Workflow neve (pl. research-task)" style="width:100%;padding:6px 10px;margin-bottom:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <label style="font-size:12px;color:var(--text3)">Consensus:</label>
+        <select id="wfConsensus" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+          <option value="all">ALL (minden agent)</option>
+          <option value="any">ANY (elso valasz)</option>
+          <option value="majority">MAJORITY (&gt;50%)</option>
+        </select>
+      </div>
+      <textarea id="wfTasksJson" placeholder='JSON taskok: [{"id":"search","name":"Web Search","capabilities":["web_search"],"payload":{"query":"AI"},"dependencies":[],"timeout":60},{"id":"summarize","name":"Summarize","capabilities":["summarization"],"dependencies":["search"],"timeout":30}]' style="width:100%;height:120px;padding:6px 10px;margin-bottom:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;font-family:monospace;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="createWorkflow()">Inditas</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById('workflowForm').style.display='none'">Megsem</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Topology Modal -->
 <div class="file-modal-overlay" id="topologyModal" style="display:none">
   <div class="file-modal" style="width:90vw;max-width:1000px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
@@ -964,7 +1000,7 @@ function switchMobileTab(tab) {
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }
@@ -2960,6 +2996,71 @@ function delegateToSkill(skillId) {
   if (!task) return;
   _skillsApiCall('/api/skills/' + skillId + '/delegate', 'POST', { task: task }).then(function(d) {
     alert('Delegalva! task_id: ' + (d.task_id || '?'));
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+// ─── Workflow Modal ────────────────────────────────────────
+function showWorkflows() {
+  var m = document.getElementById('workflowModal');
+  m.style.display = 'flex';
+  loadWorkflows();
+}
+
+function loadWorkflows() {
+  _skillsApiCall('/api/workflows').then(function(d) {
+    var c = document.getElementById('workflowList');
+    var wfs = d.workflows || [];
+    if (!wfs.length) {
+      c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Nincsenek aktiv workflow-k</div>';
+      return;
+    }
+    c.innerHTML = wfs.map(function(w) {
+      var status = w.status || '?';
+      var color = status === 'completed' ? 'var(--green)' : status === 'running' ? 'var(--primary)' : status === 'failed' ? 'var(--red)' : 'var(--text3)';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div><span style="font-weight:600">' + escHtml(w.name || w.id) + '</span>' +
+          ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + color + ';color:#fff">' + status + '</span></div>' +
+          '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="checkWorkflowStatus(\'' + w.id + '\')">Status</button>' +
+        '</div>' +
+        (w.tasks ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">' + w.tasks.length + ' task · consensus: ' + (w.consensus || '?') + '</div>' : '') +
+      '</div>';
+    }).join('');
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function showWorkflowForm() {
+  document.getElementById('workflowForm').style.display = '';
+}
+
+function createWorkflow() {
+  var name = document.getElementById('wfName').value.trim();
+  var consensus = document.getElementById('wfConsensus').value;
+  var tasksStr = document.getElementById('wfTasksJson').value.trim();
+  if (!name) { alert('Nev kotelezo'); return; }
+  if (!tasksStr) { alert('Taskok kotelezok'); return; }
+  var tasks;
+  try { tasks = JSON.parse(tasksStr); } catch(e) { alert('JSON hiba: ' + e.message); return; }
+  _skillsApiCall('/api/workflow', 'POST', { name: name, consensus: consensus, tasks: tasks }).then(function(d) {
+    if (d.error) { alert('Hiba: ' + d.error); return; }
+    alert('Workflow elinditva! ID: ' + (d.workflow_id || '?'));
+    document.getElementById('workflowForm').style.display = 'none';
+    document.getElementById('wfName').value = '';
+    document.getElementById('wfTasksJson').value = '';
+    loadWorkflows();
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function checkWorkflowStatus(wfId) {
+  _skillsApiCall('/api/workflow/' + wfId).then(function(d) {
+    var msg = 'Workflow: ' + (d.name || wfId) + '\nStatus: ' + (d.status || '?') + '\n';
+    if (d.tasks) {
+      d.tasks.forEach(function(t) {
+        msg += '\n' + t.id + ': ' + (t.status || '?') + (t.agent ? ' (' + t.agent + ')' : '');
+        if (t.result) msg += ' -> ' + (typeof t.result === 'string' ? t.result.substring(0,80) : JSON.stringify(t.result).substring(0,80));
+      });
+    }
+    alert(msg);
   }).catch(function(e) { alert('Hiba: ' + e); });
 }
 
