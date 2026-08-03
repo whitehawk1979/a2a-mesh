@@ -65,6 +65,7 @@ mesh:
   log_file: ~/a2a_mesh/a2a_mesh.log
   auth_mode: open
   health_port: 8650
+  wake_agent_on_message: true  # Wake local agent on incoming messages (non-blocking, mesh infra unaffected)
   transports:
     pg_notify:
       host: 192.168.1.30
@@ -82,12 +83,16 @@ mesh:
       enabled: true
       listen_host: 0.0.0.0
       listen_port: 8645
+      tls_cert: ~/.hermes/scripts/a2a_mesh/certs/runa.crt
+      tls_key: ~/.hermes/scripts/a2a_mesh/certs/runa.key
+      tls_ca: ~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt
+      tls_verify_peer: true
       max_connections: 50
       idle_timeout: 300
-      tls_enabled: false
+      tls_enabled: true
     http:
-      url: http://192.168.1.30:8199
-      health_url: http://192.168.1.30:8198/health
+      url: http://192.168.1.30:8650
+      health_url: http://192.168.1.30:8650/health
       timeout: 5
       retries: 3
   discovery:

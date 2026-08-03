@@ -415,6 +415,10 @@ class PeerDiscovery:
                     self._peers[name].host = host
                     self._peers[name].port = p2p_port  # Keep port in sync with p2p_port
                     self._peers[name].p2p_port = p2p_port
+                    # Safety: health_port can't be same as p2p_port (different services)
+                    if health_port == p2p_port:
+                        health_port = p2p_port + 5  # 8645 -> 8650
+                        log.warning(f"PG discovery: {name} health_port==p2p_port ({p2p_port}), auto-corrected to {health_port}")
                     self._peers[name].health_port = health_port
                     self._peers[name].last_seen = time.time()
                     # Only downgrade PG status from PG data if we don't have a live P2P connection
@@ -438,6 +442,10 @@ class PeerDiscovery:
                     # Re-register with registry to keep dashboard in sync
                     self._register_discovered_peer(self._peers[name])
                 else:
+                    # Safety: health_port can't be same as p2p_port (different services)
+                    if health_port == p2p_port:
+                        health_port = p2p_port + 5  # 8645 -> 8650
+                        log.warning(f"PG discovery: {name} health_port==p2p_port ({p2p_port}), auto-corrected to {health_port}")
                     peer = self.add_peer(name, host, p2p_port, role, health_port, capabilities=caps)
                     peer.pg_available = pg_avail
                     peer.p2p_available = p2p_avail
@@ -457,6 +465,13 @@ class PeerDiscovery:
         """Check if a peer is healthy by hitting its health endpoint.
         Uses shared HTTP session for connection pooling (P0 optimization)."""
         import aiohttp
+        # Safety: health_port must differ from p2p_port (different services).
+        # If they're equal, the HTTP probe hits the TLS P2P listener and fails,
+        # producing false http_available=False. Auto-correct to p2p_port+5.
+        if peer.health_port == peer.p2p_port:
+            corrected = peer.p2p_port + 5
+            log.warning(f"check_peer_health: {peer.name} health_port==p2p_port ({peer.p2p_port}), auto-correcting to {corrected}")
+            peer.health_port = corrected
         url = f"http://{peer.host}:{peer.health_port}/health"
         try:
             # P0: Reuse shared session instead of creating new one per call

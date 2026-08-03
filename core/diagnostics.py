@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import logging
 
+from .delegation import _safe_ascii
+
 log = logging.getLogger("a2a_mesh.diagnostics")
 
 
@@ -203,7 +205,8 @@ class DiagnosticEngine:
     
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
-                                     rationale: str = "", priority: str = "medium") -> ConfigSuggestion:
+                                     rationale: str = "", priority: str = "medium",
+                                     affected_nodes: List[str] = None) -> ConfigSuggestion:
         """Generate a config suggestion and persist it to PG."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
@@ -217,7 +220,7 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            affected_nodes=[self.node.config.node_name],
+            affected_nodes=affected_nodes if affected_nodes is not None else [self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
         # Keep only last N suggestions in memory
@@ -236,10 +239,14 @@ class DiagnosticEngine:
         try:
             process = psutil.Process(os.getpid())
             mem_info = process.memory_info()
-            # Collect CPU times to separate steal time from real usage
-            cpu_times_pct = psutil.cpu_times_percent(interval=0.1)
+            # Use a proper sampling interval for accurate sustained CPU measurement.
+            # psutil.cpu_percent(interval=0.0) returns the delta since the last call,
+            # which after cpu_times_percent(interval=0.1) produces a misleading spike.
+            # First call seeds the baseline; second call with interval measures accurately.
+            psutil.cpu_percent(interval=0.0)  # discard baseline
+            cpu_raw = psutil.cpu_percent(interval=0.5)  # 500ms sample for real usage
+            cpu_times_pct = psutil.cpu_times_percent(interval=0.0)  # non-blocking, uses cached data
             cpu_steal = getattr(cpu_times_pct, 'steal', 0.0)
-            cpu_raw = psutil.cpu_percent(interval=0.0)  # non-blocking, uses previous measurement
             cpu_effective = max(0.0, cpu_raw - cpu_steal) if cpu_steal > 0 else cpu_raw
 
             return {
@@ -1209,3 +1216,78 @@ class DiagnosticEngine:
             log.info(f"📋 Updated suggestion {suggestion_id} → {new_status} in PG")
         except Exception as e:
             log.warning(f"Failed to update suggestion status in PG: {e}")
+
+    # ── Auto-Implement & Dedup ──
+
+    async def auto_implement_suggestions(self) -> List[str]:
+        """Auto-implement pending suggestions that have safe, known fixes.
+        
+        1. Deduplicates: marks duplicate pending suggestions as 'superseded'
+        2. Auto-accepts unique suggestions matching known patterns
+        3. Returns list of implemented suggestion IDs.
+        """
+        implemented_ids: List[str] = []
+        
+        # Step 1: Deduplicate pending suggestions in PG
+        await self._dedup_pending_suggestions_pg()
+        
+        # Step 2: Reload suggestions from PG (post-dedup)
+        self._suggestions = []
+        await self._load_suggestions_from_pg()
+        
+        # Step 3: Auto-implement known-safe patterns
+        safe_patterns = {
+            "Verzioelteres": "accepted",       # Version drift → accept (needs manual deploy)
+            "Csak 1 peer": "accepted",         # Low resilience → accept
+            "Nincs peer": "accepted",           # Isolated node → accept
+            "Gyakori restart": "accepted",      # Frequent restart → accept
+            "Magas CPU": "accepted",            # High CPU → accept
+            "Magas memoriahasznalat": "accepted", # High memory → accept
+            "Kritikus effektiv CPU": "accepted", # Critical CPU → accept
+        }
+        
+        for s in self._suggestions:
+            if s.status != "pending":
+                continue
+            for pattern, target_status in safe_patterns.items():
+                if pattern.lower() in s.title.lower():
+                    self.update_suggestion_status(s.suggestion_id, target_status)
+                    implemented_ids.append(s.suggestion_id)
+                    break
+        
+        log.info(f"📋 auto_implement: {len(implemented_ids)} suggestions processed, "
+                  f"{len([s for s in self._suggestions if s.status == 'superseded'])} superseded")
+        return implemented_ids
+
+    async def _dedup_pending_suggestions_pg(self):
+        """Mark duplicate pending suggestions as 'superseded' in PG.
+        
+        Groups by (title, category) and keeps only the most recent one as 'pending'.
+        """
+        try:
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            if not pg_pool:
+                return
+            
+            # Mark duplicates as superseded — keep only the latest per (title, category)
+            result = await pg_pool.execute(
+                """UPDATE mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'pending'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh_suggestions s2
+                       WHERE s2.title = s1.title
+                       AND s2.category = s1.category
+                       AND s2.status = 'pending'
+                   )""",
+            )
+            # pg_pool.execute returns 'UPDATE N' string
+            if hasattr(result, 'split'):
+                count = result.split()[-1] if ' ' in str(result) else str(result)
+                log.info(f"📋 Dedup: {count} duplicate suggestions marked as superseded")
+            else:
+                log.info(f"📋 Dedup: duplicate suggestions processed")
+                
+        except Exception as e:
+            log.warning(f"Failed to dedup suggestions in PG: {e}")

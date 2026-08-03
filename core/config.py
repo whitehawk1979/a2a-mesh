@@ -333,6 +333,11 @@ class MeshConfig:
     # Health endpoint
     health_port: int = 8650
 
+    # LLM wake control — when False, mesh infrastructure runs without ANY LLM API calls.
+    # Messages are still routed, delivered, and stored — but no hermes -z / wake-agent is triggered.
+    # Set to True only on nodes where an agent should be woken on incoming messages.
+    wake_agent_on_message: bool = False
+
     # Plugin config — each key is a plugin name, value is its config dict
     # Example: {"gateway": {"enabled": True, "platforms": {...}}, "notification": {...}}
     plugins: Dict[str, Any] = field(default_factory=dict)
@@ -465,6 +470,7 @@ class MeshConfig:
         # Auth mode
         config.auth_mode = mesh.get('auth_mode', 'open')
         config.health_port = int(mesh.get('health_port', 8650))
+        config.wake_agent_on_message = bool(mesh.get('wake_agent_on_message', False))
 
         # Skills and capabilities from YAML (override defaults)
         if 'capabilities' in mesh:

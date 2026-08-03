@@ -1,0 +1,29 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: a2a-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    network_mode: host
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: a2a-grafana
+    restart: unless-stopped
+    ports:
+      - "3030:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=zsolt
+      - GF_SECURITY_ADMIN_PASSWORD=mesh2026
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

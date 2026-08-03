@@ -192,9 +192,15 @@ class AutoSteerProcessor:
 
     async def _trigger_webhook(self, message: A2AMessage):
         """Trigger webhook for high-priority messages.
-
+        
         This calls the Hermes webhook endpoint to wake the agent.
+        
+        LLM-independent: if wake_agent_on_message=False (default), this is a no-op.
         """
+        # LLM wake control — skip if disabled
+        if not getattr(self.config, 'wake_agent_on_message', False):
+            log.debug(f"Auto-steer webhook skipped (wake_agent_on_message=False) for {message.id[:8]}")
+            return
         import aiohttp
         webhook_url = f"http://localhost:8644/webhook"
         try:
