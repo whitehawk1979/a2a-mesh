@@ -415,6 +415,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">📋</span>
       <span class="nav-label">Feladatok</span>
     </button>
+    <button class="nav-item" onclick="showSkills()" id="navSkills">
+      <span class="nav-icon">🧠</span>
+      <span class="nav-label">Skills</span>
+    </button>
     <button class="nav-item" onclick="showTopology()" id="navTopology">
       <span class="nav-icon">🕸️</span>
       <span class="nav-label">Topológia</span>
@@ -800,6 +804,37 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <!-- Diagnostics Modal -->
+<!-- Skills Marketplace Modal -->
+<div class="file-modal-overlay" id="skillsModal" style="display:none">
+  <div class="file-modal" style="width:90vw;max-width:900px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+      <h2 style="margin:0">🧠 Skill Marketplace</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('skillsModal').style.display='none'">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-shrink:0">
+      <input type="text" id="skillSearchInput" placeholder="Keresés skill-ekben..." style="flex:1;padding:8px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:14px" onkeydown="if(event.key==='Enter')searchSkills()">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="searchSkills()">🔍 Keresés</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="loadSkills()">🔄 Összes</button>
+      <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="showAdvertiseSkillForm()">➕ Hirdetés</button>
+    </div>
+    <div id="skillsList" style="flex:1;overflow-y:auto;padding:4px 0"></div>
+    <div id="advertiseSkillForm" style="display:none;flex-shrink:0;padding:12px;border-top:1px solid var(--border);background:var(--surface2);border-radius:8px;margin-top:8px">
+      <h3 style="margin:0 0 8px">Új skill hirdetése</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <input type="text" id="advSkillName" placeholder="skill_name (pl. code_gen)" style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+        <input type="text" id="advSkillDisplay" placeholder="Display name" style="padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      </div>
+      <input type="text" id="advSkillDesc" placeholder="Leírás" style="width:100%;padding:6px 10px;margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      <input type="text" id="advSkillTags" placeholder="tags (vesszővel elválasztva)" style="width:100%;padding:6px 10px;margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="advertiseSkill()">✅ Hirdetés</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById('advertiseSkillForm').style.display='none'">Mégsem</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Topology Modal -->
 <div class="file-modal-overlay" id="topologyModal" style="display:none">
   <div class="file-modal" style="width:90vw;max-width:1000px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0">
@@ -929,7 +964,7 @@ function switchMobileTab(tab) {
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }
@@ -2834,6 +2869,98 @@ function generateImage() {
     btn.disabled = false;
     btn.textContent = '🎨 Generálás';
   });
+}
+
+// ─── Skills Marketplace Modal ──────────────────────────────
+function _skillsApiCall(url, method, body) {
+  var token = localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || authToken || '';
+  var opts = { method: method || 'GET', headers: { 'Authorization': 'Bearer ' + token } };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  return fetch(url, opts).then(function(r) {
+    if (!r.ok) return r.json().then(function(e) { throw e.error || 'API error'; });
+    return r.json();
+  });
+}
+
+function showSkills() {
+  var m = document.getElementById('skillsModal');
+  m.style.display = 'flex';
+  loadSkills();
+}
+
+function loadSkills() {
+  _skillsApiCall('/api/skills').then(function(d) {
+    renderSkills(d.skills || []);
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function searchSkills() {
+  var q = document.getElementById('skillSearchInput').value.trim();
+  if (!q) { loadSkills(); return; }
+  _skillsApiCall('/api/skills/search?q=' + encodeURIComponent(q)).then(function(d) {
+    renderSkills(d.results || []);
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function renderSkills(skills) {
+  var c = document.getElementById('skillsList');
+  if (!skills.length) {
+    c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Nincsenek skill-ek</div>';
+    return;
+  }
+  c.innerHTML = skills.map(function(s) {
+    var tags = (s.tags || []).map(function(t) { return '<span style="background:var(--surface2);padding:2px 8px;border-radius:10px;font-size:11px;margin:2px">' + escHtml(t) + '</span>'; }).join('');
+    var successRate = s.success_rate !== null && s.success_rate !== undefined ? (s.success_rate * 100).toFixed(0) + '%' : '—';
+    var latency = s.avg_latency_ms !== null ? s.avg_latency_ms + 'ms' : '—';
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:start">' +
+        '<div style="flex:1">' +
+          '<div style="font-weight:600;font-size:14px">' + escHtml(s.display_name || s.skill_name) + '</div>' +
+          '<div style="font-size:12px;color:var(--text3);margin:2px 0">agent: ' + escHtml(s.agent) + ' cost: ' + (s.cost || 0) + ' latency: ' + latency + ' success: ' + successRate + '</div>' +
+          (s.description ? '<div style="font-size:13px;color:var(--text2);margin:4px 0">' + escHtml(s.description) + '</div>' : '') +
+          (tags ? '<div style="margin-top:4px">' + tags + '</div>' : '') +
+        '</div>' +
+        '<button class="btn btn-sm" style="background:var(--primary);color:#fff;margin-left:8px" onclick="delegateToSkill(\'' + s.skill_id + '\')">Delegate</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function showAdvertiseSkillForm() {
+  document.getElementById('advertiseSkillForm').style.display = '';
+}
+
+function advertiseSkill() {
+  var name = document.getElementById('advSkillName').value.trim();
+  var display = document.getElementById('advSkillDisplay').value.trim();
+  var desc = document.getElementById('advSkillDesc').value.trim();
+  var tagsStr = document.getElementById('advSkillTags').value.trim();
+  var tags = tagsStr ? tagsStr.split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
+  if (!name) { alert('skill_name kotelezo'); return; }
+  _skillsApiCall('/api/skills/advertise', 'POST', {
+    skill_name: name,
+    display_name: display || name,
+    description: desc,
+    tags: tags,
+    cost: 0.0,
+    max_concurrent: 3
+  }).then(function(d) {
+    alert('Skill hirdetve!');
+    document.getElementById('advertiseSkillForm').style.display = 'none';
+    document.getElementById('advSkillName').value = '';
+    document.getElementById('advSkillDisplay').value = '';
+    document.getElementById('advSkillDesc').value = '';
+    document.getElementById('advSkillTags').value = '';
+    loadSkills();
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function delegateToSkill(skillId) {
+  var task = prompt('Add meg a feladatot a skill szamara:');
+  if (!task) return;
+  _skillsApiCall('/api/skills/' + skillId + '/delegate', 'POST', { task: task }).then(function(d) {
+    alert('Delegalva! task_id: ' + (d.task_id || '?'));
+  }).catch(function(e) { alert('Hiba: ' + e); });
 }
 
 // ─── Topology Modal ──────────────────────────────────────────
