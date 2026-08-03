@@ -343,7 +343,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <select id="recipientSelect">
         <option value="">📢 Mindenkinek</option>
       </select>
-      <input type="text" id="messageInput" placeholder="Írd az üzenetet...">
+      <input type="text" id="messageInput" placeholder="Írd az üzenetet..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage()}">
       <select id="prioritySelect">
         <option value="5">P5 Normál</option>
         <option value="7">P7 Magas</option>
@@ -1092,15 +1092,44 @@ function addDMChannel(agentName, status) {
 function sendMessage() {
   var input = document.getElementById("messageInput");
   var content = input.value.trim();
-  if (!content || !ws) return;
+  if (!content) return;
+  var to = document.getElementById("recipientSelect").value || "broadcast";
+  var priority = parseInt(document.getElementById("prioritySelect").value) || 5;
 
-  ws.send(JSON.stringify({
-    type: "chat",
-    content: content,
-    recipient: document.getElementById("recipientSelect").value,
-    priority: parseInt(document.getElementById("prioritySelect").value),
-  }));
-  input.value = "";
+  // Send via REST chat API (works even without WebSocket)
+  fetch("/api/chat/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
+    },
+    body: JSON.stringify({ text: content, to: to })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "sent") {
+      // Add message to UI immediately
+      addMessage({
+        id: "local_" + Date.now(),
+        sender: nodeId || "me",
+        recipient: to,
+        type: "chat",
+        content: content,
+        timestamp: new Date().toISOString(),
+        priority: priority
+      }, true);
+      input.value = "";
+      scrollToBottom();
+    } else {
+      log("Send failed: " + (d.error || "unknown"));
+    }
+  }).catch(function(e) {
+    // Fallback to WebSocket if REST fails
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "chat", content: content, recipient: to, priority: priority }));
+      input.value = "";
+    } else {
+      log("Send failed: " + e);
+    }
+  });
 }
 
 function scrollToBottom() {
@@ -1184,6 +1213,12 @@ function submitAuth() {
         loadMessages();
         loadAgents();
         checkAdminPanel();
+        // Auto-refresh messages every 10 seconds (Telegram-style live updates)
+        if (window._msgRefreshInterval) clearInterval(window._msgRefreshInterval);
+        window._msgRefreshInterval = setInterval(function() {
+          loadMessages();
+          loadAgents();
+        }, 10000);
       }
     }).catch(function() { errEl.textContent = "Hálózati hiba"; });
   } else {
@@ -1264,21 +1299,33 @@ function loadStatus() {
 }
 
 function loadMessages() {
-  var url = "/api/messages?limit=100";
-  if (currentChannel && currentChannel !== "general") {
-    url += "&channel=" + encodeURIComponent(currentChannel);
-  } else if (currentChannel === "general") {
-    url += "&channel=general";
-  }
-  fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+  // Use new chat API with auth header
+  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  fetch("/api/chat/messages?limit=100", {
+    headers: { "Authorization": "Bearer " + token }
+  }).then(function(r) { return r.json(); }).then(function(d) {
     document.getElementById("messages").innerHTML = "";
     messageHistory = [];
     channelMessages = {};
     channelMessages[currentChannel || "general"] = [];
-    d.messages.reverse().forEach(function(m) { addMessage(m, false); });
-    document.getElementById("msgCount").textContent = d.total || d.messages.length;
+    (d.messages || []).forEach(function(m) {
+      // Normalize chat API format to display format
+      m.content = m.content || m.text || "";
+      m.timestamp = m.timestamp || m.created_at || "";
+      addMessage(m, false);
+    });
+    document.getElementById("msgCount").textContent = d.total || (d.messages || []).length;
     scrollToBottom();
-  }).catch(function() {});
+  }).catch(function() {
+    // Fallback to old API
+    fetch("/api/messages?limit=100").then(function(r) { return r.json(); }).then(function(d) {
+      document.getElementById("messages").innerHTML = "";
+      messageHistory = [];
+      d.messages.reverse().forEach(function(m) { addMessage(m, false); });
+      document.getElementById("msgCount").textContent = d.total || d.messages.length;
+      scrollToBottom();
+    }).catch(function() {});
+  });
 }
 
 function loadAgents() {
