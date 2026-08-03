@@ -170,14 +170,23 @@ class TopologyTuner:
 
         Returns a list of TuningRecommendation objects.
         """
-        if not self.node or not hasattr(self.node, '_health_scorer'):
+        if not self.node:
+            return []
+
+        # HealthScorer lives on the router, not directly on the node
+        health_scorer = None
+        if hasattr(self.node, 'router') and self.node.router:
+            health_scorer = getattr(self.node.router, '_health_scorer', None)
+        if not health_scorer:
+            # Fallback: check node directly (older versions)
+            health_scorer = getattr(self.node, '_health_scorer', None)
+        if not health_scorer:
             return []
 
         self._stats["evaluations"] += 1
         recommendations = []
 
         # Get health scores from the HealthScorer
-        health_scorer: HealthScorer = self.node._health_scorer
         all_scores = health_scorer.get_all_scores()
 
         # Get known peers from discovery

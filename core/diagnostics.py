@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import logging
 
+from .delegation import _safe_ascii
+
 log = logging.getLogger("a2a_mesh.diagnostics")
 
 
@@ -203,7 +205,8 @@ class DiagnosticEngine:
     
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
-                                     rationale: str = "", priority: str = "medium") -> ConfigSuggestion:
+                                     rationale: str = "", priority: str = "medium",
+                                     affected_nodes: List[str] = None) -> ConfigSuggestion:
         """Generate a config suggestion and persist it to PG."""
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
@@ -217,7 +220,7 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            affected_nodes=[self.node.config.node_name],
+            affected_nodes=affected_nodes if affected_nodes is not None else [self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
         # Keep only last N suggestions in memory
@@ -236,10 +239,14 @@ class DiagnosticEngine:
         try:
             process = psutil.Process(os.getpid())
             mem_info = process.memory_info()
-            # Collect CPU times to separate steal time from real usage
-            cpu_times_pct = psutil.cpu_times_percent(interval=0.1)
+            # Use a proper sampling interval for accurate sustained CPU measurement.
+            # psutil.cpu_percent(interval=0.0) returns the delta since the last call,
+            # which after cpu_times_percent(interval=0.1) produces a misleading spike.
+            # First call seeds the baseline; second call with interval measures accurately.
+            psutil.cpu_percent(interval=0.0)  # discard baseline
+            cpu_raw = psutil.cpu_percent(interval=0.5)  # 500ms sample for real usage
+            cpu_times_pct = psutil.cpu_times_percent(interval=0.0)  # non-blocking, uses cached data
             cpu_steal = getattr(cpu_times_pct, 'steal', 0.0)
-            cpu_raw = psutil.cpu_percent(interval=0.0)  # non-blocking, uses previous measurement
             cpu_effective = max(0.0, cpu_raw - cpu_steal) if cpu_steal > 0 else cpu_raw
 
             return {

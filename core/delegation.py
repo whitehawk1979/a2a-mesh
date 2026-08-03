@@ -55,6 +55,8 @@ def _safe_ascii(text: str) -> str:
 class DelegationManager:
     """Manages task delegation between mesh nodes via shared_delegations table."""
 
+    MAX_CONCURRENT_TASKS = 8  # Max concurrent delegation tasks per node
+
     def __init__(self, pg_pool, node_name: str):
         self.pg_pool = pg_pool  # AsyncDBPool instance
         self.node_name = node_name
@@ -64,6 +66,8 @@ class DelegationManager:
         self._handlers: Dict[str, callable] = {}
         self._poll_interval = 5.0
         self._on_result_callback = None
+        # Semaphore to limit concurrent task execution
+        self._task_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_TASKS)
         # Fan-out dedup: track (from_agent, subject) combos we've already claimed
         self._claimed_subjects: set = set()
         self._claimed_subjects_timestamps: Dict[tuple, float] = {}  # TTL tracking
@@ -212,7 +216,7 @@ class DelegationManager:
             log.info(f"Fan-out: created {len(task_ids)} tasks for '{subject}' (P{priority})")
             return task_ids
 
-        # Notify via A2A message
+        # Notify via A2A message + PG NOTIFY
         try:
             from .a2a_message import A2AMessage
             recipient = "broadcast" if available else to_agent
@@ -224,8 +228,21 @@ class DelegationManager:
                 content=f"New {'available' if available else ''} task: {subject}",
                 priority=priority,
             )
+            # Send via router (P2P/PG transports)
+            if hasattr(self, 'router') and self.router:
+                await self.router.send(msg)
+                log.info(f"Delegation message sent to {recipient} via router")
+            else:
+                log.debug("No router available — delegation stored in DB only")
+            # Also send PG NOTIFY for immediate pickup by listeners
+            if hasattr(self, 'pg_pool') and self.pg_pool:
+                await self.pg_pool.execute(
+                    "SELECT pg_notify('delegation_channel', $1)",
+                    json.dumps({"task_id": task_id, "to_agent": actual_to, "subject": subject, "from_agent": self.node_name})
+                )
+                log.debug(f"PG NOTIFY sent on delegation_channel for task {task_id}")
         except Exception as e:
-            log.debug(f"Could not send delegation notification: {e}")
+            log.warning(f"Could not send delegation notification: {e}")
 
         return task_id
 
@@ -457,7 +474,15 @@ class DelegationManager:
                 asyncio.create_task(self._execute_task(task_dict))
 
     async def _execute_task(self, task: Dict):
-        """Execute a delegated task using registered handlers."""
+        """Execute a delegated task using registered handlers.
+        
+        Uses a semaphore to limit concurrent task execution to MAX_CONCURRENT_TASKS.
+        """
+        async with self._task_semaphore:
+            await self._execute_task_inner(task)
+
+    async def _execute_task_inner(self, task: Dict):
+        """Inner implementation of task execution (called under semaphore)."""
         task_id = str(task.get("task_id", ""))
         subject = task.get("subject", "unknown")
         trace_id = f"trace-{self.node_name}-{task_id[:8]}"

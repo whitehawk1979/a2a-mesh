@@ -185,6 +185,7 @@ class MeshNode:
             pg_pool=None,  # Will be set after PG connection is established
             node_name=self.node_name,
         )
+        self.delegation.router = self.router  # Wire router for A2A message sending
 
         # Initialize P2P file transfer
         self.file_transfer = P2PFileTransfer(
@@ -225,6 +226,9 @@ class MeshNode:
         # Grace period tasks — delayed offline broadcasts cancelled on reconnect
         self._peer_offline_grace_tasks: dict[str, asyncio.Task] = {}  # peer_name -> pending broadcast task
         self._peer_offline_grace_seconds: int = 30  # wait before declaring peer offline
+        # Track which peers we've broadcast as offline — so we can send peer_online on reconnect
+        self._peer_offline_broadcasted: set[str] = set()  # peer_names currently believed offline by mesh
+        self._peer_online_debounce: dict[str, float] = {}  # peer_name -> last peer_online broadcast time
 
         # Rate limit skills announcements — min 60s between announcements to prevent flooding
         self._last_skills_announcement: float = 0
@@ -446,6 +450,46 @@ class MeshNode:
             except Exception as e:
                 log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
             return
+
+        # Handle peer_offline / peer_online status broadcasts — update peer_discovery
+        if message.type in ("peer_offline", "peer_online"):
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            offline_peer_name = payload.get("peer_name", "")
+            if offline_peer_name and offline_peer_name != self.node_name and self.peer_discovery:
+                peer = self.peer_discovery.get_peer(offline_peer_name)
+                if peer:
+                    import time as _time
+                    # Check our own direct P2P link to this peer before trusting
+                    # a remote peer_offline broadcast. If we have an active,
+                    # fresh P2P connection, the peer is reachable from us —
+                    # the remote report refers to a different link, not ours.
+                    our_p2p_active = (
+                        peer.p2p_available
+                        and peer.last_seen > 0
+                        and (_time.time() - peer.last_seen) < 120  # seen in last 2 min
+                    )
+                    if message.type == "peer_offline":
+                        if our_p2p_active:
+                            log.info(
+                                f"Received peer_offline from {message.sender} for {offline_peer_name} "
+                                f"but our P2P link is active (last_seen {_time.time() - peer.last_seen:.0f}s ago) — ignoring false offline"
+                            )
+                        else:
+                            peer.p2p_available = False
+                            peer.http_available = False
+                            log.info(f"Received peer_offline from {message.sender}: marked {offline_peer_name} as unavailable")
+                    else:  # peer_online
+                        peer.p2p_available = True
+                        peer.pg_available = True
+                        log.info(f"Received peer_online from {message.sender}: marked {offline_peer_name} as available")
+                else:
+                    log.debug(f"Received {message.type} for unknown peer {offline_peer_name} from {message.sender}")
 
         # Dispatch to plugins first (they can intercept/transform messages)
         if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
@@ -2123,6 +2167,37 @@ echo "Status: ok"
             pending_task.cancel()
             log.info(f"Cancelled pending offline broadcast for {peer_name} — peer reconnected during grace period")
 
+        # If we previously broadcast peer_offline for this peer, send peer_online to restore mesh state.
+        # This handles the case where the grace period already expired (offline was broadcast)
+        # but the peer reconnected shortly after.
+        if peer_name in self._peer_offline_broadcasted:
+            import time as _t
+            now = _t.time()
+            last_online = self._peer_online_debounce.get(peer_name, 0)
+            if now - last_online >= 30:  # debounce: min 30s between peer_online broadcasts
+                self._peer_online_debounce[peer_name] = now
+                self._peer_offline_broadcasted.discard(peer_name)
+                log.info(f"Peer {peer_name} reconnected after offline broadcast — sending peer_online to mesh")
+                try:
+                    online_msg = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient="broadcast",
+                        msg_type="peer_online",
+                        payload={
+                            "type": "peer_online",
+                            "peer_name": peer_name,
+                            "source": self.node_name,
+                            "timestamp": now,
+                        },
+                        priority=7,
+                    )
+                    asyncio.create_task(self.router.send(online_msg))
+                    log.info(f"Broadcast peer_online for {peer_name}")
+                except Exception as e:
+                    log.error(f"Failed to broadcast peer_online for {peer_name}: {e}")
+            else:
+                self._peer_offline_broadcasted.discard(peer_name)
+                log.debug(f"Peer {peer_name} reconnected — debouncing peer_online (last sent {now - last_online:.0f}s ago)")
         # Notify plugins about peer connection
         if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
             asyncio.create_task(self.plugin_loader.dispatch_peer_connected(peer_name, peer or {}))
@@ -2243,8 +2318,21 @@ echo "Status: ok"
                 self._peer_offline_debounce.pop(peer_name, None)
                 return
 
-            # Grace period expired — peer is genuinely offline
+            # Grace period expired — but re-check: is the peer actually unreachable?
+            # The P2P connection may have been re-established from the peer's side
+            # (incoming connection) without triggering our _on_p2p_peer_connected callback.
+            # If our own peer_discovery shows the peer as p2p_available and recently
+            # seen, broadcasting peer_offline would be a false alarm.
             now = time.time()
+            if self.peer_discovery:
+                peer = self.peer_discovery.get_peer(peer_name)
+                if peer and peer.p2p_available and peer.last_seen > 0 and (now - peer.last_seen) < 120:
+                    log.info(
+                        f"Peer {peer_name} grace expired but P2P link is active "
+                        f"(last_seen {now - peer.last_seen:.0f}s ago) — skipping false offline broadcast"
+                    )
+                    self._peer_offline_grace_tasks.pop(peer_name, None)
+                    return
             last_broadcast = self._peer_offline_debounce.get(peer_name, 0)
             if now - last_broadcast < 60:
                 log.info(f"Peer {peer_name} offline grace expired — debouncing (last broadcast {now - last_broadcast:.0f}s ago)")
@@ -2252,6 +2340,7 @@ echo "Status: ok"
                 return
 
             self._peer_offline_debounce[peer_name] = now
+            self._peer_offline_broadcasted.add(peer_name)
             log.warning(f"Peer {peer_name} offline grace expired — broadcasting offline notification")
 
             # Record failure in health scorer
@@ -2636,6 +2725,22 @@ echo "Status: ok"
             capabilities.extend(["coordinator", "dashboard", "registry"])
         capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
+        # Get skills from config — these are the node's own skills (not from plugins)
+        config_skills = list(getattr(self.config, 'skills', []) or [])
+        db_skills = []
+        for s in config_skills:
+            if isinstance(s, dict):
+                db_skills.append(s.get('id', str(s)))
+            elif isinstance(s, str):
+                db_skills.append(s)
+        # Merge with plugin-announced skills (if already loaded)
+        if hasattr(self, 'plugin_loader') and self.plugin_loader.plugins:
+            for name, plugin in self.plugin_loader.plugins.items():
+                for cap in plugin.capabilities:
+                    sid = f"{name}_{cap}"
+                    if sid not in db_skills:
+                        db_skills.append(sid)
+
         # Determine host address for other nodes to connect to
         import socket
         try:
@@ -2656,8 +2761,8 @@ echo "Status: ok"
                 INSERT INTO mesh.mesh_nodes 
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
-                     pg_available, p2p_available, http_available, capabilities, version)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15)
+                     pg_available, p2p_available, http_available, capabilities, skills, version)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
@@ -2670,6 +2775,7 @@ echo "Status: ok"
                     p2p_available = EXCLUDED.p2p_available,
                     http_available = EXCLUDED.http_available,
                     capabilities = EXCLUDED.capabilities,
+                    skills = EXCLUDED.skills,
                     version = EXCLUDED.version
             """,
                 self.node_name,
@@ -2686,9 +2792,10 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 json.dumps(capabilities, ensure_ascii=True),
+                json.dumps(db_skills, ensure_ascii=True),
                 self._resolved_version,
             )
-            log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh")
+            log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh with {len(db_skills)} skills")
             await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
             # Notify other nodes immediately about our registration
             try:
@@ -2781,11 +2888,13 @@ echo "Status: ok"
                 UPDATE mesh.mesh_nodes SET 
                     last_heartbeat = NOW(), 
                     status = 'active',
-                    pg_available = $1,
-                    p2p_available = $2,
-                    http_available = $3
-                WHERE node_name = $4
+                    health_port = $1,
+                    pg_available = $2,
+                    p2p_available = $3,
+                    http_available = $4
+                WHERE node_name = $5
             """,
+                getattr(self.config, 'health_port', 8650),
                 bool(self._pg_pool and self._pg_pool.is_connected()),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
@@ -2840,12 +2949,12 @@ echo "Status: ok"
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
-                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
+                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "peer_offline", "peer_online"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
                                 # regardless of priority level (file_transfer, memory_sync, diagnostic)
-                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion"):
+                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online"):
                                     log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:
@@ -3289,7 +3398,14 @@ echo "Status: ok"
         
         Tries webhook URL first (Hermes webhook), then health_port dashboard API.
         The webhook triggers `hermes -z` which wakes the agent to process the message.
+        
+        LLM-independent: if wake_agent_on_message=False (default), this is a no-op.
+        The mesh infrastructure (routing, delivery, storage) works without any LLM calls.
         """
+        # LLM wake control — skip entirely if disabled
+        if not getattr(self.config, 'wake_agent_on_message', False):
+            log.debug(f"Wake-agent skipped (wake_agent_on_message=False) for {message.id[:8]} from {message.sender}")
+            return
         # Determine the correct URL for waking the agent
         # Priority: webhook_port (Hermes webhook) > health_port (dashboard API) > HTTP transport
         wake_url = None
@@ -3346,7 +3462,7 @@ echo "Status: ok"
                 headers["Content-Type"] = "application/json"
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
                     if resp.status == 200:
                         log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
                         return  # Success, no need for fallback
@@ -3365,7 +3481,7 @@ echo "Status: ok"
                 try:
                     import aiohttp as _aiohttp_fallback
                     async with _aiohttp_fallback.ClientSession() as session:
-                        async with session.post(fallback, json=payload, timeout=_aiohttp_fallback.ClientTimeout(total=5)) as resp:
+                        async with session.post(fallback, json=payload, timeout=_aiohttp_fallback.ClientTimeout(total=120)) as resp:
                             if resp.status == 200:
                                 log.info(f"Wake-agent triggered via fallback {fallback}")
                             else:

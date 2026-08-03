@@ -91,6 +91,9 @@ class DashboardHandler:
         self._message_history: List[dict] = []
         self._max_history = 100
         self._html_cache: Optional[str] = None  # Cached dashboard HTML
+        self._last_wake_agent_time: float = 0.0  # Rate limit: last wake-agent call
+        self._wake_agent_cooldown: float = 30.0  # Min seconds between wake-agent calls
+        self._wake_agent_in_progress: bool = False  # Prevent concurrent wake-agent calls
 
     def register_routes(self, app):
         """Register dashboard routes on an existing aiohttp app."""
@@ -213,6 +216,10 @@ class DashboardHandler:
         # Image generation API (Pollinations.ai proxy)
         app.router.add_post("/api/image/generate", self._api_image_generate)
         app.router.add_get("/api/image/proxy", self._api_image_proxy)
+        # Public health endpoint (no auth required)
+        app.router.add_get("/api/health", self._api_public_health)
+        # Prometheus-compatible metrics endpoint (no auth)
+        app.router.add_get("/metrics", self._api_prometheus_metrics)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -1380,7 +1387,7 @@ class DashboardHandler:
             if set(payload.keys()) <= {"uptime", "transports"}:
                 return
 
-        content = payload.get("text", "") or message.content or json.dumps(payload, ensure_ascii=True)
+        content = payload.get("text", "") or getattr(message, "content", "") or json.dumps(payload, ensure_ascii=True)
         username = payload.get("username", "") or message.sender
 
         self._message_history.append({
@@ -1676,6 +1683,21 @@ class DashboardHandler:
             
             log.info(f"Waking self ({self.node.node_name}) via hermes -z with chat context ({len(prompt)} chars)")
             
+            # Rate limit: prevent wake-agent storm
+            import time as _time_mod
+            now = _time_mod.monotonic()
+            if hasattr(self, '_wake_agent_in_progress') and self._wake_agent_in_progress:
+                log.warning("Self-wake already in progress — skipping (rate limit)")
+                return
+            elapsed = now - getattr(self, '_last_wake_agent_time', 0.0)
+            cooldown = getattr(self, '_wake_agent_cooldown', 30.0)
+            if elapsed < cooldown:
+                remaining = cooldown - elapsed
+                log.warning(f"Self-wake rate limited — cooldown {remaining:.0f}s remaining")
+                return
+            self._last_wake_agent_time = now
+            self._wake_agent_in_progress = True
+            
             # Run hermes -z (one-shot query) with terminal toolset
             import os as _os
             _hermes_bin = _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes")
@@ -1704,6 +1726,8 @@ class DashboardHandler:
             log.warning("Nova CLI timed out (90s)")
         except Exception as e:
             log.warning(f"Nova CLI wake failed: {e}")
+        finally:
+            self._wake_agent_in_progress = False
 
     async def _call_webhook(self, agent_name, webhook_url, payload, sig, original_message):
         """Call a single agent's webhook URL. Non-blocking — logs result.
@@ -2497,6 +2521,20 @@ class DashboardHandler:
             
             log.info(f"Wake-agent request for '{agent_name}' — prompt {len(prompt)} chars")
             
+            # Rate limit: prevent wake-agent storm (Ollama 429 + OOM SIGKILL root cause)
+            import time as _time
+            now = _time.monotonic()
+            if self._wake_agent_in_progress:
+                log.warning(f"Wake-agent already in progress — skipping (rate limit)")
+                return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
+            elapsed = now - self._last_wake_agent_time
+            if elapsed < self._wake_agent_cooldown:
+                remaining = self._wake_agent_cooldown - elapsed
+                log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining")
+                return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
+            self._last_wake_agent_time = now
+            self._wake_agent_in_progress = True
+            
             # Run hermes -z locally (same as _wake_self_via_cli but on this node)
             import asyncio as aio
             import os
@@ -2561,10 +2599,14 @@ class DashboardHandler:
                 return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
             except FileNotFoundError:
                 log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")
+                self._wake_agent_in_progress = False
                 return web.json_response({"error": "Hermes CLI not found"}, status=500)
             except Exception as e:
                 log.error(f"Wake-agent CLI failed: {e}")
+                self._wake_agent_in_progress = False
                 return web.json_response({"error": str(e)}, status=500)
+            finally:
+                self._wake_agent_in_progress = False
                 
         except Exception as e:
             log.error(f"Wake-agent endpoint failed: {e}")
@@ -4876,3 +4918,93 @@ class DashboardHandler:
         except Exception as e:
             log.error(f"Error auto-implementing suggestions: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    # ── Public Health Endpoint (no auth) ──
+
+    async def _api_public_health(self, request):
+        """GET /api/health — Public health check, no auth required."""
+        from aiohttp import web
+        import time as _time
+        try:
+            node = self.node
+            pd = getattr(node, 'peer_discovery', None)
+            peers = pd.get_stats() if pd else {}
+            uptime = int(_time.time() - node._start_time) if getattr(node, '_start_time', None) else 0
+            return web.json_response({
+                "status": "healthy" if getattr(node, '_running', False) else "unhealthy",
+                "node": getattr(node, 'node_name', 'unknown'),
+                "running": getattr(node, '_running', False),
+                "uptime": uptime,
+                "peers": {
+                    "known": peers.get('known_peers', 0),
+                    "connected": peers.get('connected_peers', 0),
+                    "available": peers.get('available_peers', 0),
+                },
+                "version": getattr(node, '_resolved_version', 'unknown'),
+                "timestamp": int(_time.time()),
+            })
+        except Exception as e:
+            from aiohttp import web
+            return web.json_response({"status": "error", "error": str(e)}, status=500)
+
+    # ── Prometheus Metrics Endpoint (no auth) ──
+
+    async def _api_prometheus_metrics(self, request):
+        """GET /metrics — Prometheus-compatible text format metrics."""
+        from aiohttp import web
+        import time as _time
+        try:
+            node = self.node
+            node_name = getattr(node, 'node_name', 'unknown')
+            router = getattr(node, 'router', None)
+            t_stats = router.get_stats() if router else {}
+            pd = getattr(node, 'peer_discovery', None)
+            peers = pd.get_stats() if pd else {}
+            uptime = int(_time.time() - node._start_time) if getattr(node, '_start_time', None) else 0
+            running = 1 if getattr(node, '_running', False) else 0
+            lines = [
+                "# HELP a2a_mesh_node_up Node running status (1=up, 0=down)",
+                "# TYPE a2a_mesh_node_up gauge",
+                f'a2a_mesh_node_up{{node="{node_name}"}} {running}',
+                "",
+                "# HELP a2a_mesh_uptime_seconds Node uptime in seconds",
+                "# TYPE a2a_mesh_uptime_seconds gauge",
+                f'a2a_mesh_uptime_seconds{{node="{node_name}"}} {uptime}',
+                "",
+                "# HELP a2a_mesh_peers_connected Number of connected peers",
+                "# TYPE a2a_mesh_peers_connected gauge",
+                f'a2a_mesh_peers_connected{{node="{node_name}"}} {peers.get("connected_peers", 0)}',
+                "",
+                "# HELP a2a_mesh_peers_known Number of known peers",
+                "# TYPE a2a_mesh_peers_known gauge",
+                f'a2a_mesh_peers_known{{node="{node_name}"}} {peers.get("known_peers", 0)}',
+                "",
+                "# HELP a2a_mesh_messages_sent_total Total messages sent",
+                "# TYPE a2a_mesh_messages_sent_total counter",
+                f'a2a_mesh_messages_sent_total{{node="{node_name}"}} {t_stats.get("sent", 0)}',
+                "",
+                "# HELP a2a_mesh_messages_received_total Total messages received",
+                "# TYPE a2a_mesh_messages_received_total counter",
+                f'a2a_mesh_messages_received_total{{node="{node_name}"}} {t_stats.get("received", 0)}',
+                "",
+                "# HELP a2a_mesh_messages_forwarded_total Total messages forwarded",
+                "# TYPE a2a_mesh_messages_forwarded_total counter",
+                f'a2a_mesh_messages_forwarded_total{{node="{node_name}"}} {t_stats.get("forwarded", 0)}',
+                "",
+                "# HELP a2a_mesh_messages_duplicated_total Total duplicate messages filtered",
+                "# TYPE a2a_mesh_messages_duplicated_total counter",
+                f'a2a_mesh_messages_duplicated_total{{node="{node_name}"}} {t_stats.get("duplicates", 0)}',
+                "",
+                "# HELP a2a_mesh_transport_errors_total Total transport errors",
+                "# TYPE a2a_mesh_transport_errors_total counter",
+                f'a2a_mesh_transport_errors_total{{node="{node_name}"}} {t_stats.get("errors", 0)}',
+                "",
+                "# HELP a2a_mesh_dedup_cache_size Current dedup cache size",
+                "# TYPE a2a_mesh_dedup_cache_size gauge",
+                f'a2a_mesh_dedup_cache_size{{node="{node_name}"}} {t_stats.get("dedup", {}).get("size", 0)}',
+                "",
+            ]
+            return web.Response(text="\n".join(lines), content_type="text/plain")
+        except Exception as e:
+            from aiohttp import web
+            return web.Response(text=f"# Error: {e}", status=500, content_type="text/plain")

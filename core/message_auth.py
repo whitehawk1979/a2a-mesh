@@ -329,30 +329,28 @@ class TokenManager:
 
         Checks local cache first, then PG for tokens from other nodes.
         """
-        # Check local tokens
+        # Check local tokens — for verification, only check time window,
+        # not is_active (grace period allows recently-rotated tokens)
+        now = time.time()
         for token in (self._current_token, self._previous_token):
             if token and token.token_id == token_id:
-                if token.is_valid():
+                if token.created_at <= now < token.expires_at:
                     return token.secret
 
         # Check PG
         if self._pg_pool:
             try:
                 row = await self._pg_pool.fetchrow(
-                    "SELECT secret, created_at, expires_at, is_active "
+                    "SELECT secret, created_at, expires_at "
                     "FROM mesh.auth_tokens WHERE token_id = $1",
                     token_id
                 )
                 if row:
-                    t = AuthToken(
-                        token_id=token_id,
-                        secret=row["secret"],
-                        created_at=row["created_at"],
-                        expires_at=row["expires_at"],
-                        is_active=row["is_active"],
-                    )
-                    if t.is_valid():
-                        return t.secret
+                    # For verification, only check the time window — not is_active.
+                    # A rotated token (is_active=FALSE) must still verify during
+                    # its grace period (expires_at includes the grace period).
+                    if row["created_at"] <= now < row["expires_at"]:
+                        return row["secret"]
             except Exception as e:
                 log.warning(f"Failed to look up token {token_id[:16]}... from PG: {e}")
 
@@ -449,12 +447,20 @@ class MessageAuth:
 
         self._nonce_tracker = NonceTracker()
         self._rate_limiter = RateLimiter()
+
+        # Use rotation interval and grace period from config (fall back to defaults)
+        rotation_interval = getattr(self._security, 'auth_rotation_interval', TOKEN_ROTATION_INTERVAL)
+        grace_period = TOKEN_GRACE_PERIOD  # Always use default grace period (5 min)
+
         self._token_manager = TokenManager(
             node_name=self._node_name,
             pg_config=config.pg,
+            rotation_interval=rotation_interval,
+            grace_period=grace_period,
         )
 
         self._started = False
+        self._rotation_task: Optional[asyncio.Task] = None
 
     async def start(self):
         """Initialize the auth subsystem: connect PG, create tables, load token."""
@@ -476,16 +482,49 @@ class MessageAuth:
         # Ensure we have a current token
         await self._token_manager.ensure_current_token()
         self._started = True
-        log.info(f"MessageAuth started (mode={self._security.transport_auth})")
+
+        # Launch periodic token rotation task
+        self._rotation_task = asyncio.create_task(self._periodic_rotation())
+        log.info(f"MessageAuth started (mode={self._security.transport_auth}, "
+                 f"rotation_interval={self._token_manager._rotation_interval}s, "
+                 f"grace_period={self._token_manager._grace_period}s)")
+
+    async def _periodic_rotation(self):
+        """Background task that rotates the auth token before it expires.
+
+        Runs every rotation_interval / 4 seconds (at most every 15 minutes)
+        and calls ensure_current_token() which rotates if the current token
+        is within the grace period of expiry.
+        """
+        while self._started:
+            try:
+                # Check every 15 minutes or rotation_interval/4, whichever is smaller
+                check_interval = min(900, max(60, self._token_manager._rotation_interval // 4))
+                await asyncio.sleep(check_interval)
+                if not self._started:
+                    break
+                await self._token_manager.ensure_current_token()
+                log.debug("Periodic token rotation check completed")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Periodic token rotation error: {e}")
+                await asyncio.sleep(60)  # Back off on error
 
     async def stop(self):
-        """Cleanup: close PG pool if we created it."""
+        """Cleanup: cancel rotation task and close PG pool if we created it."""
+        self._started = False
+        if self._rotation_task and not self._rotation_task.done():
+            self._rotation_task.cancel()
+            try:
+                await self._rotation_task
+            except asyncio.CancelledError:
+                pass
         if self._pg_pool:
             try:
                 await self._pg_pool.close()
             except Exception:
                 pass
-        self._started = False
 
     # ─── Signing ─────────────────────────────────────────────────────────
 

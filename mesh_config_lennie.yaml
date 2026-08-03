@@ -13,6 +13,7 @@ mesh:
   log_file: a2a_mesh.log
   auth_mode: open
   health_port: 8650
+  wake_agent_on_message: false  # LLM-independent mesh infra — no wake-agent calls
   transports:
     pg_notify:
       host: 100.65.232.47

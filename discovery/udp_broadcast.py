@@ -151,28 +151,45 @@ class UDPBroadcastDiscovery:
             log.debug(f"UDP announce send failed to {addr}: {e}")
 
     async def _listen_loop(self):
-        """Listen for UDP broadcast announcements from other nodes."""
-        loop = asyncio.get_event_loop()
+        """Listen for UDP broadcast announcements from other nodes.
 
-        while self._running:
+        Uses asyncio add_reader (epoll-based) on the non-blocking socket
+        instead of run_in_executor, which would busy-loop on EAGAIN with
+        a non-blocking socket (previously caused 40K+ error log lines and
+        high I/O load).
+        """
+        loop = asyncio.get_event_loop()
+        fut = loop.create_future()
+
+        def _on_readable():
+            if fut.done():
+                return
+            if not self._sock or not self._running:
+                if not fut.done():
+                    fut.set_result(None)
+                return
             try:
-                data, addr = await asyncio.wait_for(
-                    loop.run_in_executor(None, self._recv_from),
-                    timeout=2.0
-                )
-                await self._handle_announcement(data, addr)
-            except asyncio.TimeoutError:
-                continue
+                data, addr = self._sock.recvfrom(4096)
+                fut.set_result((data, addr))
+            except (BlockingIOError, InterruptedError):
+                # Spurious wakeup — re-register and wait again
+                pass
             except Exception as e:
                 if self._running:
                     log.debug(f"UDP listen error: {e}")
-                await asyncio.sleep(0.5)
+                if not fut.done():
+                    fut.set_result(None)
 
-    def _recv_from(self):
-        """Blocking recvfrom call (runs in executor)."""
-        if not self._sock:
-            raise Exception("Socket closed")
-        return self._sock.recvfrom(4096)
+        loop.add_reader(self._sock.fileno(), _on_readable)
+        try:
+            while self._running:
+                result = await fut
+                fut = loop.create_future()
+                if result is not None:
+                    data, addr = result
+                    await self._handle_announcement(data, addr)
+        finally:
+            loop.remove_reader(self._sock.fileno())
 
     async def _handle_announcement(self, data: bytes, addr: tuple):
         """Handle a received UDP announcement."""

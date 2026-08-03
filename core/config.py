@@ -238,7 +238,7 @@ class MeshConfig:
                             return line.split("=", 1)[1].strip().strip('"').strip("'")
         except Exception:
             pass
-        return "0.19.1"
+        return "0.19.3"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
@@ -332,6 +332,11 @@ class MeshConfig:
 
     # Health endpoint
     health_port: int = 8650
+
+    # LLM wake control — when False, mesh infrastructure runs without ANY LLM API calls.
+    # Messages are still routed, delivered, and stored — but no hermes -z / wake-agent is triggered.
+    # Set to True only on nodes where an agent should be woken on incoming messages.
+    wake_agent_on_message: bool = False
 
     # Plugin config — each key is a plugin name, value is its config dict
     # Example: {"gateway": {"enabled": True, "platforms": {...}}, "notification": {...}}
@@ -465,6 +470,7 @@ class MeshConfig:
         # Auth mode
         config.auth_mode = mesh.get('auth_mode', 'open')
         config.health_port = int(mesh.get('health_port', 8650))
+        config.wake_agent_on_message = bool(mesh.get('wake_agent_on_message', False))
 
         # Skills and capabilities from YAML (override defaults)
         if 'capabilities' in mesh:
