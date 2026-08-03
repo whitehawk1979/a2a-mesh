@@ -278,7 +278,7 @@ class DashboardSkillsMixin:
             skill_name = row["skill_name"]
 
             # Create a delegation via the existing delegation system
-            delegation_mgr = getattr(self.node, 'delegation_mgr', None)
+            delegation_mgr = getattr(self.node, 'delegation', None) or getattr(self.node, 'delegation_mgr', None)
             if not delegation_mgr:
                 return web.json_response({"error": "Delegation system not available"}, status=503)
 
