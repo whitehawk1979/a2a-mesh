@@ -800,6 +800,18 @@ class MeshNode:
             log.info(f"Delegated task '{subject}' completed by {assigned}: {result[:200]}")
         elif status == "failed":
             log.warning(f"Delegated task '{subject}' FAILED on {assigned}: {result[:200]}")
+        
+        # Save to Hindsight for future context injection
+        try:
+            from .core.hindsight_sync import HindsightSync
+            if not hasattr(self, '_hindsight_sync'):
+                self._hindsight_sync = HindsightSync(self)
+                if hasattr(self, '_pg_pool') and self._pg_pool:
+                    self._hindsight_sync.set_pg_pool(self._pg_pool)
+            if self._hindsight_sync._enabled:
+                await self._hindsight_sync.save_delegation_result(task_row)
+        except Exception as e:
+            log.debug(f"Hindsight save skipped: {e}")
 
 
     # ── Delegation task handlers ──
