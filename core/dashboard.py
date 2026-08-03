@@ -32,6 +32,7 @@ from .dashboard_agents import DashboardAgentsMixin
 from .dashboard_files import DashboardFilesMixin
 from .dashboard_chat import DashboardChatMixin
 from .dashboard_admin import DashboardAdminMixin
+from .dashboard_skills import DashboardSkillsMixin
 
 log = logging.getLogger("a2a_mesh.dashboard")
 
@@ -54,7 +55,7 @@ class DashboardUser:
         }
 
 
-class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin):
+class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin):
     """Handles web dashboard HTTP and WebSocket requests.
 
     Routes:
@@ -228,6 +229,13 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/health", self._api_public_health)
         # Prometheus-compatible metrics endpoint (no auth)
         app.router.add_get("/metrics", self._api_prometheus_metrics)
+        # Skills marketplace
+        app.router.add_get("/api/skills", self._api_skills_list)
+        app.router.add_get("/api/skills/search", self._api_skills_search)
+        app.router.add_get("/api/skills/best", self._api_skills_best)
+        app.router.add_post("/api/skills/advertise", self._api_skills_advertise)
+        app.router.add_delete("/api/skills/{skill_id}", self._api_skills_delete)
+        app.router.add_post("/api/skills/{skill_id}/delegate", self._api_skills_delegate)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
