@@ -415,6 +415,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">📋</span>
       <span class="nav-label">Feladatok</span>
     </button>
+    <button class="nav-item" onclick="showTopology()" id="navTopology">
+      <span class="nav-icon">🕸️</span>
+      <span class="nav-label">Topológia</span>
+    </button>
     <button class="nav-item" onclick="showDiagnostics()" id="navDiagnostics">
       <span class="nav-icon">🩺</span>
       <span class="nav-label">Diagnosztika</span>
@@ -796,6 +800,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <!-- Diagnostics Modal -->
+<div class="file-modal-overlay" id="topologyModal" style="display:none">
+  <div class="file-modal" style="width:90vw;max-width:1000px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0">
+      <h2 style="margin:0">🕸️ Hálózati Topológia</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('topologyModal').style.display='none'">✕</button>
+    </div>
+    <iframe id="topologyFrame" src="" style="width:100%;flex:1;border:1px solid var(--border);border-radius:8px;background:#0d1117;min-height:500px"></iframe>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="document.getElementById('topologyFrame').src='/topology?t='+Date.now()">🔄 Frissítés</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="window.open('/topology','_blank')">🔗 Új lapon</button>
+    </div>
+  </div>
+</div>
+
 <div class="file-modal-overlay" id="diagnosticsModal" style="display:none">
   <div class="file-modal" style="width:800px;max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -911,7 +929,7 @@ function switchMobileTab(tab) {
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }
@@ -2816,6 +2834,14 @@ function generateImage() {
     btn.disabled = false;
     btn.textContent = '🎨 Generálás';
   });
+}
+
+// ─── Topology Modal ──────────────────────────────────────────
+function showTopology() {
+  var m = document.getElementById('topologyModal');
+  m.style.display = 'flex';
+  var frame = document.getElementById('topologyFrame');
+  frame.src = '/topology?t=' + Date.now();
 }
 
 // ─── Diagnostics Modal ─────────────────────────────────────────
