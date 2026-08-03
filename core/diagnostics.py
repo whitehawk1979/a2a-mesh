@@ -473,10 +473,15 @@ class DiagnosticEngine:
         # Helper: check if similar suggestion already exists to avoid duplicates
         # Check title substring AND node name AND not rejected (so pending/accepted/implemented blocks re-creation)
         def _suggestion_exists(title_substring: str) -> bool:
-            return any(title_substring.lower() in s.title.lower()
-                       and s.node == node_name
-                       and s.status in ("pending", "accepted", "implemented")
-                       for s in self._suggestions)
+            # Normalized check: compare first 30 chars of title (case-insensitive)
+            # This catches near-duplicates like "Csak 1 peer csatlakozva" vs "Csak 1 peer csatlakozva — alacsony"
+            target = title_substring.lower().strip()[:30]
+            return any(
+                target in s.title.lower()[:60]
+                and s.node == node_name
+                and s.status in ("pending", "accepted", "implemented", "investigated")
+                for s in self._suggestions
+            )
         
         # ─── Memory suggestions ────────────────────────────────────
         mem = report.memory_stats
