@@ -339,8 +339,8 @@ class DashboardHandler:
                 where_clauses = []
                 params = []
 
-                # Exclude heartbeat and system messages from chat
-                where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync')")
+                # Exclude non-chat messages from chat view
+                where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync', 'diagnostic_report', 'skills_announcement', 'config_suggestion', 'ack', 'peer_offline', 'peer_online', 'node_join', 'node_leave')")
 
                 if channel == "general":
                     # General chat: broadcast messages + agent replies (even if recipient=nova)
@@ -1359,8 +1359,8 @@ class DashboardHandler:
         """
         msg_type = message.type if hasattr(message, "type") else message.message_type
 
-        # Skip heartbeat, ACK, and system messages — they flood the chat
-        if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement"):
+        # Skip non-chat messages — they flood the chat
+        if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online", "node_join", "node_leave"):
             return
 
         # Extract display text from payload — handle both dict and JSON string payloads
@@ -1941,7 +1941,7 @@ class DashboardHandler:
             cur.execute("SET client_encoding TO UTF8")
             
             where_clauses = [
-                "msg_type NOT IN ('heartbeat', 'memory_sync', 'ack')",
+                "msg_type NOT IN ('heartbeat', 'memory_sync', 'ack', 'diagnostic_report', 'skills_announcement', 'config_suggestion', 'peer_offline', 'peer_online', 'node_join', 'node_leave')",
             ]
             params = []
             if channel == "general":
