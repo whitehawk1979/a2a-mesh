@@ -2,6 +2,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - alert_rules.yml
+
 scrape_configs:
   - job_name: 'a2a-mesh'
     metrics_path: /metrics

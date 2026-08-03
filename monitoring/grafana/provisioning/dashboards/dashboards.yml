@@ -1,0 +1,13 @@
+# Grafana dashboard provider — auto-load dashboards from /var/lib/grafana/dashboards
+apiVersion: 1
+
+providers:
+  - name: A2A Mesh
+    orgId: 1
+    folder: A2A Mesh
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards

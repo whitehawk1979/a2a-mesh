@@ -1,0 +1,4 @@
+# Grafana alerting provisioning (placeholder)
+# Prometheus-native alert rules are in alert_rules.yml (loaded by Prometheus)
+# Grafana-managed alerting can be configured via UI if needed
+# This file intentionally left minimal to avoid provisioning errors

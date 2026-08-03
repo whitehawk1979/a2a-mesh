@@ -1,0 +1,100 @@
+# A2A Mesh — Prometheus Alerting Rules
+# Alerts for node health, connectivity, and message flow
+
+groups:
+  - name: a2a-mesh-node-health
+    interval: 30s
+    rules:
+      # Node down — critical, immediate
+      - alert: A2ANodeDown
+        expr: a2a_mesh_node_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          mesh: a2a-mesh
+        annotations:
+          summary: "Node {{ $labels.node }} is DOWN"
+          description: "A2A Mesh node {{ $labels.node }} has been down for more than 1 minute."
+
+      # All peers disconnected — node isolated
+      - alert: A2ANodeIsolated
+        expr: a2a_mesh_peers_connected == 0
+        for: 2m
+        labels:
+          severity: critical
+          mesh: a2a-mesh
+        annotations:
+          summary: "Node {{ $labels.node }} has NO connected peers"
+          description: "Node {{ $labels.node }} is isolated — 0 peers connected for 2+ minutes."
+
+      # Low peer count — degraded mesh
+      - alert: A2ALowPeers
+        expr: a2a_mesh_peers_connected < 2
+        for: 5m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "Node {{ $labels.node }} has low peer count ({{ $value }})"
+          description: "Node {{ $labels.node }} has fewer than 2 peers for 5+ minutes."
+
+      # Frequent restarts — uptime < 60s
+      - alert: A2ANodeRestartLoop
+        expr: a2a_mesh_uptime_seconds < 60
+        for: 3m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "Node {{ $labels.node }} keeps restarting (uptime {{ $value }}s)"
+          description: "Node {{ $labels.node }} uptime is under 60s for 3+ minutes — possible restart loop."
+
+  - name: a2a-mesh-transport-errors
+    interval: 30s
+    rules:
+      # Transport errors spikes
+      - alert: A2ATransportErrors
+        expr: rate(a2a_mesh_transport_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "Transport errors on {{ $labels.node }} ({{ $value }} errors/s)"
+          description: "Node {{ $labels.node }} is experiencing transport errors above 0.1/s for 2+ minutes."
+
+      # High dedup cache — possible message flood
+      - alert: A2AHighDedupCache
+        expr: a2a_mesh_dedup_cache_size > 500
+        for: 5m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "High dedup cache on {{ $labels.node }} ({{ $value }} entries)"
+          description: "Node {{ $labels.node }} dedup cache exceeds 500 entries — possible message flood."
+
+  - name: a2a-mesh-message-flow
+    interval: 30s
+    rules:
+      # No messages received — silent node
+      - alert: A2ASilentNode
+        expr: rate(a2a_mesh_messages_received_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: info
+          mesh: a2a-mesh
+        annotations:
+          summary: "Node {{ $labels.node }} is silent (no messages in 10m)"
+          description: "Node {{ $labels.node }} has received 0 messages in the last 10 minutes."
+
+      # High message rate — possible flood
+      - alert: A2AHighMessageRate
+        expr: rate(a2a_mesh_messages_received_total[1m]) > 100
+        for: 2m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "High message rate on {{ $labels.node }} ({{ $value }} msg/s)"
+          description: "Node {{ $labels.node }} receiving >100 messages/s for 2+ minutes — possible flood."
