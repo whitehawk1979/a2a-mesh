@@ -1209,3 +1209,78 @@ class DiagnosticEngine:
             log.info(f"📋 Updated suggestion {suggestion_id} → {new_status} in PG")
         except Exception as e:
             log.warning(f"Failed to update suggestion status in PG: {e}")
+
+    # ── Auto-Implement & Dedup ──
+
+    async def auto_implement_suggestions(self) -> List[str]:
+        """Auto-implement pending suggestions that have safe, known fixes.
+        
+        1. Deduplicates: marks duplicate pending suggestions as 'superseded'
+        2. Auto-accepts unique suggestions matching known patterns
+        3. Returns list of implemented suggestion IDs.
+        """
+        implemented_ids: List[str] = []
+        
+        # Step 1: Deduplicate pending suggestions in PG
+        await self._dedup_pending_suggestions_pg()
+        
+        # Step 2: Reload suggestions from PG (post-dedup)
+        self._suggestions = []
+        await self._load_suggestions_from_pg()
+        
+        # Step 3: Auto-implement known-safe patterns
+        safe_patterns = {
+            "Verzioelteres": "accepted",       # Version drift → accept (needs manual deploy)
+            "Csak 1 peer": "accepted",         # Low resilience → accept
+            "Nincs peer": "accepted",           # Isolated node → accept
+            "Gyakori restart": "accepted",      # Frequent restart → accept
+            "Magas CPU": "accepted",            # High CPU → accept
+            "Magas memoriahasznalat": "accepted", # High memory → accept
+            "Kritikus effektiv CPU": "accepted", # Critical CPU → accept
+        }
+        
+        for s in self._suggestions:
+            if s.status != "pending":
+                continue
+            for pattern, target_status in safe_patterns.items():
+                if pattern.lower() in s.title.lower():
+                    self.update_suggestion_status(s.suggestion_id, target_status)
+                    implemented_ids.append(s.suggestion_id)
+                    break
+        
+        log.info(f"📋 auto_implement: {len(implemented_ids)} suggestions processed, "
+                  f"{len([s for s in self._suggestions if s.status == 'superseded'])} superseded")
+        return implemented_ids
+
+    async def _dedup_pending_suggestions_pg(self):
+        """Mark duplicate pending suggestions as 'superseded' in PG.
+        
+        Groups by (title, category) and keeps only the most recent one as 'pending'.
+        """
+        try:
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            if not pg_pool:
+                return
+            
+            # Mark duplicates as superseded — keep only the latest per (title, category)
+            result = await pg_pool.execute(
+                """UPDATE mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'pending'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh_suggestions s2
+                       WHERE s2.title = s1.title
+                       AND s2.category = s1.category
+                       AND s2.status = 'pending'
+                   )""",
+            )
+            # pg_pool.execute returns 'UPDATE N' string
+            if hasattr(result, 'split'):
+                count = result.split()[-1] if ' ' in str(result) else str(result)
+                log.info(f"📋 Dedup: {count} duplicate suggestions marked as superseded")
+            else:
+                log.info(f"📋 Dedup: duplicate suggestions processed")
+                
+        except Exception as e:
+            log.warning(f"Failed to dedup suggestions in PG: {e}")
