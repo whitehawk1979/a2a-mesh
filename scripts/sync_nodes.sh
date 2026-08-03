@@ -18,7 +18,7 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
 
 LOCAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MORZSA_REMOTE_DIR="a2a_mesh"        # Morzsa runs from ~/a2a_mesh/
-RUNA_REMOTE_DIR=".hermes/scripts/a2a_mesh"  # Runa runs from ~/.hermes/scripts/a2a_mesh/
+RUNA_REMOTE_DIR="a2a_mesh"           # Runa runs from ~/a2a_mesh/ (systemd)
 
 echo "=== A2A Mesh Node Sync ==="
 echo "Local: $LOCAL_DIR"
