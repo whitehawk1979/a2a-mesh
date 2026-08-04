@@ -76,6 +76,7 @@
     <span>⏳ Betöltés...</span>
   </div>
   <button id="refresh-btn" onclick="fetchTopology()">⟳ Frissítés</button>
+  <button id="reset-zoom-btn" onclick="resetZoomPan()" style="background:var(--border);color:var(--text);border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px">🔍 Reset zoom</button>
   <label id="auto-refresh"><input type="checkbox" checked onchange="toggleAutoRefresh(this.checked)"> Auto</label>
 </div>
 <div id="main">
@@ -221,6 +222,11 @@ function draw() {
   calcPositions();
   ctx.clearRect(0, 0, w, h);
 
+  // ── Apply zoom & pan transform ──
+  ctx.save();
+  ctx.translate(panX, panY);
+  ctx.scale(zoomLevel, zoomLevel);
+
   // ── Draw connections ──
   connections.forEach(conn => {
     const from = positions[conn.source];
@@ -348,33 +354,116 @@ function draw() {
     }
   });
 
+  // ── Restore zoom & pan transform ──
+  ctx.restore();
+
+  // ── Draw zoom indicator (outside transform) ──
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '11px sans-serif';
+  ctx.fillText('Zoom: ' + Math.round(zoomLevel * 100) + '% — görgő: zoom, húzás: mozgatás', 8, h - 8);
+
   animFrame++;
 }
 
 // ── Animation loop ──
 function animate() { draw(); requestAnimationFrame(animate); }
 
+function resetZoomPan() {
+  zoomLevel = 1;
+  panX = 0;
+  panY = 0;
+}
+
 // ── Mouse interaction ──
+// Zoom & pan state
+let zoomLevel = 1;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let panStartX = 0;
+let panStartY = 0;
+
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
   const localName = topologyData?.local_node || '';
 
+  if (isPanning) {
+    panX += (mx - panStartX);
+    panY += (my - panStartY);
+    panStartX = mx;
+    panStartY = my;
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+
   let found = null;
   nodes.forEach(node => {
     const pos = positions[node.name];
     if (!pos) return;
-    const dist = Math.hypot(mx - pos.x, my - pos.y);
+    const sx = pos.x * zoomLevel + panX;
+    const sy = pos.y * zoomLevel + panY;
+    const dist = Math.hypot(mx - sx, my - sy);
     const r = node.name === localName ? 36 : 28;
-    if (dist < r + 5) found = node.name;
+    if (dist < (r + 5) / zoomLevel) found = node.name;
   });
 
   hoveredNode = found;
-  canvas.style.cursor = found ? 'pointer' : 'default';
+  canvas.style.cursor = found ? 'pointer' : (isPanning ? 'grabbing' : 'grab');
+});
+
+canvas.addEventListener('mousedown', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const localName = topologyData?.local_node || '';
+
+  // Check if clicking a node first
+  let clickedNode = null;
+  nodes.forEach(node => {
+    const pos = positions[node.name];
+    if (!pos) return;
+    const sx = pos.x * zoomLevel + panX;
+    const sy = pos.y * zoomLevel + panY;
+    const dist = Math.hypot(mx - sx, my - sy);
+    const r = node.name === localName ? 36 : 28;
+    if (dist < (r + 5) / zoomLevel) clickedNode = node.name;
+  });
+
+  if (!clickedNode) {
+    isPanning = true;
+    panStartX = mx;
+    panStartY = my;
+    canvas.style.cursor = 'grabbing';
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  isPanning = false;
+  canvas.style.cursor = 'grab';
+});
+
+canvas.addEventListener('mouseleave', () => {
+  isPanning = false;
+  canvas.style.cursor = 'default';
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const oldZoom = zoomLevel;
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  zoomLevel = Math.max(0.3, Math.min(3, zoomLevel * delta));
+  // Zoom toward mouse position
+  panX = mx - (mx - panX) * (zoomLevel / oldZoom);
+  panY = my - (my - panY) * (zoomLevel / oldZoom);
 });
 
 canvas.addEventListener('click', (e) => {
+  if (isPanning) return;  // Don't click after pan
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
