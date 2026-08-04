@@ -435,6 +435,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">🚨</span>
       <span class="nav-label">Alertek</span>
     </button>
+    <button class="nav-item" onclick="showSettings()" id="navSettings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Beállítások</span>
+    </button>
     <button class="nav-item" onclick...[truncated]
     <button class="nav-item" onclick="window.open(location.protocol+'//'+location.host+'/dashboard','_blank')" id="navDashboard">
       <span class="nav-icon">🖥️</span>
@@ -1016,7 +1020,7 @@ function switchMobileTab(tab) {
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts", settings: "navSettings"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }
