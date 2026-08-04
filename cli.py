@@ -693,6 +693,72 @@ def cmd_test():
     print(f"\n✅ All tests passed! (17/17)")
 
 
+# ─── Node restart via SSH ────────────────────────────────────
+NODE_CONFIGS = {
+    "nova":   {"host": "192.168.1.8",   "user": "zsolt",     "method": "launchctl", "service": "com.hermes.a2a-mesh-node"},
+    "morzsa": {"host": "192.168.1.30",  "user": "openclaw",  "method": "systemd",   "service": "a2a-mesh"},
+    "runa":   {"host": "192.168.1.100", "user": "zsolt",     "method": "systemd",   "service": "a2a-mesh.service"},
+}
+
+
+def cmd_restart(node: str, method: str = "auto"):
+    """Restart a remote mesh node via SSH."""
+    import subprocess as _sp
+
+    nodes = list(NODE_CONFIGS.keys()) if node == "all" else [node]
+    print(f"🔄 Restarting {', '.join(nodes)}...\n")
+
+    for n in nodes:
+        cfg = NODE_CONFIGS.get(n)
+        if not cfg:
+            print(f"  {n}: unknown node")
+            continue
+
+        host = cfg["host"]
+        user = cfg["user"]
+        svc = cfg["service"]
+        m = method if method != "auto" else cfg["method"]
+
+        print(f"  {n} ({host}): restarting via {m}...", end=" ")
+
+        if m == "launchctl":
+            cmd = f"launchctl kickstart -k gui/$(id -u)/{svc}"
+            ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{host}", cmd]
+        elif m == "systemd":
+            cmd = f"systemctl --user restart {svc}"
+            ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{host}", cmd]
+        else:
+            cmd = "lsof -i :8650 -t | head -1 | xargs kill"
+            ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{host}", cmd]
+
+        try:
+            result = _sp.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                print("✅ restart command sent")
+                import time as _t
+                _t.sleep(10)
+                health_url = f"http://{host}:8650/health"
+                try:
+                    hr = _sp.run(["curl", "-s", "--connect-timeout", "5", health_url],
+                                 capture_output=True, text=True, timeout=10)
+                    if hr.returncode == 0 and hr.stdout:
+                        import json as _json
+                        hd = _json.loads(hr.stdout)
+                        print(f"  {n}: ✅ v{hd.get('version','?')} {hd.get('status','?')}")
+                    else:
+                        print(f"  {n}: ⚠️ health check failed (still starting?)")
+                except Exception:
+                    print(f"  {n}: ⚠️ health check failed (still starting?)")
+            else:
+                print(f"❌ restart failed: {result.stderr.strip()}")
+        except _sp.TimeoutExpired:
+            print("❌ SSH timeout")
+        except FileNotFoundError:
+            print("❌ ssh not found")
+        except Exception as e:
+            print(f"❌ error: {e}")
+
+
 def cmd_status():
     """Show mesh node status with topology info."""
     config_file = os.path.expanduser("~/.hermes/mesh_config.yaml")
@@ -1226,6 +1292,11 @@ def main():
     # test
     subparsers.add_parser("test", help="Run self-tests")
 
+    # Restart command
+    restart_parser = subparsers.add_parser("restart", help="Restart a remote mesh node via SSH")
+    restart_parser.add_argument("node", choices=["nova", "morzsa", "runa", "all"], help="Node to restart")
+    restart_parser.add_argument("--method", choices=["launchctl", "systemd", "pid"], default="auto", help="Restart method (auto-detect if omitted)")
+
     args = parser.parse_args()
 
     if args.command == "start":
@@ -1276,6 +1347,8 @@ def main():
             print("Usage: python3 cli.py update [check|apply|rollback|status]")
     elif args.command == "test":
         cmd_test()
+    elif args.command == "restart":
+        cmd_restart(args.node, args.method)
     else:
         parser.print_help()
 

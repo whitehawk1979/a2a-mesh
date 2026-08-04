@@ -285,6 +285,61 @@ def cmd_logs(args):
         print(f"❌ Failed to get logs: {e}")
 
 
+# ─── Node restart via SSH ────────────────────────────────────
+_NODE_CONFIGS = {
+    "nova":   {"host": "192.168.1.8",   "user": "zsolt",     "method": "launchctl", "service": "com.hermes.a2a-mesh-node"},
+    "morzsa": {"host": "192.168.1.30",  "user": "openclaw",  "method": "systemd",   "service": "a2a-mesh"},
+    "runa":   {"host": "192.168.1.100", "user": "zsolt",     "method": "systemd",   "service": "a2a-mesh.service"},
+}
+
+
+def cmd_restart(node: str):
+    """Restart a remote mesh node via SSH."""
+    import subprocess as _sp
+    import time as _t
+    import json as _json
+
+    nodes = list(_NODE_CONFIGS.keys()) if node == "all" else [node]
+    print(f"🔄 Restarting {', '.join(nodes)}...\n")
+
+    for n in nodes:
+        cfg = _NODE_CONFIGS.get(n)
+        if not cfg:
+            print(f"  {n}: unknown node")
+            continue
+
+        host = cfg["host"]
+        m = cfg["method"]
+        svc = cfg["service"]
+
+        print(f"  {n} ({host}): restarting via {m}...", end=" ")
+
+        if m == "launchctl":
+            cmd = f"launchctl kickstart -k gui/$(id -u)/{svc}"
+        elif m == "systemd":
+            cmd = f"systemctl --user restart {svc}"
+        else:
+            cmd = "kill $(lsof -i :8650 -t | head -1) 2>/dev/null"
+
+        ssh_cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"{cfg['user']}@{host}", cmd]
+        try:
+            result = _sp.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                print("✅ sent")
+                _t.sleep(10)
+                hr = _sp.run(["curl", "-s", "--connect-timeout", "5", f"http://{host}:8650/health"],
+                             capture_output=True, text=True, timeout=10)
+                if hr.returncode == 0 and hr.stdout:
+                    hd = _json.loads(hr.stdout)
+                    print(f"  {n}: ✅ v{hd.get('version','?')} {hd.get('status','?')}")
+                else:
+                    print(f"  {n}: ⚠️ still starting?")
+            else:
+                print(f"❌ {result.stderr.strip()[:80]}")
+        except Exception as e:
+            print(f"❌ {e}")
+
+
 # ─── Main ───
 
 def main():
@@ -331,6 +386,10 @@ def main():
     p_logs.add_argument("node", nargs="?", help="Node name (default: nova)")
     p_logs.add_argument("--limit", type=int, default=20, help="Number of log entries")
 
+    # restart
+    p_restart = sub.add_parser("restart", help="Restart a remote mesh node via SSH")
+    p_restart.add_argument("node", choices=["nova", "morzsa", "runa", "all"], help="Node to restart")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -347,6 +406,7 @@ def main():
         "delegations": cmd_delegations,
         "agents": cmd_agents,
         "logs": cmd_logs,
+        "restart": lambda a: cmd_restart(a.node),
     }
 
     cmd_func = commands.get(args.command)
