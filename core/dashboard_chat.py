@@ -103,7 +103,15 @@ class DashboardChatMixin:
                 
                 rows = []
                 for row in raw_rows:
-                    msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
+                    # Flexible unpacking — handle rows with or without status column
+                    if len(row) >= 8:
+                        msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row[:8]
+                    elif len(row) == 7:
+                        msg_id, sender, recipient, msg_type, priority, payload, created_at = row
+                        status = "unknown"
+                    else:
+                        log.warning(f"Unexpected row length {len(row)}, skipping")
+                        continue
                     # Handle SQL_ASCII encoding: try to decode payload safely
                     if isinstance(payload, bytes):
                         payload = payload.decode("utf-8", errors="replace")
@@ -369,6 +377,7 @@ class DashboardChatMixin:
 
         user_id = str(uuid.uuid4())[:8]
         username = auth_user.display_name if auth_user else (request.query.get("username", f"guest_{user_id}"))
+        from .dashboard import DashboardUser
         user = DashboardUser(user_id=user_id, username=username, websocket=ws)
         self._users[user_id] = user
 
