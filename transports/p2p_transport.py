@@ -61,6 +61,12 @@ class P2PTransport(TransportAdapter):
     INITIAL_BACKOFF_JITTER = 0.5 # Jitter factor for backoff (0-1)
     HEALTH_CHECK_INTERVAL = 15   # Seconds between health check pings (proactive)
     HEALTH_CHECK_TIMEOUT = 30    # Seconds before considering connection unhealthy
+    # ── Adaptive throttling ──
+    ADAPTIVE_BATCH_MIN = 4        # Minimum batch size when congestion detected
+    ADAPTIVE_BATCH_MAX = 32       # Maximum batch size on fast links
+    ADAPTIVE_DRAIN_THRESHOLD = 0.05  # Drain time (seconds) above which = congestion
+    ADAPTIVE_RTT_LOW = 0.01       # RTT below this = fast link (batch up to MAX)
+    ADAPTIVE_RTT_HIGH = 0.10      # RTT above this = slow link (batch down to MIN)
 
     def __init__(self, config, node_version: str = "unknown"):
         self.config = config
@@ -75,6 +81,8 @@ class P2PTransport(TransportAdapter):
         self._peer_connected_at: Dict[str, float] = {}  # peer_name → connection start timestamp
         self._peer_latency: Dict[str, float] = {}  # peer_name → estimated RTT in ms (EWMA)
         self._peer_last_seen: Dict[str, float] = {}  # peer_name → last message/heartbeat timestamp
+        self._peer_batch_size: Dict[str, int] = {}   # peer_name → adaptive WRITE_BATCH_SIZE
+        self._peer_drain_time: Dict[str, float] = {} # peer_name → last drain time (seconds)
         self._reconnect_task: Optional[asyncio.Task] = None
         self._health_check_task: Optional[asyncio.Task] = None
         self._incoming_queue: asyncio.Queue = asyncio.Queue()
@@ -364,6 +372,9 @@ class P2PTransport(TransportAdapter):
             except Exception:
                 pass
         self._peers.clear()
+        self._peer_last_seen.clear()
+        self._peer_batch_size.clear()
+        self._peer_drain_time.clear()
 
         # Close server
         if self._server:
@@ -590,6 +601,8 @@ class P2PTransport(TransportAdapter):
                     removed = self._peers.pop(pname, None)
                     self._writer_to_peer.pop(id(writer), None)
                     self._peer_last_seen.pop(pname, None)
+                    self._peer_batch_size.pop(pname, None)
+                    self._peer_drain_time.pop(pname, None)
                     self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
                     # P2: Clean up connection task tracking
                     self._connection_tasks.pop(pname, None)
@@ -1023,8 +1036,10 @@ class P2PTransport(TransportAdapter):
                             self._write_batch[peer_name] = []
                         self._write_batch[peer_name].append(frame)
                         
+                        # Use adaptive batch size for this peer
+                        adaptive_batch = self._peer_batch_size.get(peer_name, self.WRITE_BATCH_SIZE)
                         # Flush if batch is full or this is a file chunk (priority 7)
-                        if len(self._write_batch[peer_name]) >= self.WRITE_BATCH_SIZE or priority >= 7:
+                        if len(self._write_batch[peer_name]) >= adaptive_batch or priority >= 7:
                             await self._flush_write_batch(peer_name)
                         elif len(self._write_batch[peer_name]) == 1:
                             # First in batch — schedule a flush after short delay
@@ -1041,6 +1056,8 @@ class P2PTransport(TransportAdapter):
                     self._peers.pop(peer_name, None)
                     self._writer_to_peer.pop(id(writer), None)
                     self._peer_last_seen.pop(peer_name, None)
+                    self._peer_batch_size.pop(peer_name, None)
+                    self._peer_drain_time.pop(peer_name, None)
                     # Queue for retry
                     self._enqueue_for_retry(message)
                     break  # Exit send loop for this peer — _handle_connection cleanup will handle
@@ -1059,7 +1076,12 @@ class P2PTransport(TransportAdapter):
         await self._flush_write_batch(peer_name)
 
     async def _flush_write_batch(self, peer_name: str):
-        """Flush all pending write frames for a peer in a single drain()."""
+        """Flush all pending write frames for a peer in a single drain().
+
+        v3: Adaptive throttling — measures drain time and adjusts batch size per peer.
+        Fast links (low RTT, fast drain) get larger batches for throughput.
+        Slow links (high RTT, slow drain) get smaller batches to reduce latency.
+        """
         batch = self._write_batch.pop(peer_name, None)
         if not batch:
             return
@@ -1074,10 +1096,37 @@ class P2PTransport(TransportAdapter):
             return  # Peer disconnected
         _, writer = peer
         
+        import time as _time
         try:
+            t0 = _time.monotonic()
             for payload in batch:
                 writer.write(payload)
             await writer.drain()
+            drain_sec = _time.monotonic() - t0
+            self._peer_drain_time[peer_name] = drain_sec
+
+            # ── Adaptive batch size adjustment ──
+            rtt_ms = self._peer_latency.get(peer_name, 0)
+            rtt_sec = rtt_ms / 1000.0 if rtt_ms > 0 else 0
+            current_batch = self._peer_batch_size.get(peer_name, self.WRITE_BATCH_SIZE)
+
+            if drain_sec > self.ADAPTIVE_DRAIN_THRESHOLD:
+                # Slow drain — reduce batch size (congestion)
+                new_batch = max(self.ADAPTIVE_BATCH_MIN, current_batch // 2)
+                if new_batch != current_batch:
+                    log.debug(f"Adaptive: {peer_name} drain={drain_sec:.3f}s → batch {current_batch}→{new_batch}")
+                self._peer_batch_size[peer_name] = new_batch
+            elif rtt_sec > 0 and rtt_sec > self.ADAPTIVE_RTT_HIGH:
+                # High RTT — reduce batch size
+                new_batch = max(self.ADAPTIVE_BATCH_MIN, int(current_batch * 0.75))
+                self._peer_batch_size[peer_name] = new_batch
+            elif rtt_sec > 0 and rtt_sec < self.ADAPTIVE_RTT_LOW and drain_sec < self.ADAPTIVE_DRAIN_THRESHOLD:
+                # Fast link — increase batch size
+                new_batch = min(self.ADAPTIVE_BATCH_MAX, current_batch + 2)
+                if new_batch != current_batch:
+                    log.debug(f"Adaptive: {peer_name} drain={drain_sec:.3f}s rtt={rtt_ms:.1f}ms → batch {current_batch}→{new_batch}")
+                self._peer_batch_size[peer_name] = new_batch
+
         except Exception as e:
             log.warning(f"Flush write batch failed for {peer_name}: {e}")
 
@@ -1280,6 +1329,8 @@ class P2PTransport(TransportAdapter):
                 "rtt_ms": round(self._peer_latency.get(name, 0), 1),
                 "queue_size": self._send_queues[name].qsize() if name in self._send_queues else 0,
                 "frame_version": self._frame_version.get(name, 1),
+                "batch_size": self._peer_batch_size.get(name, self.WRITE_BATCH_SIZE),
+                "drain_ms": round(self._peer_drain_time.get(name, 0) * 1000, 1),
             }
         return stats
 
@@ -1367,6 +1418,8 @@ class P2PTransport(TransportAdapter):
                         peer_data = self._peers.pop(name, None)
                         self._peer_connected_at.pop(name, None)
                         self._peer_last_seen.pop(name, None)
+                        self._peer_batch_size.pop(name, None)
+                        self._peer_drain_time.pop(name, None)
                         if peer_data:
                             _, old_writer = peer_data
                             try:
@@ -1419,6 +1472,8 @@ class P2PTransport(TransportAdapter):
                             # Remove dead connection — reconnect loop will re-establish
                             self._peers.pop(peer_name, None)
                             self._peer_last_seen.pop(peer_name, None)
+                            self._peer_batch_size.pop(peer_name, None)
+                            self._peer_drain_time.pop(peer_name, None)
                             self._peer_connected_at.pop(peer_name, None)
                             self._writer_to_peer.pop(id(writer), None)
 
