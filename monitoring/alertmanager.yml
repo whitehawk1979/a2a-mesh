@@ -26,6 +26,10 @@ receivers:
       - url: 'http://192.168.1.100:9091/alerts'
         send_resolved: true
         max_alerts: 10
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: 'a2a-mesh-alert-2026'
 
 inhibit_rules:
   - source_matchers:

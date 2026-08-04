@@ -909,7 +909,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="file-modal" style="width:800px;max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="margin:0">🩺 Diagnosztika</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('diagnosticsModal').style.display='none'">✕</button>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="autoImplBadge" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--surface2);color:var(--text3)">--</span>
+        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('diagnosticsModal').style.display='none'">✕</button>
+      </div>
     </div>
 
     <!-- Tab toggle -->
@@ -3084,6 +3087,23 @@ function checkWorkflowStatus(wfId) {
   }).catch(function(e) { alert('Hiba: ' + e); });
 }
 
+// ─── Diagnostics Auto-Implement Status ─────────────────────
+function loadAutoImplementStatus() {
+  _skillsApiCall('/api/diagnostics/suggestions').then(function(d) {
+    var suggestions = d.suggestions || [];
+    var pending = suggestions.filter(function(s) { return s.status === 'pending'; });
+    var accepted = suggestions.filter(function(s) { return s.status === 'accepted'; });
+    var badge = document.getElementById('autoImplBadge');
+    if (badge) {
+      var txt = pending.length + ' pending';
+      if (accepted.length) txt += ' / ' + accepted.length + ' accepted';
+      badge.textContent = txt;
+      badge.style.background = pending.length > 0 ? 'var(--yellow)' : 'var(--green)';
+      badge.style.color = '#fff';
+    }
+  }).catch(function() {});
+}
+
 // ─── Alerts Modal ───────────────────────────────────────────
 function showAlerts() {
   var m = document.getElementById('alertsModal');
@@ -3141,6 +3161,7 @@ function showDiagnostics() {
   m.style.display = 'flex';
   loadDiagReports();
   loadDiagSuggestions();
+  loadAutoImplementStatus();
   document.getElementById('diagReportDetail').style.display = 'none';
   document.getElementById('diagReportsSection').style.display = '';
 }

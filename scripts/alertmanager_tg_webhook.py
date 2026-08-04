@@ -31,6 +31,7 @@ log = logging.getLogger("alertmanager_tg")
 PORT = int(os.environ.get("ALERT_WEBHOOK_PORT", "9091"))
 CHAT_ID = os.environ.get("ALERT_TELEGRAM_CHAT_ID", "7796035659")
 HERMES_SEND = os.environ.get("HERMES_SEND_PATH", "/usr/local/bin/hermes")
+WEBHOOK_TOKEN = os.environ.get("ALERT_WEBHOOK_TOKEN", "a2a-mesh-alert-2026")
 
 # Alert emoji mapping by severity
 SEVERITY_EMOJI = {
@@ -118,6 +119,11 @@ def format_alert(alert: dict) -> str:
 async def handle_alerts(request):
     """Handle incoming Prometheus Alertmanager webhook."""
     from aiohttp import web
+    # Auth check — Bearer token
+    auth = request.headers.get("Authorization", "")
+    if auth != f"Bearer {WEBHOOK_TOKEN}":
+        log.warning(f"Unauthorized webhook request from {request.remote}")
+        return web.json_response({"error": "Unauthorized"}, status=401)
     try:
         data = await request.json()
     except Exception:
