@@ -3055,7 +3055,7 @@ function deleteSkill(skillId) {
   _skillsApiCall('/api/skills/' + skillId, 'DELETE').then(function(d) {
     alert('Skill torolve');
     loadSkills();
-  }).catch(function(e) { alert('Hiba: ' + e; });
+  }).catch(function(e) { alert('Hiba: ' + e); });
 }
 
 // ─── Workflow Modal ────────────────────────────────────────
