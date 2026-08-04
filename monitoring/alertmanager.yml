@@ -1,0 +1,35 @@
+# Alertmanager config — forward alerts to Telegram webhook receiver
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'node']
+  group_wait: 10s
+  group_interval: 60s
+  repeat_interval: 4h
+  receiver: 'telegram-webhook'
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: 'telegram-webhook'
+      group_wait: 5s
+      repeat_interval: 2h
+    - matchers:
+        - severity = "warning"
+      receiver: 'telegram-webhook'
+      group_wait: 30s
+      repeat_interval: 6h
+
+receivers:
+  - name: 'telegram-webhook'
+    webhook_configs:
+      - url: 'http://192.168.1.100:9091/alerts'
+        send_resolved: true
+        max_alerts: 10
+
+inhibit_rules:
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname', 'node']
