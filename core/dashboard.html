@@ -1213,14 +1213,14 @@ function sendMessage() {
   var to = document.getElementById("recipientSelect").value || "broadcast";
   var priority = parseInt(document.getElementById("prioritySelect").value) || 5;
 
-  // Send via REST chat API (works even without WebSocket)
-  fetch("/api/chat/send", {
+  // Send via REST API (works even without WebSocket)
+  fetch("/api/send", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
     },
-    body: JSON.stringify({ content: content, recipient: to })
+    body: JSON.stringify({ content: content, recipient: to, priority: priority })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "sent") {
       // Add message to UI immediately
