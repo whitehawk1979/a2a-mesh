@@ -425,6 +425,7 @@ class WorkflowCoordinator:
         """Execute a single task — assign agent and send message.
 
         v3: Retries on failure up to max_retries with exponential backoff.
+        v3.1: Uses delegation system for real result collection + retry on timeout.
         """
         task.started_at = time.time()
 
@@ -444,8 +445,62 @@ class WorkflowCoordinator:
                 elif task.agent:
                     task.assigned_agent = task.agent
 
-                # Send message via node if available
-                if self.node and task.assigned_agent:
+                # ── Use delegation system for real result collection ──
+                # Instead of fire-and-forget A2A message, create a delegation task
+                # and wait for the peer to complete it. This enables:
+                #   - Real result data (not just {'sent': True})
+                #   - Retry on timeout (peer didn't respond)
+                #   - Actual error propagation
+                if self.node and task.assigned_agent and hasattr(self.node, 'delegation'):
+                    # Determine task type from capabilities or payload
+                    payload = task.payload or {}
+                    task_type = payload.get("type", task.capabilities[0] if task.capabilities else "generic")
+
+                    # Build description for delegation
+                    desc = {
+                        "type": task_type,
+                        "description": task.name,
+                        "context": {
+                            "workflow_id": workflow.id,
+                            "task_id": task.id,
+                            "retry_count": task.retry_count,
+                            **payload,
+                        },
+                    }
+
+                    # Use delegation to create a task and wait for result
+                    import json as _json
+                    task_id = await self.node.delegation.delegate_task(
+                        to_agent=task.assigned_agent,
+                        subject=f"[WF:{workflow.id}] {task.name}",
+                        description=_json.dumps(desc),
+                        task_type=task_type,
+                        priority=5,
+                        timeout_minutes=max(1, int(task.timeout / 60)),
+                        available=False,
+                        max_retries=0,  # workflow handles retries, not delegation
+                    )
+
+                    if task_id:
+                        # Poll for completion
+                        result = await self._wait_for_delegation_result(
+                            task_id, timeout=task.timeout
+                        )
+                        if result is not None:
+                            task.result = result
+                            task.status = TaskStatus.COMPLETED
+                            task.completed_at = time.time()
+                            dur = f"{task.duration_ms:.0f}ms" if task.duration_ms is not None else "?ms"
+                            suffix = f" (retry #{task.retry_count})" if task.retry_count > 0 else ""
+                            log.info(f"Task '{task.name}' ({task.id}) completed in {dur} via {task.assigned_agent}{suffix}")
+                            return task.result
+                        else:
+                            raise asyncio.TimeoutError(f"Delegation task {task_id} timed out after {task.timeout}s")
+                    else:
+                        raise ValueError(f"Failed to create delegation task for {task.assigned_agent}")
+
+                elif self.node and task.assigned_agent:
+                    # Fallback: A2A message (no delegation system available)
                     from ..core.message import A2AMessage
                     msg = A2AMessage(
                         sender=self.node.node_name,
@@ -500,6 +555,46 @@ class WorkflowCoordinator:
                 task.status = TaskStatus.FAILED
             task.completed_at = time.time()
             return task.result
+
+    async def _wait_for_delegation_result(self, task_id: str, timeout: float = 60.0) -> Optional[Any]:
+        """Poll a delegation task until it completes or times out.
+
+        Returns the task result dict, or None if timed out/failed.
+        """
+        if not self.node or not hasattr(self.node, 'delegation'):
+            return None
+
+        import asyncio as aio
+        deadline = time.time() + timeout
+        poll_interval = 2.0  # Check every 2s
+
+        while time.time() < deadline:
+            try:
+                # Query task status from PG via delegation manager
+                row = await self.node.delegation.pg_pool.fetchrow(
+                    "SELECT status, result FROM shared_delegations WHERE task_id = $1",
+                    task_id,
+                )
+                if not row:
+                    return None
+
+                status = row['status']
+                if status in ('completed', 'expired', 'failed'):
+                    result = row['result']
+                    if isinstance(result, str) and result:
+                        try:
+                            import json as _json
+                            return _json.loads(result)
+                        except (ValueError, TypeError):
+                            return {"result": result}
+                    return {"status": status, "result": result}
+
+                await aio.sleep(poll_interval)
+            except Exception as e:
+                log.warning(f"Delegation poll error for {task_id}: {e}")
+                await aio.sleep(poll_interval)
+
+        return None  # Timed out
 
     def _build_result(self, workflow: Workflow) -> Dict:
         """Build the final result dict from a workflow."""

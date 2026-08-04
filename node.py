@@ -716,6 +716,15 @@ class MeshNode:
         self.delegation.register_handler("analysis", self._handle_generic_task)
         self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
         self.delegation.on_result(self._on_delegation_result)
+
+        # ── Sync delegation handler types into config capabilities ──
+        # This lets the SmartRouter find agents by task type (monitoring, code, etc.)
+        existing_caps = set(getattr(self.config, 'capabilities', []) or [])
+        for handler_type in self.delegation._handlers.keys():
+            existing_caps.add(handler_type)
+        self.config.capabilities = sorted(existing_caps)
+        log.info(f"Capabilities updated with delegation handlers: {self.config.capabilities}")
+
         await self.delegation.start()
         await self.peer_discovery.start()
 
