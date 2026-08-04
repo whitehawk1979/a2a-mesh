@@ -1,39 +1,42 @@
-## 2026-08-03 A2A Mesh Status — v0.22.0
+## 2026-08-04 A2A Mesh Status — v0.23.0
 
 ### Nova (192.168.1.8 / Mac Pro)
 - **Status:** running, coordinator
-- **Version:** 0.22.0
+- **Version:** 0.22.0 → 0.23.0 (restart needed)
 - **Transports:** PG=True, P2P=True, HTTP=True, BLE=True
-- **P2P TLS:** TLSv1.3, mTLS+HMAC
-- **P2P Peers:** morzsa, runa (all connected)
+- **P2P TLS:** mTLS + HMAC-SHA256, TLSv1.3
 - **Role:** coordinator
-- **Dashboard:** http://192.168.1.8:8650
 
 ### Morzsa (192.168.1.30 / OpenClaw)
 - **Status:** running, router
-- **Version:** 0.21.0 (auto-update pending)
+- **Version:** 0.22.0 → 0.23.0 (auto-update)
 - **Transports:** PG=True, P2P=True, HTTP=True, BLE=False
-- **P2P TLS:** TLSv1.3, mTLS+HMAC
-- **P2P Peers:** nova, runa
 
-### Runa (192.168.1.100 / Linux VM)
+### Runa (192.168.1.100 / Linux)
 - **Status:** running, router
-- **Version:** 0.21.0 (auto-update pending)
+- **Version:** 0.22.0 → 0.23.0 (auto-update)
 - **Transports:** PG=True, P2P=True, HTTP=True
-- **P2P TLS:** TLSv1.3, mTLS+HMAC
-- **P2P Peers:** nova, morzsa
-- **Monitoring:** Prometheus (9090) + Grafana (3030)
+- **Monitoring:** Prometheus:9090 + Grafana:3030 + Alertmanager:9093
+
+### v0.23.0 Újdonságok
+- **Telegram alerting:** Prometheus Alertmanager → webhook → Telegram
+- **Node restart CLI:** `a2a restart <nova|morzsa|runa|all>`
+- **Dashboard alert panel:** 🚨 tab, Prometheus alerts real-time
+- **Plugin SDK dokumentáció:** docs/PLUGIN_SDK.md
+- **Mesh backup/restore CLI:** `a2a backup -o <dir>` / `a2a restore <path>`
+- **Detached HEAD fix:** auto-updater main ágon marad
+- **Tesztek javítva:** 502 passed, 0 failed
+
+### Monitoring
+- Prometheus: 3/3 target UP, 8 alert rules, 3 groups
+- Grafana: v13.1.1, 2 dashboard, auto-provisioned
+- Alertmanager: webhook → Telegram (port 9091 on Runa)
 
 ### Mesh Topology
   nova (0x1E54, coordinator)
     runa (0x622E, router)
     morzsa (0xE984, router)
 
-### v0.22.0 Changes
-- Grafana alerting: 8 Prometheus rules (node-down, isolated, transport errors, silent node, message rate, dedup cache, restart loop)
-- Grafana auto-provisioned dashboard: "A2A Mesh Overview" (node stats, message flow, transport errors, peer connectivity)
-- Dashboard UI: Topology tab (🕸️), Skills marketplace tab (🧠), Workflow DAG tab (🔀)
-- Skill marketplace: advertise, search, best-match, delegate — 3 skills active
-- New plugin: skill_advertiser_plugin.py (auto-advertise example)
-- Bug fix: delegation_mgr → delegation in dashboard_skills.py
-- 504 tests, ~27K LOC
+### Testing
+- 502 tests passed, 0 failed, 2 skipped
+- 510 total test cases
