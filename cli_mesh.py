@@ -340,6 +340,84 @@ def cmd_restart(node: str):
             print(f"❌ {e}")
 
 
+def cmd_backup(output_dir: str = "~/a2a_mesh_backup"):
+    """Backup mesh config, certs, and PG schema to tar.gz."""
+    import subprocess as _sp
+    import os as _os
+    from datetime import datetime as _dt
+
+    mesh_dir = _os.path.expanduser("~/.hermes/scripts/a2a_mesh")
+    out_dir = _os.path.expanduser(output_dir)
+    _os.makedirs(out_dir, exist_ok=True)
+
+    ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+    backup_file = _os.path.join(out_dir, f"a2a_mesh_backup_{ts}.tar.gz")
+
+    print(f"📦 Backing up mesh to: {backup_file}")
+
+    # Create tar.gz with config, certs, monitoring, scripts (no .venv, no .git)
+    result = _sp.run(
+        ["tar", "czf", backup_file,
+         "--exclude=.venv", "--exclude=.git", "--exclude=__pycache__",
+         "--exclude=backups", "--exclude=incoming_files",
+         "--exclude=*.pyc", "--exclude=.pytest_cache",
+         "-C", mesh_dir, "."],
+        capture_output=True, text=True, timeout=120,
+    )
+
+    if result.returncode == 0:
+        size = _os.path.getsize(backup_file) / 1024 / 1024
+        print(f"✅ Backup created: {size:.1f} MB")
+
+        # Also dump PG schema if available
+        pg_dsn = _os.environ.get("A2A_MESH_PG_DSN", "")
+        if pg_dsn:
+            pg_file = _os.path.join(out_dir, f"pg_schema_{ts}.sql")
+            print(f"📦 Dumping PG schema to: {pg_file}")
+            pg_result = _sp.run(
+                ["pg_dump", "--schema-only", "--no-owner", "-f", pg_file, pg_dsn],
+                capture_output=True, text=True, timeout=60,
+            )
+            if pg_result.returncode == 0:
+                print("✅ PG schema dumped")
+            else:
+                print(f"⚠️ PG dump failed: {pg_result.stderr.strip()[:80]}")
+    else:
+        print(f"❌ Backup failed: {result.stderr.strip()[:100]}")
+
+
+def cmd_restore(path: str):
+    """Restore mesh from backup tar.gz."""
+    import subprocess as _sp
+    import os as _os
+
+    backup_file = _os.path.expanduser(path)
+    if not _os.path.exists(backup_file):
+        print(f"❌ Backup file not found: {backup_file}")
+        return
+
+    mesh_dir = _os.path.expanduser("~/.hermes/scripts/a2a_mesh")
+
+    print(f"📦 Restoring from: {backup_file}")
+    print(f"   Target: {mesh_dir}")
+    confirm = input("   Continue? (yes/no): ")
+    if confirm.lower() != "yes":
+        print("❌ Cancelled")
+        return
+
+    # Extract backup
+    result = _sp.run(
+        ["tar", "xzf", backup_file, "-C", mesh_dir],
+        capture_output=True, text=True, timeout=120,
+    )
+
+    if result.returncode == 0:
+        print("✅ Restore complete")
+        print("   Run 'a2a restart all' to apply changes")
+    else:
+        print(f"❌ Restore failed: {result.stderr.strip()[:100]}")
+
+
 # ─── Main ───
 
 def main():
@@ -390,6 +468,14 @@ def main():
     p_restart = sub.add_parser("restart", help="Restart a remote mesh node via SSH")
     p_restart.add_argument("node", choices=["nova", "morzsa", "runa", "all"], help="Node to restart")
 
+    # backup
+    p_backup = sub.add_parser("backup", help="Backup mesh config + PG schema to tar.gz")
+    p_backup.add_argument("--output", "-o", default="~/a2a_mesh_backup", help="Output directory")
+
+    # restore
+    p_restore = sub.add_parser("restore", help="Restore mesh from backup tar.gz")
+    p_restore.add_argument("path", help="Path to backup tar.gz file")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -407,6 +493,8 @@ def main():
         "agents": cmd_agents,
         "logs": cmd_logs,
         "restart": lambda a: cmd_restart(a.node),
+        "backup": lambda a: cmd_backup(a.output),
+        "restore": lambda a: cmd_restore(a.path),
     }
 
     cmd_func = commands.get(args.command)
