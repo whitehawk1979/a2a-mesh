@@ -1275,10 +1275,11 @@ class DiagnosticEngine:
             "Nincs peer": "accepted",           # Isolated node → accept
             "Gyakori restart": "accepted",      # Frequent restart → accept
             "Magas CPU": "accepted",            # High CPU → accept
-            "Magas memoriahasznalat": "accepted", # High memory → accept
+            "Magas memoriahasznalat": "accepted", # High memory → accept + action
             "Kritikus effektiv CPU": "accepted", # Critical CPU → accept
         }
-        
+
+        # Step 4: Auto-actions for specific patterns
         for s in self._suggestions:
             if s.status != "pending":
                 continue
@@ -1286,6 +1287,27 @@ class DiagnosticEngine:
                 if pattern.lower() in s.title.lower():
                     self.update_suggestion_status(s.suggestion_id, target_status)
                     implemented_ids.append(s.suggestion_id)
+
+                    # Auto-action: high memory → trigger GC + cache cleanup
+                    if "memoriahasznalat" in pattern.lower():
+                        try:
+                            import gc
+                            collected = gc.collect()
+                            log.info(f"📋 Auto-action: GC collected {collected} objects for {s.suggestion_id}")
+                        except Exception:
+                            pass
+
+                    # Auto-action: high dedup cache → flush old entries
+                    if "dedup" in s.title.lower():
+                        try:
+                            dedup = getattr(self.node, 'dedup', None)
+                            if dedup and hasattr(dedup, 'cache'):
+                                old_size = len(dedup.cache)
+                                dedup.cache.clear()
+                                log.info(f"📋 Auto-action: dedup cache cleared ({old_size} entries) for {s.suggestion_id}")
+                        except Exception:
+                            pass
+
                     break
         
         log.info(f"📋 auto_implement: {len(implemented_ids)} suggestions processed, "
