@@ -2970,16 +2970,25 @@ function renderSkills(skills) {
   c.innerHTML = skills.map(function(s) {
     var tags = (s.tags || []).map(function(t) { return '<span style="background:var(--surface2);padding:2px 8px;border-radius:10px;font-size:11px;margin:2px">' + escHtml(t) + '</span>'; }).join('');
     var successRate = s.success_rate !== null && s.success_rate !== undefined ? (s.success_rate * 100).toFixed(0) + '%' : '—';
-    var latency = s.avg_latency_ms !== null ? s.avg_latency_ms + 'ms' : '—';
+    var latency = s.avg_latency_ms !== null ? s.avg_latency_ms.toFixed(0) + 'ms' : '—';
+    var stars = '';
+    var avgRating = (s.metadata && s.metadata.avg_rating) ? s.metadata.avg_rating : 0;
+    if (avgRating) {
+      for (var i = 1; i <= 5; i++) { stars += i <= Math.round(avgRating) ? '★' : '☆'; }
+    }
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
       '<div style="display:flex;justify-content:space-between;align-items:start">' +
         '<div style="flex:1">' +
-          '<div style="font-weight:600;font-size:14px">' + escHtml(s.display_name || s.skill_name) + '</div>' +
-          '<div style="font-size:12px;color:var(--text3);margin:2px 0">agent: ' + escHtml(s.agent) + ' cost: ' + (s.cost || 0) + ' latency: ' + latency + ' success: ' + successRate + '</div>' +
+          '<div style="font-weight:600;font-size:14px">' + escHtml(s.display_name || s.skill_name) + (stars ? ' <span style="color:var(--yellow);font-size:12px">' + stars + '</span>' : '') + '</div>' +
+          '<div style="font-size:12px;color:var(--text3);margin:2px 0">agent: ' + escHtml(s.agent) + ' · latency: ' + latency + ' · success: ' + successRate + '</div>' +
           (s.description ? '<div style="font-size:13px;color:var(--text2);margin:4px 0">' + escHtml(s.description) + '</div>' : '') +
           (tags ? '<div style="margin-top:4px">' + tags + '</div>' : '') +
         '</div>' +
-        '<button class="btn btn-sm" style="background:var(--primary);color:#fff;margin-left:8px" onclick="delegateToSkill(\'' + s.skill_id + '\')">Delegate</button>' +
+        '<div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">' +
+          '<button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="delegateToSkill(\'' + s.skill_id + '\')">Delegate</button>' +
+          '<button class="btn btn-sm" style="background:var(--yellow);color:#000;font-size:11px" onclick="rateSkill(\'' + s.skill_id + '\')">Rate</button>' +
+          '<button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px" onclick="deleteSkill(\'' + s.skill_id + '\')">Delete</button>' +
+        '</div>' +
       '</div>' +
     '</div>';
   }).join('');
@@ -3018,8 +3027,28 @@ function delegateToSkill(skillId) {
   var task = prompt('Add meg a feladatot a skill szamara:');
   if (!task) return;
   _skillsApiCall('/api/skills/' + skillId + '/delegate', 'POST', { task: task }).then(function(d) {
-    alert('Delegalva! task_id: ' + (d.task_id || '?'));
+    alert('Delegalva! task_id: ' + (d.task_id || d.delegation_id || '?'));
   }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function rateSkill(skillId) {
+  var rating = prompt('Ertekeles (1-5):');
+  if (!rating) return;
+  var r = parseInt(rating);
+  if (r < 1 || r > 5) { alert('1-5 kozott'); return; }
+  var feedback = prompt('Visszajelzes (opcionalis):') || '';
+  _skillsApiCall('/api/skills/' + skillId + '/rate', 'POST', { rating: r, feedback: feedback }).then(function(d) {
+    alert('Ertekelve! Atlag: ' + (d.avg_rating || '?') + ' (' + d.total_ratings + ' ertekeles)');
+    loadSkills();
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function deleteSkill(skillId) {
+  if (!confirm('Biztosan torlod ezt a skill-t?')) return;
+  _skillsApiCall('/api/skills/' + skillId, 'DELETE').then(function(d) {
+    alert('Skill torolve');
+    loadSkills();
+  }).catch(function(e) { alert('Hiba: ' + e; });
 }
 
 // ─── Workflow Modal ────────────────────────────────────────

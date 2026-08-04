@@ -383,6 +383,64 @@ class DelegationManager:
             self._active_tasks.pop(task_id, None)
             log.info(f"🧹 Cleaned stale active task: {task_id}")
 
+    async def _update_skill_stats(self, task: Dict, success: bool, elapsed: float):
+        """Update skill marketplace success_rate + avg_latency_ms after delegation completes.
+        
+        Uses exponential moving average for smooth updates.
+        """
+        try:
+            # Extract skill name from subject (format: [skill_name] task_text)
+            subject = task.get("subject", "")
+            skill_name = None
+            if subject.startswith("["):
+                end = subject.find("]")
+                if end > 0:
+                    skill_name = subject[1:end].strip()
+            
+            if not skill_name:
+                # Try from description
+                desc = task.get("description", "{}")
+                if isinstance(desc, str):
+                    import json as _json
+                    try:
+                        d = _json.loads(desc)
+                        skill_name = d.get("type") or d.get("skill_name")
+                    except Exception:
+                        pass
+            
+            if not skill_name:
+                return
+            
+            agent = task.get("assigned_agent") or self.node_name
+            skill_id = f"skill-{agent}-{skill_name}"
+            
+            # Fetch current stats
+            row = await self.pg_pool.fetchrow(
+                "SELECT success_rate, avg_latency_ms FROM mesh.mesh_skills WHERE skill_id = $1",
+                skill_id,
+            )
+            if not row:
+                # Skill not in marketplace — skip silently
+                return
+            
+            # Exponential moving average (alpha=0.3)
+            alpha = 0.3
+            old_sr = row['success_rate'] if row['success_rate'] is not None else 1.0
+            old_lat = row['avg_latency_ms'] if row['avg_latency_ms'] is not None else 0.0
+            
+            new_sr = old_sr * (1 - alpha) + (1.0 if success else 0.0) * alpha
+            new_lat = old_lat * (1 - alpha) + elapsed * alpha
+            
+            await self.pg_pool.execute(
+                """UPDATE mesh.mesh_skills 
+                   SET success_rate = $1, avg_latency_ms = $2, updated_at = NOW()
+                   WHERE skill_id = $3""",
+                round(new_sr, 4), round(new_lat, 1), skill_id,
+            )
+            log.debug(f"📊 Skill stats updated: {skill_id} sr={new_sr:.2f} lat={new_lat:.0f}ms")
+        except Exception as e:
+            log.warning(f"Failed to update skill stats: {e}")
+
     async def _poll_pending(self):
         """Poll for pending tasks specifically assigned to this node."""
         rows = await self.pg_pool.fetch(
@@ -505,6 +563,8 @@ class DelegationManager:
         trace_id = f"trace-{self.node_name}-{task_id[:8]}"
         set_trace_id(trace_id)
         log.info(f"Executing task {task_id}: {subject}")
+        _exec_start = time.time()
+        elapsed_ms = 0.0
         description_data = task.get("description", "{}")
 
         try:
@@ -608,6 +668,12 @@ class DelegationManager:
             assigned = task.get("assigned_agent") or task.get("to_agent", "") or self.node_name
             self.record_success(assigned)
 
+            # Calculate elapsed time
+            elapsed_ms = (time.time() - _exec_start) * 1000.0
+
+            # Update skill marketplace stats (success_rate + latency)
+            await self._update_skill_stats(task, success=True, elapsed=elapsed_ms)
+
             # ── Fan-out: cancel sibling tasks with same subject from same sender ──
             try:
                 subject_val = task.get("subject", "")
@@ -657,6 +723,10 @@ class DelegationManager:
                     STATUS_FAILED, _safe_ascii(str(e))[:4000], task_id,
                 )
                 await self.add_note(task_id, f"Task failed permanently after {max_retries} retries: {str(e)[:150]}")
+
+                # Update skill marketplace stats (failure)
+                elapsed_ms = (time.time() - _exec_start) * 1000.0
+                await self._update_skill_stats(task, success=False, elapsed=elapsed_ms)
 
         finally:
             self._active_tasks.pop(task_id, None)

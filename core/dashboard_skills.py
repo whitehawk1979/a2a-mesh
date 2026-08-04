@@ -303,3 +303,70 @@ class DashboardSkillsMixin:
         except Exception as e:
             log.error(f"Error delegating to skill: {e}")
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_skills_rate(self, request):
+        """POST /api/skills/{skill_id}/rate — Rate a skill and optionally leave feedback.
+
+        Body: {"rating": 1-5, "feedback": "optional text", "delegation_id": "optional"}
+        """
+        from aiohttp import web
+        import json as _json
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            skill_id = request.match_info.get("skill_id", "")
+            body = await request.json()
+            rating = int(body.get("rating", 0))
+            if rating < 1 or rating > 5:
+                return web.json_response({"error": "Rating must be 1-5"}, status=400)
+
+            feedback = body.get("feedback", "").strip()[:500]
+            delegation_id = body.get("delegation_id", "")
+
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            if not pg_pool:
+                return web.json_response({"error": "DB not available"}, status=503)
+
+            # Store rating in skill metadata
+            row = await pg_pool.fetchrow(
+                "SELECT metadata FROM mesh.mesh_skills WHERE skill_id = $1 AND status = 'active'",
+                skill_id,
+            )
+            if not row:
+                return web.json_response({"error": "Skill not found"}, status=404)
+
+            meta = row['metadata'] if row['metadata'] else {}
+            if isinstance(meta, str):
+                meta = _json.loads(meta)
+
+            ratings = meta.get('ratings', [])
+            if isinstance(ratings, str):
+                ratings = _json.loads(ratings)
+
+            ratings.append({
+                'rating': rating,
+                'feedback': feedback,
+                'delegation_id': delegation_id,
+                'user': user.username if user else 'anonymous',
+                'timestamp': _time.time(),
+            })
+            ratings = ratings[-50:]  # Keep last 50
+            meta['ratings'] = ratings
+            meta['avg_rating'] = round(sum(r['rating'] for r in ratings) / len(ratings), 2)
+
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_skills SET metadata = $1, updated_at = NOW() WHERE skill_id = $2",
+                _json.dumps(meta), skill_id,
+            )
+
+            return web.json_response({
+                "status": "rated",
+                "skill_id": skill_id,
+                "rating": rating,
+                "avg_rating": meta['avg_rating'],
+                "total_ratings": len(ratings),
+            })
+        except Exception as e:
+            log.error(f"Error rating skill: {e}")
+            return web.json_response({"error": str(e)}, status=500)

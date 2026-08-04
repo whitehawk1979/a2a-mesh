@@ -236,6 +236,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/skills/advertise", self._api_skills_advertise)
         app.router.add_delete("/api/skills/{skill_id}", self._api_skills_delete)
         app.router.add_post("/api/skills/{skill_id}/delegate", self._api_skills_delegate)
+        app.router.add_post("/api/skills/{skill_id}/rate", self._api_skills_rate)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web

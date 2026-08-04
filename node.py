@@ -750,6 +750,12 @@ class MeshNode:
         except Exception as e:
             log.warning(f"Diagnostic engine start failed (non-fatal): {e}")
 
+        # Auto-advertise config skills to mesh_skills table
+        try:
+            await self._auto_advertise_skills()
+        except Exception as e:
+            log.warning(f"Skill auto-advertise failed (non-fatal): {e}")
+
         # At least one transport must be working
         any_ok = any(results.values())
         if any_ok:
@@ -3012,6 +3018,59 @@ echo "Status: ok"
             except Exception as e:
                 log.error(f"Receive loop error: {e}")
                 await asyncio.sleep(1)
+
+    async def _auto_advertise_skills(self):
+        """Auto-advertise config skills to mesh_skills table on startup.
+        
+        For each skill in config.skills, upserts an entry in mesh.mesh_skills
+        so the skill marketplace has accurate data without manual API calls.
+        """
+        if not self._pg_pool:
+            return
+        config_skills = list(getattr(self.config, 'skills', []) or [])
+        if not config_skills:
+            return
+        
+        advertised = 0
+        for s in config_skills:
+            if isinstance(s, dict):
+                skill_name = s.get('id', s.get('name', ''))
+                display_name = s.get('name', skill_name)
+                description = s.get('description', '')
+                tags = s.get('tags', [])
+            elif isinstance(s, str):
+                skill_name = s
+                display_name = skill_name
+                description = ''
+                tags = []
+            else:
+                continue
+            if not skill_name:
+                continue
+            
+            skill_id = f"skill-{self.node_name}-{skill_name}"
+            try:
+                await self._pg_pool.execute(
+                    """INSERT INTO mesh.mesh_skills
+                       (skill_id, agent_name, skill_name, display_name, description,
+                        tags, cost, max_concurrent, status, updated_at)
+                       VALUES ($1, $2, $3, $4, $5, $6, 0.0, 3, 'active', now())
+                       ON CONFLICT (skill_id)
+                       DO UPDATE SET
+                         display_name = EXCLUDED.display_name,
+                         description = EXCLUDED.description,
+                         tags = EXCLUDED.tags,
+                         status = 'active',
+                         updated_at = now()""",
+                    skill_id, self.node_name, skill_name,
+                    display_name, description, tags,
+                )
+                advertised += 1
+            except Exception as e:
+                log.warning(f"Failed to auto-advertise skill '{skill_name}': {e}")
+        
+        if advertised:
+            log.info(f"📋 Auto-advertised {advertised} skills to marketplace")
 
     async def _heartbeat_loop(self):
         """Send periodic heartbeat messages."""
