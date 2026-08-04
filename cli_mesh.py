@@ -340,6 +340,45 @@ def cmd_restart(node: str):
             print(f"❌ {e}")
 
 
+def cmd_skills(query: str = None, delegate: str = None, task: str = None):
+    """List/search skills or delegate a task to a skill."""
+    import json as _json
+    token = get_auth_token()
+    if not token:
+        print("❌ Not authenticated. Run 'a2a status' first.")
+        return
+
+    if delegate:
+        if not task:
+            print("❌ --task is required with --delegate")
+            return
+        result = api_post("192.168.1.8:8650", f"/api/skills/{delegate}/delegate", {"task": task}, token)
+        if "error" in result:
+            print(f"❌ {result['error']}")
+        else:
+            print(f"✅ Delegated to {result.get('target_agent','?')}/{result.get('skill_name','?')}")
+            print(f"   delegation_id: {result.get('delegation_id','?')}")
+        return
+
+    # List or search
+    path = f"/api/skills/search?q={query}" if query else "/api/skills"
+    data = api_get("192.168.1.8:8650", path, token)
+    skills = data.get("skills", data.get("results", []))
+    if not skills:
+        print("No skills found" + (f" for '{query}'" if query else ""))
+        return
+    print(f"{'Skill':<20} {'Agent':<10} {'Cost':<6} {'Success':<8} {'Description':<40}")
+    print("─" * 90)
+    for s in skills:
+        name = s.get("skill_name", "?")
+        agent = s.get("agent", "?")
+        cost = str(s.get("cost", 0))
+        sr = s.get("success_rate")
+        sr = f"{sr*100:.0f}%" if sr is not None else "—"
+        desc = (s.get("description") or "")[:40]
+        print(f"{name:<20} {agent:<10} {cost:<6} {sr:<8} {desc}")
+
+
 def cmd_backup(output_dir: str = "~/a2a_mesh_backup"):
     """Backup mesh config, certs, and PG schema to tar.gz."""
     import subprocess as _sp
@@ -468,6 +507,12 @@ def main():
     p_restart = sub.add_parser("restart", help="Restart a remote mesh node via SSH")
     p_restart.add_argument("node", choices=["nova", "morzsa", "runa", "all"], help="Node to restart")
 
+    # skills
+    p_skills = sub.add_parser("skills", help="List/search skills in the marketplace")
+    p_skills.add_argument("query", nargs="?", help="Search query (optional)")
+    p_skills.add_argument("--delegate", help="Delegate a task to a skill (skill_id)")
+    p_skills.add_argument("--task", help="Task description for delegation")
+
     # backup
     p_backup = sub.add_parser("backup", help="Backup mesh config + PG schema to tar.gz")
     p_backup.add_argument("--output", "-o", default="~/a2a_mesh_backup", help="Output directory")
@@ -493,6 +538,7 @@ def main():
         "agents": cmd_agents,
         "logs": cmd_logs,
         "restart": lambda a: cmd_restart(a.node),
+        "skills": lambda a: cmd_skills(a.query, a.delegate, a.task),
         "backup": lambda a: cmd_backup(a.output),
         "restore": lambda a: cmd_restore(a.path),
     }
