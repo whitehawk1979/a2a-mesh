@@ -1154,7 +1154,7 @@ function addMessageToDOM(msg, scroll) {
   div.id = "msg-" + (msg.id || "");
   div.innerHTML =
     '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel +
-      (isAdmin ? ' <button onclick="deleteMessage(\\'' + (msg.id || "") + '\\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
+      (isAdmin ? ' <button onclick="deleteMessage(\'' + (msg.id || "") + '\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
     '</div>' +
     '<div>' + contentHtml + '</div>' +
     '<div class="meta">' +
