@@ -4,6 +4,9 @@ import json
 import logging
 import os
 import time
+import uuid
+
+from .workflow import WorkflowCoordinator, WorkflowTask, ConsensusMode
 
 log = logging.getLogger("a2a_mesh.dashboard.admin")
 
