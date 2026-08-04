@@ -915,6 +915,12 @@ class DashboardAdminMixin:
                 payload=task_data.get("payload", {}),
                 dependencies=task_data.get("dependencies", []),
                 timeout=task_data.get("timeout", 60),
+                # v3 fields
+                condition=task_data.get("condition"),
+                max_retries=task_data.get("max_retries", 0),
+                retry_delay=task_data.get("retry_delay", 5.0),
+                input_from=task_data.get("input_from"),
+                fan_out_count=task_data.get("fan_out_count", 1),
             )
             wf.add_task(task)
 

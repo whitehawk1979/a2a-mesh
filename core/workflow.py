@@ -514,6 +514,9 @@ class WorkflowCoordinator:
                 "error": task.error,
                 "cost": task.cost,
                 "retry_count": task.retry_count,
+                "dependencies": task.dependencies,
+                "condition": task.condition,
+                "input_from": task.input_from,
             }
 
         return {

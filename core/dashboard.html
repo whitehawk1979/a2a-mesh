@@ -857,6 +857,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px" onclick="loadWorkflowTemplate('research')">📋 Research</button>
         <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px" onclick="loadWorkflowTemplate('parallel')">📋 Parallel</button>
         <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px" onclick="loadWorkflowTemplate('review')">📋 Review</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px" onclick="loadWorkflowTemplate('conditional')">🔀 Conditional</button>
       </div>
     </div>
     <div id="workflowList" style="flex:1;overflow-y:auto;padding:4px 0;min-height:200px"></div>
@@ -3075,7 +3076,7 @@ function loadWorkflows() {
     }
     c.innerHTML = wfs.map(function(w) {
       var status = w.status || '?';
-      var color = status === 'completed' ? 'var(--green)' : status === 'running' ? 'var(--primary)' : status === 'failed' ? 'var(--red)' : 'var(--text3)';
+      var color = status === 'completed' ? 'var(--green)' : status === 'running' ? 'var(--primary)' : status === 'failed' ? 'var(--red)' : status === 'timeout' ? 'var(--orange)' : status === 'skipped' ? 'var(--text3)' : status === 'retrying' ? 'var(--yellow)' : 'var(--text3)';
       var tasks = w.tasks || [];
       var completedTasks = tasks.filter(function(t) { return t.status === 'completed'; }).length;
       var progress = tasks.length ? Math.round(completedTasks / tasks.length * 100) : 0;
@@ -3129,6 +3130,16 @@ function loadWorkflowTemplate(tpl) {
         {"id":"review2","name":"Reviewer B","capabilities":["code_generation"],"payload":{"action":"review"},"dependencies":[],"timeout":60},
         {"id":"review3","name":"Reviewer C","capabilities":["code_generation"],"payload":{"action":"review"},"dependencies":[],"timeout":60}
       ]
+    },
+    'conditional': {
+      name: 'conditional-pipeline',
+      consensus: 'all',
+      tasks: [
+        {"id":"search","name":"Search","capabilities":["web_search"],"payload":{"query":"latest AI news"},"dependencies":[],"timeout":60,"max_retries":2,"retry_delay":5},
+        {"id":"analyze","name":"Analyze","capabilities":["data_analysis"],"dependencies":["search"],"timeout":30,"input_from":"search"},
+        {"id":"deep_dive","name":"Deep Dive","capabilities":["code_generation"],"dependencies":["analyze"],"condition":"result_search and result_search.get('found') == True","timeout":60},
+        {"id":"skip_note","name":"Skip Note","capabilities":["summarization"],"dependencies":["analyze"],"condition":"result_search and result_search.get('found') != True","timeout":30}
+      ]
     }
   };
   var t = templates[tpl];
@@ -3177,14 +3188,18 @@ function checkWorkflowStatus(wfId) {
       html += '<div style="font-size:12px;font-weight:600;margin-bottom:8px">Tasks (DAG):</div>';
       tasks.forEach(function(t, i) {
         var ts = t.status || 'pending';
-        var tc = ts === 'completed' ? 'var(--green)' : ts === 'running' ? 'var(--primary)' : ts === 'failed' ? 'var(--red)' : ts === 'pending' ? 'var(--text3)' : 'var(--yellow)';
-        var icon = ts === 'completed' ? '✅' : ts === 'running' ? '🔄' : ts === 'failed' ? '❌' : '⏳';
+        var tc = ts === 'completed' ? 'var(--green)' : ts === 'running' ? 'var(--primary)' : ts === 'failed' ? 'var(--red)' : ts === 'timeout' ? 'var(--orange)' : ts === 'skipped' ? 'var(--text3)' : ts === 'retrying' ? 'var(--yellow)' : ts === 'pending' ? 'var(--text3)' : 'var(--yellow)';
+        var icon = ts === 'completed' ? '✅' : ts === 'running' ? '🔄' : ts === 'failed' ? '❌' : ts === 'timeout' ? '⏱️' : ts === 'skipped' ? '⏭️' : ts === 'retrying' ? '🔁' : '⏳';
         var deps = t.dependencies && t.dependencies.length ? ' ← ' + t.dependencies.join(', ') : '';
+        var extras = '';
+        if (t.retry_count > 0) extras += ' · retry ' + t.retry_count;
+        if (t.condition) extras += ' · if: ' + escHtml(t.condition.substring(0, 40));
+        if (t.input_from) extras += ' ← input: ' + escHtml(t.input_from);
         html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">' +
           '<span>' + icon + '</span>' +
           '<div style="flex:1">' +
             '<div style="font-size:13px">' + escHtml(t.name || t.id) + '<span style="color:var(--text3);font-size:11px">' + deps + '</span></div>' +
-            '<div style="font-size:11px;color:' + tc + '">' + ts + (t.agent ? ' · agent: ' + escHtml(t.agent) : '') + '</div>' +
+            '<div style="font-size:11px;color:' + tc + '">' + ts + (t.agent ? ' · agent: ' + escHtml(t.agent) : '') + extras + '</div>' +
           '</div>' +
         '</div>';
       });
