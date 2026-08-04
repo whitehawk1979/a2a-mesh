@@ -137,6 +137,9 @@ async def handle_alerts(request):
 
     sent = 0
     for alert in alerts:
+        # Only send FIRING alerts — skip resolved to reduce noise
+        if alert.get("status") == "resolved":
+            continue
         msg = format_alert(alert)
         if send_telegram(msg):
             sent += 1

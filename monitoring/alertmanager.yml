@@ -24,7 +24,7 @@ receivers:
   - name: 'telegram-webhook'
     webhook_configs:
       - url: 'http://192.168.1.100:9091/alerts'
-        send_resolved: true
+        send_resolved: false
         max_alerts: 10
         http_config:
           authorization:
