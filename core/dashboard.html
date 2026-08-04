@@ -431,10 +431,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">🩺</span>
       <span class="nav-label">Diagnosztika</span>
     </button>
-    <button class="nav-item" onclick="showSettings()" id="navSettings">
-      <span class="nav-icon">⚙️</span>
-      <span class="nav-label">Beállítások</span>
+    <button class="nav-item" onclick="showAlerts()" id="navAlerts">
+      <span class="nav-icon">🚨</span>
+      <span class="nav-label">Alertek</span>
     </button>
+    <button class="nav-item" onclick...[truncated]
     <button class="nav-item" onclick="window.open(location.protocol+'//'+location.host+'/dashboard','_blank')" id="navDashboard">
       <span class="nav-icon">🖥️</span>
       <span class="nav-label">Dashboard</span>
@@ -870,6 +871,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
+<!-- Alerts Modal -->
+<div class="file-modal-overlay" id="alertsModal" style="display:none">
+  <div class="file-modal" style="width:90vw;max-width:800px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
+      <h2 style="margin:0">🚨 Alertek</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('alertsModal').style.display='none'">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="loadAlerts()">Frissítés</button>
+      <span id="alertCount" style="font-size:12px;color:var(--text3);padding:6px 0"></span>
+    </div>
+    <div id="alertsList" style="flex:1;overflow-y:auto;padding:4px 0;min-height:200px"></div>
+  </div>
+</div>
+
 <!-- Topology Modal -->
 <div class="file-modal-overlay" id="topologyModal" style="display:none">
   <div class="file-modal" style="width:90vw;max-width:1000px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
@@ -1000,7 +1016,7 @@ function switchMobileTab(tab) {
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }
@@ -3062,6 +3078,46 @@ function checkWorkflowStatus(wfId) {
     }
     alert(msg);
   }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+// ─── Alerts Modal ───────────────────────────────────────────
+function showAlerts() {
+  var m = document.getElementById('alertsModal');
+  m.style.display = 'flex';
+  loadAlerts();
+}
+
+function loadAlerts() {
+  var prometheusUrl = 'http://192.168.1.100:9090';
+  fetch(prometheusUrl + '/api/v1/alerts').then(function(r) { return r.json(); }).then(function(d) {
+    var alerts = (d.data || {}).alerts || [];
+    var c = document.getElementById('alertsList');
+    document.getElementById('alertCount').textContent = alerts.length + ' alert';
+    if (!alerts.length) {
+      c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Nincsenek aktiv alertek ✅</div>';
+      return;
+    }
+    c.innerHTML = alerts.map(function(a) {
+      var labels = a.labels || {};
+      var ann = a.annotations || {};
+      var sev = labels.severity || 'info';
+      var sevColor = sev === 'critical' ? 'var(--red)' : sev === 'warning' ? 'var(--yellow)' : 'var(--primary)';
+      var state = a.state || '?';
+      var stateColor = state === 'firing' ? 'var(--red)' : 'var(--text3)';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + sevColor + ';border-radius:8px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:start">' +
+          '<div><span style="font-weight:600;font-size:14px">' + escHtml(labels.alertname || 'Unknown') + '</span>' +
+          ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + stateColor + ';color:#fff">' + state + '</span></div>' +
+          '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + sevColor + ';color:#fff">' + sev + '</span>' +
+        '</div>' +
+        (labels.node ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">node: ' + escHtml(labels.node) + '</div>' : '') +
+        (ann.summary ? '<div style="font-size:13px;color:var(--text2);margin-top:4px">' + escHtml(ann.summary) + '</div>' : '') +
+        (ann.description ? '<div style="font-size:12px;color:var(--text3);margin-top:2px">' + escHtml(ann.description) + '</div>' : '') +
+      '</div>';
+    }).join('');
+  }).catch(function(e) {
+    document.getElementById('alertsList').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Hiba: ' + escHtml(String(e)) + '</div>';
+  });
 }
 
 // ─── Topology Modal ──────────────────────────────────────────
