@@ -1220,7 +1220,7 @@ function sendMessage() {
       "Content-Type": "application/json",
       "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
     },
-    body: JSON.stringify({ text: content, to: to })
+    body: JSON.stringify({ content: content, recipient: to })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.status === "sent") {
       // Add message to UI immediately
