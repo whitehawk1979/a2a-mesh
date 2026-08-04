@@ -98,3 +98,39 @@ groups:
         annotations:
           summary: "High message rate on {{ $labels.node }} ({{ $value }} msg/s)"
           description: "Node {{ $labels.node }} receiving >100 messages/s for 2+ minutes — possible flood."
+
+  - name: a2a-mesh-system-resources
+    interval: 30s
+    rules:
+      # High CPU usage
+      - alert: A2AHighCPU
+        expr: a2a_mesh_system_cpu_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "High CPU on {{ $labels.node }} ({{ $value }}%)"
+          description: "Node {{ $labels.node }} CPU usage >90% for 5+ minutes."
+
+      # High memory usage
+      - alert: A2AHighMemory
+        expr: a2a_mesh_system_memory_percent > 90
+        for: 5m
+        labels:
+          severity: warning
+          mesh: a2a-mesh
+        annotations:
+          summary: "High memory on {{ $labels.node }} ({{ $value }}%)"
+          description: "Node {{ $labels.node }} memory usage >90% for 5+ minutes."
+
+      # High disk usage
+      - alert: A2AHighDisk
+        expr: a2a_mesh_system_disk_percent > 85
+        for: 10m
+        labels:
+          severity: critical
+          mesh: a2a-mesh
+        annotations:
+          summary: "High disk usage on {{ $labels.node }} ({{ $value }}%)"
+          description: "Node {{ $labels.node }} disk usage >85% — cleanup needed."

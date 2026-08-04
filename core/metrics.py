@@ -207,6 +207,10 @@ class MetricsRegistry:
         # System gauges
         self.gauge("a2a_mesh_memory_rss_mb", "Process RSS memory in MB")
         self.gauge("a2a_mesh_uptime_seconds", "Process uptime in seconds")
+        self.gauge("a2a_mesh_cpu_percent", "Process CPU usage percentage")
+        self.gauge("a2a_mesh_system_cpu_percent", "System CPU usage percentage")
+        self.gauge("a2a_mesh_system_memory_percent", "System memory usage percentage")
+        self.gauge("a2a_mesh_system_disk_percent", "Disk usage percentage on root partition")
 
         # Mesh availability (computed from peer count)
         self.gauge("a2a_mesh_availability_ratio", "Mesh availability ratio (connected peers / expected peers)")
@@ -336,6 +340,17 @@ class MetricsRegistry:
 
         uptime = time.time() - node._start_time if node._start_time else 0
         self.set_gauge("a2a_mesh_uptime_seconds", round(uptime, 1))
+
+        # CPU + system metrics via psutil (if available)
+        try:
+            import psutil
+            proc = psutil.Process()
+            self.set_gauge("a2a_mesh_cpu_percent", round(proc.cpu_percent(interval=0.1), 1))
+            self.set_gauge("a2a_mesh_system_cpu_percent", round(psutil.cpu_percent(interval=0.1), 1))
+            self.set_gauge("a2a_mesh_system_memory_percent", round(psutil.virtual_memory().percent, 1))
+            self.set_gauge("a2a_mesh_system_disk_percent", round(psutil.disk_usage('/').percent, 1))
+        except ImportError:
+            pass  # psutil not available — skip system metrics
 
     # ── Render ──
 
