@@ -1788,3 +1788,75 @@ class DashboardAdminMixin:
                 pass
         except Exception as e:
             log.warning(f"Telegram: image send error: {e}")
+
+    # ─── Alert Rules API ───────────────────────────────────────────────
+
+    async def _api_alerts_status(self, request):
+        """GET /api/alerts — Get alert manager status and all rules."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        return web.json_response(self.alert_manager.get_status())
+
+    async def _api_alerts_add_rule(self, request):
+        """POST /api/alerts/rules — Add a custom alert rule.
+
+        Body: {"id": "my_rule", "name": "My Alert", "metric": "peers_connected",
+               "operator": "<", "threshold": 1, "severity": "warning", "cooldown": 300}
+        """
+        from aiohttp import web
+        from .alert_manager import AlertRule, AlertSeverity
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        rule_id = data.get("id", "")
+        if not rule_id:
+            return web.json_response({"error": "Rule id required"}, status=400)
+
+        try:
+            severity = AlertSeverity(data.get("severity", "warning"))
+        except ValueError:
+            severity = AlertSeverity.WARNING
+
+        rule = AlertRule(
+            id=rule_id,
+            name=data.get("name", rule_id),
+            metric=data.get("metric", ""),
+            operator=data.get("operator", "<"),
+            threshold=float(data.get("threshold", 0)),
+            severity=severity,
+            cooldown=float(data.get("cooldown", 300)),
+            enabled=data.get("enabled", True),
+        )
+        self.alert_manager.add_rule(rule)
+        return web.json_response({"status": "ok", "rule": rule.to_dict()})
+
+    async def _api_alerts_delete_rule(self, request):
+        """DELETE /api/alerts/rules/{rule_id} — Delete an alert rule."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        rule_id = request.match_info.get("rule_id", "")
+        if self.alert_manager.remove_rule(rule_id):
+            return web.json_response({"status": "deleted", "rule_id": rule_id})
+        return web.json_response({"error": "Rule not found"}, status=404)
+
+    async def _api_alerts_toggle_rule(self, request):
+        """POST /api/alerts/rules/{rule_id}/toggle — Enable/disable a rule."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        rule_id = request.match_info.get("rule_id", "")
+        rules = self.alert_manager._rules
+        if rule_id not in rules:
+            return web.json_response({"error": "Rule not found"}, status=404)
+        rules[rule_id].enabled = not rules[rule_id].enabled
+        return web.json_response({"status": "ok", "rule": rules[rule_id].to_dict()})

@@ -41,7 +41,7 @@ for entry in "${NODES[@]}"; do
     port=$(echo "$entry" | cut -d: -f3)
     
     # Health check (3s timeout)
-    response=$(curl -s --connect-timeout 3 "http://${host}:${port}/api/health" 2>/dev/null)
+    response=$(curl -s --connect-timeout 3 --max-time 8 "http://${host}:${port}/api/health" 2>/dev/null)
     
     if echo "$response" | grep -q '"healthy"'; then
         current_state="up"

@@ -3231,12 +3231,41 @@ echo "Status: ok"
                             except Exception:
                                 pass
 
+                # ── Evaluate alert rules ──
+                if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'alert_manager'):
+                    try:
+                        metrics = self._collect_alert_metrics()
+                        fired = self.dashboard.alert_manager.evaluate(metrics)
+                        for alert in fired:
+                            log.warning(f"ALERT: {alert['name']} — {alert['message']}")
+                    except Exception as e:
+                        log.debug(f"Alert evaluation error: {e}")
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.error(f"Health monitor error: {e}")
 
     # ─── Stats Update Loop ───────────────────────────────────────────
+
+    def _collect_alert_metrics(self) -> dict:
+        """Collect current metrics for alert rule evaluation."""
+        t_stats = self.router.get_stats() if self.router else {}
+        pd = self.peer_discovery
+        peers = pd.get_stats() if pd else {}
+        p2p = self.router.transports.get('p2p') if self.router else None
+        peer_stats = p2p.get_peer_stats() if p2p else {}
+        return {
+            "peers_connected": peers.get("connected_peers", 0),
+            "peers_known": peers.get("known_peers", 0),
+            "messages_sent": t_stats.get("sent", 0),
+            "messages_received": t_stats.get("received", 0),
+            "messages_forwarded": t_stats.get("forwarded", 0),
+            "transport_errors": t_stats.get("errors", 0),
+            "dedup_cache_size": t_stats.get("dedup", {}).get("size", 0),
+            "retry_queue_size": p2p.get_retry_queue_size() if p2p else 0,
+            "peer_count": len(peer_stats),
+        }
 
     async def _stats_update_loop(self):
         """Periodically update node stats in PG (messages sent/received, uptime)."""

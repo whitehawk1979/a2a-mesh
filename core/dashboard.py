@@ -95,6 +95,9 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         self.registry = AgentRegistry(auto_approve=auto_approve)
         self.smart_router = SmartRouter(self.registry)
         self.workflow_coordinator = WorkflowCoordinator(self.registry, self.smart_router)
+        # Alert manager
+        from .alert_manager import AlertManager
+        self.alert_manager = AlertManager()
         self.rate_limiter = RateLimiter(max_requests=300, window_seconds=60)
         self._users: Dict[str, DashboardUser] = {}
         self._message_history: List[dict] = []
@@ -237,6 +240,11 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_delete("/api/skills/{skill_id}", self._api_skills_delete)
         app.router.add_post("/api/skills/{skill_id}/delegate", self._api_skills_delegate)
         app.router.add_post("/api/skills/{skill_id}/rate", self._api_skills_rate)
+        # Alert rules
+        app.router.add_get("/api/alerts", self._api_alerts_status)
+        app.router.add_post("/api/alerts/rules", self._api_alerts_add_rule)
+        app.router.add_delete("/api/alerts/rules/{rule_id}", self._api_alerts_delete_rule)
+        app.router.add_post("/api/alerts/rules/{rule_id}/toggle", self._api_alerts_toggle_rule)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
