@@ -476,7 +476,7 @@ class WorkflowCoordinator:
                         description=_json.dumps(desc),
                         task_type=task_type,
                         priority=5,
-                        timeout_minutes=max(1, int(task.timeout / 60)),
+                        timeout_minutes=max(2, int(task.timeout / 30)),  # 2x buffer over task timeout
                         available=False,
                         max_retries=0,  # workflow handles retries, not delegation
                     )
