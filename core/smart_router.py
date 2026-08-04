@@ -134,7 +134,16 @@ class HealthWeightedStrategy(RoutingStrategy):
         if total == 0:
             return random.choice(agents)[0]
 
-        # Normalize weights
+        # Prefer the healthiest agent deterministically if it has
+        # significantly higher health (>1.5x) than others — avoids
+        # selecting degraded agents when a healthy one is available
+        best_idx = max(range(len(agents)), key=lambda i: weights[i])
+        best_weight = weights[best_idx]
+        second_weight = sorted(weights, reverse=True)[1] if len(weights) > 1 else 0
+        if best_weight >= second_weight * 1.5:
+            return agents[best_idx][0]
+
+        # Otherwise weighted random
         probs = [w / total for w in weights]
         selected = random.choices(agents, weights=probs, k=1)[0]
         return selected[0]
