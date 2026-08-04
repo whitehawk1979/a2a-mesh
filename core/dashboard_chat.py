@@ -552,7 +552,26 @@ class DashboardChatMixin:
             if set(payload.keys()) <= {"uptime", "transports"}:
                 return
 
-        content = payload.get("text", "") or getattr(message, "content", "") or json.dumps(payload, ensure_ascii=True)
+        content = payload.get("text", "") or getattr(message, "content", "")
+        if not content:
+            # Try alternative fields before falling back to raw JSON
+            for alt_key in ("response", "message", "reply", "result", "output", "summary"):
+                alt_val = payload.get(alt_key)
+                if alt_val and isinstance(alt_val, str):
+                    content = alt_val
+                    break
+        if not content:
+            # Last resort: format payload as readable key-value pairs instead of raw JSON
+            if isinstance(payload, dict) and payload:
+                parts = []
+                for k, v in payload.items():
+                    if isinstance(v, (list, dict)):
+                        parts.append(f"{k}: {json.dumps(v, ensure_ascii=False)[:100]}")
+                    else:
+                        parts.append(f"{k}: {v}")
+                content = " | ".join(parts[:5])
+            else:
+                content = json.dumps(payload, ensure_ascii=True)
         username = payload.get("username", "") or message.sender
 
         self._message_history.append({

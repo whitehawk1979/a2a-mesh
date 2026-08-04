@@ -1125,14 +1125,38 @@ function addMessageToDOM(msg, scroll) {
   else if (isDM) recipientLabel = " → " + escapeHtml(msg.recipient);
   else recipientLabel = " → " + escapeHtml(msg.recipient);
 
+  // Format content — detect JSON and render readably
+  var displayContent = msg.content || "";
+  var contentHtml;
+  if (displayContent.trim().startsWith("{") && displayContent.trim().endsWith("}")) {
+    // Try to parse and format as key-value pairs
+    try {
+      var parsed = JSON.parse(displayContent);
+      var parts = [];
+      for (var k in parsed) {
+        if (parsed.hasOwnProperty(k)) {
+          var v = parsed[k];
+          var vStr = typeof v === "object" ? JSON.stringify(v) : String(v);
+          if (vStr.length > 80) vStr = vStr.substring(0, 77) + "...";
+          parts.push('<span style="color:var(--accent)">' + escapeHtml(k) + '</span>: ' + escapeHtml(vStr));
+        }
+      }
+      contentHtml = parts.join('<br>');
+    } catch(e) {
+      contentHtml = escapeHtml(displayContent);
+    }
+  } else {
+    contentHtml = escapeHtml(displayContent);
+  }
+
   var div = document.createElement("div");
   div.className = "msg " + cls;
   div.id = "msg-" + (msg.id || "");
   div.innerHTML =
     '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel +
-      (isAdmin ? ' <button onclick="deleteMessage(\'' + (msg.id || "") + '\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
+      (isAdmin ? ' <button onclick="deleteMessage(\\'' + (msg.id || "") + '\\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
     '</div>' +
-    '<div>' + escapeHtml(msg.content) + '</div>' +
+    '<div>' + contentHtml + '</div>' +
     '<div class="meta">' +
       '<span>' + time + '</span>' +
       '<span class="priority ' + priCls + '">' + priLabel + '</span>' +
