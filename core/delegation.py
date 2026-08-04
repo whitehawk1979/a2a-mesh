@@ -344,6 +344,7 @@ class DelegationManager:
                     log.debug(f"Cleaned up {len(expired)} expired claimed subjects")
 
                 await self._check_expired()
+                await self._cleanup_stale_active_tasks()
                 await self._poll_pending()
                 await self._poll_available()
                 await self._check_results()
@@ -359,12 +360,28 @@ class DelegationManager:
                 continue
 
     async def _check_expired(self):
-        """Mark expired tasks."""
+        """Mark expired tasks — including running tasks that exceeded their TTL."""
         await self.pg_pool.execute(
             """UPDATE shared_delegations SET status = $1 
-               WHERE status IN ($2, $3, $4) AND expires_at < NOW()""",
-            STATUS_EXPIRED, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED,
+               WHERE status IN ($2, $3, $4, $5) AND expires_at < NOW()""",
+            STATUS_EXPIRED, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED, STATUS_RUNNING,
         )
+
+    async def _cleanup_stale_active_tasks(self):
+        """Remove stale entries from _active_tasks that are no longer running in PG."""
+        if not self._active_tasks:
+            return
+        stale = []
+        for task_id in list(self._active_tasks.keys()):
+            row = await self.pg_pool.fetchrow(
+                "SELECT status FROM shared_delegations WHERE task_id = $1",
+                task_id,
+            )
+            if not row or row['status'] != STATUS_RUNNING:
+                stale.append(task_id)
+        for task_id in stale:
+            self._active_tasks.pop(task_id, None)
+            log.info(f"🧹 Cleaned stale active task: {task_id}")
 
     async def _poll_pending(self):
         """Poll for pending tasks specifically assigned to this node."""
