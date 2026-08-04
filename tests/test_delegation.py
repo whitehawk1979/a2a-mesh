@@ -265,7 +265,7 @@ class TestDelegationHandler:
         mgr.register_handler("monitoring", health_handler)
 
         task_id = await mgr.delegate_task(
-            to_agent="test_agent", subject="Health check",
+            to_agent="other_agent", subject="Health check",
             description=json.dumps({"type": "monitoring", "description": "Check health", "context": {}}),
             task_type="monitoring",
         )
@@ -280,7 +280,7 @@ class TestDelegationHandler:
     @pytest.mark.asyncio
     async def test_execute_task_without_handler(self, mgr, pool):
         task_id = await mgr.delegate_task(
-            to_agent="test_agent", subject="Unknown type",
+            to_agent="other_agent", subject="Unknown type",
             description=json.dumps({"type": "unknown_type", "description": "Test", "context": {}}),
             task_type="unknown_type",
         )
@@ -298,7 +298,7 @@ class TestDelegationHandler:
         mgr.register_handler("failing", bad_handler)
 
         task_id = await mgr.delegate_task(
-            to_agent="test_agent", subject="Will fail",
+            to_agent="other_agent", subject="Will fail",
             description=json.dumps({"type": "failing", "description": "Test", "context": {}}),
             task_type="failing",
             max_retries=0,
@@ -335,7 +335,7 @@ class TestDelegationEndToEnd:
         mgr.register_handler("analysis", analysis_handler)
 
         task_id = await mgr.delegate_task(
-            to_agent="worker", subject="Analyze dataset X",
+            to_agent="coordinator", subject="Analyze dataset X",
             description="Run analysis on dataset X", task_type="analysis", priority=7,
         )
         assert isinstance(task_id, str)
@@ -381,7 +381,7 @@ class TestDelegationEndToEnd:
         mgr.register_handler("reporting", file_handler)
 
         task_id = await mgr.delegate_task(
-            to_agent="worker", subject="Generate report",
+            to_agent="coordinator", subject="Generate report",
             description=json.dumps({"type": "reporting", "description": "Generate", "context": {}}),
             task_type="reporting",
         )

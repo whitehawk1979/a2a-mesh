@@ -180,6 +180,12 @@ class TestAgentStatusInAPIResponse(unittest.TestCase):
         node.local_store = MagicMock()
         node.local_store.get_stats.return_value = {"peers": len(peers) if peers else 0}
         node.health_scorer = MagicMock()
+        node._pg_pool = None  # Disable PG path in tests
+        node._resolved_version = "0.22.0"
+        node.config.skills = []
+        node.registry = MagicMock()
+        node.registry.get_card.return_value = None  # No agent cards in tests
+        node._health_port = 8650
         return node
 
     def test_morzsa_online_when_p2p_and_pg(self):

@@ -58,7 +58,7 @@ def mock_node():
 @pytest.fixture
 def dashboard_handler(mock_node):
     """Create a DashboardHandler with mock node."""
-    from core.dashboard import DashboardHandler
+    from a2a_mesh.core.dashboard import DashboardHandler
     handler = DashboardHandler(mock_node)
     return handler
 
