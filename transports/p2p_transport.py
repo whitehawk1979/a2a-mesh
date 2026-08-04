@@ -45,8 +45,8 @@ class P2PTransport(TransportAdapter):
     name = "p2p"
 
     # ─── Tuning Constants ─────────────────────────────────────────────
-    HEARTBEAT_INTERVAL = 45       # Seconds between heartbeats when idle
-    HEARTBEAT_TIMEOUT = 180       # Seconds before declaring a peer dead
+    HEARTBEAT_INTERVAL = 30       # Seconds between heartbeats when idle (was 45)
+    HEARTBEAT_TIMEOUT = 90        # Seconds before declaring a peer dead (was 180)
     CONNECT_TIMEOUT = 10          # Seconds for TCP+TLS connect timeout
     CONNECTION_AGE_LIMIT = 3600   # Reconnect stale connections after 1 hour
     MAX_RETRY_QUEUE = 1000        # Max messages in retry queue
@@ -59,6 +59,8 @@ class P2PTransport(TransportAdapter):
     FILE_CHUNK_DELAY = 0.01       # Inter-chunk delay for file transfers
     FILE_BANDWIDTH_LIMIT = 0     # Max bytes/sec for file transfers (0 = unlimited)
     INITIAL_BACKOFF_JITTER = 0.5 # Jitter factor for backoff (0-1)
+    HEALTH_CHECK_INTERVAL = 15   # Seconds between health check pings (proactive)
+    HEALTH_CHECK_TIMEOUT = 30    # Seconds before considering connection unhealthy
 
     def __init__(self, config, node_version: str = "unknown"):
         self.config = config
@@ -72,7 +74,9 @@ class P2PTransport(TransportAdapter):
         self._peer_retry_count: Dict[str, int] = {}  # peer_name → consecutive failure count
         self._peer_connected_at: Dict[str, float] = {}  # peer_name → connection start timestamp
         self._peer_latency: Dict[str, float] = {}  # peer_name → estimated RTT in ms (EWMA)
+        self._peer_last_seen: Dict[str, float] = {}  # peer_name → last message/heartbeat timestamp
         self._reconnect_task: Optional[asyncio.Task] = None
+        self._health_check_task: Optional[asyncio.Task] = None
         self._incoming_queue: asyncio.Queue = asyncio.Queue()
         self._running = False
         self._listen_host = config.p2p.listen_host
@@ -254,6 +258,8 @@ class P2PTransport(TransportAdapter):
 
             # Start reconnection monitor
             self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+            # Start proactive health check loop
+            self._health_check_task = asyncio.create_task(self._health_check_loop())
 
             return True
         except OSError as e:
@@ -336,6 +342,12 @@ class P2PTransport(TransportAdapter):
                 log.info("P2P MessageAuth stopped")
             except Exception as e:
                 log.warning(f"MessageAuth stop error: {e}")
+
+        # Cancel reconnect and health check tasks
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+        if self._health_check_task and not self._health_check_task.done():
+            self._health_check_task.cancel()
 
         # Cancel all send loop tasks
         for peer_name, task in list(self._send_tasks.items()):
@@ -422,6 +434,9 @@ class P2PTransport(TransportAdapter):
                     message = A2AMessage.from_bytes(verified_data)
 
                     last_received = time.time()
+                    # Update last_seen for this peer (health check tracking)
+                    if connected_peer_name:
+                        self._peer_last_seen[connected_peer_name] = last_received
 
                     # Handle heartbeat messages
                     if message.type == MSG_TYPE_HEARTBEAT:
@@ -574,6 +589,7 @@ class P2PTransport(TransportAdapter):
                         break
                     removed = self._peers.pop(pname, None)
                     self._writer_to_peer.pop(id(writer), None)
+                    self._peer_last_seen.pop(pname, None)
                     self._peer_connected_at.pop(pname, None)  # P2: Clean up age tracking
                     # P2: Clean up connection task tracking
                     self._connection_tasks.pop(pname, None)
@@ -857,6 +873,8 @@ class P2PTransport(TransportAdapter):
             writer._a2a_gen = gen
             # P2: Track connection start time for age-based reconnection
             self._peer_connected_at[name] = time.time()
+            # Track last seen for health check
+            self._peer_last_seen[name] = time.time()
             # Reset retry count on success
             self._peer_retry_count[name] = 0
             self._peer_backoff.pop(name, None)
@@ -1022,6 +1040,7 @@ class P2PTransport(TransportAdapter):
                     # Remove broken connection
                     self._peers.pop(peer_name, None)
                     self._writer_to_peer.pop(id(writer), None)
+                    self._peer_last_seen.pop(peer_name, None)
                     # Queue for retry
                     self._enqueue_for_retry(message)
                     break  # Exit send loop for this peer — _handle_connection cleanup will handle
@@ -1257,6 +1276,7 @@ class P2PTransport(TransportAdapter):
             stats[name] = {
                 "address": self._peer_addresses.get(name, "unknown"),
                 "connected_s": round(now - connected_at, 1) if connected_at else 0,
+                "last_seen_s": round(now - self._peer_last_seen.get(name, 0), 1) if name in self._peer_last_seen else -1,
                 "rtt_ms": round(self._peer_latency.get(name, 0), 1),
                 "queue_size": self._send_queues[name].qsize() if name in self._send_queues else 0,
                 "frame_version": self._frame_version.get(name, 1),
@@ -1346,6 +1366,7 @@ class P2PTransport(TransportAdapter):
                         # Close old connection — reconnect loop will re-establish
                         peer_data = self._peers.pop(name, None)
                         self._peer_connected_at.pop(name, None)
+                        self._peer_last_seen.pop(name, None)
                         if peer_data:
                             _, old_writer = peer_data
                             try:
@@ -1362,6 +1383,49 @@ class P2PTransport(TransportAdapter):
                 break
             except Exception as e:
                 log.error(f"Reconnect loop error: {e}")
+
+    async def _health_check_loop(self):
+        """Proactive connection health check — detects half-open TCP connections faster.
+
+        Every HEALTH_CHECK_INTERVAL seconds, checks if any peer hasn't been heard from
+        in HEALTH_CHECK_TIMEOUT seconds. If so, sends a heartbeat ping to probe the
+        connection. If the connection is actually dead, the _handle_connection read
+        timeout will trigger and clean up.
+
+        This is complementary to the _handle_connection timeout-based heartbeat:
+        - _handle_connection: passive (waits for data, sends heartbeat if idle)
+        - _health_check_loop: proactive (checks all peers from a central view)
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(self.HEALTH_CHECK_INTERVAL)
+                if not self._running:
+                    break
+
+                now = time.time()
+                for peer_name in list(self._peers.keys()):
+                    last_seen = self._peer_last_seen.get(peer_name, 0)
+                    idle = now - last_seen
+
+                    if idle > self.HEALTH_CHECK_TIMEOUT:
+                        log.warning(f"Peer {peer_name} not seen in {idle:.0f}s — sending health probe")
+                        # Send a heartbeat to probe the connection
+                        _, writer = self._peers[peer_name]
+                        try:
+                            await self._send_heartbeat(writer, peer_name)
+                            self._peer_last_seen[peer_name] = now  # Reset after probe
+                        except Exception as e:
+                            log.warning(f"Health probe failed for {peer_name}: {e} — marking connection dead")
+                            # Remove dead connection — reconnect loop will re-establish
+                            self._peers.pop(peer_name, None)
+                            self._peer_last_seen.pop(peer_name, None)
+                            self._peer_connected_at.pop(peer_name, None)
+                            self._writer_to_peer.pop(id(writer), None)
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Health check loop error: {e}")
 
     async def _process_retry_queue(self):
         """Try to resend queued messages to any available peer.
