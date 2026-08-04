@@ -1125,23 +1125,40 @@ function addMessageToDOM(msg, scroll) {
   else if (isDM) recipientLabel = " → " + escapeHtml(msg.recipient);
   else recipientLabel = " → " + escapeHtml(msg.recipient);
 
-  // Format content — detect JSON and render readably
+  // Format content — strip JSON wrappers, show only the text
   var displayContent = msg.content || "";
   var contentHtml;
+
+  // If content looks like JSON, try to extract just the "text" field
   if (displayContent.trim().startsWith("{") && displayContent.trim().endsWith("}")) {
-    // Try to parse and format as key-value pairs
     try {
       var parsed = JSON.parse(displayContent);
-      var parts = [];
-      for (var k in parsed) {
-        if (parsed.hasOwnProperty(k)) {
-          var v = parsed[k];
-          var vStr = typeof v === "object" ? JSON.stringify(v) : String(v);
-          if (vStr.length > 80) vStr = vStr.substring(0, 77) + "...";
-          parts.push('<span style="color:var(--accent)">' + escapeHtml(k) + '</span>: ' + escapeHtml(vStr));
+      // If it has a "text" field, use that as the display content
+      if (parsed.text && typeof parsed.text === "string") {
+        displayContent = parsed.text;
+        contentHtml = escapeHtml(displayContent);
+      } else if (parsed.content && typeof parsed.content === "string") {
+        displayContent = parsed.content;
+        contentHtml = escapeHtml(displayContent);
+      } else if (parsed.response && typeof parsed.response === "string") {
+        displayContent = parsed.response;
+        contentHtml = escapeHtml(displayContent);
+      } else if (parsed.message && typeof parsed.message === "string") {
+        displayContent = parsed.message;
+        contentHtml = escapeHtml(displayContent);
+      } else {
+        // No recognized text field — show as simple key-value, but only meaningful fields
+        var parts = [];
+        for (var k in parsed) {
+          if (parsed.hasOwnProperty(k)) {
+            var v = parsed[k];
+            var vStr = typeof v === "object" ? JSON.stringify(v) : String(v);
+            if (vStr.length > 80) vStr = vStr.substring(0, 77) + "...";
+            parts.push('<span style="color:var(--accent)">' + escapeHtml(k) + '</span>: ' + escapeHtml(vStr));
+          }
         }
+        contentHtml = parts.join('<br>');
       }
-      contentHtml = parts.join('<br>');
     } catch(e) {
       contentHtml = escapeHtml(displayContent);
     }
@@ -1170,6 +1187,32 @@ function addMessageToDOM(msg, scroll) {
 
 function addMessage(msg, scroll) {
   if (scroll === undefined) scroll = true;
+
+  // ─── Dedup: skip if message with same ID already exists in ANY channel ───
+  if (msg.id) {
+    for (var ch in channelMessages) {
+      for (var i = 0; i < channelMessages[ch].length; i++) {
+        if (channelMessages[ch][i].id === msg.id) {
+          return;  // Already have this message
+        }
+      }
+    }
+  }
+  // Also check local-only messages (id starts with "local_") by content+sender+time window
+  if (msg.content && msg.sender) {
+    var now = Date.now();
+    var msgTime = msg.timestamp ? new Date(msg.timestamp).getTime() : now;
+    for (var ch2 in channelMessages) {
+      for (var j = 0; j < channelMessages[ch2].length; j++) {
+        var existing = channelMessages[ch2][j];
+        if (existing.sender === msg.sender &&
+            existing.content === msg.content &&
+            Math.abs((existing.timestamp ? new Date(existing.timestamp).getTime() : 0) - msgTime) < 5000) {
+          return;  // Same content from same sender within 5 seconds = duplicate
+        }
+      }
+    }
+  }
 
   // Route message to the correct channel
   // Agent replies (even if recipient=nova) should appear in general chat (Telegram-like)

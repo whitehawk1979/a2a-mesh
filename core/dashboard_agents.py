@@ -648,27 +648,13 @@ class DashboardAgentsMixin:
                 log.info(f"Wake-agent '{agent_name}' CLI response ({len(output)} chars): {output[:200]}")
                 if err:
                     log.warning(f"Wake-agent '{agent_name}' stderr: {err[:200]}")
-                
-                # Send the agent's reply as a mesh message so all dashboards see it
-                if output.strip():
-                    from .message import A2AMessage, MSG_TYPE_DIRECTIVE
-                    reply_msg = A2AMessage(
-                        sender=agent_name,
-                        recipient="broadcast",
-                        type="agent_reply",
-                        priority=5,
-                        payload={
-                            "text": output.strip(),
-                            "source": "agent_reply",
-                            "username": agent_name,
-                            "original_sender": self.node.node_name,
-                        },
-                    )
-                    try:
-                        await self.node.router.send(reply_msg)
-                        log.info(f"Agent reply from '{agent_name}' sent to mesh ({len(output)} chars)")
-                    except Exception as send_err:
-                        log.warning(f"Failed to send agent reply to mesh: {send_err}")
+
+                # NOTE: Do NOT send raw stdout via router.send() — the agent
+                # already replies via curl to /api/agent-reply with clean text.
+                # Sending stdout here caused duplicate messages + JSON garbage
+                # (tool output, reasoning, metadata mixed into the chat).
+                # The wake-agent endpoint just runs the CLI; the agent's own
+                # curl call delivers the clean reply to the mesh chat.
                 
                 return web.json_response({
                     "status": "completed",

@@ -495,6 +495,9 @@ class DelegationManager:
                ORDER BY priority DESC, created_at ASC LIMIT 5""",
             STATUS_AVAILABLE,
         )
+        
+        if rows:
+            log.info(f"_poll_available: found {len(rows)} available tasks (CPU {cpu_load:.0f}%)")
 
         for task in rows:
             task_dict = dict(task)
@@ -504,6 +507,7 @@ class DelegationManager:
             
             # Don't claim our own tasks — let other agents handle them
             if from_agent == self.node_name:
+                log.debug(f"Skipping own task {task_id}")
                 continue
             
             # Fan-out dedup: don't claim a fan-out sibling we already claimed
@@ -513,14 +517,14 @@ class DelegationManager:
                 continue
             
             # Priority-aware: skip tasks if we're overloaded
-            # P7+: skip if CPU > 80%
-            # P4-P6: skip if CPU > 90%
+            # P7+: skip if CPU > 95% (was 80% — too strict for Proxmox hosts)
+            # P4-P6: skip if CPU > 98% (was 90% — peer nodes run at 97% normally)
             # P1-P3: always claim (low priority = easy tasks)
-            if priority >= 7 and cpu_load > 80:
-                log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 80%")
+            if priority >= 7 and cpu_load > 95:
+                log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 95%")
                 continue
-            elif priority >= 4 and cpu_load > 90:
-                log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 90%")
+            elif priority >= 4 and cpu_load > 98:
+                log.debug(f"Skipping P{priority} task {task_id}: CPU load {cpu_load:.0f}% > 98%")
                 continue
             
             # Check if we have a handler for this task type
@@ -536,6 +540,7 @@ class DelegationManager:
             
             # Only claim if we have a handler (or it's a generic type)
             if task_type not in self._handlers and "generic" not in self._handlers:
+                log.debug(f"Skipping task {task_id}: no handler for type '{task_type}' (handlers: {list(self._handlers.keys())})")
                 continue
 
             # Pre-filter: skip tasks where eligible_agents excludes us

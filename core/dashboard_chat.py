@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 
 log = logging.getLogger("a2a_mesh.dashboard.chat")
 
@@ -534,6 +535,13 @@ class DashboardChatMixin:
         # Skip non-chat messages — they flood the chat
         if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online", "node_join", "node_leave"):
             return
+
+        # ─── Dedup: skip if this message ID is already in history ───
+        msg_id = getattr(message, "id", None)
+        if msg_id:
+            for m in self._message_history:
+                if m.get("id") == msg_id:
+                    return  # Already broadcasted via /api/agent-reply
 
         # Extract display text from payload — handle both dict and JSON string payloads
         if isinstance(message.payload, dict):

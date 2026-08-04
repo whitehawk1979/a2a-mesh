@@ -714,6 +714,7 @@ class MeshNode:
         self.delegation.register_handler("research", self._handle_generic_task)
         self.delegation.register_handler("code", self._handle_generic_task)
         self.delegation.register_handler("analysis", self._handle_generic_task)
+        self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
         self.delegation.on_result(self._on_delegation_result)
         await self.delegation.start()
         await self.peer_discovery.start()
