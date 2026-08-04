@@ -139,6 +139,8 @@ class DiagnosticEngine:
         
         log.info(f"🔍 Diagnostics engine started (interval={self.config.report_interval}s, {len(self._suggestions)} persisted suggestions loaded)")
         self._task = asyncio.create_task(self._periodic_report_loop())
+        # Auto-implement loop — periodically accepts and implements safe suggestions
+        self._auto_impl_task = asyncio.create_task(self._auto_implement_loop())
     
     async def stop(self):
         """Stop the diagnostic engine."""
@@ -146,6 +148,12 @@ class DiagnosticEngine:
             self._task.cancel()
             try:
                 await self._task
+            except asyncio.CancelledError:
+                pass
+        if hasattr(self, '_auto_impl_task') and self._auto_impl_task:
+            self._auto_impl_task.cancel()
+            try:
+                await self._auto_impl_task
             except asyncio.CancelledError:
                 pass
             log.info("🔍 Diagnostics engine stopped")
@@ -169,6 +177,26 @@ class DiagnosticEngine:
             except Exception as e:
                 log.error(f"Error in diagnostic report loop: {e}")
                 await asyncio.sleep(60)  # Back off on error
+    
+    async def _auto_implement_loop(self):
+        """Periodically auto-accept and implement safe diagnostic suggestions.
+        
+        Runs every 5 minutes. Accepts pending suggestions matching known-safe
+        patterns and marks them as 'accepted'. Does NOT auto-restart or modify
+        config — only accepts the suggestion so it's visible to the operator.
+        """
+        interval = 300  # 5 minutes
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                implemented = await self.auto_implement_suggestions()
+                if implemented:
+                    log.info(f"📋 Auto-implemented {len(implemented)} suggestions: {implemented}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Error in auto-implement loop: {e}")
+                await asyncio.sleep(60)
     
     async def generate_report(self, report_type: str = "periodic") -> Optional[DiagnosticReport]:
         """Generate a diagnostic report by analyzing the node's state."""
