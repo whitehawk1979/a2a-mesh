@@ -1321,6 +1321,7 @@ function submitAuth() {
       if (d.error) { errEl.textContent = d.error; } else {
         authToken = d.token; authUser = d.user;
         localStorage.setItem("a2a_token", d.token);
+        localStorage.setItem("mesh_token", d.token);
         localStorage.setItem("a2a_username", d.user.username);
         document.getElementById("authModal").style.display = "none";
         document.getElementById("userBadge").style.display = "flex";
@@ -1359,6 +1360,7 @@ function logout() {
   if (token) { fetch("/api/auth/logout", {method: "POST", headers: {"Authorization": "Bearer " + token}}).catch(function() {}); }
   authToken = null; authUser = null;
   localStorage.removeItem("a2a_token");
+  localStorage.removeItem("mesh_token");
   if (ws) ws.close();
   showAuth();
 }
@@ -2100,7 +2102,7 @@ if (savedToken) {
         document.getElementById("userBadge").style.display = "flex";
         updateUserBadge();
         initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel();
-      } else { localStorage.removeItem("a2a_token"); showAuth(); }
+      } else { localStorage.removeItem("a2a_token"); localStorage.removeItem("mesh_token"); showAuth(); }
     }).catch(function() { showAuth(); });
 } else { showAuth(); }
 
