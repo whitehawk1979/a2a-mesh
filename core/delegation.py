@@ -537,7 +537,14 @@ class DelegationManager:
             # Only claim if we have a handler (or it's a generic type)
             if task_type not in self._handlers and "generic" not in self._handlers:
                 continue
-            
+
+            # Pre-filter: skip tasks where eligible_agents excludes us
+            # (avoids WARNING log spam from claim_task on every poll cycle)
+            eligible = desc.get("eligible_agents") if isinstance(desc, dict) else None
+            if eligible and isinstance(eligible, list) and self.node_name not in eligible:
+                log.debug(f"Skipping task {task_id}: eligible_agents={eligible} excludes {self.node_name}")
+                continue
+
             # Try to claim it — add jitter to spread claims across nodes
             await asyncio.sleep(random.uniform(0.1, 0.5))
             claimed = await self.claim_task(task_id)
