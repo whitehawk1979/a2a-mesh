@@ -49,6 +49,8 @@ class TaskStatus(Enum):
     FAILED = "failed"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
+    SKIPPED = "skipped"   # v3: condition evaluated to False
+    RETRYING = "retrying"  # v3: task is being retried after failure
 
 
 @dataclass
@@ -70,6 +72,16 @@ class WorkflowTask:
     assigned_agent: Optional[str] = None  # Actually assigned agent
     fan_out_count: int = 1                # Number of parallel copies (fan-out)
     fan_in_strategy: FanInStrategy = FanInStrategy.MERGE  # How to merge fan-out results
+    # ── v3: Conditional branching ──
+    condition: Optional[str] = None       # Python expression evaluated against dependency results
+    # If condition evaluates to True, this task runs. If False, task is SKIPPED.
+    # Example: condition="result_search.get('found') == True"
+    # ── v3: Retry policy ──
+    max_retries: int = 0                  # Max retry attempts on failure (0 = no retry)
+    retry_delay: float = 5.0             # Delay between retries in seconds (with exponential backoff)
+    retry_count: int = 0                  # Current retry attempt count (internal)
+    # ── v3: Result passing ──
+    input_from: Optional[str] = None      # Task ID whose result to inject as 'input' in payload
 
     @property
     def duration_ms(self) -> Optional[float]:
@@ -244,18 +256,20 @@ class WorkflowCoordinator:
                     task = workflow.tasks[tid]
                     workflow.total_cost += task.cost
 
-                # Check for failures (ALL mode aborts on any failure)
+                # Check for failures (ALL mode aborts on any failure, but not skipped)
                 failed = [t for t in layer if workflow.tasks[t].status == TaskStatus.FAILED]
                 if failed and workflow.consensus_mode == ConsensusMode.ALL:
                     log.error(f"Workflow '{workflow.name}' aborted: tasks {failed} failed")
                     workflow.status = TaskStatus.FAILED
                     return self._build_result(workflow)
 
-                # Pass results to next layer's payload
+                # Pass results to next layer's payload (skip SKIPPED tasks)
                 for tid in layer:
                     task = workflow.tasks[tid]
                     if task.status == TaskStatus.COMPLETED and task.result:
                         workflow.results[tid] = task.result
+                    elif task.status == TaskStatus.SKIPPED:
+                        workflow.results[tid] = None  # Skipped tasks have no result
 
             # Handle timeout — mark unstarted tasks
             if timed_out:
@@ -284,15 +298,47 @@ class WorkflowCoordinator:
         - MERGE: collect all results
         - FIRST: first successful result wins
         - VOTE: majority vote on string representation
+
+        v3 additions:
+        - Conditional branching: tasks with a condition are evaluated before execution
+        - Result passing: input_from injects a dependency's result as 'input' in payload
+        - Retry: failed tasks are retried up to max_retries with exponential backoff
         """
         coros = []
         task_ids = []
+        skipped = []
+
         for tid in layer:
             task = workflow.tasks[tid]
+
+            # ── v3: Conditional branching ──
+            if task.condition:
+                # Build evaluation context from dependency results
+                eval_ctx = {}
+                for dep_id in task.dependencies:
+                    if dep_id in workflow.results:
+                        eval_ctx[f"result_{dep_id}"] = workflow.results[dep_id]
+                try:
+                    should_run = eval(task.condition, {"__builtins__": {}}, eval_ctx)
+                except Exception as e:
+                    log.warning(f"Task '{task.name}' condition eval error: {e} — defaulting to skip")
+                    should_run = False
+                if not should_run:
+                    task.status = TaskStatus.SKIPPED
+                    task.result = None
+                    task.completed_at = time.time()
+                    skipped.append(tid)
+                    log.info(f"Task '{task.name}' ({task.id}) SKIPPED — condition '{task.condition}' = False")
+                    continue
+
             # Inject results from dependencies into payload
             for dep_id in task.dependencies:
                 if dep_id in workflow.results:
                     task.payload[f"result_{dep_id}"] = workflow.results[dep_id]
+
+            # ── v3: Result passing ──
+            if task.input_from and task.input_from in workflow.results:
+                task.payload["input"] = workflow.results[task.input_from]
 
             # Fan-out: if task has fan_out_count > 1, create N copies
             if task.fan_out_count > 1:
@@ -376,66 +422,84 @@ class WorkflowCoordinator:
         return output
 
     async def _execute_task(self, workflow: Workflow, task: WorkflowTask) -> Any:
-        """Execute a single task — assign agent and send message."""
+        """Execute a single task — assign agent and send message.
+
+        v3: Retries on failure up to max_retries with exponential backoff.
+        """
         task.started_at = time.time()
-        task.status = TaskStatus.RUNNING
 
-        try:
-            # Auto-assign agent if not specified
-            if not task.agent and self.smart_router:
-                agent = self.smart_router.route(
-                    required_capabilities=task.capabilities or None,
-                    strategy="health_weighted",
-                )
-                if agent:
-                    task.assigned_agent = agent.name
+        while True:
+            task.status = TaskStatus.RUNNING if task.retry_count == 0 else TaskStatus.RETRYING
+            try:
+                # Auto-assign agent if not specified
+                if not task.agent and self.smart_router:
+                    agent = self.smart_router.route(
+                        required_capabilities=task.capabilities or None,
+                        strategy="health_weighted",
+                    )
+                    if agent:
+                        task.assigned_agent = agent.name
+                    else:
+                        raise ValueError(f"No agent found for capabilities: {task.capabilities}")
+                elif task.agent:
+                    task.assigned_agent = task.agent
+
+                # Send message via node if available
+                if self.node and task.assigned_agent:
+                    from ..core.message import A2AMessage
+                    msg = A2AMessage(
+                        sender=self.node.node_name,
+                        recipient=task.assigned_agent,
+                        type="workflow_task",
+                        priority=5,
+                        payload={
+                            "workflow_id": workflow.id,
+                            "task_id": task.id,
+                            "task_name": task.name,
+                            "capabilities": task.capabilities,
+                            "retry_count": task.retry_count,
+                            **task.payload,
+                        },
+                        routing_mode="direct",
+                    )
+                    result = await self.node.router.send(msg)
+                    task.result = {"sent": True, "message_id": msg.id, "transport": result.transport}
+
                 else:
-                    raise ValueError(f"No agent found for capabilities: {task.capabilities}")
-            elif task.agent:
-                task.assigned_agent = task.agent
+                    # No node or agent — simulate success for testing
+                    task.result = {"simulated": True, "agent": task.assigned_agent}
 
-            # Send message via node if available
-            if self.node and task.assigned_agent:
-                from ..core.message import A2AMessage
-                msg = A2AMessage(
-                    sender=self.node.node_name,
-                    recipient=task.assigned_agent,
-                    type="workflow_task",
-                    priority=5,
-                    payload={
-                        "workflow_id": workflow.id,
-                        "task_id": task.id,
-                        "task_name": task.name,
-                        "capabilities": task.capabilities,
-                        **task.payload,
-                    },
-                    routing_mode="direct",
-                )
-                result = await self.node.router.send(msg)
-                task.result = {"sent": True, "message_id": msg.id, "transport": result.transport}
+                task.status = TaskStatus.COMPLETED
+                task.completed_at = time.time()
+                dur = f"{task.duration_ms:.0f}ms" if task.duration_ms is not None else "?ms"
+                suffix = f" (retry #{task.retry_count})" if task.retry_count > 0 else ""
+                log.info(f"Task '{task.name}' ({task.id}) completed in {dur} via {task.assigned_agent}{suffix}")
+                return task.result
 
+            except asyncio.TimeoutError:
+                task.error = f"Timeout after {task.timeout}s"
+                log.warning(f"Task '{task.name}' ({task.id}) timed out (retry {task.retry_count}/{task.max_retries})")
+
+            except Exception as e:
+                task.error = str(e)
+                log.error(f"Task '{task.name}' ({task.id}) failed (retry {task.retry_count}/{task.max_retries}): {e}")
+
+            # ── v3: Retry logic ──
+            if task.retry_count < task.max_retries:
+                task.retry_count += 1
+                backoff = task.retry_delay * (2 ** (task.retry_count - 1))
+                log.info(f"Task '{task.name}' ({task.id}) retrying in {backoff:.1f}s (attempt {task.retry_count + 1}/{task.max_retries + 1})")
+                await asyncio.sleep(backoff)
+                task.error = None
+                continue
+
+            # No more retries — mark as failed
+            if asyncio.TimeoutError and "Timeout" in str(task.error or ""):
+                task.status = TaskStatus.TIMEOUT
             else:
-                # No node or agent — simulate success for testing
-                task.result = {"simulated": True, "agent": task.assigned_agent}
-
-            task.status = TaskStatus.COMPLETED
+                task.status = TaskStatus.FAILED
             task.completed_at = time.time()
-            dur = f"{task.duration_ms:.0f}ms" if task.duration_ms is not None else "?ms"
-            log.info(f"Task '{task.name}' ({task.id}) completed in {dur} via {task.assigned_agent}")
-
-        except asyncio.TimeoutError:
-            task.status = TaskStatus.TIMEOUT
-            task.error = f"Timeout after {task.timeout}s"
-            task.completed_at = time.time()
-            log.warning(f"Task '{task.name}' ({task.id}) timed out")
-
-        except Exception as e:
-            task.status = TaskStatus.FAILED
-            task.error = str(e)
-            task.completed_at = time.time()
-            log.error(f"Task '{task.name}' ({task.id}) failed: {e}")
-
-        return task.result
+            return task.result
 
     def _build_result(self, workflow: Workflow) -> Dict:
         """Build the final result dict from a workflow."""
@@ -449,6 +513,7 @@ class WorkflowCoordinator:
                 "result": task.result,
                 "error": task.error,
                 "cost": task.cost,
+                "retry_count": task.retry_count,
             }
 
         return {
@@ -459,6 +524,8 @@ class WorkflowCoordinator:
             "completed": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.COMPLETED),
             "failed": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.FAILED),
             "timed_out": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.TIMEOUT),
+            "skipped": sum(1 for t in workflow.tasks.values() if t.status == TaskStatus.SKIPPED),
+            "retried": sum(1 for t in workflow.tasks.values() if t.retry_count > 0),
             "total_cost": round(workflow.total_cost, 4),
             "results": workflow.results,
             "errors": workflow.errors if workflow.errors else None,

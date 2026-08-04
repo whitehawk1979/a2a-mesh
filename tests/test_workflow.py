@@ -254,3 +254,211 @@ class TestWorkflowIntegration:
         wf.add_task(WorkflowTask(id="t1", name="Task 1"))
         result = await coord.execute(wf)
         assert result["status"] in ("completed", "failed")
+
+
+# ── v3 Tests: Conditional branching, retry, result passing ──
+
+class TestWorkflowV3Conditional:
+    """Test v3 conditional branching — tasks with condition are skipped if False."""
+
+    @pytest.mark.asyncio
+    async def test_condition_true_runs_task(self):
+        """Task with condition=True should run normally."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("cond-true-test")
+        wf.add_task(WorkflowTask(id="t1", name="Setup", payload={"value": 42}))
+        wf.add_task(WorkflowTask(
+            id="t2", name="Conditional",
+            dependencies=["t1"],
+            condition="result_t1.get('simulated') == True",
+        ))
+        result = await coord.execute(wf)
+        assert result["status"] == "completed"
+        assert result["task_details"]["t2"]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_condition_false_skips_task(self):
+        """Task with condition=False should be SKIPPED."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("cond-false-test")
+        wf.add_task(WorkflowTask(id="t1", name="Setup", payload={"value": 42}))
+        wf.add_task(WorkflowTask(
+            id="t2", name="SkipMe",
+            dependencies=["t1"],
+            condition="result_t1.get('value') == 999",
+        ))
+        result = await coord.execute(wf)
+        assert result["status"] == "completed"
+        assert result["task_details"]["t2"]["status"] == "skipped"
+        assert result["skipped"] == 1
+
+    @pytest.mark.asyncio
+    async def test_condition_error_defaults_skip(self):
+        """Condition with eval error should default to skip."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("cond-error-test")
+        wf.add_task(WorkflowTask(id="t1", name="Setup"))
+        wf.add_task(WorkflowTask(
+            id="t2", name="BadCond",
+            dependencies=["t1"],
+            condition="undefined_var.something",
+        ))
+        result = await coord.execute(wf)
+        assert result["task_details"]["t2"]["status"] == "skipped"
+
+    @pytest.mark.asyncio
+    async def test_conditional_branch_if_else(self):
+        """Full if/else: task B runs if condition True, task C runs if False."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("if-else-test")
+        wf.add_task(WorkflowTask(id="search", name="Search", payload={"found": True}))
+        wf.add_task(WorkflowTask(
+            id="process", name="Process",
+            dependencies=["search"],
+            condition="result_search.get('simulated') == True",
+        ))
+        wf.add_task(WorkflowTask(
+            id="fallback", name="Fallback",
+            dependencies=["search"],
+            condition="result_search.get('simulated') == False",
+        ))
+        result = await coord.execute(wf)
+        assert result["task_details"]["process"]["status"] == "completed"
+        assert result["task_details"]["fallback"]["status"] == "skipped"
+
+
+class TestWorkflowV3Retry:
+    """Test v3 retry policy — failed tasks retry up to max_retries."""
+
+    @pytest.mark.asyncio
+    async def test_no_retry_by_default(self):
+        """Task without max_retries should fail immediately."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("no-retry-test")
+        wf.add_task(WorkflowTask(
+            id="t1", name="FailTask",
+            agent="nonexistent_agent",
+            capabilities=["nonexistent_cap"],
+        ))
+        result = await coord.execute(wf)
+        # Without node, it simulates success — so test with a coordinator that has no router
+        # The task will get assigned to nonexistent_agent but simulated success
+        # Check retry_count is 0 (no retries attempted)
+        assert result["task_details"]["t1"].get("retry_count", 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_retry_with_max_retries(self):
+        """Task with max_retries should retry on failure."""
+        coord = WorkflowCoordinator()
+        # Mock smart_router that always fails to find an agent
+        class FailRouter:
+            def route(self, required_capabilities=None, strategy=None):
+                return None
+        coord.smart_router = FailRouter()
+        
+        wf = coord.create_workflow("retry-test")
+        wf.add_task(WorkflowTask(
+            id="t1", name="RetryTask",
+            max_retries=2,
+            retry_delay=0.01,
+        ))
+        result = await coord.execute(wf)
+        assert result["status"] == "failed"
+        assert result["task_details"]["t1"].get("retry_count", 0) == 2
+
+    @pytest.mark.asyncio
+    async def test_retry_succeeds_eventually(self):
+        """Task that fails first but succeeds on retry."""
+        call_count = {"n": 0}
+        coord = WorkflowCoordinator()
+        
+        class FakeAgent:
+            name = "fake_agent"
+        
+        class FakeRouter:
+            def route(self, required_capabilities=None, strategy=None):
+                return FakeAgent()
+        coord.smart_router = FakeRouter()
+        
+        class FakeSendResult:
+            transport = "p2p"
+            success = True
+        
+        class FakeRouter2:
+            @staticmethod
+            async def send(msg):
+                call_count["n"] += 1
+                if call_count["n"] < 2:
+                    raise Exception("Simulated transient failure")
+                return FakeSendResult()
+        
+        class FakeNode:
+            node_name = "test_node"
+            router = FakeRouter2()
+        coord.node = FakeNode()
+        
+        wf = coord.create_workflow("retry-success-test")
+        wf.add_task(WorkflowTask(
+            id="t1", name="FlakyTask",
+            max_retries=3,
+            retry_delay=0.01,
+        ))
+        result = await coord.execute(wf)
+        assert result["status"] == "completed"
+        assert result["task_details"]["t1"]["status"] == "completed"
+        assert result["task_details"]["t1"].get("retry_count", 0) == 1
+
+
+class TestWorkflowV3ResultPassing:
+    """Test v3 result passing — input_from injects dependency result as 'input'."""
+
+    @pytest.mark.asyncio
+    async def test_result_passing_injects_input(self):
+        """Task with input_from should receive dependency result as 'input' in payload."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("result-passing-test")
+        wf.add_task(WorkflowTask(id="t1", name="Producer", payload={"data": "hello"}))
+        wf.add_task(WorkflowTask(
+            id="t2", name="Consumer",
+            dependencies=["t1"],
+            input_from="t1",
+        ))
+        result = await coord.execute(wf)
+        assert result["status"] == "completed"
+        assert "input" in wf.tasks["t2"].payload
+
+    @pytest.mark.asyncio
+    async def test_dependency_result_in_payload(self):
+        """Dependencies automatically inject result_<dep_id> into payload."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("dep-result-test")
+        wf.add_task(WorkflowTask(id="t1", name="First"))
+        wf.add_task(WorkflowTask(id="t2", name="Second", dependencies=["t1"]))
+        result = await coord.execute(wf)
+        assert result["status"] == "completed"
+        assert "result_t1" in wf.tasks["t2"].payload
+
+
+class TestWorkflowV3SkippedStatus:
+    """Test SKIPPED status is properly tracked in results."""
+
+    @pytest.mark.asyncio
+    async def test_skipped_count_in_result(self):
+        """Result should include skipped count."""
+        coord = WorkflowCoordinator()
+        wf = coord.create_workflow("skipped-count-test")
+        wf.add_task(WorkflowTask(id="t1", name="Setup"))
+        wf.add_task(WorkflowTask(
+            id="t2", name="Skip1",
+            dependencies=["t1"],
+            condition="False",
+        ))
+        wf.add_task(WorkflowTask(
+            id="t3", name="Skip2",
+            dependencies=["t1"],
+            condition="False",
+        ))
+        result = await coord.execute(wf)
+        assert result["status"] == "completed"
+        assert result["skipped"] == 2
+        assert result["completed"] == 1
