@@ -6,8 +6,8 @@ import asyncio
 
 from a2a_mesh.core.framing import (
     encode_frame, decode_frame, read_frame, frame_info,
-    FRAME_VERSION, V1_MARKER, V2_MARKER, MAX_MESSAGE_SIZE,
-    compute_hmac,
+    FRAME_VERSION, V1_MARKER, V2_MARKER, V3_MARKER, MAX_MESSAGE_SIZE,
+    COMPRESSION_THRESHOLD, FLAG_COMPRESSED, compute_hmac,
 )
 
 
@@ -420,3 +420,186 @@ class TestV2BackwardCompat:
 
     def test_v1_marker_unchanged(self):
         assert V1_MARKER == 0x01
+
+
+# ── v3 compression tests ──
+
+class TestV3FrameEncodeDecode:
+    """Test v3 frame format with optional compression."""
+
+    def test_v3_marker_is_0x03(self):
+        assert V3_MARKER == 0x03
+
+    def test_v3_small_payload_no_compression(self):
+        """Small payloads should not be compressed."""
+        payload = b'{"type":"heartbeat","ts":1234567890}'
+        frame = encode_frame(payload, version=3)
+        assert frame[0] == V3_MARKER
+        version, decoded = decode_frame(frame)
+        assert version == 3
+        assert decoded == payload
+
+    def test_v3_large_payload_compressed(self):
+        """Large payloads should be compressed."""
+        # Create a highly compressible payload > COMPRESSION_THRESHOLD
+        payload = b'{"data":"' + b'A' * 5000 + b'"}'
+        assert len(payload) > COMPRESSION_THRESHOLD
+        frame = encode_frame(payload, version=3)
+        assert frame[0] == V3_MARKER
+        # The frame should be smaller than the uncompressed payload
+        assert len(frame) < len(payload) + 10  # overhead is minimal
+        version, decoded = decode_frame(frame)
+        assert version == 3
+        assert decoded == payload
+
+    def test_v3_random_data_not_compressed_if_no_gain(self):
+        """Random (incompressible) data should not be compressed."""
+        import os as _os
+        payload = _os.urandom(2000)  # Random data won't compress well
+        frame = encode_frame(payload, version=3)
+        version, decoded = decode_frame(frame)
+        assert version == 3
+        assert decoded == payload
+        # Check flags — should NOT have FLAG_COMPRESSED set
+        inner = frame[5:]
+        flags = inner[0]
+        assert not (flags & FLAG_COMPRESSED), "Random data should not be compressed"
+
+    def test_v3_flags_compressed_bit(self):
+        """Compressed frames should have FLAG_COMPRESSED bit set."""
+        payload = b'{"data":"' + b'X' * 2000 + b'"}'
+        frame = encode_frame(payload, version=3)
+        inner = frame[5:]
+        flags = inner[0]
+        assert flags & FLAG_COMPRESSED, "Large compressible payload should set compression flag"
+
+    def test_v3_empty_payload(self):
+        """Empty payload should work (no compression)."""
+        payload = b''
+        frame = encode_frame(payload, version=3)
+        version, decoded = decode_frame(frame)
+        assert version == 3
+        assert decoded == payload
+
+    def test_v3_exact_threshold(self):
+        """Payload exactly at threshold should not be compressed (strict >)."""
+        payload = b'A' * COMPRESSION_THRESHOLD
+        frame = encode_frame(payload, version=3)
+        inner = frame[5:]
+        flags = inner[0]
+        # Equal to threshold — should NOT be compressed
+        assert not (flags & FLAG_COMPRESSED)
+
+    def test_v3_one_byte_over_threshold(self):
+        """One byte over threshold should trigger compression if compressible."""
+        payload = b'A' * (COMPRESSION_THRESHOLD + 1)
+        frame = encode_frame(payload, version=3)
+        inner = frame[5:]
+        flags = inner[0]
+        assert flags & FLAG_COMPRESSED, "Payload > threshold should be compressed"
+        version, decoded = decode_frame(frame)
+        assert decoded == payload
+
+    def test_v3_round_trip_json_payload(self):
+        """Realistic JSON payload round-trip."""
+        import json
+        msg = {"type": "message", "sender": "nova", "recipient": "morzsa",
+               "payload": {"text": "Hello " * 200, "data": list(range(100))}}
+        payload = json.dumps(msg).encode()
+        assert len(payload) > COMPRESSION_THRESHOLD
+        frame = encode_frame(payload, version=3)
+        version, decoded = decode_frame(frame)
+        assert version == 3
+        assert decoded == payload
+        assert json.loads(decoded) == msg
+
+    def test_v3_frame_info(self):
+        """frame_info should correctly parse v3 frames."""
+        payload = b'B' * 3000
+        frame = encode_frame(payload, version=3)
+        info = frame_info(frame)
+        assert info["version"] == 3
+        assert info["compressed"] is True
+        assert info["payload_size"] > 0
+
+    def test_v3_frame_info_uncompressed(self):
+        """frame_info for uncompressed v3 frame."""
+        payload = b'small'
+        frame = encode_frame(payload, version=3)
+        info = frame_info(frame)
+        assert info["version"] == 3
+        assert info["compressed"] is False
+        assert info["payload_size"] == len(payload)
+
+    def test_v3_max_size_enforced(self):
+        """v3 should enforce MAX_MESSAGE_SIZE."""
+        import os as _os
+        payload = _os.urandom(MAX_MESSAGE_SIZE + 1)
+        with pytest.raises(ValueError, match="Payload too large"):
+            encode_frame(payload, version=3)
+
+
+class TestV3ReadFrame:
+    """Test read_frame with v3 frames (async stream)."""
+
+    @pytest.mark.asyncio
+    async def test_read_v3_compressed(self):
+        """read_frame should decode v3 compressed frames from stream."""
+        payload = b'{"data":"' + b'Z' * 3000 + b'"}'
+        frame = encode_frame(payload, version=3)
+        reader = MockReader(frame)
+        version, decoded = await read_frame(reader)
+        assert version == 3
+        assert decoded == payload
+
+    @pytest.mark.asyncio
+    async def test_read_v3_uncompressed(self):
+        """read_frame should decode v3 uncompressed frames from stream."""
+        payload = b'{"hi":1}'
+        frame = encode_frame(payload, version=3)
+        reader = MockReader(frame)
+        version, decoded = await read_frame(reader)
+        assert version == 3
+        assert decoded == payload
+
+    @pytest.mark.asyncio
+    async def test_read_v3_empty(self):
+        """read_frame should handle empty v3 frames."""
+        payload = b''
+        frame = encode_frame(payload, version=3)
+        reader = MockReader(frame)
+        version, decoded = await read_frame(reader)
+        assert version == 3
+        assert decoded == payload
+
+
+class TestV3BackwardCompat:
+    """Test that v3 doesn't break v0/v1/v2 frames."""
+
+    def test_v1_still_works(self):
+        payload = b'{"test":true}'
+        frame = encode_frame(payload, version=1)
+        version, decoded = decode_frame(frame)
+        assert version == 1
+        assert decoded == payload
+
+    def test_v2_still_works_with_key(self):
+        import os as _os
+        payload = b'{"test":true}'
+        key = _os.urandom(32)
+        frame = encode_frame(payload, version=2, hmac_key=key)
+        version, decoded = decode_frame(frame, hmac_key=key)
+        assert version == 2
+        assert decoded == payload
+
+    def test_v0_legacy_still_works(self):
+        payload = b'{"test":true}'
+        frame = encode_frame(payload, version=0)
+        version, decoded = decode_frame(frame)
+        assert version == 0
+        assert decoded == payload
+
+    def test_http_probe_rejection_includes_v3(self):
+        """HTTP probes should not match v3 marker."""
+        # V3_MARKER is 0x03, which is NOT in HTTP_PROBE_MARKERS
+        assert V3_MARKER not in {0x47, 0x50, 0x48, 0x43}

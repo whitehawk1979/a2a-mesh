@@ -128,7 +128,7 @@ class P2PTransport(TransportAdapter):
 
         # ── Message Authentication (v2 frames with HMAC) ──────────────
         self._message_auth: Optional[MessageAuth] = None
-        self._frame_version: Dict[str, int] = {}  # peer_name → negotiated frame version (1 or 2)
+        self._frame_version: Dict[str, int] = {}  # peer_name → negotiated frame version (1, 2, or 3)
         self._auth_stats: Dict[str, int] = {
             "frames_signed": 0,
             "frames_verified": 0,
@@ -429,13 +429,18 @@ class P2PTransport(TransportAdapter):
                         # Update peer version from heartbeat payload
                         hb_payload = message.payload if isinstance(message.payload, dict) else {}
                         hb_version = hb_payload.get("version") if hb_payload else None
-                        # ── v2 frame version negotiation ──
-                        # If the peer advertises frame_version=2 in its heartbeat,
-                        # upgrade our negotiated version to v2 for this peer
+                        # ── v3 frame version negotiation ──
+                        # If the peer advertises frame_version=3 in its heartbeat,
+                        # upgrade our negotiated version to v3 for this peer (compression).
+                        # v2 HMAC auth is disabled (different node secrets), TLS handles it.
                         peer_frame_version = hb_payload.get("frame_version") if hb_payload else None
-                        # v2 upgrade disabled — see comment in _send_heartbeat.
-                        # Keep negotiated version at v1 even if peer advertises v2.
-                        if peer_frame_version == 2 and connected_peer_name:
+                        if peer_frame_version == 3 and connected_peer_name:
+                            old_ver = self._frame_version.get(connected_peer_name, 1)
+                            self._frame_version[connected_peer_name] = 3
+                            if old_ver < 3:
+                                log.info(f"Peer {connected_peer_name} supports v3 compressed frames — upgrading from v{old_ver}")
+                        elif peer_frame_version == 2 and connected_peer_name:
+                            # Peer only supports v2 (HMAC auth) — keep v1, v2 is disabled
                             if connected_peer_name not in self._frame_version:
                                 self._frame_version[connected_peer_name] = 1
                             log.debug(f"Peer {connected_peer_name} advertises v2 frames — keeping v1 (v2 auth disabled)")
@@ -595,50 +600,52 @@ class P2PTransport(TransportAdapter):
     def _negotiated_frame_version(self, peer_name: Optional[str]) -> int:
         """Get the negotiated frame version for a peer.
 
-        Returns v2 if both this node and the peer support authenticated frames,
-        v1 otherwise (for backward compatibility or when auth is disabled).
+        Returns v3 if both this node and the peer support compression frames,
+        v1 otherwise (for backward compatibility or when compression is disabled).
         """
-        if self._message_auth is None:
-            return 1  # Auth disabled — always v1
         if peer_name and peer_name in self._frame_version:
             return self._frame_version[peer_name]
-        # Default to v1 until handshake confirms v2 support
+        # Default to v1 until handshake confirms v3 support
         return 1
 
     def _encode_authenticated_frame(self, data: bytes, peer_name: Optional[str]) -> bytes:
         """Encode a payload into a frame with the appropriate version for the peer.
 
-        If MessageAuth is active and the peer supports v2, signs with HMAC (v2).
-        Otherwise, falls back to v1 frames (no authentication).
+        If the peer supports v3 and the payload is large enough, uses compression.
+        Otherwise, falls back to v1 frames (no compression, no authentication).
+        TLS v1.3 provides authentication and integrity at the transport level.
         """
         version = self._negotiated_frame_version(peer_name)
 
-        if version == 2 and self._message_auth is not None:
-            # v2 authenticated frame: use HMAC key from MessageAuth token
-            # The HMAC key is derived from the current token secret
-            secret = self._message_auth._token_manager.current_secret
-            if secret:
-                hmac_key = bytes.fromhex(secret) if len(secret) == 64 else secret.encode('utf-8')
-                self._auth_stats["frames_signed"] += 1
-                return encode_frame(data, version=2, hmac_key=hmac_key)
-            else:
-                # No token available — fall back to v1
-                self._auth_stats["frames_v1_fallback"] += 1
-                log.warning(f"P2P: No auth token for v2 frame to {peer_name}, falling back to v1")
+        if version == 3:
+            # v3 compressed frame — no HMAC needed, TLS handles auth
+            self._auth_stats["frames_signed"] += 1
+            return encode_frame(data, version=3)
 
-        # v1 or v0 frame (no authentication)
+        # v1 frame (no compression, no authentication — backward compatible)
+        if version == 1:
+            self._auth_stats.setdefault("frames_v1_fallback", 0)
         return encode_frame(data, version=1)
 
     async def _verify_authenticated_frame(self, version: int, data: bytes,
                                             peer_name: Optional[str]) -> Optional[bytes]:
-        """Verify an incoming frame's authentication if it's v2.
+        """Verify an incoming frame's authentication if it's v2/v3.
 
-        For v2 frames: verifies HMAC and checks rate limits.
+        For v3 frames: decompression already handled by read_frame(), just record version.
+        For v2 frames: verifies HMAC and checks rate limits (disabled in practice).
         For v1/v0 frames: passes through (backward compatibility).
         Updates the negotiated frame version for this peer based on what it sends.
 
         Returns the payload bytes if verified, None if rejected.
         """
+        if version == 3:
+            # v3 compressed frame — payload already decompressed by read_frame()
+            # TLS v1.3 provides authentication and integrity
+            if peer_name:
+                self._frame_version[peer_name] = 3
+            self._auth_stats["frames_verified"] += 1
+            return data
+
         if version < 2:
             # v1/v0 — no authentication, record that this peer uses v1
             if peer_name and peer_name not in self._frame_version:
@@ -677,12 +684,10 @@ class P2PTransport(TransportAdapter):
         try:
             hb_payload = {"ts": time.time(), "version": self._node_version}
             # Include frame version negotiation in heartbeat
-            # v2 frame auth disabled — the v2 HMAC design is broken (receiver uses
-            # its own secret to verify, but sender signs with its own — different
-            # nodes have different secrets, so HMAC always fails). TLS v1.3
-            # already provides transport-level authentication and integrity.
-            # Always advertise v1 so peers never try to upgrade to v2.
-            max_frame_version = 1
+            # v3 compression support — both peers need to understand 0x03 marker.
+            # v2 HMAC auth is disabled (different node secrets), TLS v1.3 handles auth.
+            # Advertise v3 so peers can upgrade to compressed frames.
+            max_frame_version = 3
             hb_payload["frame_version"] = max_frame_version
 
             hb_msg = A2AMessage.create(
@@ -1228,6 +1233,7 @@ class P2PTransport(TransportAdapter):
         stats = dict(self._auth_stats)
         stats["auth_enabled"] = self._message_auth is not None
         stats["transport_auth_mode"] = "hmac" if self._message_auth else "none"
+        stats["peers_v3"] = sum(1 for v in self._frame_version.values() if v == 3)
         stats["peers_v2"] = sum(1 for v in self._frame_version.values() if v == 2)
         stats["peers_v1"] = sum(1 for v in self._frame_version.values() if v == 1)
         if self._message_auth:

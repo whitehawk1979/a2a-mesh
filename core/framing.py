@@ -1,8 +1,17 @@
 """A2A Mesh Binary Framing — Length-prefixed binary protocol with version header.
 
-Frame format (v2 — authenticated):
+Frame format (v3 — compressed):
+    [0x03][4-byte BE length][1-byte flags][payload]
+
+    flags byte bits:
+        bit 0 (0x01): payload is zlib-compressed
+        bits 1-7: reserved for future use
+
+Frame format (v2 — authenticated, UNUSED):
     [0x02][4-byte BE length][4-byte BE timestamp][8-byte nonce]
     [4-byte BE HMAC_length][HMAC_bytes][payload]
+    NOTE: v2 is disabled in practice — HMAC requires shared secret but each
+    node has its own. TLS v1.3 provides authentication and integrity already.
 
 Frame format (v1):
     [0x01][4-byte BE length][payload]
@@ -16,15 +25,24 @@ is a valid JSON start character ({, [) or msgpack header.
 
 Version negotiation:
     During P2P handshake (first heartbeat), peers exchange their supported
-    frame version in the heartbeat payload. If both support v2, HMAC auth
-    is used for all subsequent frames. If either peer only supports v1,
-    frames are sent without authentication.
+    frame version in the heartbeat payload. If both support v3, compression
+    is used for payloads > COMPRESSION_THRESHOLD. v1 peers reject 0x03 and
+    the sender falls back to v1.
+
+Compression:
+    v3 frames support optional zlib compression. When the payload exceeds
+    COMPRESSION_THRESHOLD bytes (default 1024), it is automatically
+    zlib-compressed with level 6. The flags byte indicates whether
+    compression is active. Decompression happens transparently on decode.
+    v1 peers that don't understand v3 simply reject the 0x03 marker,
+    so the sender falls back to v1 (uncompressed).
 
 Version history:
     v0: Legacy format — [4-byte length][payload] (backward compatible)
     v1: Versioned format — [0x01][4-byte length][payload]
     v2: Authenticated format — [0x02][4-byte length][4-byte timestamp]
-        [8-byte nonce][4-byte HMAC_length][HMAC_bytes][payload]
+        [8-byte nonce][4-byte HMAC_length][HMAC_bytes][payload] (disabled)
+    v3: Compressed format — [0x03][4-byte length][1-byte flags][payload]
 """
 
 import hashlib
@@ -33,6 +51,7 @@ import os
 import struct
 import time
 import logging
+import zlib
 
 log = logging.getLogger("a2a_mesh.framing")
 
@@ -42,12 +61,21 @@ FRAME_VERSION = 1
 # Version byte markers
 V1_MARKER = 0x01
 V2_MARKER = 0x02
+V3_MARKER = 0x03
 
 # Maximum message size: 10MB
 MAX_MESSAGE_SIZE = 10 * 1024 * 1024
 
 # Maximum HMAC size (prevent DoS via absurd HMAC_length)
 MAX_HMAC_SIZE = 512
+
+# Compression threshold: payloads larger than this are compressed in v3 frames
+COMPRESSION_THRESHOLD = 1024  # 1KB
+# Compression level (1-9, 6 is a good balance of speed vs ratio)
+COMPRESSION_LEVEL = 6
+
+# v3 flags
+FLAG_COMPRESSED = 0x01
 
 # v0 legacy: first byte is '{' (0x7B) or '[' (0x5B) for JSON,
 # or 0x80-0x9F for msgpack fixarray/fixmap
@@ -99,6 +127,23 @@ def encode_frame(payload: bytes, version: int = FRAME_VERSION,
         raise ValueError(f"Payload too large: {len(payload)} bytes "
                         f"(max {MAX_MESSAGE_SIZE})")
 
+    if version == 3:
+        # v3: [0x03][4-byte length][1-byte flags][payload (optionally compressed)]
+        # Compression-only frame — TLS v1.3 provides auth + integrity.
+        flags = 0
+        frame_payload = payload
+        if len(payload) > COMPRESSION_THRESHOLD:
+            compressed = zlib.compress(payload, COMPRESSION_LEVEL)
+            if len(compressed) < len(payload):
+                frame_payload = compressed
+                flags |= FLAG_COMPRESSED
+
+        # Inner: flags(1) + payload
+        inner = bytes([flags]) + frame_payload
+        version_byte = bytes([V3_MARKER])
+        length_prefix = struct.pack('>I', len(inner))
+        return version_byte + length_prefix + inner
+
     if version == 2:
         if hmac_key is None:
             raise ValueError("v2 frames require an hmac_key for authentication")
@@ -144,6 +189,35 @@ def decode_frame(data: bytes, hmac_key: bytes | None = None) -> tuple:
         raise ValueError(f"Frame too short: {len(data)} bytes")
 
     first_byte = data[0]
+
+    if first_byte == V3_MARKER:
+        # v3 frame: [0x03][4-byte length][1-byte flags][payload (optionally compressed)]
+        if len(data) < 6:
+            raise ValueError(f"v3 frame too short: {len(data)} bytes")
+        length = struct.unpack('>I', data[1:5])[0]
+        if length > MAX_MESSAGE_SIZE:
+            raise ValueError(f"Payload too large: {length} bytes")
+        inner = data[5:]
+        if len(inner) != length:
+            raise ValueError(f"Inner length mismatch: expected {length}, "
+                           f"got {len(inner)}")
+
+        if len(inner) < 1:
+            raise ValueError("v3 frame missing flags byte")
+
+        flags = inner[0]
+        frame_payload = inner[1:]
+
+        # Decompress if flagged
+        if flags & FLAG_COMPRESSED:
+            try:
+                payload = zlib.decompress(frame_payload)
+            except zlib.error as e:
+                raise ValueError(f"v3 decompression failed: {e}")
+        else:
+            payload = frame_payload
+
+        return (3, payload)
 
     if first_byte == V2_MARKER:
         # v2 frame: [0x02][4-byte length][4-byte timestamp][8-byte nonce]
@@ -237,7 +311,7 @@ async def read_frame(reader, hmac_key: bytes | None = None) -> tuple:
     # Common HTTP methods: GET(47), POST(50), PUT(50), HEAD(48), OPTIONS(4F), CONNECT(43)
     # These are port scanners/probes hitting the P2P port with HTTP requests
     HTTP_PROBE_MARKERS = {0x47, 0x50, 0x48, 0x43}  # G, P, H, C (HTTP method starts)
-    if version_byte in HTTP_PROBE_MARKERS and version_byte not in (V1_MARKER, V2_MARKER):
+    if version_byte in HTTP_PROBE_MARKERS and version_byte not in (V1_MARKER, V2_MARKER, V3_MARKER):
         # Read a few more bytes to confirm it's an HTTP probe
         try:
             peek = await reader.read(8)  # Read enough to identify HTTP method
@@ -246,6 +320,33 @@ async def read_frame(reader, hmac_key: bytes | None = None) -> tuple:
         except Exception:
             probe_str = first_byte.decode('ascii', errors='replace')
         raise ValueError(f"HTTP probe rejected on P2P port: {probe_str!r}")
+
+    if version_byte == V3_MARKER:
+        # v3 frame: [0x03][4-byte length][1-byte flags][payload (optionally compressed)]
+        length_data = await reader.readexactly(4)
+        length = struct.unpack('>I', length_data)[0]
+
+        if length > MAX_MESSAGE_SIZE:
+            raise ValueError(f"Payload too large: {length} bytes")
+
+        inner = await reader.readexactly(length)
+
+        if len(inner) < 1:
+            raise ValueError("v3 frame missing flags byte")
+
+        flags = inner[0]
+        frame_payload = inner[1:]
+
+        # Decompress if flagged
+        if flags & FLAG_COMPRESSED:
+            try:
+                payload = zlib.decompress(frame_payload)
+            except zlib.error as e:
+                raise ValueError(f"v3 decompression failed: {e}")
+        else:
+            payload = frame_payload
+
+        return (3, payload)
 
     if version_byte == V2_MARKER:
         # v2 frame: [0x02][4-byte length][inner: timestamp + nonce + hmac_len + hmac + payload]
@@ -320,6 +421,24 @@ def frame_info(data: bytes) -> dict:
         return {"version": "unknown", "length": 0, "payload_size": 0}
 
     first_byte = data[0]
+
+    if first_byte == V3_MARKER:
+        if len(data) < 5:
+            return {"version": 3, "length": 0, "payload_size": 0}
+        length = struct.unpack('>I', data[1:5])[0]
+        inner = data[5:]
+        info = {
+            "version": 3,
+            "length": length,
+            "frame_size": len(data),
+        }
+        if len(inner) >= 1:
+            info["flags"] = inner[0]
+            info["compressed"] = bool(inner[0] & FLAG_COMPRESSED)
+            info["payload_size"] = max(0, len(inner) - 1)
+        else:
+            info["payload_size"] = 0
+        return info
 
     if first_byte == V2_MARKER:
         if len(data) < 5:
