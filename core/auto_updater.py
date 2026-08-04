@@ -443,8 +443,9 @@ class AutoUpdater:
         if result.returncode != 0:
             raise RuntimeError(f"git fetch failed: {result.stderr}")
 
-        # Checkout the tag (stash local changes if needed)
-        logger.info(f"📦 Checking out {target_tag}...")
+        # Checkout the tag on main branch (avoid detached HEAD)
+        # Strategy: checkout main, pull latest, verify the tag is present
+        logger.info(f"📦 Updating to {target_tag} on main branch...")
         
         # Stash any local changes before checkout
         stash_result = await loop.run_in_executor(
@@ -460,17 +461,31 @@ class AutoUpdater:
         else:
             logger.info("📦 Stashed local changes before checkout")
         
+        # Step 1: Checkout main branch (avoid detached HEAD)
         result = await loop.run_in_executor(
             None,
             lambda: subprocess.run(
-                ["git", "checkout", target_tag],
+                ["git", "checkout", "main"],
                 cwd=str(self.mesh_dir),
                 capture_output=True, text=True, timeout=30,
             ),
         )
         if result.returncode != 0:
-            # Try force checkout as fallback
-            logger.warning(f"git checkout failed, trying force checkout: {result.stderr}")
+            # Already on main or checkout failed — try force
+            logger.warning(f"git checkout main: {result.stderr.strip()}")
+        
+        # Step 2: Pull latest from remote (merge the tag commit into main)
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ["git", "merge", "--ff-only", target_tag],
+                cwd=str(self.mesh_dir),
+                capture_output=True, text=True, timeout=30,
+            ),
+        )
+        if result.returncode != 0:
+            # Tag not reachable from main via fast-forward — fall back to direct checkout
+            logger.warning(f"git merge --ff-only {target_tag} failed: {result.stderr.strip()}, trying direct checkout")
             result = await loop.run_in_executor(
                 None,
                 lambda: subprocess.run(
@@ -482,7 +497,7 @@ class AutoUpdater:
             if result.returncode != 0:
                 raise RuntimeError(f"git checkout {target_tag} failed (even with --force): {result.stderr}")
 
-        logger.info(f"✅ Checked out {target_tag}")
+        logger.info(f"✅ Updated to {target_tag} on main branch")
 
     def _get_current_commit(self) -> str:
         """Get current git commit hash."""
