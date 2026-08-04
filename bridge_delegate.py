@@ -189,7 +189,7 @@ def main():
     parser.add_argument("--task-id", help="Task UUID")
     parser.add_argument("--status", help="Filter by status (completed, failed, pending, etc.)")
     parser.add_argument("--limit", type=int, default=10, help="Max results")
-    parser.add_argument("--timeout", type=int, default=120, help="Timeout in seconds for delegate command")
+    parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds for delegate command (default 300, available tasks may need longer)")
     parser.add_argument("--poll-interval", type=int, default=5, help="Poll interval in seconds")
     parser.add_argument("--available", action="store_true", help="Make task available for any agent to claim")
     parser.add_argument("--fan-out", type=int, default=0, help="Create N identical tasks (first to complete wins, others cancelled)")

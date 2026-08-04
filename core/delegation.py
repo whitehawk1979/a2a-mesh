@@ -129,7 +129,7 @@ class DelegationManager:
             task_type: Type of task (generic, monitoring, code, research, analysis)
             priority: Priority (1=low, 5=normal, 7=high, 10=critical)
             context: Additional context data
-            timeout_minutes: Timeout in minutes
+            timeout_minutes: Timeout in minutes (for available tasks, minimum 120 = 2h)
             available: If True, task is available for any agent to claim
             fan_out: If > 0, creates N identical tasks (one per available agent),
                      first to complete wins, others are cancelled. No duplicate work.
@@ -149,6 +149,10 @@ class DelegationManager:
             priority = 10
         if timeout_minutes < 1:
             timeout_minutes = 30
+        # Available tasks: minimum 2h expiry — no agent might be online yet
+        if available and timeout_minutes < 120:
+            timeout_minutes = 120
+            log.info(f"Available task timeout raised to 120min minimum (no agent may be online yet)")
         # Prevent self-delegation
         if to_agent == self.node_name and not available:
             log.warning(f"Skipping self-delegation: {self.node_name} → {to_agent} (use available=True instead)")
@@ -360,12 +364,69 @@ class DelegationManager:
                 continue
 
     async def _check_expired(self):
-        """Mark expired tasks — including running tasks that exceeded their TTL."""
-        await self.pg_pool.execute(
-            """UPDATE shared_delegations SET status = $1 
-               WHERE status IN ($2, $3, $4, $5) AND expires_at < NOW()""",
-            STATUS_EXPIRED, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED, STATUS_RUNNING,
-        )
+        """Mark expired tasks — including running tasks that exceeded their TTL.
+        
+        Available tasks are auto-renewed if no peer has free capacity to claim them.
+        This is the core of resource sharing: tasks wait until an agent with capacity
+        becomes available, rather than expiring and losing the work request.
+        """
+        # Check if any peer has been active recently AND has capacity
+        # Heuristic: if peers completed tasks recently, they're alive and processing
+        try:
+            # Count peers that completed a task in the last 30 min (active = has capacity)
+            active_peers = await self.pg_pool.fetchval(
+                """SELECT COUNT(DISTINCT assigned_agent) FROM shared_delegations 
+                   WHERE assigned_agent IS NOT NULL 
+                   AND assigned_agent != $1
+                   AND completed_at IS NOT NULL 
+                   AND completed_at > NOW() - INTERVAL '30 minutes'""",
+                self.node_name,
+            )
+        except Exception:
+            active_peers = 1  # If we can't check, don't hold tasks forever
+
+        # Also check: are there currently RUNNING tasks by peers? (they're busy but alive)
+        try:
+            busy_peers = await self.pg_pool.fetchval(
+                """SELECT COUNT(DISTINCT assigned_agent) FROM shared_delegations 
+                   WHERE assigned_agent IS NOT NULL 
+                   AND assigned_agent != $1
+                   AND status = $2""",
+                self.node_name, STATUS_RUNNING,
+            )
+        except Exception:
+            busy_peers = 0
+
+        peers_alive = (active_peers and active_peers > 0) or (busy_peers and busy_peers > 0)
+        
+        if not peers_alive:
+            # No peers active recently — only expire PENDING (directed) tasks,
+            # keep AVAILABLE tasks alive for when an agent with capacity comes online
+            await self.pg_pool.execute(
+                """UPDATE shared_delegations SET status = $1 
+                   WHERE status IN ($2, $3, $4) AND expires_at < NOW()""",
+                STATUS_EXPIRED, STATUS_PENDING, STATUS_ACCEPTED, STATUS_RUNNING,
+            )
+            # Auto-renew: extend expiry for available tasks by 2h
+            renewed_count = await self.pg_pool.fetchval(
+                """WITH renewed AS (
+                       UPDATE shared_delegations 
+                       SET expires_at = NOW() + INTERVAL '120 minutes'
+                       WHERE status = $1 AND expires_at < NOW() + INTERVAL '10 minutes'
+                       RETURNING task_id
+                   )
+                   SELECT COUNT(*) FROM renewed""",
+                STATUS_AVAILABLE,
+            )
+            if renewed_count and renewed_count > 0:
+                log.info(f"⏳ No peers with capacity — auto-renewed {renewed_count} available task(s) by 2h (resource sharing: waiting for capacity)")
+        else:
+            # Peers are active — normal expiry for all statuses
+            await self.pg_pool.execute(
+                """UPDATE shared_delegations SET status = $1 
+                   WHERE status IN ($2, $3, $4, $5) AND expires_at < NOW()""",
+                STATUS_EXPIRED, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED, STATUS_RUNNING,
+            )
 
     async def _cleanup_stale_active_tasks(self):
         """Remove stale entries from _active_tasks that are no longer running in PG."""
