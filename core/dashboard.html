@@ -888,11 +888,25 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <h2 style="margin:0">🚨 Alertek</h2>
       <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('alertsModal').style.display='none'">✕</button>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:12px;flex-shrink:0">
-      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="loadAlerts()">Frissítés</button>
-      <span id="alertCount" style="font-size:12px;color:var(--text3);padding:6px 0"></span>
+    <div style="display:flex;gap:8px;margin-bottom:8px;flex-shrink:0">
+      <button class="btn btn-sm" id="alertTabProm" style="background:var(--primary);color:#fff" onclick="switchAlertTab('prom')">Prometheus</button>
+      <button class="btn btn-sm" id="alertTabRules" style="background:var(--surface2);color:var(--text)" onclick="switchAlertTab('rules')">Custom Rules</button>
+      <span id="alertCount" style="font-size:12px;color:var(--text3);padding:6px 0;margin-left:auto"></span>
     </div>
     <div id="alertsList" style="flex:1;overflow-y:auto;padding:4px 0;min-height:200px"></div>
+    <div id="alertRulesPanel" style="display:none;flex:1;overflow-y:auto;padding:4px 0;min-height:200px">
+      <div style="display:flex;gap:8px;margin-bottom:12px;padding:12px;background:var(--surface2);border-radius:8px;flex-wrap:wrap;align-items:end">
+        <div><label style="font-size:11px;color:var(--text3)">ID</label><input type="text" id="arId" placeholder="my_rule" style="width:100px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"></div>
+        <div><label style="font-size:11px;color:var(--text3)">Név</label><input type="text" id="arName" placeholder="My Alert" style="width:120px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"></div>
+        <div><label style="font-size:11px;color:var(--text3)">Metrika</label><input type="text" id="arMetric" placeholder="peers_connected" style="width:130px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"></div>
+        <div><label style="font-size:11px;color:var(--text3)">Op</label><select id="arOp" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"><option><</option><option>></option><option><=</option><option>>=</option><option>==</option><option>!=</option></select></div>
+        <div><label style="font-size:11px;color:var(--text3)">Küszöb</label><input type="number" id="arThreshold" placeholder="1" style="width:60px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"></div>
+        <div><label style="font-size:11px;color:var(--text3)">Severity</label><select id="arSeverity" style="padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"><option>critical</option><option>warning</option><option>info</option></select></div>
+        <div><label style="font-size:11px;color:var(--text3)">Cooldown(s)</label><input type="number" id="arCooldown" placeholder="300" style="width:70px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px"></div>
+        <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="addAlertRule()">Hozzáad</button>
+      </div>
+      <div id="alertRulesList"></div>
+    </div>
   </div>
 </div>
 
@@ -3283,8 +3297,85 @@ function loadAlerts() {
       '</div>';
     }).join('');
   }).catch(function(e) {
-    document.getElementById('alertsList').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Hiba: ' + escHtml(String(e)) + '</div>';
+    document.getElementById('alertsList').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Prometheus nem elerheto — probald a Custom Rules tabot</div>';
   });
+}
+
+function switchAlertTab(tab) {
+  var prom = document.getElementById('alertsList');
+  var rules = document.getElementById('alertRulesPanel');
+  var btnProm = document.getElementById('alertTabProm');
+  var btnRules = document.getElementById('alertTabRules');
+  if (tab === 'prom') {
+    prom.style.display = ''; rules.style.display = 'none';
+    btnProm.style.background = 'var(--primary)'; btnProm.style.color = '#fff';
+    btnRules.style.background = 'var(--surface2)'; btnRules.style.color = 'var(--text)';
+    loadAlerts();
+  } else {
+    prom.style.display = 'none'; rules.style.display = '';
+    btnProm.style.background = 'var(--surface2)'; btnProm.style.color = 'var(--text)';
+    btnRules.style.background = 'var(--primary)'; btnRules.style.color = '#fff';
+    loadAlertRules();
+  }
+}
+
+function loadAlertRules() {
+  _skillsApiCall('/api/alerts').then(function(d) {
+    var c = document.getElementById('alertRulesList');
+    document.getElementById('alertCount').textContent = (d.total_rules || 0) + ' rule';
+    var rules = d.rules || [];
+    if (!rules.length) {
+      c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Nincsenek custom alert rules</div>';
+      return;
+    }
+    c.innerHTML = rules.map(function(r) {
+      var sevColor = r.severity === 'critical' ? 'var(--red)' : r.severity === 'warning' ? 'var(--yellow)' : 'var(--primary)';
+      var stateColor = r.state === 'firing' ? 'var(--red)' : r.state === 'resolved' ? 'var(--green)' : 'var(--text3)';
+      var enabledBtn = r.enabled
+        ? '<button class="btn btn-sm" style="background:var(--green);color:#fff;font-size:11px" onclick="toggleAlertRule(\'' + r.id + '\')">ON</button>'
+        : '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text3);font-size:11px" onclick="toggleAlertRule(\'' + r.id + '\')">OFF</button>';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + sevColor + ';border-radius:8px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div><span style="font-weight:600;font-size:13px">' + escHtml(r.name) + '</span>' +
+          ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + sevColor + ';color:#fff">' + r.severity + '</span>' +
+          ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + stateColor + ';color:#fff">' + r.state + '</span></div>' +
+          '<div style="display:flex;gap:4px">' + enabledBtn +
+          ' <button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px" onclick="deleteAlertRule(\'' + r.id + '\')">Törlés</button></div>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--text3);margin-top:4px">' + escHtml(r.metric) + ' ' + escHtml(r.operator) + ' ' + r.threshold + ' · cooldown: ' + r.cooldown + 's · fires: ' + r.fire_count + '</div>' +
+      '</div>';
+    }).join('');
+  }).catch(function(e) {
+    document.getElementById('alertRulesList').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Hiba: ' + escHtml(String(e)) + '</div>';
+  });
+}
+
+function addAlertRule() {
+  var id = document.getElementById('arId').value.trim();
+  var name = document.getElementById('arName').value.trim();
+  var metric = document.getElementById('arMetric').value.trim();
+  var op = document.getElementById('arOp').value;
+  var threshold = parseFloat(document.getElementById('arThreshold').value || '0');
+  var severity = document.getElementById('arSeverity').value;
+  var cooldown = parseFloat(document.getElementById('arCooldown').value || '300');
+  if (!id || !metric) { alert('ID es metrika kotelezo'); return; }
+  _skillsApiCall('/api/alerts/rules', 'POST', { id: id, name: name || id, metric: metric, operator: op, threshold: threshold, severity: severity, cooldown: cooldown }).then(function(d) {
+    if (d.error) { alert('Hiba: ' + d.error); return; }
+    document.getElementById('arId').value = ''; document.getElementById('arName').value = ''; document.getElementById('arMetric').value = ''; document.getElementById('arThreshold').value = '';
+    loadAlertRules();
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function deleteAlertRule(ruleId) {
+  _skillsApiCall('/api/alerts/rules/' + ruleId, 'DELETE').then(function(d) {
+    loadAlertRules();
+  }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function toggleAlertRule(ruleId) {
+  _skillsApiCall('/api/alerts/rules/' + ruleId + '/toggle', 'POST').then(function(d) {
+    loadAlertRules();
+  }).catch(function(e) { alert('Hiba: ' + e); });
 }
 
 // ─── Topology Modal ──────────────────────────────────────────
