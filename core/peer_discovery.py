@@ -1002,9 +1002,33 @@ class PeerDiscovery:
         
         connected_count = len([p for p in merged_peers.values() if p.p2p_available or p.name in p2p_connected])
         
+        # Enrich peer dicts with P2P transport metrics (rtt, batch_size, drain_ms, frame_version)
+        p2p_peer_stats = {}
+        if self.p2p_transport:
+            try:
+                p2p_peer_stats = self.p2p_transport.get_peer_stats()
+            except Exception:
+                pass
+        peers_dict = {}
+        for name, peer in merged_peers.items():
+            pd = peer.to_dict()
+            if name in p2p_peer_stats:
+                ps = p2p_peer_stats[name]
+                pd["rtt_ms"] = ps.get("rtt_ms", 0)
+                pd["batch_size"] = ps.get("batch_size", 0)
+                pd["drain_ms"] = ps.get("drain_ms", 0)
+                pd["frame_version"] = ps.get("frame_version", 1)
+                pd["connected_s"] = ps.get("connected_s", 0)
+                pd["queue_size"] = ps.get("queue_size", 0)
+            else:
+                pd["rtt_ms"] = 0
+                pd["batch_size"] = 0
+                pd["drain_ms"] = 0
+                pd["frame_version"] = 1
+            peers_dict[name] = pd
         return {
             "known_peers": len(merged_peers),
             "connected_peers": connected_count,
             "available_peers": len(self.get_available_peers()),
-            "peers": {name: peer.to_dict() for name, peer in merged_peers.items()},
+            "peers": peers_dict,
         }
