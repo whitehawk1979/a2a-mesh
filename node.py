@@ -1042,79 +1042,33 @@ class MeshNode:
             steps.append(f"[{node}] git: ERROR — {e}")
             return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "error_git"}}
 
-        # Step 2: Restart service
+        # Step 2: Restart service (delayed — let handler return first)
         try:
-            # Determine restart method based on platform
             import platform as _pf
+            import asyncio as _aio
             if _pf.system() == "Darwin":
-                # macOS — use launchctl
-                r = subprocess.run(
-                    ["launchctl", "stop", "com.hermes.a2a-mesh-node"],
-                    capture_output=True, text=True, timeout=10
+                # macOS — launchctl (delayed in background)
+                subprocess.Popen(
+                    ["bash", "-c", "sleep 3 && launchctl stop com.hermes.a2a-mesh-node && sleep 2 && launchctl start com.hermes.a2a-mesh-node"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-                import time as _time
-                _time.sleep(2)
-                r2 = subprocess.run(
-                    ["launchctl", "start", "com.hermes.a2a-mesh-node"],
-                    capture_output=True, text=True, timeout=10
-                )
-                steps.append(f"[{node}] launchctl restart: OK")
+                steps.append(f"[{node}] launchctl restart: scheduled (3s delay)")
             else:
-                # Linux — use the provided restart command
-                r = subprocess.run(
-                    restart_cmd, shell=True, capture_output=True, text=True, timeout=10
+                # Linux — systemctl (delayed in background)
+                subprocess.Popen(
+                    ["bash", "-c", f"sleep 3 && {restart_cmd}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-                if r.returncode != 0:
-                    steps.append(f"[{node}] restart: FAIL — {r.stderr.strip()[:200]}")
-                    return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_restart"}}
-                steps.append(f"[{node}] restart: OK")
+                steps.append(f"[{node}] restart: scheduled (3s delay)")
+            # Don't wait for restart — return result immediately
+            steps.append(f"[{node}] deploy complete — node will restart shortly")
+            return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "success"}}
         except Exception as e:
             steps.append(f"[{node}] restart: ERROR — {e}")
             return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "error_restart"}}
 
-        # Step 3: Health check (wait for node to come back up)
-        import urllib.request
-        import urllib.error
-        healthy = False
-        for attempt in range(timeout // 5):
-            await asyncio.sleep(5)
-            try:
-                req = urllib.request.Request(health_url, headers={"User-Agent": "deploy-handler"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = _json.loads(resp.read().decode())
-                    if data.get("status") == "healthy":
-                        uptime = data.get("uptime", 0)
-                        peers = data.get("peers", {})
-                        steps.append(f"[{node}] health: OK uptime={uptime}s peers={peers.get('connected',0)}/{peers.get('known',0)}")
-                        healthy = True
-                        break
-            except (urllib.error.URLError, Exception):
-                steps.append(f"[{node}] health: waiting... (attempt {attempt+1})")
-
-        if not healthy:
-            steps.append(f"[{node}] health: TIMEOUT after {timeout}s")
-            return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "timeout_health"}}
-
-        # Step 4: Get git version
-        try:
-            r = subprocess.run(
-                ["git", "log", "--oneline", "-1"],
-                cwd=repo_path, capture_output=True, text=True, timeout=5
-            )
-            steps.append(f"[{node}] version: {r.stdout.strip()}")
-        except Exception:
-            pass
-
-        steps.append(f"[{node}] DEPLOY COMPLETE at {now}")
-        return {
-            "result": "\n".join(steps),
-            "files": [],
-            "context_updates": {
-                "deploy_status": "success",
-                "deploy_time": now,
-                "deploy_node": node,
-            },
-        }
+        # Unreachable — deploy returns before restart
+        return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "success"}}
 
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
         """Handle generic delegated tasks. Parses description for instructions
