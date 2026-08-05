@@ -222,7 +222,7 @@ class DelegationManager:
 
         # Notify via A2A message + PG NOTIFY
         try:
-            from .a2a_message import A2AMessage
+            from .message import A2AMessage
             recipient = "broadcast" if available else to_agent
             msg = A2AMessage.create(
                 sender=self.node_name,
