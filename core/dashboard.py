@@ -222,6 +222,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/delegations/{task_id}/files", self._api_delegations_files)
         # Deploy API
         app.router.add_post("/api/deploy", self._api_deploy)
+        # Smart routing API
+        app.router.add_post("/api/route", self._api_smart_route)
         # Code Review API
         app.router.add_post("/api/code-review", self._api_code_review)
         # Log viewer API

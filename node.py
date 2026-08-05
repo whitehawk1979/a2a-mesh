@@ -3250,7 +3250,8 @@ echo "Status: ok"
                     health_port = $1,
                     pg_available = $2,
                     p2p_available = $3,
-                    http_available = $4
+                    http_available = $4,
+                    capabilities = $6
                 WHERE node_name = $5
             """,
                 getattr(self.config, 'health_port', 8650),
@@ -3258,6 +3259,7 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
+                list(getattr(self.config, 'capabilities', []) or []),
             )
         except Exception as e:
             log.error(f"Heartbeat PG update failed: {e}")

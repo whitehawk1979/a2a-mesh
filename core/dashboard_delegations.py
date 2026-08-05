@@ -693,3 +693,157 @@ class DashboardDelegationsMixin:
         except Exception as e:
             log.error(f"Deploy API error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_smart_route(self, request):
+        """POST /api/route — Find best node(s) for a task type and optionally delegate.
+
+        Body: {
+            "task_type": "monitoring",       # required — handler type / capability
+            "delegate": true,                # optional — auto-delegate if true
+            "subject": "task subject",       # required if delegate=true
+            "description": "...",            # optional
+            "priority": 5,                   # optional
+            "exclude": ["nova"],             # optional — exclude nodes
+            "count": 1,                      # optional — number of nodes to return
+            "strategy": "best"               # "best" (lowest load) or "random" or "all"
+        }
+
+        Returns: {"matches": [{"node": "morzsa", "score": 0.95, "capabilities": [...], "load": 0.3}], "delegated": [...]}
+        """
+        from aiohttp import web
+        import json as _json, random as _random
+
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            body = await request.json()
+            task_type = body.get("task_type", "").strip().lower()
+            if not task_type:
+                return web.json_response({"error": "task_type required"}, status=400)
+
+            do_delegate = body.get("delegate", False)
+            subject = body.get("subject", f"[{task_type}] routed task")
+            description = body.get("description", "")
+            priority = int(body.get("priority", 5))
+            exclude = set(body.get("exclude", []))
+            count = int(body.get("count", 1))
+            strategy = body.get("strategy", "best")
+
+            pg_pool = getattr(self.node, "_pg_pool", None)
+            if not pg_pool:
+                return web.json_response({"error": "DB not available"}, status=503)
+
+            # Find nodes with matching capability, active status, recent heartbeat
+            rows = await pg_pool.fetch(
+                """SELECT node_name, capabilities, status,
+                          last_heartbeat, p2p_available, pg_available
+                   FROM mesh.mesh_nodes
+                   WHERE status = 'active'
+                     AND last_heartbeat > NOW() - INTERVAL '60 seconds'
+                     AND $1 = ANY(capabilities)
+                   ORDER BY node_name""",
+                task_type,
+            )
+
+            if not rows:
+                return web.json_response({
+                    "task_type": task_type,
+                    "matches": [],
+                    "message": f"No active nodes with capability '{task_type}'"
+                })
+
+            # Score each node: capability match + availability + load heuristic
+            candidates = []
+            for row in rows:
+                node_name = row["node_name"]
+                if node_name in exclude:
+                    continue
+                if node_name == self.node.node_name and not do_delegate:
+                    # Don't route to self unless explicitly delegating
+                    pass
+
+                caps = row["capabilities"] or []
+                # Load heuristic: fewer capabilities = more specialized = lower load
+                cap_count = len(caps)
+                load_score = max(0, 1.0 - (cap_count / 20.0))  # 0-1, higher = better
+
+                # P2P + PG availability bonus
+                avail_bonus = 0
+                if row["p2p_available"]:
+                    avail_bonus += 0.1
+                if row["pg_available"]:
+                    avail_bonus += 0.1
+
+                score = load_score + avail_bonus
+                candidates.append({
+                    "node": node_name,
+                    "score": round(score, 3),
+                    "capabilities": caps,
+                    "p2p": row["p2p_available"],
+                    "pg": row["pg_available"],
+                })
+
+            if not candidates:
+                return web.json_response({
+                    "task_type": task_type,
+                    "matches": [],
+                    "message": "All matching nodes excluded"
+                })
+
+            # Sort by score (descending)
+            candidates.sort(key=lambda c: c["score"], reverse=True)
+
+            if strategy == "random":
+                _random.shuffle(candidates)
+            elif strategy == "all":
+                count = len(candidates)
+
+            selected = candidates[:max(count, 1)]
+
+            # Optionally delegate
+            delegated = []
+            if do_delegate:
+                delegation_mgr = getattr(self.node, "delegation", None)
+                if not delegation_mgr:
+                    return web.json_response({
+                        "matches": selected,
+                        "delegated": [],
+                        "error": "Delegation system not available"
+                    })
+
+                for cand in selected:
+                    try:
+                        # Build description JSON
+                        desc = description
+                        if not desc:
+                            desc = _json.dumps({"type": task_type, "description": subject, "context": {}})
+
+                        task_id = await delegation_mgr.delegate_task(
+                            to_agent=cand["node"],
+                            subject=subject,
+                            description=desc,
+                            task_type=task_type,
+                            priority=priority,
+                        )
+                        delegated.append({
+                            "node": cand["node"],
+                            "task_id": task_id,
+                            "status": "delegated" if task_id else "failed",
+                        })
+                    except Exception as e:
+                        delegated.append({
+                            "node": cand["node"],
+                            "error": str(e),
+                            "status": "failed",
+                        })
+
+            return web.json_response({
+                "task_type": task_type,
+                "matches": selected,
+                "delegated": delegated,
+                "total_matches": len(selected),
+            })
+        except Exception as e:
+            log.error(f"Smart route error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
