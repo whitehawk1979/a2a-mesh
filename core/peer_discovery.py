@@ -503,7 +503,9 @@ class PeerDiscovery:
                         health_port = p2p_port + 5  # 8645 -> 8650
                         log.warning(f"PG discovery: {name} health_port==p2p_port ({p2p_port}), auto-corrected to {health_port}")
                     self._peers[name].health_port = health_port
-                    self._peers[name].last_seen = time.time()
+                    # Only update last_seen for P2P-connected peers (non-P2P peers get it from health check)
+                    if self.p2p_transport and name in self.p2p_transport._peers:
+                        self._peers[name].last_seen = time.time()
                     # Only downgrade PG status from PG data if we don't have a live P2P connection
                     # If peer is P2P-connected, PG is reachable (we share the same PG)
                     if self.p2p_transport and name in self.p2p_transport._peers:
