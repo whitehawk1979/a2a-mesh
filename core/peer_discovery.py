@@ -255,6 +255,7 @@ class PeerDiscovery:
             version=version,
         )
         self._peers[name] = peer
+        peer._first_seen = time.time()  # Track when peer was first discovered
 
         # Update local store
         if self.local_store:
@@ -422,8 +423,8 @@ class PeerDiscovery:
                         health_port = p2p_port + 5
                         log.warning(f"PG discovery: {name} health_port==p2p_port ({p2p_port}), auto-corrected to {health_port}")
                     self._peers[name].health_port = health_port
-                    self._peers[name].last_seen = time.time()
                     if self.p2p_transport and name in self.p2p_transport._peers:
+                        self._peers[name].last_seen = time.time()
                         self._peers[name].p2p_available = True
                         self._peers[name].pg_available = True
                     elif self._peers[name].p2p_available and not p2p_avail:
@@ -1058,7 +1059,9 @@ class PeerDiscovery:
                 # Prune stale peers not seen in 30 minutes (never prune static config peers)
                 cutoff = time.time() - 1800
                 stale = [name for name, p in self._peers.items()
-                         if p.last_seen > 0 and p.last_seen < cutoff and name not in self._static_peer_names]
+                         if name not in self._static_peer_names
+                         and ((p.last_seen > 0 and p.last_seen < cutoff)
+                              or (p.last_seen == 0 and hasattr(p, '_first_seen') and p._first_seen < cutoff))]
                 for name in stale:
                     log.info(f"Pruning stale peer: {name} (last seen {int(time.time() - self._peers[name].last_seen)}s ago)")
                     del self._peers[name]
