@@ -73,7 +73,8 @@ Time: $(date '+%Y-%m-%d %H:%M:%S')"
             echo "[ALERT] $name came back UP ($detail)"
         fi
     else
-        echo "[OK] $name: $current_state ($detail)"
+        # Silent when OK — no stdout means no delivery (watchdog pattern)
+        :
     fi
     
     # Update state
