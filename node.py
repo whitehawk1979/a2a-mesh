@@ -976,10 +976,18 @@ class MeshNode:
         now = datetime.now(timezone.utc).isoformat()
         steps = []
 
-        # Parse description
+        # Parse description — may be double-wrapped JSON
         desc_raw = task.get("description", "{}")
         try:
             cfg = _json.loads(desc_raw) if isinstance(desc_raw, str) else desc_raw
+            # Unwrap if delegate_task wrapped our config in {"type":..., "description": "..."}
+            if isinstance(cfg, dict) and "description" in cfg and "remote" not in cfg:
+                inner = cfg.get("description", "")
+                if isinstance(inner, str):
+                    try:
+                        cfg = _json.loads(inner)
+                    except (ValueError, TypeError):
+                        pass
         except (ValueError, TypeError):
             cfg = {}
 
