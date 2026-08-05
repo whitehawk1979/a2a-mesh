@@ -282,6 +282,7 @@ class DiagnosticEngine:
                 "process_vms_mb": round(mem_info.vms / 1024 / 1024, 1),
                 "system_memory_percent": psutil.virtual_memory().percent,
                 "system_cpu_percent": cpu_raw,
+                "process_cpu_percent": round(process.cpu_percent(interval=0.0), 1),
                 "cpu_effective_percent": round(cpu_effective, 1),
                 "cpu_steal_percent": round(cpu_steal, 1),
                 "disk_usage_percent": psutil.disk_usage('/').percent,
@@ -559,8 +560,15 @@ class DiagnosticEngine:
             cpu_raw = mem.get("system_cpu_percent", 0)
             cpu_steal = mem.get("cpu_steal_percent", 0)
             cpu_effective = mem.get("cpu_effective_percent", cpu_raw)
+            process_cpu = mem.get("process_cpu_percent", 0)
             # Use effective CPU for thresholds (excludes hypervisor steal)
+            # BUT: on Proxmox/VM hosts, system CPU is often 97-100% due to host-wide
+            # measurement including all VMs. If process CPU is low (<10%), the mesh
+            # process itself is not CPU-bound — skip the critical suggestion.
             cpu = cpu_effective
+            if cpu > 90 and process_cpu < 10:
+                # System CPU high but mesh process idle → Proxmox host noise
+                cpu = process_cpu  # Use process CPU instead, avoids false positive
 
             # Steal time warning (KVM/VM environments)
             if cpu_steal > 20 and not _suggestion_exists("steal time"):
