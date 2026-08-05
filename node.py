@@ -773,6 +773,20 @@ class MeshNode:
         any_ok = any(results.values())
         if any_ok:
             log.info(f"Mesh node '{self.node_name}' started ({sum(results.values())}/3 transports)")
+            # Read recovery notes at startup (if PG pool available)
+            try:
+                from .core.dashboard_recovery import read_unread_recovery_notes
+                notes = await read_unread_recovery_notes(self._pg_pool, self.node_name)
+                if notes:
+                    log.info(f"📋 Recovery notes: {len(notes)} unread note(s) found")
+                    for note in notes:
+                        log.info(f"   📝 From {note['author']}: {note['note']}")
+                        if note.get('actions'):
+                            log.info(f"      Actions: {', '.join(note['actions'])}")
+                else:
+                    log.debug("No unread recovery notes")
+            except Exception as e:
+                log.warning(f"Recovery notes read failed (non-fatal): {e}")
         else:
             log.error("All transports failed!")
 
@@ -3101,9 +3115,9 @@ echo "Status: ok"
                         db_skills.append(sid)
 
         # Determine host address for other nodes to connect to
-        import socket
+        # Use advertise_ip for Docker/HA containers (host IP instead of container IP)
         try:
-            host_ip = self._get_local_ip()
+            host_ip = self._get_advertise_ip()
         except Exception:
             host_ip = "0.0.0.0"
 
@@ -3247,13 +3261,15 @@ echo "Status: ok"
                 UPDATE mesh.mesh_nodes SET 
                     last_heartbeat = NOW(), 
                     status = 'active',
-                    health_port = $1,
-                    pg_available = $2,
-                    p2p_available = $3,
-                    http_available = $4,
-                    capabilities = $6
-                WHERE node_name = $5
+                    host = $1,
+                    health_port = $2,
+                    pg_available = $3,
+                    p2p_available = $4,
+                    http_available = $5,
+                    capabilities = $7
+                WHERE node_name = $6
             """,
+                self._get_advertise_ip(),
                 getattr(self.config, 'health_port', 8650),
                 bool(self._pg_pool and self._pg_pool.is_connected()),
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
@@ -3514,6 +3530,24 @@ echo "Status: ok"
             return ip
         except Exception:
             return "127.0.0.1"
+
+    def _get_advertise_ip(self) -> str:
+        """Get the IP to advertise to other nodes.
+        
+        For Docker/HA addon containers, use advertise_host from config
+        (the host IP) instead of the container's internal IP.
+        """
+        # Check for advertise_host in P2P config
+        if hasattr(self.config, 'p2p') and hasattr(self.config.p2p, 'advertise_host'):
+            adv = self.config.p2p.advertise_host
+            if adv:
+                return adv
+        # Check Docker platform config
+        if hasattr(self.config, 'docker') and hasattr(self.config, 'docker'):
+            docker_cfg = getattr(self.config, 'docker', {})
+            if isinstance(docker_cfg, dict) and docker_cfg.get('host_ip'):
+                return docker_cfg['host_ip']
+        return self._get_local_ip()
 
     def get_status(self) -> dict:
         """Return node status."""

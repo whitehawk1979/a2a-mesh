@@ -1289,6 +1289,20 @@ def main():
     update_sub.add_parser("rollback", help="Rollback to previous version")
     update_sub.add_parser("status", help="Show updater status")
 
+    # bootstrap — auto-configure a new node
+    bootstrap_parser = subparsers.add_parser("bootstrap", help="Auto-configure a new mesh node")
+    bootstrap_parser.add_argument("--name", "-n", required=True, help="Node name (e.g. nova, morzsa, lennie)")
+    bootstrap_parser.add_argument("--pg-host", default="192.168.1.30", help="PostgreSQL host")
+    bootstrap_parser.add_argument("--pg-port", type=int, default=5432, help="PostgreSQL port")
+    bootstrap_parser.add_argument("--pg-db", default="agent_memory", help="PostgreSQL database")
+    bootstrap_parser.add_argument("--pg-user", default="nova", help="PostgreSQL user")
+    bootstrap_parser.add_argument("--pg-password", default="nova_agent_2026", help="PostgreSQL password")
+    bootstrap_parser.add_argument("--platform", default="auto", help="Platform override (macos/linux/docker/ha_addon/windows)")
+    bootstrap_parser.add_argument("--config-dir", default="", help="Config output directory")
+    bootstrap_parser.add_argument("--script-dir", default="", help="Mesh script directory")
+    bootstrap_parser.add_argument("--no-service", action="store_true", help="Skip service installation")
+    bootstrap_parser.add_argument("--no-tls", action="store_true", help="Skip TLS cert generation")
+
     # test
     subparsers.add_parser("test", help="Run self-tests")
 
@@ -1347,6 +1361,25 @@ def main():
             print("Usage: python3 cli.py update [check|apply|rollback|status]")
     elif args.command == "test":
         cmd_test()
+    elif args.command == "bootstrap":
+        # Bootstrap has minimal deps — import directly
+        import importlib, sys as _sys
+        _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from core.bootstrap import bootstrap
+        platform_override = args.platform if args.platform != "auto" else ""
+        result = asyncio.run(bootstrap(
+            node_name=args.name,
+            pg_host=args.pg_host,
+            pg_port=args.pg_port,
+            pg_db=args.pg_db,
+            pg_user=args.pg_user,
+            pg_password=args.pg_password,
+            platform_override=platform_override,
+            config_dir=args.config_dir,
+            script_dir=args.script_dir,
+            install_svc=not args.no_service,
+            tls_enabled=not args.no_tls,
+        ))
     elif args.command == "restart":
         cmd_restart(args.node, args.method)
     else:

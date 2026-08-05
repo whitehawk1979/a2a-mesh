@@ -27,6 +27,7 @@ from .exceptions import MeshError, RoutingError
 from .dashboard_public import DashboardPublicMixin
 from .dashboard_auth import DashboardAuthMixin
 from .dashboard_config import ConfigSyncMixin
+from .dashboard_recovery import RecoveryNotesMixin
 from .dashboard_diagnostics import DashboardDiagnosticsMixin
 from .dashboard_delegations import DashboardDelegationsMixin
 from .dashboard_agents import DashboardAgentsMixin
@@ -56,7 +57,7 @@ class DashboardUser:
         }
 
 
-class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin, ConfigSyncMixin):
+class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin, ConfigSyncMixin, RecoveryNotesMixin):
     """Handles web dashboard HTTP and WebSocket requests.
 
     Routes:
@@ -224,6 +225,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/deploy", self._api_deploy)
         # Smart routing API
         app.router.add_post("/api/route", self._api_smart_route)
+        # Recovery notes API
+        app.router.add_get("/api/recovery-notes", self._api_recovery_notes)
+        app.router.add_post("/api/recovery-notes", self._api_recovery_notes)
+        app.router.add_post("/api/recovery-notes/{id}/read", self._api_recovery_note_read)
         # Code Review API
         app.router.add_post("/api/code-review", self._api_code_review)
         # Log viewer API
