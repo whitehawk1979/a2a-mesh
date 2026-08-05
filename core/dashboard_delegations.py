@@ -741,9 +741,9 @@ class DashboardDelegationsMixin:
                    FROM mesh.mesh_nodes
                    WHERE status = 'active'
                      AND last_heartbeat > NOW() - INTERVAL '60 seconds'
-                     AND $1 = ANY(capabilities)
+                     AND capabilities @> $1::jsonb
                    ORDER BY node_name""",
-                task_type,
+                _json.dumps([task_type]),
             )
 
             if not rows:
