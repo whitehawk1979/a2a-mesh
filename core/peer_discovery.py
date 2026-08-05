@@ -659,6 +659,13 @@ class PeerDiscovery:
                 peer.pg_available = True
                 log.info(f"Discovery: {peer.name} P2P-connected, set pg_available=True (shared mesh)")
                 continue
+            # Skip health check for peers in P2P backoff (known unreachable, avoids log spam)
+            if self.p2p_transport and peer.name in self.p2p_transport._peer_backoff:
+                if time.time() < self.p2p_transport._peer_backoff[peer.name]:
+                    log.debug(f"Skipping health check for {peer.name} (in P2P backoff)")
+                    continue
+                else:
+                    del self.p2p_transport._peer_backoff[peer.name]
             await self.check_peer_health(peer)
 
         # 3. Connect to peers that aren't connected yet (skip already-connected)
