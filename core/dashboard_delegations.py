@@ -522,3 +522,91 @@ class DashboardDelegationsMixin:
         except Exception as e:
             log.error(f"Files error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_deploy(self, request):
+        """Deploy to peer nodes. POST /api/deploy
+        
+        Body (optional):
+        {
+            "nodes": ["morzsa", "runa"],  # default: all peers
+            "remote": "gitea",            # default: "gitea" for Morzsa, "origin" for Runa
+            "branch": "main",
+            "timeout": 60
+        }
+        
+        Delegates a "deploy" task to each specified peer node.
+        Each peer runs: git pull + restart + health check.
+        """
+        from aiohttp import web
+        import json as _json
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+
+            body = {}
+            try:
+                body = await request.json()
+            except Exception:
+                pass
+
+            target_nodes = body.get("nodes", [])
+            branch = body.get("branch", "main")
+            timeout = body.get("timeout", 60)
+
+            # If no nodes specified, deploy to all known peers
+            if not target_nodes:
+                peers = self.node.peer_discovery.get_known_peers() if hasattr(self.node, 'peer_discovery') else []
+                target_nodes = [p for p in peers if p != self.node.node_name]
+
+            if not target_nodes:
+                return web.json_response({"error": "No peer nodes to deploy to"}, status=400)
+
+            results = []
+            for peer_name in target_nodes:
+                # Determine remote name per node
+                remote = "gitea" if peer_name == "morzsa" else "origin"
+                restart_cmd = "systemctl --user restart a2a-mesh"
+                health_url = f"http://localhost:8650/api/health"
+
+                deploy_desc = _json.dumps({
+                    "remote": remote,
+                    "branch": branch,
+                    "restart_cmd": restart_cmd,
+                    "health_url": health_url,
+                    "timeout": timeout,
+                })
+
+                try:
+                    task_id = await self.node.delegation.delegate_task(
+                        to_agent=peer_name,
+                        subject=f"[DEPLOY] Deploy {branch} to {peer_name}",
+                        description=deploy_desc,
+                        task_type="deploy",
+                        priority=3,  # high priority
+                        timeout_minutes=max(5, timeout // 60 + 2),
+                    )
+                    results.append({
+                        "node": peer_name,
+                        "task_id": task_id,
+                        "status": "delegated",
+                    })
+                    log.info(f"Deploy delegated to {peer_name}: task_id={task_id}")
+                except Exception as e:
+                    results.append({
+                        "node": peer_name,
+                        "status": "failed",
+                        "error": str(e),
+                    })
+                    log.error(f"Deploy to {peer_name} failed: {e}")
+
+            return web.json_response({
+                "deploy_id": f"deploy-{int(__import__('time').time())}",
+                "results": results,
+                "total": len(results),
+            })
+        except Exception as e:
+            log.error(f"Deploy API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)

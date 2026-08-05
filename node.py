@@ -715,6 +715,7 @@ class MeshNode:
         self.delegation.register_handler("code", self._handle_generic_task)
         self.delegation.register_handler("analysis", self._handle_generic_task)
         self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
+        self.delegation.register_handler("deploy", self._handle_deploy_task)
         self.delegation.on_result(self._on_delegation_result)
 
         # ── Sync delegation handler types into config capabilities ──
@@ -950,6 +951,167 @@ class MeshNode:
                     "last_health_check": uptime,
                 },
             }
+
+    async def _handle_deploy_task(self, task: dict, context: dict) -> dict:
+        """Handle deploy-type tasks: git pull + service restart + health check.
+        
+        Runs locally on each peer node. The coordinator (Nova) delegates this
+        task to each peer after pushing to gitea.
+        
+        Description JSON:
+        {
+            "remote": "gitea" | "origin",  # git remote name
+            "branch": "main",
+            "restart_cmd": "systemctl --user restart a2a-mesh",  # or launchctl for macOS
+            "health_url": "http://localhost:8650/api/health",
+            "timeout": 30
+        }
+        """
+        import subprocess
+        import json as _json
+        import asyncio
+        from datetime import datetime, timezone
+
+        node = self.node_name
+        now = datetime.now(timezone.utc).isoformat()
+        steps = []
+
+        # Parse description
+        desc_raw = task.get("description", "{}")
+        try:
+            cfg = _json.loads(desc_raw) if isinstance(desc_raw, str) else desc_raw
+        except (ValueError, TypeError):
+            cfg = {}
+
+        remote = cfg.get("remote", "origin")
+        branch = cfg.get("branch", "main")
+        restart_cmd = cfg.get("restart_cmd", "systemctl --user restart a2a-mesh")
+        health_url = cfg.get("health_url", "http://localhost:8650/api/health")
+        timeout = cfg.get("timeout", 30)
+
+        # Determine repo path
+        repo_path = self.config._config.get("repo_path") if hasattr(self.config, "_config") else None
+        if not repo_path:
+            # Try to find the a2a_mesh directory
+            import os
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            repo_path = os.path.dirname(script_dir)  # parent of core/
+        
+        steps.append(f"[{node}] repo_path={repo_path}")
+
+        # Step 1: Git fetch + pull
+        try:
+            r = subprocess.run(
+                ["git", "fetch", "--prune", remote],
+                cwd=repo_path, capture_output=True, text=True, timeout=15
+            )
+            if r.returncode != 0:
+                steps.append(f"[{node}] git fetch: FAIL — {r.stderr.strip()[:200]}")
+            else:
+                steps.append(f"[{node}] git fetch: OK")
+            
+            # Try merge --ff-only, fallback to reset --hard
+            r = subprocess.run(
+                ["git", "merge", "--ff-only", f"{remote}/{branch}"],
+                cwd=repo_path, capture_output=True, text=True, timeout=15
+            )
+            if r.returncode != 0:
+                steps.append(f"[{node}] git merge --ff-only: retry with reset --hard")
+                r2 = subprocess.run(
+                    ["git", "reset", "--hard", f"{remote}/{branch}"],
+                    cwd=repo_path, capture_output=True, text=True, timeout=15
+                )
+                if r2.returncode != 0:
+                    steps.append(f"[{node}] git reset: FAIL — {r2.stderr.strip()[:200]}")
+                    return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_git"}}
+                steps.append(f"[{node}] git reset --hard: OK — {r2.stdout.strip()[:100]}")
+            else:
+                # Check if anything actually changed
+                r_status = subprocess.run(
+                    ["git", "log", "--oneline", "-1"],
+                    cwd=repo_path, capture_output=True, text=True, timeout=5
+                )
+                steps.append(f"[{node}] git merge: OK — {r_status.stdout.strip()[:80]}")
+        except subprocess.TimeoutExpired:
+            steps.append(f"[{node}] git: TIMEOUT")
+            return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "timeout_git"}}
+        except Exception as e:
+            steps.append(f"[{node}] git: ERROR — {e}")
+            return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "error_git"}}
+
+        # Step 2: Restart service
+        try:
+            # Determine restart method based on platform
+            import platform as _pf
+            if _pf.system() == "Darwin":
+                # macOS — use launchctl
+                r = subprocess.run(
+                    ["launchctl", "stop", "com.hermes.a2a-mesh-node"],
+                    capture_output=True, text=True, timeout=10
+                )
+                import time as _time
+                _time.sleep(2)
+                r2 = subprocess.run(
+                    ["launchctl", "start", "com.hermes.a2a-mesh-node"],
+                    capture_output=True, text=True, timeout=10
+                )
+                steps.append(f"[{node}] launchctl restart: OK")
+            else:
+                # Linux — use the provided restart command
+                r = subprocess.run(
+                    restart_cmd, shell=True, capture_output=True, text=True, timeout=10
+                )
+                if r.returncode != 0:
+                    steps.append(f"[{node}] restart: FAIL — {r.stderr.strip()[:200]}")
+                    return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_restart"}}
+                steps.append(f"[{node}] restart: OK")
+        except Exception as e:
+            steps.append(f"[{node}] restart: ERROR — {e}")
+            return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "error_restart"}}
+
+        # Step 3: Health check (wait for node to come back up)
+        import urllib.request
+        import urllib.error
+        healthy = False
+        for attempt in range(timeout // 5):
+            await asyncio.sleep(5)
+            try:
+                req = urllib.request.Request(health_url, headers={"User-Agent": "deploy-handler"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = _json.loads(resp.read().decode())
+                    if data.get("status") == "healthy":
+                        uptime = data.get("uptime", 0)
+                        peers = data.get("peers", {})
+                        steps.append(f"[{node}] health: OK uptime={uptime}s peers={peers.get('connected',0)}/{peers.get('known',0)}")
+                        healthy = True
+                        break
+            except (urllib.error.URLError, Exception):
+                steps.append(f"[{node}] health: waiting... (attempt {attempt+1})")
+
+        if not healthy:
+            steps.append(f"[{node}] health: TIMEOUT after {timeout}s")
+            return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "timeout_health"}}
+
+        # Step 4: Get git version
+        try:
+            r = subprocess.run(
+                ["git", "log", "--oneline", "-1"],
+                cwd=repo_path, capture_output=True, text=True, timeout=5
+            )
+            steps.append(f"[{node}] version: {r.stdout.strip()}")
+        except Exception:
+            pass
+
+        steps.append(f"[{node}] DEPLOY COMPLETE at {now}")
+        return {
+            "result": "\n".join(steps),
+            "files": [],
+            "context_updates": {
+                "deploy_status": "success",
+                "deploy_time": now,
+                "deploy_node": node,
+            },
+        }
 
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
         """Handle generic delegated tasks. Parses description for instructions
