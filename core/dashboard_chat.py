@@ -124,7 +124,7 @@ class DashboardChatMixin:
                                 payload = payload.encode("latin-1").decode("utf-8")
                             except (UnicodeDecodeError, UnicodeEncodeError):
                                 payload = payload.encode("ascii", "replace").decode("ascii")
-                    rows.append((msg_id, sender, recipient, msg_type, payload, created_at, status))
+                    rows.append((msg_id, sender, recipient, msg_type, priority, payload, created_at, status))
                 
                 for row in rows:
                     msg_id, sender, recipient, msg_type, priority, payload, created_at, status = row
@@ -150,7 +150,8 @@ class DashboardChatMixin:
                 cur.close()
                 conn.close()
             except Exception as e:
-                log.warning(f"Failed to fetch PG messages: {e}")
+                import traceback as tb
+                log.warning(f"Failed to fetch PG messages: {e}\n{tb.format_exc()}")
             
             # Filter local messages by channel and type
             def matches_channel(msg: dict, ch: str | None) -> bool:
