@@ -523,6 +523,89 @@ class DashboardDelegationsMixin:
             log.error(f"Files error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _api_code_review(self, request):
+        """Trigger cross-node code review. POST /api/code-review
+
+        Body:
+        {
+            "file": "core/delegation.py",     # file to review (relative to repo root)
+            "nodes": ["morzsa", "runa"],       # which nodes review (default: all peers)
+            "focus": "bugs",                   # security|performance|bugs|style|general
+            "context": "..."                   # additional context
+        }
+        """
+        from aiohttp import web
+        import json as _json
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            if not self.node or not self.node.delegation:
+                return web.json_response({"error": "Delegation not available"}, status=503)
+
+            body = {}
+            try:
+                body = await request.json()
+            except Exception:
+                pass
+
+            file_path = body.get("file", "")
+            target_nodes = body.get("nodes", [])
+            focus = body.get("focus", "general")
+            extra_ctx = body.get("context", "")
+
+            if not file_path:
+                return web.json_response({"error": "file is required"}, status=400)
+
+            if not target_nodes:
+                peers = self.node.peer_discovery.get_known_peers() if hasattr(self.node, 'peer_discovery') else []
+                target_nodes = [p for p in peers if p != self.node.node_name]
+
+            if not target_nodes:
+                return web.json_response({"error": "No peer nodes to review"}, status=400)
+
+            results = []
+            for peer_name in target_nodes:
+                review_desc = _json.dumps({
+                    "file": file_path,
+                    "focus": focus,
+                    "context": extra_ctx,
+                })
+
+                try:
+                    task_id = await self.node.delegation.delegate_task(
+                        to_agent=peer_name,
+                        subject=f"[REVIEW] Review {file_path} ({focus})",
+                        description=review_desc,
+                        task_type="code_review",
+                        priority=3,
+                        timeout_minutes=10,
+                    )
+                    results.append({
+                        "node": peer_name,
+                        "task_id": task_id,
+                        "status": "delegated",
+                    })
+                    log.info(f"Code review delegated to {peer_name}: task_id={task_id}")
+                except Exception as e:
+                    results.append({
+                        "node": peer_name,
+                        "status": "failed",
+                        "error": str(e),
+                    })
+                    log.error(f"Code review to {peer_name} failed: {e}")
+
+            return web.json_response({
+                "review_id": f"review-{int(__import__('time').time())}",
+                "file": file_path,
+                "focus": focus,
+                "results": results,
+                "total": len(results),
+            })
+        except Exception as e:
+            log.error(f"Code review API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _api_deploy(self, request):
         """Deploy to peer nodes. POST /api/deploy
         

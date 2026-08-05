@@ -716,7 +716,9 @@ class MeshNode:
         self.delegation.register_handler("analysis", self._handle_generic_task)
         self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
         self.delegation.register_handler("deploy", self._handle_deploy_task)
+        self.delegation.register_handler("code_review", self._handle_code_review_task)
         self.delegation.on_result(self._on_delegation_result)
+
 
         # ── Sync delegation handler types into config capabilities ──
         # This lets the SmartRouter find agents by task type (monitoring, code, etc.)
@@ -1077,6 +1079,208 @@ class MeshNode:
 
         # Unreachable — deploy returns before restart
         return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "success"}}
+
+    async def _handle_code_review_task(self, task: dict, context: dict) -> dict:
+        """Handle code_review tasks: read a file from the repo, send it to LLM for review.
+
+        Description JSON:
+        {
+            "file": "core/delegation.py",     # file to review (relative to repo root)
+            "code": "...",                     # OR inline code to review
+            "focus": "security|performance|bugs|style",  # review focus (optional)
+            "context": "..."                   # additional context (optional)
+        }
+        """
+        import os
+        import json as _json
+        from datetime import datetime, timezone
+
+        node = self.node_name
+        now = datetime.now(timezone.utc).isoformat()
+        steps = []
+
+        # Parse description (may be double-wrapped)
+        desc_raw = task.get("description", "{}")
+        try:
+            cfg = _json.loads(desc_raw) if isinstance(desc_raw, str) else desc_raw
+            if isinstance(cfg, dict) and "description" in cfg and "file" not in cfg and "code" not in cfg:
+                inner = cfg.get("description", "")
+                if isinstance(inner, str):
+                    try:
+                        cfg = _json.loads(inner)
+                    except (ValueError, TypeError):
+                        pass
+        except (ValueError, TypeError):
+            cfg = {}
+
+        file_path = cfg.get("file", "")
+        inline_code = cfg.get("code", "")
+        focus = cfg.get("focus", "general")
+        extra_ctx = cfg.get("context", "")
+
+        # Get code to review
+        code_to_review = ""
+        if inline_code:
+            code_to_review = inline_code
+            steps.append(f"[{node}] Reviewing inline code ({len(code_to_review)} chars)")
+        elif file_path:
+            # Determine repo path
+            script_path = os.path.abspath(__file__)
+            repo_path = os.path.dirname(script_path)
+            if os.path.basename(repo_path) == "core":
+                repo_path = os.path.dirname(repo_path)
+            full_path = os.path.join(repo_path, file_path)
+            try:
+                with open(full_path, "r", errors="replace") as f:
+                    code_to_review = f.read()
+                steps.append(f"[{node}] Reviewing {file_path} ({len(code_to_review)} chars)")
+            except FileNotFoundError:
+                return {"result": f"[{node}] File not found: {file_path}", "files": [], "context_updates": {"review_status": "file_not_found"}}
+        else:
+            return {"result": f"[{node}] No file or code provided for review", "files": [], "context_updates": {"review_status": "no_input"}}
+
+        # Truncate if too long (LLM context limit)
+        max_chars = 12000
+        truncated = False
+        if len(code_to_review) > max_chars:
+            code_to_review = code_to_review[:max_chars]
+            truncated = True
+            steps.append(f"[{node}] Code truncated to {max_chars} chars")
+
+        # LLM review
+        import aiohttp
+
+        ollama_url = getattr(self, '_ollama_url', None)
+        if not ollama_url:
+            for url in ["http://localhost:11434", "http://127.0.0.1:11434"]:
+                try:
+                    import urllib.request
+                    urllib.request.urlopen(f"{url}/api/tags", timeout=2)
+                    ollama_url = url
+                    self._ollama_url = url
+                    break
+                except Exception:
+                    continue
+
+        if not ollama_url:
+            steps.append(f"[{node}] No Ollama available — basic review only")
+            # Basic heuristic review
+            issues = []
+            if "eval(" in code_to_review:
+                issues.append("⚠️ Uses eval() — security risk")
+            if "exec(" in code_to_review:
+                issues.append("⚠️ Uses exec() — security risk")
+            if "except:" in code_to_review and "except Exception" not in code_to_review:
+                issues.append("🟡 Bare except clauses — may catch too broadly")
+            if "TODO" in code_to_review or "FIXME" in code_to_review:
+                issues.append("🟡 Contains TODO/FIXME markers")
+            if code_to_review.count("def ") > 50:
+                issues.append("🟡 Large file with many functions — consider splitting")
+            result_text = f"[{node}] Code Review (heuristic)\nFile: {file_path or 'inline'}\nFocus: {focus}\n\n"
+            result_text += f"Size: {len(code_to_review)} chars{' (truncated)' if truncated else ''}\n\n"
+            result_text += "Issues:\n" + ("\n".join(issues) if issues else "✅ No obvious issues found")
+            return {"result": result_text, "files": [], "context_updates": {"review_status": "heuristic", "issues": str(len(issues))}}
+
+        # Pick model
+        preferred_models = ["glm-5.2", "glm-5.1", "glm-4.7", "gemma4:31b", "kimi-k2.5", "qwen2.5:7b", "qwen2.5:3b"]
+        model = None
+        try:
+            import urllib.request
+            resp = urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3)
+            models_data = _json.loads(resp.read())
+            available = [m["name"] for m in models_data.get("models", [])]
+            for pref in preferred_models:
+                for avail in available:
+                    if pref in avail:
+                        model = avail
+                        break
+                if model:
+                    break
+            if not model and available:
+                model = available[0]
+        except Exception:
+            pass
+
+        if not model:
+            return {"result": f"[{node}] No LLM model available for review", "files": [], "context_updates": {"review_status": "no_model"}}
+
+        steps.append(f"[{node}] Using LLM: {model}")
+
+        focus_prompt = {
+            "security": "Focus on security vulnerabilities: injection, path traversal, unsafe deserialization, secrets in code.",
+            "performance": "Focus on performance issues: O(n²) loops, unnecessary allocations, blocking calls in async code, memory leaks.",
+            "bugs": "Focus on logic bugs: race conditions, off-by-one errors, null/None dereference, unhandled exceptions.",
+            "style": "Focus on code style: naming, documentation, complexity, DRY violations, type hints.",
+            "general": "Review for bugs, security, performance, and code quality.",
+        }.get(focus, "Review for bugs, security, performance, and code quality.")
+
+        prompt = f"""You are a code reviewer on A2A Mesh node '{node}'. Review the following code.
+
+File: {file_path or 'inline code'}
+Review focus: {focus_prompt}
+
+Additional context: {extra_ctx or 'none'}
+
+Code to review:
+```
+{code_to_review}
+```
+
+Provide a structured review:
+1. **Summary**: 1-2 sentence overview
+2. **Issues**: List each issue with severity (🔴 CRITICAL, 🟠 HIGH, 🟡 MEDIUM, 🔵 LOW)
+3. **Suggestions**: Specific improvement suggestions with code snippets where relevant
+4. **Score**: Overall code quality score (1-10)
+
+Be concise but thorough. Only report real issues, not style nitpicks unless focus is 'style'."""
+
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.2, "num_predict": 4096},
+                }
+                async with session.post(f"{ollama_url}/api/generate", json=payload) as resp:
+                    if resp.status != 200:
+                        steps.append(f"[{node}] LLM review failed: HTTP {resp.status}")
+                        return {"result": "\n".join(steps), "files": [], "context_updates": {"review_status": "llm_error"}}
+                    result = await resp.json()
+                    review = result.get("response", "")
+
+            if not review or len(review) < 20:
+                steps.append(f"[{node}] LLM returned empty review")
+                return {"result": "\n".join(steps), "files": [], "context_updates": {"review_status": "empty"}}
+
+            # Build result
+            result_text = f"[{node}] Code Review via {model}\n"
+            result_text += f"File: {file_path or 'inline code'}\n"
+            result_text += f"Focus: {focus}\n"
+            result_text += f"Size: {len(code_to_review)} chars{' (truncated)' if truncated else ''}\n\n"
+            result_text += review
+
+            # Save review as file
+            review_file = {
+                "filename": f"review_{file_path.replace('/', '_')}_{now[:10]}.md" if file_path else f"review_inline_{now[:10]}.md",
+                "content_type": "text/markdown",
+                "content": review,
+                "size": len(review),
+            }
+
+            steps.append(f"[{node}] Review complete ({len(review)} chars)")
+            return {
+                "result": result_text,
+                "files": [review_file],
+                "context_updates": {
+                    "review_status": "success",
+                    "review_model": model,
+                    "review_focus": focus,
+                },
+            }
+        except Exception as e:
+            steps.append(f"[{node}] LLM review error: {e}")
+            return {"result": "\n".join(steps), "files": [], "context_updates": {"review_status": "error"}}
 
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
         """Handle generic delegated tasks. Parses description for instructions
