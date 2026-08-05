@@ -989,13 +989,16 @@ class MeshNode:
         health_url = cfg.get("health_url", "http://localhost:8650/api/health")
         timeout = cfg.get("timeout", 30)
 
-        # Determine repo path
+        # Determine repo path — try config, then __file__ location
         repo_path = self.config._config.get("repo_path") if hasattr(self.config, "_config") else None
         if not repo_path:
-            # Try to find the a2a_mesh directory
             import os
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            repo_path = os.path.dirname(script_dir)  # parent of core/
+            script_path = os.path.abspath(__file__)
+            # node.py is at repo_root/node.py — repo_path = dirname(node.py)
+            # On some installs node.py is at repo_root/core/node.py — go up one more
+            repo_path = os.path.dirname(script_path)
+            if os.path.basename(repo_path) == "core":
+                repo_path = os.path.dirname(repo_path)
         
         steps.append(f"[{node}] repo_path={repo_path}")
 
