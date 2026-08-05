@@ -3102,6 +3102,12 @@ echo "Status: ok"
                 # Persist heartbeat to PG
                 await self._update_heartbeat_pg()
 
+                # Cleanup expired dedup cache entries (prevents unbounded growth)
+                if hasattr(self.router, 'dedup') and self.router.dedup:
+                    removed = self.router.dedup.cleanup()
+                    if removed > 0:
+                        log.debug(f"Dedup cache cleanup: removed {removed} expired entries ({self.router.dedup.size} remaining)")
+
                 # Also send via transport
                 result = await self.router.send(msg)
                 if not result.success:

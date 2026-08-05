@@ -65,8 +65,8 @@ groups:
 
       # High dedup cache — possible message flood
       - alert: A2AHighDedupCache
-        expr: a2a_mesh_dedup_cache_size > 500
-        for: 5m
+        expr: a2a_mesh_dedup_cache_size > 1500
+        for: 10m
         labels:
           severity: warning
           mesh: a2a-mesh
