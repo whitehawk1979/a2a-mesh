@@ -3259,7 +3259,7 @@ echo "Status: ok"
                 self._p2p_transport.is_available() if hasattr(self, "_p2p_transport") else False,
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
-                list(getattr(self.config, 'capabilities', []) or []),
+                json.dumps(list(getattr(self.config, 'capabilities', []) or [])),
             )
         except Exception as e:
             log.error(f"Heartbeat PG update failed: {e}")
