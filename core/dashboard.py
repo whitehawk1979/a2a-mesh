@@ -26,6 +26,7 @@ from .rate_limiter import RateLimiter
 from .exceptions import MeshError, RoutingError
 from .dashboard_public import DashboardPublicMixin
 from .dashboard_auth import DashboardAuthMixin
+from .dashboard_config import ConfigSyncMixin
 from .dashboard_diagnostics import DashboardDiagnosticsMixin
 from .dashboard_delegations import DashboardDelegationsMixin
 from .dashboard_agents import DashboardAgentsMixin
@@ -55,7 +56,7 @@ class DashboardUser:
         }
 
 
-class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin):
+class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin, ConfigSyncMixin):
     """Handles web dashboard HTTP and WebSocket requests.
 
     Routes:
@@ -249,6 +250,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/skills/{skill_id}/publish", self._api_skills_publish)
         app.router.add_get("/api/skills/{skill_id}/files", self._api_skills_pull)
         app.router.add_post("/api/skills/sync", self._api_skills_sync)
+        # Config sync API
+        app.router.add_get("/api/config/shared", self._api_config_shared_get)
+        app.router.add_post("/api/config/shared", self._api_config_shared_set)
+        app.router.add_post("/api/config/sync", self._api_config_sync)
         # Alert rules
         app.router.add_get("/api/alerts", self._api_alerts_status)
         app.router.add_post("/api/alerts/rules", self._api_alerts_add_rule)
