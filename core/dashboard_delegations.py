@@ -722,6 +722,23 @@ class DashboardDelegationsMixin:
             if not task_type:
                 return web.json_response({"error": "task_type required"}, status=400)
 
+            # local_maintenance: ALWAYS route to the requesting node (self)
+            # These tasks must execute on the owner's machine — never delegate elsewhere
+            if task_type == "local_maintenance":
+                caller_node = body.get("caller_node", self.node.node_name)
+                return web.json_response({
+                    "task_type": task_type,
+                    "matches": [{
+                        "node": caller_node,
+                        "score": 1.0,
+                        "capabilities": ["local_maintenance"],
+                        "load": 0.0,
+                        "reason": "local_maintenance: always self",
+                    }],
+                    "delegated": [],
+                    "message": "local_maintenance tasks are always executed on the owner node"
+                })
+
             do_delegate = body.get("delegate", False)
             subject = body.get("subject", f"[{task_type}] routed task")
             description = body.get("description", "")

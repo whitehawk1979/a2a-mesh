@@ -567,8 +567,23 @@ class DelegationManager:
             priority = int(task_dict.get("priority", 5))
             
             # Don't claim our own tasks — let other agents handle them
-            if from_agent == self.node_name:
+            # EXCEPTION: local_maintenance tasks MUST be executed by the owner node
+            task_type_poll = "generic"
+            try:
+                desc_poll = task_dict.get("description", "{}")
+                if isinstance(desc_poll, str):
+                    desc_poll = json.loads(desc_poll)
+                task_type_poll = desc_poll.get("type", "generic") if isinstance(desc_poll, dict) else "generic"
+            except Exception:
+                pass
+            
+            if from_agent == self.node_name and task_type_poll != "local_maintenance":
                 log.debug(f"Skipping own task {task_id}")
+                continue
+            
+            # local_maintenance: only the target node should claim it
+            if task_type_poll == "local_maintenance" and from_agent != self.node_name:
+                log.debug(f"Skipping local_maintenance task {task_id}: not our task (from={from_agent})")
                 continue
             
             # Fan-out dedup: don't claim a fan-out sibling we already claimed

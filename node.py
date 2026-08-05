@@ -717,6 +717,7 @@ class MeshNode:
         self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
         self.delegation.register_handler("deploy", self._handle_deploy_task)
         self.delegation.register_handler("code_review", self._handle_code_review_task)
+        self.delegation.register_handler("local_maintenance", self._handle_local_maintenance_task)
         self.delegation.on_result(self._on_delegation_result)
 
 
@@ -967,6 +968,213 @@ class MeshNode:
                     "last_health_check": uptime,
                 },
             }
+
+    async def _handle_local_maintenance_task(self, task: dict, context: dict) -> dict:
+        """Handle local_maintenance tasks — execute on THIS node only.
+        
+        Supported actions (via context['action']):
+        - git_pull: git fetch + merge on local repo
+        - service_restart: restart a systemd/launchd service
+        - log_rotate: compress and truncate old logs
+        - disk_check: check disk usage, alert if > threshold
+        - health_check: run self-diagnostic
+        - cleanup: remove temp files, old git locks
+        - custom: run arbitrary shell command (from context['command'])
+        
+        Returns dict with result, actions_taken, and metrics.
+        """
+        import subprocess
+        import shutil
+        import os
+        
+        action = context.get("action", "health_check")
+        results = []
+        actions_taken = []
+        
+        log.info(f"Local maintenance task: action={action}")
+        
+        if action == "git_pull":
+            repo_dir = context.get("repo_dir", os.path.dirname(os.path.abspath(__file__)))
+            git_remote = context.get("remote", "origin")
+            try:
+                r = subprocess.run(
+                    ["git", "fetch", "--prune", git_remote],
+                    capture_output=True, text=True, timeout=60, cwd=repo_dir
+                )
+                results.append(f"git fetch: {r.stdout.strip() or r.stderr.strip() or 'OK'}")
+                actions_taken.append(f"git fetch {git_remote}")
+                
+                r2 = subprocess.run(
+                    ["git", "merge", "--ff-only", f"{git_remote}/main"],
+                    capture_output=True, text=True, timeout=30, cwd=repo_dir
+                )
+                if r2.returncode == 0:
+                    results.append(f"git merge: {r2.stdout.strip() or 'Already up to date'}")
+                    actions_taken.append(f"git merge --ff-only {git_remote}/main")
+                else:
+                    results.append(f"git merge FAILED: {r2.stderr.strip()}")
+            except Exception as e:
+                results.append(f"git_pull error: {e}")
+        
+        elif action == "service_restart":
+            service_name = context.get("service", "a2a-mesh")
+            platform = context.get("platform", "")
+            try:
+                import platform as plat
+                system = platform or plat.system().lower()
+                if system == "darwin" or system == "macos":
+                    r = subprocess.run(
+                        ["launchctl", "stop", f"com.hermes.{service_name}"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    import time as _t
+                    _t.sleep(2)
+                    subprocess.run(
+                        ["launchctl", "start", f"com.hermes.{service_name}"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    results.append(f"launchctl restart {service_name}")
+                    actions_taken.append(f"launchctl stop+start {service_name}")
+                elif system == "linux":
+                    r = subprocess.run(
+                        ["systemctl", "--user", "restart", service_name],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    results.append(f"systemctl restart {service_name}: {r.stdout.strip() or r.stderr.strip() or 'OK'}")
+                    actions_taken.append(f"systemctl --user restart {service_name}")
+                elif system == "windows":
+                    r = subprocess.run(
+                        ["schtasks", "/End", "/TN", f"A2A-Mesh-{service_name}"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    import time as _t
+                    _t.sleep(2)
+                    subprocess.run(
+                        ["schtasks", "/Run", "/TN", f"A2A-Mesh-{service_name}"],
+                        capture_output=True, text=True, timeout=10
+                    )
+                    results.append(f"schtasks restart {service_name}")
+                    actions_taken.append(f"schtasks restart {service_name}")
+                else:
+                    results.append(f"Unknown platform: {system}")
+            except Exception as e:
+                results.append(f"service_restart error: {e}")
+        
+        elif action == "log_rotate":
+            log_dir = context.get("log_dir", os.path.expanduser("~/a2a_mesh/logs"))
+            max_size_mb = context.get("max_size_mb", 50)
+            try:
+                import glob
+                rotated = 0
+                for log_file in glob.glob(os.path.join(log_dir, "*.log")):
+                    size_mb = os.path.getsize(log_file) / (1024 * 1024)
+                    if size_mb > max_size_mb:
+                        # Compress + truncate
+                        archive = f"{log_file}.{int(time.time())}.gz"
+                        subprocess.run(["gzip", "-c", log_file], stdout=open(archive, "wb"), timeout=60)
+                        open(log_file, "w").close()  # Truncate
+                        rotated += 1
+                        results.append(f"Rotated {os.path.basename(log_file)} ({size_mb:.1f}MB → archive)")
+                if rotated == 0:
+                    results.append("No logs needed rotation")
+                actions_taken.append(f"log_rotate: {rotated} files")
+            except Exception as e:
+                results.append(f"log_rotate error: {e}")
+        
+        elif action == "disk_check":
+            threshold = context.get("threshold_pct", 90)
+            try:
+                total, used, free = shutil.disk_usage("/")
+                pct = (used / total) * 100
+                results.append(f"Disk: {used//(1024**3)}GB/{total//(1024**3)}GB used ({pct:.1f}%)")
+                if pct > threshold:
+                    results.append(f"⚠️  Disk usage {pct:.1f}% > threshold {threshold}%")
+                    # Find biggest files in a2a_mesh
+                    r = subprocess.run(
+                        ["find", os.path.dirname(os.path.abspath(__file__)), "-type", "f", "-size", "+100M"],
+                        capture_output=True, text=True, timeout=30
+                    )
+                    if r.stdout.strip():
+                        results.append(f"Large files: {r.stdout.strip()[:500]}")
+                actions_taken.append(f"disk_check: {pct:.1f}%")
+            except Exception as e:
+                results.append(f"disk_check error: {e}")
+        
+        elif action == "cleanup":
+            try:
+                import glob
+                cleaned = 0
+                # Remove git lock files
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                for lock in glob.glob(os.path.join(script_dir, ".git/**/*.lock"), recursive=True):
+                    os.remove(lock)
+                    cleaned += 1
+                    results.append(f"Removed: {lock}")
+                # Remove old compressed logs (>30 days)
+                log_dir = os.path.expanduser("~/a2a_mesh/logs")
+                import time as _t
+                cutoff = _t.time() - (30 * 86400)
+                for old in glob.glob(os.path.join(log_dir, "*.gz")):
+                    if os.path.getmtime(old) < cutoff:
+                        os.remove(old)
+                        cleaned += 1
+                # Remove temp files
+                for tmp in glob.glob("/tmp/a2a-mesh-*"):
+                    if os.path.getmtime(tmp) < cutoff:
+                        if os.path.isfile(tmp):
+                            os.remove(tmp)
+                            cleaned += 1
+                results.append(f"Cleaned {cleaned} items")
+                actions_taken.append(f"cleanup: {cleaned} items")
+            except Exception as e:
+                results.append(f"cleanup error: {e}")
+        
+        elif action == "health_check":
+            try:
+                uptime = int(time.time() - self._start_time) if self._start_time else 0
+                peers = len(self.peer_discovery._peers) if self.peer_discovery else 0
+                cpu = 0
+                mem = 0
+                try:
+                    import psutil
+                    cpu = psutil.cpu_percent(interval=0.5)
+                    mem = psutil.virtual_memory().percent
+                except ImportError:
+                    pass
+                results.append(f"Uptime: {uptime}s, Peers: {peers}, CPU: {cpu:.0f}%, Mem: {mem:.0f}%")
+                actions_taken.append(f"health_check: uptime={uptime}s cpu={cpu:.0f}% mem={mem:.0f}%")
+            except Exception as e:
+                results.append(f"health_check error: {e}")
+        
+        elif action == "custom":
+            command = context.get("command", "")
+            timeout_s = context.get("timeout", 60)
+            if command:
+                try:
+                    r = subprocess.run(
+                        command, shell=True, capture_output=True, text=True, timeout=timeout_s
+                    )
+                    output = (r.stdout + r.stderr).strip()[:2000]
+                    results.append(f"Command: {command}\nOutput: {output}")
+                    actions_taken.append(f"custom: {command[:100]}")
+                except subprocess.TimeoutExpired:
+                    results.append(f"Command timed out after {timeout_s}s")
+                except Exception as e:
+                    results.append(f"Command error: {e}")
+            else:
+                results.append("No command specified")
+        
+        else:
+            results.append(f"Unknown action: {action}")
+        
+        return {
+            "result": "\n".join(results),
+            "actions_taken": actions_taken,
+            "context_updates": {
+                "last_maintenance": int(time.time()),
+                "action": action,
+            },
+        }
 
     async def _handle_deploy_task(self, task: dict, context: dict) -> dict:
         """Handle deploy-type tasks: git pull + service restart + health check.
