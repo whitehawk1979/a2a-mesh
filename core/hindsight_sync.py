@@ -67,7 +67,7 @@ class HindsightSync:
 
             # Insert delegation result
             metadata = {
-                "task_id": task_id,
+                "task_id": str(task_id),
                 "from_agent": from_agent,
                 "to_agent": to_agent,
                 "status": status,
@@ -77,10 +77,10 @@ class HindsightSync:
                 INSERT INTO mesh.mesh_memory 
                     (memory_key, memory_value, source_agent, target_agent, memory_type, priority, metadata)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-            """, f"delegation:{task_id[:8]}", result[:5000], from_agent, to_agent,
+            """, f"delegation:{str(task_id)[:8]}", result[:5000], from_agent, to_agent,
                  "delegation_result", 5, json.dumps(metadata))
 
-            log.info(f"Saved delegation result to mesh_memory: {subject[:50]} ({task_id[:8]})")
+            log.info(f"Saved delegation result to mesh_memory: {subject[:50]} ({str(task_id)[:8]})")
             return True
 
         except Exception as e:
