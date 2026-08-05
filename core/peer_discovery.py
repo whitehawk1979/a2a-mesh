@@ -366,10 +366,92 @@ class PeerDiscovery:
     async def discover_from_pg(self, pg_conn=None) -> List[PeerInfo]:
         """Discover peers from the mesh_nodes PG table.
 
+        Uses asyncpg pool (self._pg_pool) if available, falls back to psycopg2 pg_conn.
         This is the primary discovery mechanism for multi-agent meshes.
         Every agent registers itself in mesh_nodes, and other agents
         discover peers by querying this table.
         """
+        # ── Prefer asyncpg pool (set by node.py line 704) ──
+        pg_pool = getattr(self, '_pg_pool', None)
+        if pg_pool and hasattr(pg_pool, 'fetch'):
+            try:
+                rows = await pg_pool.fetch("""
+                    SELECT node_name, role, host, p2p_port, health_port,
+                           pg_available, p2p_available, http_available,
+                           last_heartbeat, capabilities, version
+                    FROM mesh.mesh_nodes
+                    WHERE node_name != $1
+                      AND status = 'active'
+                      AND last_heartbeat > NOW() - INTERVAL '10 minutes'
+                    ORDER BY last_heartbeat DESC
+                """, self.node_name)
+            except Exception as e:
+                log.warning(f"PG peer discovery (asyncpg) failed: {e}")
+                return []
+
+            discovered = []
+            for row in rows:
+                name = row["node_name"]
+                host = row["host"]
+                p2p_port = row["p2p_port"]
+                health_port = row["health_port"]
+                pg_avail = row["pg_available"]
+                p2p_avail = row["p2p_available"]
+                http_avail = row["http_available"]
+                capabilities_raw = row["capabilities"]
+                version = row["version"]
+
+                if not host:
+                    log.debug(f"Skipping peer {name}: no host address")
+                    continue
+
+                # Parse capabilities from PG (JSONB → Python list)
+                import json as _json
+                caps = []
+                if capabilities_raw:
+                    caps = capabilities_raw if isinstance(capabilities_raw, list) else _json.loads(capabilities_raw)
+                    if not isinstance(caps, list):
+                        caps = []
+                    caps = [c for c in caps if isinstance(c, (str, int, float, tuple))]
+
+                if name in self._peers:
+                    self._peers[name].host = host
+                    self._peers[name].port = p2p_port
+                    self._peers[name].p2p_port = p2p_port
+                    if health_port == p2p_port:
+                        health_port = p2p_port + 5
+                        log.warning(f"PG discovery: {name} health_port==p2p_port ({p2p_port}), auto-corrected to {health_port}")
+                    self._peers[name].health_port = health_port
+                    self._peers[name].last_seen = time.time()
+                    if self.p2p_transport and name in self.p2p_transport._peers:
+                        self._peers[name].p2p_available = True
+                        self._peers[name].pg_available = True
+                    elif self._peers[name].p2p_available and not p2p_avail:
+                        log.debug(f"Discovery: {name} p2p_available=True preserved (PG says False, but health check confirmed)")
+                        self._peers[name].pg_available = pg_avail
+                    else:
+                        self._peers[name].pg_available = pg_avail
+                        self._peers[name].p2p_available = p2p_avail
+                    self._peers[name].http_available = http_avail
+                    self._peers[name].capabilities = caps
+                    if version:
+                        self._peers[name].version = version
+                    self._register_discovered_peer(self._peers[name])
+                else:
+                    if health_port == p2p_port:
+                        health_port = p2p_port + 5
+                        log.warning(f"PG discovery: {name} health_port==p2p_port ({p2p_port}), auto-corrected to {health_port}")
+                    peer = self.add_peer(name, host, p2p_port, row["role"], health_port, capabilities=caps)
+                    peer.pg_available = pg_avail
+                    peer.p2p_available = p2p_avail
+                    peer.http_available = http_avail
+                    if version:
+                        peer.version = version
+                    discovered.append(peer)
+
+            return discovered
+
+        # ── Fallback: legacy psycopg2 connection ──
         if not pg_conn:
             return []
 
@@ -546,11 +628,12 @@ class PeerDiscovery:
         2. Check health of known peers
         3. Connect to newly discovered peers (skip already connected)
         """
-        # 1. Discover from PG
+        # 1. Discover from PG (prefer asyncpg pool, fall back to psycopg2 pg_conn)
+        pg_pool = getattr(self, '_pg_pool', None)
         pg_conn = self._pg_conn
         if not pg_conn and self.local_store and hasattr(self.local_store, '_pg_conn'):
             pg_conn = self.local_store._pg_conn
-        if pg_conn:
+        if pg_pool or pg_conn:
             try:
                 new_peers = await self.discover_from_pg(pg_conn)
                 log.info(f"PG discovery cycle complete: {len(new_peers)} new peers, {len(self._peers)} known total")
