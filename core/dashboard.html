@@ -377,6 +377,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="stat-grid" id="steerGrid"></div>
     </div>
     <div class="panel-section">
+      <h3>📋 Task Queue</h3>
+      <div id="taskQueueStats" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div id="taskQueueList" style="font-size:11px;max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
+    </div>
+    <div class="panel-section">
       <h3>Rendszernapló</h3>
       <div id="sysLog" style="font-size:11px;color:var(--text3);max-height:200px;overflow-y:auto;"></div>
     </div>
@@ -1497,6 +1502,7 @@ function initWebSocket() {
 // ─── Data Loading ──────────────────────────────────────
 function loadStatus() {
   fetch("/api/status").then(function(r) { return r.json(); }).then(function(d) { updateStatus(d); }).catch(function() {});
+  loadTaskQueue();
 }
 
 function loadMessages() {
@@ -1615,6 +1621,57 @@ function updateStatus(data) {
   document.getElementById("steerGrid").innerHTML =
     statBox("Interrupts", as.interrupts || 0) + statBox("Queued", as.queued || 0) +
     statBox("Processed", as.processed || 0) + statBox("Backlog", as.backlog || 0);
+}
+
+// ─── Task Queue Widget ──────────────────────────────
+function loadTaskQueue() {
+  if (!authToken) return;
+  // Fetch stats + available tasks in parallel
+  Promise.all([
+    fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + authToken}}).then(function(r){return r.json()}),
+    fetch("/api/delegations?status=available&limit=10", {headers: {"Authorization": "Bearer " + authToken}}).then(function(r){return r.json()}),
+    fetch("/api/delegations?status=running&limit=10", {headers: {"Authorization": "Bearer " + authToken}}).then(function(r){return r.json()})
+  ]).then(function(results) {
+    var stats = results[0] || {};
+    var available = (results[1] || {}).delegations || [];
+    var running = (results[2] || {}).delegations || [];
+
+    // Stats badges
+    var badges = [];
+    if (stats.available > 0) badges.push('<span style="background:var(--info);color:#fff;padding:2px 8px;border-radius:10px;font-size:10px">' + stats.available + ' available</span>');
+    if (stats.running > 0) badges.push('<span style="background:var(--success);color:#fff;padding:2px 8px;border-radius:10px;font-size:10px">' + stats.running + ' running</span>');
+    if (stats.completed > 0) badges.push('<span style="background:var(--surface2);color:var(--text2);padding:2px 8px;border-radius:10px;font-size:10px">' + stats.completed + ' done</span>');
+    document.getElementById("taskQueueStats").innerHTML = badges.length ? badges.join("") : '<span style="color:var(--text3);font-size:11px">Nincs aktív task</span>';
+
+    // Task list — running first, then available
+    var items = [];
+    function taskItem(t, isRunning) {
+      var icon = isRunning ? "🔄" : "⏳";
+      var color = isRunning ? "var(--success)" : "var(--info)";
+      var subj = escapeHtml(t.subject || t.task_type || "?");
+      if (subj.length > 35) subj = subj.substring(0, 35) + "…";
+      var agent = escapeHtml(t.assigned_agent || t.to_agent || "any");
+      var age = t.created_at ? timeAgo(t.created_at) : "";
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border)">' +
+        '<span style="color:' + color + '">' + icon + '</span> ' +
+        '<span style="font-weight:500">' + subj + '</span> ' +
+        '<span style="color:var(--text3)">@' + agent + '</span>' +
+        (age ? '<span style="color:var(--text3);float:right">' + age + '</span>' : '') +
+      '</div>';
+    }
+    running.forEach(function(t) { items.push(taskItem(t, true)); });
+    available.forEach(function(t) { items.push(taskItem(t, false)); });
+    document.getElementById("taskQueueList").innerHTML = items.length ? items.join("") : "";
+  }).catch(function() {});
+}
+
+function timeAgo(iso) {
+  if (!iso) return "";
+  var d = new Date(iso);
+  var s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s/60) + "m";
+  return Math.floor(s/3600) + "h";
 }
 
 function statBox(label, val) {
