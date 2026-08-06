@@ -53,6 +53,7 @@ class P2PTransport(TransportAdapter):
     MAX_CONNECTIONS = 100         # Hard cap on peer connections
     BASE_RECONNECT = 5            # Base reconnect interval (seconds)
     MAX_BACKOFF = 300             # Max exponential backoff (5 minutes)
+    MAX_P2P_RETRIES = 50          # Give up P2P after this many consecutive failures (PG-only fallback)
     NAGLE_DISABLED = True         # Disable Nagle for low-latency
     WRITE_BATCH_SIZE = 16         # Max frames to coalesce per drain() (doubled for throughput)
     WRITE_BATCH_TIMEOUT = 0.005   # Max seconds to wait before draining batched writes
@@ -489,9 +490,16 @@ class P2PTransport(TransportAdapter):
                         if ts and connected_peer_name:
                             raw_rtt_ms = (time.time() - ts) * 1000
                             if raw_rtt_ms < 0:
-                                log.warning(f"Clock skew detected with {connected_peer_name}: "
-                                            f"raw RTT={raw_rtt_ms:.2f}ms (negative). "
-                                            f"Consider enabling NTP on all nodes.")
+                                # Throttle clock skew warning to once per peer per hour
+                                now = time.time()
+                                last_warned = getattr(self, '_clock_skew_warned', {}).get(connected_peer_name, 0)
+                                if now - last_warned > 3600:
+                                    log.warning(f"Clock skew detected with {connected_peer_name}: "
+                                                f"raw RTT={raw_rtt_ms:.2f}ms (negative). "
+                                                f"Consider enabling NTP on all nodes.")
+                                    if not hasattr(self, '_clock_skew_warned'):
+                                        self._clock_skew_warned = {}
+                                    self._clock_skew_warned[connected_peer_name] = now
                             rtt_ms = max(0, raw_rtt_ms)  # Clamp negative (clock skew)
                             # Use rtt_ms if no valid previous measurement (0 or negative = stale)
                             old_rtt = self._peer_latency.get(connected_peer_name, 0)
@@ -1371,6 +1379,14 @@ class P2PTransport(TransportAdapter):
                         continue  # Already connected
                     if name in self._connecting_peers:
                         continue  # Connection attempt in progress
+
+                    # Check if peer has exceeded max P2P retries — give up on P2P, rely on PG/HTTP
+                    retry_count = self._peer_retry_count.get(name, 0)
+                    if retry_count >= self.MAX_P2P_RETRIES:
+                        if retry_count == self.MAX_P2P_RETRIES:
+                            log.info(f"P2P: giving up on {name} after {retry_count} retries (PG/HTTP fallback active)")
+                            self._peer_retry_count[name] = retry_count + 1  # Prevent repeated log
+                        continue  # Skip P2P reconnection — PG/HTTP still works
 
                     # Check backoff
                     next_retry = self._peer_backoff.get(name, 0)
