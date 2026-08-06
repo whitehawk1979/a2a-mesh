@@ -9,6 +9,7 @@ Provides:
 
 import json
 import logging
+import logging.handlers
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -187,8 +188,10 @@ def setup_json_logging(node_name: str = '', log_file: str = None, json_mode: str
     # File handler on root (JSON, catches everything)
     if log_file:
         try:
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
-            file_handler.setLevel(logging.DEBUG)
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file, maxBytes=50*1024*1024, backupCount=3, encoding='utf-8'
+            )
+            file_handler.setLevel(logging.INFO)
             file_handler.setFormatter(file_formatter)
             file_handler.addFilter(trace_filter)
             root.addHandler(file_handler)
