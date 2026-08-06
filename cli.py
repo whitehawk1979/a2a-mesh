@@ -1144,12 +1144,12 @@ async def cmd_run(name: str, port: int, config_path: str, tls: bool = False, tls
         config = MeshConfig()
 
     config.node_name = name
-    # --port is the dashboard/health port, P2P uses its own port (default 8645)
-    config.health_port = port
-    # Keep P2P on separate port unless explicitly configured
-    if config.p2p.listen_port == 8645:
-        # Default — keep it, don't override with dashboard port
-        pass
+    # --port overrides the dashboard/health port from config (only if explicitly set)
+    if port is not None:
+        config.health_port = port
+        print(f"[mesh] Health port overridden via CLI: {port}")
+    else:
+        print(f"[mesh] Health port from config: {config.health_port}")
 
     # Apply TLS CLI overrides
     if tls:
@@ -1206,7 +1206,7 @@ def main():
     # start
     start_parser = subparsers.add_parser("start", help="Start mesh node")
     start_parser.add_argument("--name", "-n", default=os.environ.get("A2A_NODE_NAME", "nova"))
-    start_parser.add_argument("--port", "-p", type=int, default=8645)
+    start_parser.add_argument("--port", "-p", type=int, default=None, help="Override health/dashboard port (default: from config)")
     start_parser.add_argument("--config", "-c", default="~/.hermes/mesh_config.yaml")
     start_parser.add_argument("--pg-dsn", default=os.environ.get("A2A_MESH_PG_DSN", ""),
                               help="PostgreSQL DSN: postgresql://user:pass@host:port/dbname")
