@@ -64,7 +64,8 @@ log "  shared_dlq: $DELETED rows deleted"
 log "Cleaning shared_context (>30 days)..."
 DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
     DELETE FROM shared_context 
-    WHERE created_at < now() - interval '30 days';
+    WHERE updated_at < now() - interval '30 days'
+    AND (expires_at IS NULL OR expires_at < now());
 " 2>&1 | head -1)
 log "  shared_context: $DELETED rows deleted"
 

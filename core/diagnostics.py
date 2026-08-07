@@ -234,12 +234,21 @@ class DiagnosticEngine:
     async def generate_suggestion(self, category: str, title: str, description: str,
                                      current_value: str = "", suggested_value: str = "",
                                      rationale: str = "", priority: str = "medium",
-                                     affected_nodes: List[str] = None) -> ConfigSuggestion:
-        """Generate a config suggestion and persist it to PG."""
+                                     affected_nodes: List[str] = None,
+                                     node_name_override: str = None) -> ConfigSuggestion:
+        """Generate a config suggestion and persist it to PG.
+        
+        Args:
+            node_name_override: When generating suggestions from a received
+                diagnostic report, set this to the source node name so the
+                suggestion is attributed to the correct node (not the local
+                receiver). This prevents cross-node deduplication failures.
+        """
+        own_name = node_name_override or self.node.config.node_name
         now = datetime.now(timezone.utc)
         suggestion = ConfigSuggestion(
-            suggestion_id=f"sugg-{self.node.config.node_name}-{int(now.timestamp())}",
-            node=self.node.config.node_name,
+            suggestion_id=f"sugg-{own_name}-{int(now.timestamp())}",
+            node=own_name,
             timestamp=now.isoformat(),
             category=category,
             priority=priority,
@@ -526,6 +535,7 @@ class DiagnosticEngine:
                     suggested_value="<85%",
                     rationale="OOM kill esetén az agent nem válaszol, a mesh instabillá válik, és adatvesztés történhet.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
             elif sys_mem > 80 and not _suggestion_exists("memóriahasználat"):
@@ -538,6 +548,7 @@ class DiagnosticEngine:
                     suggested_value="<75%",
                     rationale="A magas memóriahasználat ronthatja a teljesítményt és OOM kill-hez vezethet.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
             
@@ -552,6 +563,7 @@ class DiagnosticEngine:
                     suggested_value="<400MB",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Az agent újraindítása ideiglenesen megoldja, de a root cause vizsgálata szükséges.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -581,6 +593,7 @@ class DiagnosticEngine:
                     suggested_value="steal<10%",
                     rationale="A magas steal time a gazdagép túlterheltségét jelzi, nem a VM lokális problémáját. Az agent válaszideje lassulhat, de a megoldás a Proxmox szinten van.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
 
@@ -594,6 +607,7 @@ class DiagnosticEngine:
                     suggested_value="eff<75%",
                     rationale="A magas effektív CPU használat lassítja az üzenetfeldolgozást, növeli a hálózati késleltetést, és ronthatja az agent válaszainak minőségét.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
             elif cpu > 75 and not _suggestion_exists("CPU használat"):
@@ -606,6 +620,7 @@ class DiagnosticEngine:
                     suggested_value="eff<60%",
                     rationale="A tartósan magas effektív CPU használat ronthatja az agent válaszidejét.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -622,6 +637,7 @@ class DiagnosticEngine:
                     suggested_value="<80%",
                     rationale="A lemezterület hiánya megakadályozza a naplózást, az adatbázis működést és a fájlműveleteket.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
             elif disk > 80 and not _suggestion_exists("lemezterület"):
@@ -634,6 +650,7 @@ class DiagnosticEngine:
                     suggested_value="<70%",
                     rationale="A közelgő lemezterület hiány megakadályozhatja a normál működést.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -651,6 +668,7 @@ class DiagnosticEngine:
                     suggested_value=f"≥{self._get_min_target_peers()} peer",
                     rationale="Izolált node nem tud delegálni, üzeneteket küldeni vagy fogadni. A hálózati konfiguráció ellenőrzése szükséges.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
             elif peers < self._get_min_target_peers() and not _suggestion_exists("peer csatlakozás"):
@@ -663,6 +681,7 @@ class DiagnosticEngine:
                     suggested_value=f"≥{self._get_min_target_peers()} peer",
                     rationale=f"A mesh reziliencia növelése érdekében legalább {self._get_min_target_peers()} peer ajánlott.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
             
@@ -681,7 +700,8 @@ class DiagnosticEngine:
                         suggested_value="Minden transport elérhető",
                         rationale="A nem elérhető transportok miatt a node csak korlátozottan tud kommunikálni. Hálózati beállítások ellenőrzése javasolt.",
                         affected_nodes=[node_name],
-                    )
+                    node_name_override=node_name,
+                )
                     new_suggestions.append(s)
             
             # Connection count
@@ -696,6 +716,7 @@ class DiagnosticEngine:
                     suggested_value="<50 kapcsolat",
                     rationale="A felesleges kapcsolatok erőforrásokat fogyasztanak és kapcsolatszivárgásra utalnak.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -713,6 +734,7 @@ class DiagnosticEngine:
                     suggested_value="<10 üzenet",
                     rationale="A nagy üzenetsor késleltetést okoz a mesh kommunikációban. A feldolgozás gyorsítása vagy a terhelés csökkentése javasolt.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -733,6 +755,7 @@ class DiagnosticEngine:
                     suggested_value="0 hiba",
                     rationale=f"A magas hibaszám instabilitást jelez. A leggyakoribb hiba ('{top_error[0]}') root cause vizsgálata javasolt.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -749,6 +772,7 @@ class DiagnosticEngine:
                     suggested_value="0 sikertelen",
                     rationale="A sikertelen delegációk rontják a mesh együttműködési képességét.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
         
@@ -764,7 +788,9 @@ class DiagnosticEngine:
                     dev_suggestion = self._map_error_to_dev_suggestion(node_name, err_type, count)
                     if dev_suggestion and not _suggestion_exists(dev_suggestion["title_substring"]):
                         s = await self.generate_suggestion(**dev_suggestion)
-                        new_suggestions.append(s)
+                        new_suggestions.append(s,
+                    node_name_override=node_name,
+                )
 
         # Version mismatch across nodes → development suggestion
         if health:
@@ -788,7 +814,8 @@ class DiagnosticEngine:
                         suggested_value="Egyetlen verzió",
                         rationale="A verzióeltérés miatt delegációk, üzenetek és funkciók nem kompatibilisek lehetnek. Minden node frissítése ajánlott.",
                         affected_nodes=[node_name],
-                    )
+                    node_name_override=node_name,
+                )
                     new_suggestions.append(s)
 
         # OOM risk → development suggestion for restart resilience
@@ -804,6 +831,7 @@ class DiagnosticEngine:
                     suggested_value="<200MB RSS",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Restart=always biztosítja az újraindítást, de a szivárgás forrását is meg kell találni.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
 
@@ -824,7 +852,8 @@ class DiagnosticEngine:
                         suggested_value="0 offline peer",
                         rationale="A nem elérhető peer-ek csökkentik a mesh rugalmasságát. A reconnection backoff és heartbeat timeout optimalizálása javasolt.",
                         affected_nodes=[node_name],
-                    )
+                    node_name_override=node_name,
+                )
                     new_suggestions.append(s)
 
             # CPU load optimization
@@ -839,6 +868,7 @@ class DiagnosticEngine:
                     suggested_value="<50% CPU",
                     rationale="A magas CPU terhelés lassítja a mesh kommunikációt és delegációkat. A felesleges polling ciklusok csökkentése, async optimalizálás javasolt.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
 
@@ -854,6 +884,7 @@ class DiagnosticEngine:
                     suggested_value="0.0.0.0 (minden interfész)",
                     rationale="A dashboard csak localhost-on elérhető. A 0.0.0.0 binding engedélyezi a hálózati monitorozást és adminisztrációt.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
 
@@ -872,6 +903,7 @@ class DiagnosticEngine:
                     suggested_value="<5% sikertelen",
                     rationale="A magas delegációs hibaarány csökkenti a mesh együttműködési hatékonyságát. A timeout növelése és az exponential backoff javasolt.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
 
@@ -888,6 +920,7 @@ class DiagnosticEngine:
                     suggested_value=">24 óra uptime",
                     rationale="A gyakori restartok szolgáltatáskimaradást és adatvesztést okozhatnak. A root cause (OOM, crash, update rollback) azonosítása és javítása javasolt.",
                     affected_nodes=[node_name],
+                    node_name_override=node_name,
                 )
                 new_suggestions.append(s)
 
@@ -906,7 +939,8 @@ class DiagnosticEngine:
                         suggested_value="Küldés/fogadás: ~1.0x",
                         rationale="Az aszimmetrikus üzenetarány jelzi, hogy a node többet kommunikál, mint amennyit feldolgoz. A delegációk és üzenetek optimalizálása javasolt.",
                         affected_nodes=[node_name],
-                    )
+                    node_name_override=node_name,
+                )
                     new_suggestions.append(s)
 
         if new_suggestions:
@@ -1106,11 +1140,11 @@ class DiagnosticEngine:
                 return
             self._store_report(report)
             log.info(f"📊 Received diagnostic report from {source}: {report.report_id}")
-            # Auto-generate suggestions from received report
-            try:
-                await self._generate_suggestions_from_report(report)
-            except Exception as e:
-                log.warning(f"Failed to auto-generate suggestions from received report: {e}")
+            # NOTE: Do NOT auto-generate suggestions from received reports.
+            # Each node generates suggestions only from its OWN local report
+            # (in _periodic_report_loop), then broadcasts them to peers.
+            # This prevents 3x triplication (each of 3 nodes generating
+            # duplicate suggestions from the same received report).
         
         elif msg_type == "config_suggestion":
             suggestion = ConfigSuggestion.from_dict(data)
