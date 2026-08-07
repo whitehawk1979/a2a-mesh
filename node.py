@@ -2851,7 +2851,6 @@ echo "Status: ok"
             # Try P2P transport
             if self._p2p_transport and self._p2p_transport.is_available():
                 try:
-                    from .core.message import A2AMessage
                     import uuid
                     skills_msg = A2AMessage(
                         id=str(uuid.uuid4()),
@@ -2876,7 +2875,6 @@ echo "Status: ok"
             # duplicate delivery on all nodes, inflating dedup hit rate from ~0% to ~50%.
             if hasattr(self, '_pg_transport') and self._pg_transport and self._pg_transport.is_available():
                 try:
-                    from .core.message import A2AMessage
                     import uuid
                     pg_skills_msg = A2AMessage(
                         id=str(uuid.uuid4()),
@@ -3016,7 +3014,6 @@ echo "Status: ok"
         # If P2P is available, it delivers in real-time and PG only stores for
         # offline resilience (notify=False). Without P2P, PG NOTIFY delivers.
         try:
-            from .core.message import A2AMessage
             import uuid
             skills_msg = A2AMessage(
                 id=str(uuid.uuid4()),
