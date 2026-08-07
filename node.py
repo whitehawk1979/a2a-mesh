@@ -3464,6 +3464,29 @@ echo "Status: ok"
         if not self._pg_pool or not self._pg_pool.is_connected():
             return
 
+        # Provider health check for PG storage
+        provider_status = {}
+        try:
+            # Try multiple import strategies
+            try:
+                from core.provider_health import check_provider_health
+                provider_status = check_provider_health(self.node_name)
+            except ImportError:
+                import importlib.util as _ilu
+                # Try relative to this file
+                _this_dir = os.path.dirname(os.path.abspath(__file__)) if "__file__" in dir() else os.path.dirname(os.path.abspath(inspect.getfile(self.__class__))) if "inspect" in dir() else ""
+                if not _this_dir:
+                    import inspect
+                    _this_dir = os.path.dirname(os.path.abspath(inspect.getfile(self.__class__)))
+                _ph_path = os.path.join(_this_dir, "core", "provider_health.py")
+                if os.path.exists(_ph_path):
+                    _spec = _ilu.spec_from_file_location("provider_health_pg", _ph_path)
+                    _mod = _ilu.module_from_spec(_spec)
+                    _spec.loader.exec_module(_mod)
+                    provider_status = _mod.check_provider_health(self.node_name)
+        except Exception as e:
+            log.debug(f"Provider health check (PG) failed: {e}")
+
         try:
             await self._pg_pool.execute("""
                 UPDATE mesh.mesh_nodes SET 
@@ -3485,6 +3508,16 @@ echo "Status: ok"
                 self.node_name,
                 json.dumps(list(getattr(self.config, 'capabilities', []) or [])),
             )
+            # Separate update for provider_status (backward compatible)
+            if provider_status:
+                try:
+                    await self._pg_pool.execute(
+                        "UPDATE mesh.mesh_nodes SET provider_status = $1 WHERE node_name = $2",
+                        json.dumps(provider_status),
+                        self.node_name,
+                    )
+                except Exception:
+                    pass  # Column may not exist on older nodes
         except Exception as e:
             log.error(f"Heartbeat PG update failed: {e}")
 
@@ -3648,11 +3681,35 @@ echo "Status: ok"
                     break
 
                 uptime = int(time.time() - self._start_time)
+
+                # Provider health check — include in heartbeat payload
+                provider_status = {}
+                try:
+                    try:
+                        from core.provider_health import check_provider_health
+                        provider_status = check_provider_health(self.node_name)
+                    except ImportError:
+                        import importlib.util as _ilu
+                        _this_dir = os.path.dirname(os.path.abspath(__file__))
+                        _ph_path = os.path.join(_this_dir, "core", "provider_health.py")
+                        if os.path.exists(_ph_path):
+                            _spec = _ilu.spec_from_file_location("provider_health", _ph_path)
+                            _mod = _ilu.module_from_spec(_spec)
+                            _spec.loader.exec_module(_mod)
+                            provider_status = _mod.check_provider_health(self.node_name)
+                except Exception as e:
+                    log.debug(f"Provider health check failed: {e}")
+
                 msg = A2AMessage.create(
                     sender=self.node_name,
                     recipient="broadcast",
                     msg_type=MSG_TYPE_HEARTBEAT,
-                    payload={"uptime": uptime, "transports": list(self.router.transports.keys()), "version": self._resolved_version},
+                    payload={
+                        "uptime": uptime,
+                        "transports": list(self.router.transports.keys()),
+                        "version": self._resolved_version,
+                        "provider_status": provider_status,
+                    },
                     priority=1,
                 )
 
