@@ -1,8 +1,10 @@
 # A2A Mesh — Core dependencies
-# Auto-installed by cli.py on first run or by install.sh
+# Auto-installed by install.sh or cli.py on first run
 
 aiohttp>=3.9.0
+asyncpg>=0.29.0
 msgpack>=1.0.7
 psycopg2-binary>=2.9.9
 PyYAML>=6.0
 zeroconf>=0.130.0
+cryptography>=42.0.0
