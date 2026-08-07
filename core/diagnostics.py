@@ -499,11 +499,90 @@ class DiagnosticEngine:
         
         return recs
     
+    async def _vector_memory_search(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Search the Brain vector memory for relevant past experiences.
+        
+        Uses the Brain HTTP API (localhost:3322) for pgvector cosine similarity search.
+        Returns list of {id, category, title, content, similarity} dicts.
+        
+        This enables the learning loop to recall past incidents, solutions, and
+        patterns that are semantically similar to the current diagnostic state.
+        """
+        try:
+            import aiohttp
+            url = f"http://localhost:3322/memory/vector?query={query.replace(' ', '+')}&limit={limit}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        # Filter: only keep results with meaningful similarity
+                        return [r for r in results if float(r.get("similarity", 0)) >= 0.40]
+            return []
+        except Exception as e:
+            log.debug(f"Vector memory search failed: {e}")
+            return []
+    
+    async def _enrich_suggestion_with_memory(self, suggestion: ConfigSuggestion, 
+                                               report: DiagnosticReport) -> ConfigSuggestion:
+        """Enrich a config suggestion with relevant memories from the vector DB.
+        
+        If the Brain memory contains past incidents/solutions related to this
+        suggestion's category, append them to the rationale and potentially
+        upgrade the priority.
+        
+        This is the core of the learning loop: past experiences inform current
+        recommendations, making the system self-improving over time.
+        """
+        # Build a search query from the suggestion's key fields
+        query_parts = [
+            suggestion.category,
+            suggestion.title,
+            report.node,
+        ]
+        query = " ".join(query_parts)[:200]
+        
+        memories = await self._vector_memory_search(query, limit=3)
+        if not memories:
+            return suggestion
+        
+        # Build memory context string
+        memory_refs = []
+        for m in memories:
+            title = m.get("title", "?")[:80]
+            sim = float(m.get("similarity", 0))
+            content = m.get("content", "")[:200]
+            memory_refs.append(f"[sim={sim:.2f}] {title}: {content}")
+        
+        memory_text = " | ".join(memory_refs[:2])  # Keep it concise
+        
+        # Append to rationale
+        existing_rationale = suggestion.rationale or ""
+        suggestion.rationale = f"{existing_rationale} | Korábbi tapasztalat: {memory_text}"
+        
+        # Upgrade priority if high-similarity memory found (≥0.55)
+        max_sim = max(float(m.get("similarity", 0)) for m in memories)
+        if max_sim >= 0.55:
+            priority_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+            current = priority_order.get(suggestion.priority, 1)
+            if current < 2:  # Don't downgrade critical
+                suggestion.priority = "high" if current < 2 else suggestion.priority
+                log.info(f"💡 Priority upgraded based on vector memory (sim={max_sim:.2f}): {suggestion.title[:50]}")
+        
+        # Store memory references in description
+        suggestion.description = f"{suggestion.description} [Memory refs: {len(memories)} matches, top sim={max_sim:.2f}]"
+        
+        return suggestion
+    
     async def _generate_suggestions_from_report(self, report: DiagnosticReport) -> List[ConfigSuggestion]:
         """Automatically generate config suggestions based on diagnostic report data.
         
         Each agent analyzes its own report and creates actionable suggestions
         that appear in the dashboard with status tracking (pending/accepted/rejected/implemented).
+        
+        The learning loop enriches suggestions with vector memory search: past
+        incidents and solutions from the Brain memory DB are recalled via
+        semantic similarity and used to strengthen the rationale and priority.
         """
         new_suggestions = []
         node_name = report.node
@@ -943,6 +1022,18 @@ class DiagnosticEngine:
                 )
                     new_suggestions.append(s)
 
+        # ─── Vector memory enrichment (learning loop) ───────────────
+        # Enrich each new suggestion with relevant past experiences from the
+        # Brain vector memory DB. This makes the system self-improving: if a
+        # similar issue was seen before, the suggestion references it and may
+        # get upgraded priority.
+        if new_suggestions:
+            for i, sugg in enumerate(new_suggestions):
+                try:
+                    new_suggestions[i] = await self._enrich_suggestion_with_memory(sugg, report)
+                except Exception as e:
+                    log.debug(f"Memory enrichment failed for suggestion: {e}")
+        
         if new_suggestions:
             log.info(f"💡 Generated {len(new_suggestions)} auto-suggestions from report {report.report_id}")
             # Auto-delegate high/critical suggestions to the developer (nova)
