@@ -561,8 +561,12 @@ class DiagnosticEngine:
         suggestion.rationale = f"{existing_rationale} | Korábbi tapasztalat: {memory_text}"
         
         # Upgrade priority if high-similarity memory found (≥0.55)
+        # Skip for known recurring patterns (version mismatch, etc.) where
+        # memory similarity is a false positive — the pattern repeats every
+        # upgrade cycle, not because it's an urgent issue.
+        _skip_upgrade = any(kw in suggestion.title.lower() for kw in ("verzióeltérés", "verzioelteres"))
         max_sim = max(float(m.get("similarity", 0)) for m in memories)
-        if max_sim >= 0.55:
+        if max_sim >= 0.55 and not _skip_upgrade:
             priority_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
             current = priority_order.get(suggestion.priority, 1)
             if current < 2:  # Don't downgrade critical
@@ -1109,8 +1113,13 @@ class DiagnosticEngine:
         """Auto-delegate high/critical development suggestions as tasks to nova (developer)."""
         if not hasattr(self.node, 'delegation') or not self.node.delegation:
             return
+        # Patterns that should NOT be auto-delegated (recurring/known issues)
+        _no_delegate_keywords = ("verzióeltérés", "verzioelteres")
         for s in suggestions:
             if s.category == "development" and s.priority in ("high", "critical"):
+                if any(kw in s.title.lower() for kw in _no_delegate_keywords):
+                    log.debug(f"📋 Skipping auto-delegation for known recurring pattern: {s.title[:50]}")
+                    continue
                 try:
                     task_title = f"[DEV] {s.title}"
                     task_desc = f"**Fejlesztési javaslat ({s.priority} prioritás)**\n\n{s.description}\n\n**Jelenlegi érték:** {s.current_value}\n**Célérték:** {s.suggested_value}\n**Indoklás:** {s.rationale}\n\n**Érintett node:** {', '.join(s.affected_nodes)}\n**Javaslat ID:** {s.suggestion_id}"
