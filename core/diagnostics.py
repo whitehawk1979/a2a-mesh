@@ -988,7 +988,7 @@ class DiagnosticEngine:
 
             # Uptime stability — frequent restarts
             uptime = health.get("uptime_seconds", 0)
-            if 0 < uptime < 600 and not _suggestion_exists("restart stabilitás"):
+            if 0 < uptime < 600 and not _suggestion_exists("Gyakori restart"):
                 mins = uptime / 60
                 s = await self.generate_suggestion(
                     category="development",
