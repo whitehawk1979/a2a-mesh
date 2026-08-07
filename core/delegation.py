@@ -228,8 +228,11 @@ class DelegationManager:
                 sender=self.node_name,
                 recipient=recipient,
                 msg_type="delegation",
-                subject=subject,
-                content=f"New {'available' if available else ''} task: {subject}",
+                payload={
+                    "text": f"New {'available' if available else ''} task: {subject}",
+                    "subject": subject,
+                    "task_id": task_id,
+                },
                 priority=priority,
             )
             # Send via router (P2P/PG transports)
