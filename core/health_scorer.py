@@ -1,4 +1,4 @@
-"""A2A Mesh Health Scorer — Agent health score computation.
+"""A2A Mesh Health Scorer — Agent health score computation with PG persistence.
 
 Tracks response times and error rates per agent and computes a composite
 health score between 0.0 (completely unhealthy) and 1.0 (perfect).
@@ -6,10 +6,14 @@ health score between 0.0 (completely unhealthy) and 1.0 (perfect).
 Inspired by sushaan-k/a2a-mesh HealthScorer with adaptations for our mesh:
 - Decay factor: how much a single failure degrades the score
 - Recovery factor: how much a single success recovers
-- Latency threshold: above this, soft penalty applies
+- Latency threshold: above this, a soft penalty applies
 - Score clamped to [0.0, 1.0] range
+- PG persistence: health scores survive restarts (mesh.mesh_health_history)
+- Provider status integration: LLM provider health feeds into the score
 """
 
+import asyncio
+import json
 import logging
 import time
 from collections import defaultdict
@@ -32,6 +36,9 @@ class AgentHealthRecord:
     last_failure: Optional[float] = None
     consecutive_failures: int = 0
     consecutive_successes: int = 0
+    # Provider status fields (from provider_health)
+    provider_primary: str = ""
+    provider_fallback: str = ""
 
 
 class HealthScorer:
@@ -52,11 +59,134 @@ class HealthScorer:
         decay_factor: float = 0.15,
         recovery_factor: float = 0.05,
         latency_threshold_ms: float = 5000.0,
+        pg_pool=None,
+        node_name: str = "",
     ) -> None:
         self.decay_factor = decay_factor
         self.recovery_factor = recovery_factor
         self.latency_threshold_ms = latency_threshold_ms
         self._records: Dict[str, AgentHealthRecord] = {}
+        self._pg_pool = pg_pool
+        self._node_name = node_name
+        self._persist_task: Optional[asyncio.Task] = None
+
+    def set_pg_pool(self, pg_pool, node_name: str = ""):
+        """Set PG pool for persistence. Call after mesh connects to PG."""
+        self._pg_pool = pg_pool
+        if node_name:
+            self._node_name = node_name
+
+    async def start_persistence(self):
+        """Start background task to persist health scores to PG every 60s."""
+        if self._persist_task:
+            return
+        if self._pg_pool:
+            self._persist_task = asyncio.create_task(self._persist_loop())
+            log.info("📊 Health scorer persistence started (60s interval)")
+
+    async def stop_persistence(self):
+        """Stop the persistence background task."""
+        if self._persist_task:
+            self._persist_task.cancel()
+            try:
+                await self._persist_task
+            except asyncio.CancelledError:
+                pass
+            self._persist_task = None
+
+    async def _persist_loop(self):
+        """Persist all health records to PG every 60 seconds."""
+        while True:
+            try:
+                await asyncio.sleep(60)
+                await self.persist_to_pg()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Health persist loop error: {e}")
+                await asyncio.sleep(30)
+
+    async def persist_to_pg(self):
+        """Persist current health records to mesh.mesh_health_history."""
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            return
+        try:
+            for name, rec in self._records.items():
+                await self._pg_pool.execute(
+                    """INSERT INTO mesh.mesh_health_history
+                       (node_name, health_score, avg_latency_ms, total_requests,
+                        total_failures, total_successes, consecutive_failures,
+                        provider_primary, provider_fallback)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                    name,
+                    round(rec.health_score, 4),
+                    round(rec.avg_latency_ms, 1),
+                    rec.total_requests,
+                    rec.total_failures,
+                    rec.total_successes,
+                    rec.consecutive_failures,
+                    rec.provider_primary,
+                    rec.provider_fallback,
+                )
+            if self._records:
+                log.debug(f"📊 Persisted {len(self._records)} health records to PG")
+        except Exception as e:
+            log.error(f"Failed to persist health scores to PG: {e}")
+
+    async def load_from_pg(self, node_name: str = ""):
+        """Load the most recent health record per node from PG."""
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            return
+        try:
+            # Get latest record per node
+            rows = await self._pg_pool.fetch(
+                """SELECT DISTINCT ON (node_name)
+                          node_name, health_score, avg_latency_ms,
+                          total_requests, total_failures, total_successes,
+                          consecutive_failures, provider_primary, provider_fallback
+                   FROM mesh.mesh_health_history
+                   WHERE recorded_at > NOW() - INTERVAL '24 hours'
+                   ORDER BY node_name, recorded_at DESC"""
+            )
+            for row in rows:
+                name = row["node_name"]
+                rec = self.get_record(name)
+                rec.health_score = float(row["health_score"])
+                rec.avg_latency_ms = float(row["avg_latency_ms"] or 0)
+                rec.total_requests = int(row["total_requests"] or 0)
+                rec.total_failures = int(row["total_failures"] or 0)
+                rec.total_successes = int(row["total_successes"] or 0)
+                rec.consecutive_failures = int(row["consecutive_failures"] or 0)
+                rec.provider_primary = row["provider_primary"] or ""
+                rec.provider_fallback = row["provider_fallback"] or ""
+            if rows:
+                log.info(f"📊 Loaded {len(rows)} health records from PG")
+        except Exception as e:
+            log.error(f"Failed to load health scores from PG: {e}")
+
+    def update_provider_status(self, agent_name: str, provider_status: dict):
+        """Update provider status in a health record.
+
+        Called from the heartbeat loop when provider_health data arrives.
+        If primary provider is down, apply a health penalty.
+        """
+        record = self.get_record(agent_name)
+        primary = provider_status.get("primary", {})
+        fallback = provider_status.get("fallback", {})
+
+        record.provider_primary = primary.get("status", "unknown")
+        record.provider_fallback = fallback.get("status", "unknown")
+
+        # If primary provider is down, apply penalty
+        if record.provider_primary == "fail":
+            penalty = 0.1
+            record.health_score = max(0.0, record.health_score - penalty)
+            log.warning(f"📉 Provider penalty: {agent_name} primary fail (-{penalty})")
+        # If both providers down, bigger penalty
+        if record.provider_primary == "fail" and record.provider_fallback == "fail":
+            penalty = 0.2
+            record.health_score = max(0.0, record.health_score - penalty)
+            log.warning(f"📉 Double provider penalty: {agent_name} all providers fail (-{penalty})")
 
     def get_record(self, agent_name: str) -> AgentHealthRecord:
         """Get or create a health record for an agent."""
@@ -148,6 +278,8 @@ class HealthScorer:
                     "successes": rec.total_successes,
                     "avg_latency_ms": round(rec.avg_latency_ms, 1),
                     "consecutive_failures": rec.consecutive_failures,
+                    "provider_primary": rec.provider_primary,
+                    "provider_fallback": rec.provider_fallback,
                 }
                 for name, rec in self._records.items()
             },

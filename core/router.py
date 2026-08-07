@@ -128,7 +128,7 @@ class MeshRouter:
         self._gossipsub = GossipSub(node_name, flood_threshold=_flood_threshold)
 
         # Health Scorer (sushaan-k/a2a-mesh inspired: trust-based agent scoring)
-        self._health_scorer = HealthScorer()
+        self._health_scorer = HealthScorer()  # PG pool set later via set_pg_pool()
 
         # Transport circuit breaker — tracks failures per transport, auto-disables
         # failing transports for a cooldown period (graceful degradation).

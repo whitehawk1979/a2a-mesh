@@ -1215,7 +1215,7 @@ class DiagnosticEngine:
                 log.debug("No PG pool available for loading suggestions")
                 return
             rows = await pg_pool.fetch(
-                """SELECT * FROM mesh_suggestions 
+                """SELECT * FROM mesh.mesh_suggestions 
                    ORDER BY created_at DESC LIMIT 100"""
             )
             for row in rows:
@@ -1249,10 +1249,10 @@ class DiagnosticEngine:
                 return
             affected_nodes = suggestion.affected_nodes or []
             await pg_pool.execute(
-                """INSERT INTO mesh_suggestions 
+                """INSERT INTO mesh.mesh_suggestions 
                    (suggestion_id, node, category, priority, title, description,
-                    current_value, suggested_value, rationale, affected_nodes, status, source)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    current_value, suggested_value, rationale, affected_nodes, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                    ON CONFLICT (suggestion_id) DO UPDATE SET
                    status = EXCLUDED.status, updated_at = NOW()""",
                 suggestion.suggestion_id, suggestion.node, suggestion.category,
@@ -1261,7 +1261,7 @@ class DiagnosticEngine:
                 _safe_ascii(suggestion.current_value),
                 _safe_ascii(suggestion.suggested_value),
                 _safe_ascii(suggestion.rationale),
-                affected_nodes, suggestion.status, "auto",
+                affected_nodes, suggestion.status,
             )
             log.debug(f"📋 Persisted suggestion {suggestion.suggestion_id} to PG")
         except Exception as e:
@@ -1276,14 +1276,14 @@ class DiagnosticEngine:
             implemented_at = "NOW()" if new_status == "implemented" else None
             if new_status == "implemented":
                 await pg_pool.execute(
-                    """UPDATE mesh_suggestions 
+                    """UPDATE mesh.mesh_suggestions 
                        SET status = $1, implemented_at = NOW(), updated_at = NOW()
                        WHERE suggestion_id = $2""",
                     new_status, suggestion_id,
                 )
             else:
                 await pg_pool.execute(
-                    """UPDATE mesh_suggestions 
+                    """UPDATE mesh.mesh_suggestions 
                        SET status = $1, updated_at = NOW()
                        WHERE suggestion_id = $2""",
                     new_status, suggestion_id,
@@ -1368,12 +1368,12 @@ class DiagnosticEngine:
             
             # Mark duplicates as superseded — keep only the latest per (title, category)
             result = await pg_pool.execute(
-                """UPDATE mesh_suggestions s1
+                """UPDATE mesh.mesh_suggestions s1
                    SET status = 'superseded', updated_at = NOW()
                    WHERE s1.status = 'pending'
                    AND s1.created_at < (
                        SELECT MAX(s2.created_at)
-                       FROM mesh_suggestions s2
+                       FROM mesh.mesh_suggestions s2
                        WHERE s2.title = s1.title
                        AND s2.category = s1.category
                        AND s2.status = 'pending'

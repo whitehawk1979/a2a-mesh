@@ -708,6 +708,13 @@ class MeshNode:
         self.memory_sync._pg_pool = self._pg_pool
         # Wire up delegation manager with PG pool and start polling
         self.delegation.pg_pool = self._pg_pool
+        # Wire up health scorer with PG pool for persistence
+        if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
+            self.router._health_scorer.set_pg_pool(self._pg_pool, self.node_name)
+            # Load previous health scores from PG
+            asyncio.create_task(self.router._health_scorer.load_from_pg())
+            # Start background persistence (60s interval)
+            asyncio.create_task(self.router._health_scorer.start_persistence())
         # Register built-in task handlers
         self.delegation.register_handler("monitoring", self._handle_monitoring_task)
         self.delegation.register_handler("generic", self._handle_generic_task)
@@ -878,6 +885,30 @@ class MeshNode:
             log.info(f"Delegated task '{subject}' completed by {assigned}: {result[:200]}")
         elif status == "failed":
             log.warning(f"Delegated task '{subject}' FAILED on {assigned}: {result[:200]}")
+        
+        # Feed delegation result into health scorer
+        try:
+            if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
+                hs = self.router._health_scorer
+                # Try to get latency from task_row
+                latency = 0.0
+                if "latency_ms" in task_row:
+                    latency = float(task_row.get("latency_ms", 0))
+                elif "started_at" in task_row and "completed_at" in task_row:
+                    import datetime as _dt
+                    try:
+                        s = _dt.datetime.fromisoformat(str(task_row["started_at"]).replace("Z", "+00:00"))
+                        e = _dt.datetime.fromisoformat(str(task_row["completed_at"]).replace("Z", "+00:00"))
+                        latency = (e - s).total_seconds() * 1000
+                    except Exception:
+                        pass
+                if status == "completed":
+                    hs.record_success(assigned, latency_ms=latency)
+                elif status == "failed":
+                    hs.record_failure(assigned)
+                    log.info(f"📊 Health score updated: {assigned} → {hs.get_score(assigned):.3f} (delegation {'success' if status == 'completed' else 'failure'})")
+        except Exception as e:
+            log.debug(f"Health score feedback skipped: {e}")
         
         # Save to Hindsight for future context injection
         try:
@@ -2673,8 +2704,8 @@ echo "Status: ok"
         result = await self.send(complete_msg)
         log.info(f"FILE_COMPLETE sent for {file_id} → {recipient} (result: {result.success})")
 
-    async def _on_p2p_heartbeat(self, peer_name: str, version: str):
-        """Callback when a P2P heartbeat is received — update peer version in peer_discovery."""
+    async def _on_p2p_heartbeat(self, peer_name: str, version: str, provider_status: dict = None):
+        """Callback when a P2P heartbeat is received — update peer version + provider health."""
         if not self.peer_discovery:
             return
         peer = self.peer_discovery.get_peer(peer_name)
@@ -2685,6 +2716,13 @@ echo "Status: ok"
             elif peer.version != version:
                 peer.version = version
                 log.info(f"Updated peer {peer_name} version from heartbeat: {version} (was {peer.version})")
+        
+        # Feed provider status into health scorer
+        if provider_status and hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
+            try:
+                self.router._health_scorer.update_provider_status(peer_name, provider_status)
+            except Exception as e:
+                log.debug(f"Provider status → health scorer failed: {e}")
 
     async def _on_p2p_ack(self, ack_for_id: str, ack_type: str):
         """Callback when a P2P ACK is received — update message status in PG."""

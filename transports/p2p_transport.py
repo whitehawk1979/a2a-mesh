@@ -473,7 +473,8 @@ class P2PTransport(TransportAdapter):
                             log.debug(f"Peer {connected_peer_name} advertises v2 frames — keeping v1 (v2 auth disabled)")
                         if hb_version and self._heartbeat_callback and connected_peer_name:
                             try:
-                                asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version))
+                                hb_provider_status = hb_payload.get("provider_status") if hb_payload else None
+                                asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version, hb_provider_status))
                             except Exception as e:
                                 log.debug(f"Heartbeat callback error for {connected_peer_name}: {e}")
                         # Don't re-queue heartbeats for normal processing
