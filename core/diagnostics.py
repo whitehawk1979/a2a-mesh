@@ -991,8 +991,17 @@ class DiagnosticEngine:
                 new_suggestions.append(s)
 
             # Uptime stability — frequent restarts
+            # Cooldown: only generate once per node per 30 minutes to avoid
+            # spamming suggestions (and auto-delegated tasks) on every diagnostic
+            # cycle while the node is under 10 minutes uptime.
             uptime = health.get("uptime_seconds", 0)
-            if 0 < uptime < 300 and not _suggestion_exists("Gyakori restart"):
+            _restart_cooldown_key = f"_restart_sugg_cooldown_{node_name}"
+            _cooldown_secs = 1800  # 30 minutes
+            _in_cooldown = (
+                hasattr(self, _restart_cooldown_key)
+                and (time.time() - getattr(self, _restart_cooldown_key)) < _cooldown_secs
+            )
+            if 0 < uptime < 600 and not _in_cooldown and not _suggestion_exists("Gyakori restart"):
                 mins = uptime / 60
                 s = await self.generate_suggestion(
                     category="development",
@@ -1006,6 +1015,7 @@ class DiagnosticEngine:
                     node_name_override=node_name,
                 )
                 new_suggestions.append(s)
+                setattr(self, _restart_cooldown_key, time.time())
 
             # Message throughput
             msgs_sent = health.get("messages_sent", 0)
@@ -1469,6 +1479,11 @@ class DiagnosticEngine:
                 return
             
             # Mark duplicates as superseded — keep only the latest per (title, category)
+            # Two pass:
+            #  Pass 1: exact title match (original behaviour)
+            #  Pass 2: prefix match for dynamic titles that embed changing values
+            #          (e.g. "Gyakori restart — nova uptime: 3 perc" vs "...6 perc").
+            #          Groups by the text before the first " — " separator and by node.
             result = await pg_pool.execute(
                 """UPDATE mesh.mesh_suggestions s1
                    SET status = 'superseded', updated_at = NOW()
@@ -1481,12 +1496,34 @@ class DiagnosticEngine:
                        AND s2.status = 'pending'
                    )""",
             )
+            # Pass 2: prefix-based dedup for dynamic titles (e.g. "Gyakori restart")
+            # Split on ' — ' (or ' \\u2014 ' stored as ASCII-safe) and match by prefix.
+            prefix_result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'pending'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh.mesh_suggestions s2
+                       WHERE s2.node = s1.node
+                       AND s2.category = s1.category
+                       AND s2.status = 'pending'
+                       AND split_part(s2.title, ' \\u2014 ', 1) = split_part(s1.title, ' \\u2014 ', 1)
+                   )""",
+            )
             # pg_pool.execute returns 'UPDATE N' string
-            if hasattr(result, 'split'):
-                count = result.split()[-1] if ' ' in str(result) else str(result)
-                log.info(f"📋 Dedup: {count} duplicate suggestions marked as superseded")
+            def _count(r):
+                if hasattr(r, 'split'):
+                    return r.split()[-1] if ' ' in str(r) else str(r)
+                return '?'
+            exact_count = _count(result)
+            prefix_count = _count(prefix_result)
+            total_count = int(exact_count) if exact_count.isdigit() else 0
+            total_count += int(prefix_count) if prefix_count.isdigit() else 0
+            if total_count:
+                log.info(f"📋 Dedup: {total_count} duplicate suggestions marked as superseded (exact={exact_count}, prefix={prefix_count})")
             else:
-                log.info(f"📋 Dedup: duplicate suggestions processed")
+                log.info(f"📋 Dedup: no duplicates found")
                 
         except Exception as e:
             log.warning(f"Failed to dedup suggestions in PG: {e}")
