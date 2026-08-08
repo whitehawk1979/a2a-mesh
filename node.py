@@ -3136,6 +3136,7 @@ echo "Status: ok"
                 except Exception:
                     pass
             status = {
+            "version": self._resolved_version or "",
                 "status": "running" if self._running else "stopped",
                 "node": self.node_name,
                 "role": self.role.value,
@@ -3500,7 +3501,8 @@ echo "Status: ok"
             return
 
         # Provider health check for PG storage
-        provider_status = {}
+        provider_status = {
+            "version": self._resolved_version or "",}
         try:
             # Try multiple import strategies
             try:
@@ -3718,7 +3720,8 @@ echo "Status: ok"
                 uptime = int(time.time() - self._start_time)
 
                 # Provider health check — include in heartbeat payload
-                provider_status = {}
+                provider_status = {
+            "version": self._resolved_version or "",}
                 try:
                     try:
                         from core.provider_health import check_provider_health
@@ -3852,6 +3855,7 @@ echo "Status: ok"
     def get_status(self) -> dict:
         """Return node status."""
         status = {
+            "version": self._resolved_version or "",
             "node_name": self.node_name,
             "role": self.role.value,
             "running": self._running,
