@@ -14,10 +14,7 @@ import asyncio
 import logging
 import time
 
-try:
-    from ..plugin_base import MeshPlugin
-except ImportError:
-    from a2a_mesh.core.plugin_base import MeshPlugin
+from a2a_mesh.core.plugin_base import MeshPlugin
 
 log = logging.getLogger("a2a_mesh.plugins.skill_advertiser")
 
