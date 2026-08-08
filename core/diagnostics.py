@@ -992,7 +992,7 @@ class DiagnosticEngine:
 
             # Uptime stability — frequent restarts
             uptime = health.get("uptime_seconds", 0)
-            if 0 < uptime < 600 and not _suggestion_exists("Gyakori restart"):
+            if 0 < uptime < 300 and not _suggestion_exists("Gyakori restart"):
                 mins = uptime / 60
                 s = await self.generate_suggestion(
                     category="development",
@@ -1114,7 +1114,7 @@ class DiagnosticEngine:
         if not hasattr(self.node, 'delegation') or not self.node.delegation:
             return
         # Patterns that should NOT be auto-delegated (recurring/known issues)
-        _no_delegate_keywords = ("verzióeltérés", "verzioelteres")
+        _no_delegate_keywords = ("verzióeltérés", "verzioelteres", "gyakori restart")
         for s in suggestions:
             if s.category == "development" and s.priority in ("high", "critical"):
                 if any(kw in s.title.lower() for kw in _no_delegate_keywords):
