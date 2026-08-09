@@ -176,6 +176,8 @@ mesh:
     coordinator_heartbeat_interval: 10
     enable_route_cache: true
     route_cache_ttl: 300
+  gossipsub:
+    flood_threshold: 6  # ≤6 peers → flood mode; above → gossipsub mesh
   topology_tuning:
     enabled: true
     check_interval: 300

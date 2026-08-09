@@ -151,6 +151,8 @@ mesh:
     route_cache_ttl: 300
     routing_mode: hybrid
     trust_center_enabled: true
+  gossipsub:
+    flood_threshold: 6  # ≤6 peers → flood mode; above → gossipsub mesh
   topology_tuning:
     auto_apply: false
     check_interval: 300
