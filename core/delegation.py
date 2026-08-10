@@ -341,6 +341,13 @@ class DelegationManager:
         """Poll shared_delegations for tasks assigned to this node."""
         while self._running:
             try:
+                # Guard: if pg_pool is None or not connected, skip polling
+                # (health monitor will attempt reconnect every 30s)
+                if self.pg_pool is None or not self.pg_pool.is_connected():
+                    log.debug("Delegation poll skipped: pg_pool not connected")
+                    await asyncio.sleep(self._poll_interval)
+                    continue
+
                 # Cleanup expired dedup entries (older than 1 hour)
                 now = time.time()
                 expired = [k for k, v in self._claimed_subjects_timestamps.items() if now - v > 3600]
