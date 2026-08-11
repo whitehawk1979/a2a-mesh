@@ -61,7 +61,7 @@ class P2PTransport(TransportAdapter):
     FILE_BANDWIDTH_LIMIT = 0     # Max bytes/sec for file transfers (0 = unlimited)
     INITIAL_BACKOFF_JITTER = 0.5 # Jitter factor for backoff (0-1)
     HEALTH_CHECK_INTERVAL = 15   # Seconds between health check pings (proactive)
-    HEALTH_CHECK_TIMEOUT = 30    # Seconds before considering connection unhealthy
+    HEALTH_CHECK_TIMEOUT = 90    # Seconds before considering connection unhealthy
     # ── Adaptive throttling ──
     ADAPTIVE_BATCH_MIN = 4        # Minimum batch size when congestion detected
     ADAPTIVE_BATCH_MAX = 32       # Maximum batch size on fast links
