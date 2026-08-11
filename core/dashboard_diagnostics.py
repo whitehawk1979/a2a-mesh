@@ -138,10 +138,10 @@ class DashboardDiagnosticsMixin:
         pg_pool = getattr(self.node, '_pg_pool', None)
         if pg_pool:
             try:
-                query = "SELECT * FROM mesh_suggestions ORDER BY created_at DESC LIMIT $1"
+                query = "SELECT * FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT $1"
                 params = [limit]
                 if category:
-                    query = "SELECT * FROM mesh_suggestions WHERE category = $1 ORDER BY created_at DESC LIMIT $2"
+                    query = "SELECT * FROM mesh.mesh_suggestions WHERE category = $1 ORDER BY created_at DESC LIMIT $2"
                     params = [category, limit]
                 rows = await pg_pool.fetch(query, *params)
                 for row in rows:

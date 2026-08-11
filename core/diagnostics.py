@@ -1416,9 +1416,11 @@ class DiagnosticEngine:
             "Csak 1 peer": "accepted",         # Low resilience → accept
             "Nincs peer": "accepted",           # Isolated node → accept
             "Gyakori restart": "accepted",      # Frequent restart → accept
-            "Magas CPU": "accepted",            # High CPU → accept
+            "Magas effektiv CPU": "accepted",   # High CPU → accept
             "Magas memoriahasznalat": "accepted", # High memory → accept + action
             "Kritikus effektiv CPU": "accepted", # Critical CPU → accept
+            "Kritikus lemezterulet": "accepted",  # Critical disk → accept
+            "Magas lemezterulet": "accepted",     # High disk → accept
         }
 
         # Step 4: Auto-actions for specific patterns
@@ -1474,7 +1476,7 @@ class DiagnosticEngine:
                    AND s1.created_at < (
                        SELECT MAX(s2.created_at)
                        FROM mesh.mesh_suggestions s2
-                       WHERE s2.title = s1.title
+                       WHERE s2.node = s1.node
                        AND s2.category = s1.category
                        AND s2.status = 'pending'
                    )""",
