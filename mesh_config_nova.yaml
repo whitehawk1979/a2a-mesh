@@ -3,6 +3,7 @@ mesh:
   node_id: ''
   transport_priority:
   - p2p
+  - ssh_tunnel
   - pg_notify
   - http
   capabilities:
@@ -95,6 +96,26 @@ mesh:
       health_url: http://192.168.1.30:8650/health
       timeout: 5
       retries: 3
+    ssh_tunnel:
+      enabled: false  # Set true to activate SSH tunnel transport
+      default_ssh_user: ""
+      default_identity_file: ""
+      local_port_start: 9200
+      connect_timeout: 15
+      keepalive_interval: 30
+      max_retries: 3
+      reconnect_interval: 10
+      peers:
+        runa:
+          ssh_host: "192.168.1.100"
+          ssh_user: "zsolt"
+          ssh_port: 22
+          remote_port: 8645
+        morzsa:
+          ssh_host: "192.168.1.30"
+          ssh_user: "openclaw"
+          ssh_port: 22
+          remote_port: 8645
   discovery:
     min_target_peers: 2
     mdns:

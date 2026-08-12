@@ -40,6 +40,7 @@ from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
 from .transports.ble_transport import BLETransport
+from .transports.ssh_tunnel_transport import SSHTunnelTransport
 from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
 from .core.plugin_loader import PluginLoader
@@ -254,12 +255,20 @@ class MeshNode:
         self._p2p_transport = P2PTransport(self.config, node_version=self._resolved_version)
         self._http_transport = HTTPTransport(self.config)
         self._ble_transport = BLETransport(self.config)
+        self._ssh_tunnel_transport = SSHTunnelTransport(
+            self.config.ssh_tunnel,
+            node_name=self.node_name,
+            peer_discovery=getattr(self, '_discovery', None),
+            peer_connected_callback=self._on_transport_peer_connected,
+        )
 
         # Register transports with router
         self.router.register_transport("pg_notify", self._pg_transport)
         self.router.register_transport("p2p", self._p2p_transport)
         self.router.register_transport("http", self._http_transport)
         self.router.register_transport("ble", self._ble_transport)
+        if self.config.ssh_tunnel.enabled:
+            self.router.register_transport("ssh_tunnel", self._ssh_tunnel_transport)
 
         # Initialize discovery
         self._discovery = MeshDiscovery(
@@ -645,6 +654,15 @@ class MeshNode:
         else:
             log.warning("❌ BLE transport failed (non-critical)")
             await self.debug_log("WARNING", "transport", "BLE transport failed (non-critical, bleak not installed)")
+
+        # Start SSH tunnel transport (if enabled)
+        if self.config.ssh_tunnel.enabled:
+            results["ssh_tunnel"] = await self._ssh_tunnel_transport.start()
+            if results["ssh_tunnel"]:
+                log.info("✅ SSH tunnel transport started")
+            else:
+                log.warning("❌ SSH tunnel transport failed (non-critical, P2P fallback)")
+                await self.debug_log("WARNING", "transport", "SSH tunnel transport failed (non-critical)")
 
         # 4. mDNS discovery (linked to peer_discovery for auto-connect)
         if self.config.discovery.mdns_enabled:
@@ -2520,6 +2538,8 @@ echo "Status: ok"
         await self._p2p_transport.stop()
         await self._http_transport.stop()
         await self._ble_transport.stop()
+        if self.config.ssh_tunnel.enabled:
+            await self._ssh_tunnel_transport.stop()
         await self._discovery.stop()
         await self._udp_discovery.stop()
 
@@ -2736,6 +2756,14 @@ echo "Status: ok"
             log.info(f"PG message {ack_for_id[:8]} status → acknowledged (P2P ACK: {ack_type})")
         except Exception as e:
             log.error(f"Failed to update message status for ACK {ack_for_id[:8]}: {e}")
+
+    async def _on_transport_peer_connected(self, peer_name: str):
+        """Callback when any transport (P2P, SSH tunnel) establishes a connection.
+        Delegates to the P2P peer connected handler for registry + skills sync."""
+        log.info(f"Transport peer_connected callback: {peer_name}")
+        await self.debug_log("INFO", "transport", f"Peer {peer_name} connected via SSH tunnel")
+        # Reuse the P2P peer connected logic for registry registration
+        await self._on_p2p_peer_connected(peer_name)
 
     async def _on_p2p_peer_connected(self, peer_name: str):
         """Callback when a P2P connection is established (including reconnects).

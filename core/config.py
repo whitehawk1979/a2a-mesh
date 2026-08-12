@@ -61,6 +61,36 @@ class HTTPConfig:
 
 
 @dataclass
+class SSHTunnelConfig:
+    """SSH tunnel transport config — P2P over SSH port forwarding.
+
+    Use case: when direct P2P TLS fails (e.g. Runa asyncio TLS quirk on Ubuntu),
+    SSH tunnel provides an encrypted TCP tunnel without TLS handshake issues.
+
+    Each peer can have an SSH tunnel entry:
+      peers:
+        runa:
+          ssh_host: "192.168.1.100"      # SSH reachable host
+          ssh_user: "zsolt"
+          ssh_port: 22                    # SSH port (default 22)
+          remote_port: 8645               # Peer's P2P listen port
+          identity_file: "~/.ssh/id_mesh" # SSH key (optional, default ssh-agent)
+    """
+    enabled: bool = False
+    # Default SSH settings (can be overridden per-peer in config)
+    default_ssh_user: str = ""
+    default_identity_file: str = ""
+    # Map of peer_name → {ssh_host, ssh_user, ssh_port, remote_port, identity_file}
+    peers: Dict[str, Dict] = field(default_factory=dict)
+    # Local port range for tunnel endpoints (auto-assigned)
+    local_port_start: int = 9200
+    connect_timeout: int = 15  # SSH connection timeout
+    keepalive_interval: int = 30  # SSH ServerAliveInterval
+    max_retries: int = 3  # Max consecutive SSH failures before giving up
+    reconnect_interval: int = 10  # Base retry interval (exponential backoff)
+
+
+@dataclass
 class DiscoveryConfig:
     mdns_enabled: bool = True
     mdns_service: str = "_a2a._tcp"
@@ -304,6 +334,7 @@ class MeshConfig:
     pg: PGConfig = field(default_factory=PGConfig)
     p2p: P2PConfig = field(default_factory=P2PConfig)
     http: HTTPConfig = field(default_factory=HTTPConfig)
+    ssh_tunnel: SSHTunnelConfig = field(default_factory=SSHTunnelConfig)
     discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     loop_prevention: LoopPreventionConfig = field(default_factory=LoopPreventionConfig)
@@ -372,6 +403,11 @@ class MeshConfig:
         mesh = data.get('mesh', {})
         config.node_name = mesh.get('node_name', config.node_name)
 
+        # Transport priority (from YAML if specified)
+        tp = mesh.get('transport_priority')
+        if tp and isinstance(tp, list):
+            config.transport_priority = tp
+
         # PG config — support A2A_MESH_PG_DSN env var for easy setup
         pg_dsn = os.environ.get("A2A_MESH_PG_DSN", "")
         pg_data = mesh.get('transports', {}).get('pg_notify', {})
@@ -421,6 +457,21 @@ class MeshConfig:
                 health_url=http_data.get('health_url', config.http.health_url),
                 timeout=http_data.get('timeout', config.http.timeout),
                 retries=http_data.get('retries', config.http.retries),
+            )
+
+        # SSH tunnel config
+        ssh_data = mesh.get('transports', {}).get('ssh_tunnel', {})
+        if ssh_data:
+            config.ssh_tunnel = SSHTunnelConfig(
+                enabled=ssh_data.get('enabled', False),
+                default_ssh_user=ssh_data.get('default_ssh_user', ''),
+                default_identity_file=ssh_data.get('default_identity_file', ''),
+                peers=ssh_data.get('peers', {}),
+                local_port_start=ssh_data.get('local_port_start', 9200),
+                connect_timeout=ssh_data.get('connect_timeout', 15),
+                keepalive_interval=ssh_data.get('keepalive_interval', 30),
+                max_retries=ssh_data.get('max_retries', 3),
+                reconnect_interval=ssh_data.get('reconnect_interval', 10),
             )
 
         # Discovery config
