@@ -260,6 +260,7 @@ class MeshNode:
             node_name=self.node_name,
             peer_discovery=getattr(self, '_discovery', None),
             peer_connected_callback=self._on_transport_peer_connected,
+            mesh_config=self.config,
         )
 
         # Register transports with router

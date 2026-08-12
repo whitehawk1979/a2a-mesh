@@ -77,13 +77,15 @@ class SSHTunnelTransport(TransportAdapter):
     """
 
     def __init__(self, config, node_name: str = "", peer_discovery=None,
-                 on_message_callback=None, peer_connected_callback=None):
+                 on_message_callback=None, peer_connected_callback=None,
+                 mesh_config=None):
         from ..core.config import SSHTunnelConfig
         self._config: SSHTunnelConfig = config
         self._node_name = node_name
         self._peer_discovery = peer_discovery
         self._on_message_callback = on_message_callback
         self._peer_connected_callback = peer_connected_callback
+        self._mesh_config = mesh_config  # Full MeshConfig for TLS settings
 
         self._started = False
         self._tunnels: Dict[str, TunnelPeer] = {}
@@ -91,6 +93,32 @@ class SSHTunnelTransport(TransportAdapter):
         self._connection_tasks: Dict[str, asyncio.Task] = {}
         self._local_port_counter = config.local_port_start
         self._lock = asyncio.Lock()
+
+        # TLS client context (reuse P2P TLS settings if available)
+        self._ssl_client_context = None
+        if mesh_config and getattr(mesh_config.p2p, 'tls_enabled', False):
+            import ssl as _ssl
+            tls_cert = os.path.expanduser(getattr(mesh_config.p2p, 'tls_cert', '') or '')
+            tls_key = os.path.expanduser(getattr(mesh_config.p2p, 'tls_key', '') or '')
+            tls_ca = os.path.expanduser(getattr(mesh_config.p2p, 'tls_ca', '') or '')
+            tls_verify_peer = getattr(mesh_config.p2p, 'tls_verify_peer', False)
+            if tls_cert and tls_key:
+                try:
+                    self._ssl_client_context = _ssl.SSLContext(_ssl.PROTOCOL_TLS_CLIENT)
+                    self._ssl_client_context.load_cert_chain(tls_cert, tls_key)
+                    self._ssl_client_context.minimum_version = _ssl.TLSVersion.TLSv1_2
+                    self._ssl_client_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM:ECDHE+CHACHA20')
+                    if tls_ca:
+                        self._ssl_client_context.load_verify_locations(tls_ca)
+                    if tls_verify_peer:
+                        self._ssl_client_context.verify_mode = _ssl.CERT_REQUIRED
+                    else:
+                        self._ssl_client_context.check_hostname = False
+                        self._ssl_client_context.verify_mode = _ssl.CERT_NONE
+                    log.info("SSH tunnel TLS client context initialized (reusing P2P certs)")
+                except Exception as e:
+                    log.error(f"SSH tunnel TLS init failed: {e}")
+                    self._ssl_client_context = None
 
         # Build tunnel peer configs from config
         for peer_name, peer_cfg in (config.peers or {}).items():
@@ -283,10 +311,11 @@ class SSHTunnelTransport(TransportAdapter):
             peer.process = None
             return False
 
-        # Connect to local tunnel endpoint
+        # Connect to local tunnel endpoint (with TLS if P2P uses TLS)
         try:
+            ssl_ctx = self._ssl_client_context
             peer.reader, peer.writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", peer.local_port),
+                asyncio.open_connection("127.0.0.1", peer.local_port, ssl=ssl_ctx),
                 timeout=self._config.connect_timeout
             )
         except Exception as e:
@@ -294,18 +323,27 @@ class SSHTunnelTransport(TransportAdapter):
             await self._close_tunnel(peer)
             return False
 
-        # Send initial handshake (v3 frame with node_name)
+        # Send initial handshake — a heartbeat A2AMessage so P2P listener can process it
+        # The P2P transport's _handle_connection expects A2AMessage.from_bytes()
         try:
-            handshake = self._node_name.encode('utf-8')
-            await self._write_frame_v3(peer.writer, handshake, compressed=False)
-            # Read peer's handshake
-            peer_name_data = await asyncio.wait_for(
-                self._read_frame_v3(peer.reader),
-                timeout=10
+            from ..core.message import A2AMessage, MSG_TYPE_HEARTBEAT
+            import time as _time
+            hb_msg = A2AMessage.create(
+                sender=self._node_name,
+                recipient=peer.name,
+                msg_type=MSG_TYPE_HEARTBEAT,
+                payload={
+                    "version": "ssh_tunnel",
+                    "frame_version": 3,
+                    "timestamp": _time.time(),
+                },
+                priority=5,
             )
-            if peer_name_data:
-                peer.remote_name = peer_name_data.decode('utf-8', errors='replace')
-                log.info(f"SSH tunnel handshake: {self._node_name} ↔ {peer.remote_name}")
+            frame_data = hb_msg.to_bytes()
+            await self._write_frame_v3(peer.writer, frame_data, compressed=False)
+            peer.remote_name = peer.name
+            log.info(f"SSH tunnel handshake sent (heartbeat): {self._node_name} → {peer.name}")
+            await asyncio.sleep(0.5)  # Brief pause for server to process
         except Exception as e:
             log.error(f"SSH tunnel handshake failed for {peer.name}: {e}")
             await self._close_tunnel(peer)
@@ -475,7 +513,10 @@ class SSHTunnelTransport(TransportAdapter):
     # ── Frame Protocol (v3) ──────────────────────────────────────────
 
     async def _write_frame_v3(self, writer: asyncio.StreamWriter, data: bytes, compressed: bool = False):
-        """Write a v3 frame: [magic][4-byte length][1-byte flags][payload]."""
+        """Write a v3 frame: [magic][4-byte length][1-byte flags][payload].
+        
+        IMPORTANT: length includes the flags byte (compatible with P2P read_frame).
+        """
         flags = 0
         payload = data
 
@@ -483,13 +524,14 @@ class SSHTunnelTransport(TransportAdapter):
             payload = zlib.compress(data, level=6)
             flags |= FRAME_V3_COMPRESSED
 
+        # Length includes flags byte + payload (matching P2P transport's read_frame)
+        inner = bytes([flags]) + payload
         header = struct.pack(
-            f'>BIB',  # magic (uint8), length (uint32), flags (uint8)
+            f'>BI',  # magic (uint8), length (uint32)
             FRAME_V3_MAGIC,
-            len(payload),
-            flags
+            len(inner),
         )
-        writer.write(header + payload)
+        writer.write(header + inner)
         await writer.drain()
 
     async def _read_frame_v3(self, reader: asyncio.StreamReader, timeout: float = 30) -> Optional[bytes]:
