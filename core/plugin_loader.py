@@ -150,7 +150,7 @@ class PluginLoader:
 
             # Start the plugin
             try:
-                await plugin.on_start()
+                await plugin.on_start(self.node)
                 self.plugins[plugin.name] = plugin
                 self.log.info(f"Plugin '{plugin.name}' v{plugin.version} started successfully")
             except Exception as e:
@@ -168,7 +168,7 @@ class PluginLoader:
         """Stop all loaded plugins."""
         for name, plugin in self.plugins.items():
             try:
-                await plugin.on_stop()
+                await plugin.on_stop(self.node)
                 self.log.info(f"Plugin '{name}' stopped")
             except Exception as e:
                 self.log.error(f"Error stopping plugin '{name}': {e}")
