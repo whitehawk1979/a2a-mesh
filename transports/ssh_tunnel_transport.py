@@ -535,7 +535,7 @@ class SSHTunnelTransport(TransportAdapter):
         await writer.drain()
 
     async def _read_frame_v3(self, reader: asyncio.StreamReader, timeout: float = 30) -> Optional[bytes]:
-        """Read a v3 frame and return the payload (decompressed if needed)."""
+        """Read a versioned frame — supports v0, v1, v2, v3 (compatible with P2P transport)."""
         # Read magic byte
         magic = await asyncio.wait_for(reader.readexactly(1), timeout=timeout)
         magic_val = magic[0]
@@ -543,30 +543,41 @@ class SSHTunnelTransport(TransportAdapter):
         if magic_val == FRAME_V3_MAGIC:
             # v3 frame: [magic][4-byte length][1-byte flags][payload]
             length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
-            flags_bytes = await asyncio.wait_for(reader.readexactly(1), timeout=timeout)
             length = struct.unpack('>I', length_bytes)[0]
-            flags = flags_bytes[0]
-
             if length > MAX_FRAME_SIZE:
                 raise ValueError(f"Frame too large: {length} bytes")
-
-            payload = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
-
+            inner = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
+            if len(inner) < 1:
+                raise ValueError("v3 frame missing flags byte")
+            flags = inner[0]
+            payload = inner[1:]
             if flags & FRAME_V3_COMPRESSED:
                 payload = zlib.decompress(payload)
-
             return payload
 
         elif magic_val == FRAME_V2_MAGIC:
-            # v2 frame (legacy): [magic][4-byte length][payload]
+            # v2 frame: [magic][4-byte length][payload]
             length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
             length = struct.unpack('>I', length_bytes)[0]
-
             if length > MAX_FRAME_SIZE:
                 raise ValueError(f"Frame too large: {length} bytes")
+            payload = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
+            return payload
 
+        elif magic_val == 0x01:
+            # v1 frame: [0x01][4-byte length][payload]
+            length_bytes = await asyncio.wait_for(reader.readexactly(4), timeout=timeout)
+            length = struct.unpack('>I', length_bytes)[0]
+            if length > MAX_FRAME_SIZE:
+                raise ValueError(f"Frame too large: {length} bytes")
             payload = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
             return payload
 
         else:
-            raise ValueError(f"Unknown frame magic: 0x{magic_val:02x}")
+            # v0 legacy frame: first byte is part of 4-byte length (big-endian)
+            remaining = await asyncio.wait_for(reader.readexactly(3), timeout=timeout)
+            length = struct.unpack('>I', magic + remaining)[0]
+            if length > MAX_FRAME_SIZE:
+                raise ValueError(f"Frame too large: {length} bytes")
+            payload = await asyncio.wait_for(reader.readexactly(length), timeout=timeout)
+            return payload
