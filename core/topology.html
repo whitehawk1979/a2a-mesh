@@ -253,7 +253,15 @@ function draw() {
         ctx.setLineDash([4, 4]);
       }
     } else if (conn.transport === 'ssh_tunnel') {
-      // SSH tunnel: dashed cyan line, offset from P2P
+      // SSH tunnel: curved cyan dashed arc offset from P2P line
+      const mx = (from.x + to.x) / 2;
+      const my = (from.y + to.y) / 2;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const offset = 25;
+      const ox = -dy / len * offset;
+      const oy = dx / len * offset;
       if (conn.status === 'connected') {
         ctx.strokeStyle = '#00d0ff';
         ctx.lineWidth = 2;
@@ -263,6 +271,12 @@ function draw() {
         ctx.lineWidth = 1;
         ctx.setLineDash([5, 5]);
       }
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.quadraticCurveTo(mx + ox, my + oy, to.x, to.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return; // skip straight line
     } else {
       ctx.strokeStyle = '#58a6ff44';
       ctx.lineWidth = 1;
