@@ -91,6 +91,7 @@
 <div id="legend">
   <div class="item"><div class="dot" style="background:var(--green)"></div> P2P Connected</div>
   <div class="item"><div class="dot" style="background:var(--yellow)"></div> P2P Backoff</div>
+  <div class="item"><div class="dot" style="background:#00d0ff"></div> SSH Tunnel</div>
   <div class="item"><div class="dot" style="background:var(--red)"></div> Offline</div>
   <div class="item"><div class="dot" style="background:var(--accent)"></div> PG Transport</div>
 </div>
@@ -165,10 +166,12 @@ function updateStats() {
   const local = topologyData?.local_node || '?';
   const online = nodes.filter(n => n.status === 'online' || n.status === 'connected').length;
   const p2pLinks = connections.filter(c => c.transport === 'p2p' && c.status === 'connected').length;
+  const sshLinks = connections.filter(c => c.transport === 'ssh_tunnel' && c.status === 'connected').length;
   const totalLinks = connections.length;
 
   let html = `<span class="badge green">${online}/${nodes.length} node</span>`;
   html += `<span class="badge ${p2pLinks > 0 ? 'green' : 'red'}">${p2pLinks} P2P</span>`;
+  if (sshLinks > 0) html += `<span class="badge" style="background:#00d0ff33;color:#00d0ff">${sshLinks} SSH</span>`;
   html += `<span class="badge">${totalLinks} link</span>`;
   html += `<span style="color:var(--text2)">⭐ ${local}</span>`;
   document.getElementById('stats').innerHTML = html;
@@ -197,7 +200,8 @@ function calcPositions() {
 // ── Spawn flow particles ──
 function spawnFlowParticles() {
   connections.forEach(conn => {
-    if (conn.transport !== 'p2p' || conn.status !== 'connected') return;
+    if (conn.status !== 'connected') return;
+    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel') return;
     if (Math.random() > 0.02) return;  // 2% chance per frame per connection
     const from = positions[conn.source];
     const to = positions[conn.target];
@@ -206,7 +210,7 @@ function spawnFlowParticles() {
       x: from.x, y: from.y,
       dx: to.x - from.x, dy: to.y - from.y,
       progress: 0, speed: 0.02 + Math.random() * 0.02,
-      color: '#238636'
+      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : '#238636'
     });
   });
 }
@@ -247,6 +251,17 @@ function draw() {
         ctx.strokeStyle = '#f8514988';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
+      }
+    } else if (conn.transport === 'ssh_tunnel') {
+      // SSH tunnel: dashed cyan line, offset from P2P
+      if (conn.status === 'connected') {
+        ctx.strokeStyle = '#00d0ff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([10, 5]);
+      } else {
+        ctx.strokeStyle = '#00d0ff44';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
       }
     } else {
       ctx.strokeStyle = '#58a6ff44';
@@ -496,6 +511,7 @@ function showPanel(nodeName) {
   document.getElementById('panel-node-name').textContent = node.name;
 
   const p2pConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'p2p');
+  const sshConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'ssh_tunnel');
   const pgConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'pg');
   const isLocal = node.name === (topologyData?.local_node || '');
   const healthPct = Math.round((node.health_score || 0) * 100);
@@ -508,6 +524,12 @@ function showPanel(nodeName) {
   html += `<div class="row"><span class="label">Host:</span><span class="value">${node.host || '?'}:${node.port || 8650}</span></div>`;
   html += `<div class="row"><span class="label">P2P port:</span><span class="value">${node.p2p_port || 8645}</span></div>`;
   html += `<div class="row"><span class="label">P2P linkek:</span><span class="value">${p2pConns.length}</span></div>`;
+  if (sshConns.length > 0) {
+    const sshConnected = sshConns.filter(c => c.status === 'connected').length;
+    const sshInfo = sshConns.find(c => c.status === 'connected');
+    const upStr = sshInfo && sshInfo.uptime_seconds ? ' (' + formatUptime(sshInfo.uptime_seconds) + ')' : '';
+    html += `<div class="row"><span class="label">SSH Tunnel:</span><span class="value" style="color:#00d0ff">${sshConnected}/${sshConns.length}${upStr}</span></div>`;
+  }
   html += `<div class="row"><span class="label">PG linkek:</span><span class="value">${pgConns.length}</span></div>`;
   if (node.uptime_seconds) html += `<div class="row"><span class="label">Uptime:</span><span class="value">${formatUptime(node.uptime_seconds)}</span></div>`;
   if (node.message_count) html += `<div class="row"><span class="label">Üzenetek:</span><span class="value">${node.message_count}</span></div>`;

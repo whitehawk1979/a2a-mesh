@@ -1236,6 +1236,23 @@ class DashboardAdminMixin:
                     "backoff": backoff_peers.get(peer_name),
                 })
 
+            # ── SSH tunnel connections ────────────────────────────────────
+            ssh_tunnel_status = {}
+            if hasattr(self.node, '_ssh_tunnel_transport') and self.node.config.ssh_tunnel.enabled:
+                try:
+                    ssh_tunnel_status = self.node._ssh_tunnel_transport.get_peer_status()
+                    for peer_name, ts in ssh_tunnel_status.items():
+                        connections.append({
+                            "source": self.node.node_name,
+                            "target": peer_name,
+                            "transport": "ssh_tunnel",
+                            "status": "connected" if ts.get("connected") else "disconnected",
+                            "local_port": ts.get("local_port"),
+                            "uptime_seconds": ts.get("uptime_seconds", 0),
+                        })
+                except Exception as e:
+                    log.warning(f"Topology: SSH tunnel status failed: {e}")
+
             # ── PG connections (all registered agents not on P2P) ────────
             for name in list(nodes.keys()):
                 if name != self.node.node_name and name not in p2p_peers:

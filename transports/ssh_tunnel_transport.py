@@ -48,6 +48,7 @@ class TunnelPeer:
     reader: Optional[asyncio.StreamReader] = None
     writer: Optional[asyncio.StreamWriter] = None
     connected: bool = False
+    connected_since: float = 0.0
     retry_count: int = 0
     last_connect_attempt: float = 0.0
     backoff: float = 10.0
@@ -241,6 +242,7 @@ class SSHTunnelTransport(TransportAdapter):
                 success = await self._establish_tunnel(peer)
                 if success:
                     peer.connected = True
+                    peer.connected_since = time.time()
                     peer.retry_count = 0
                     peer.backoff = self._config.reconnect_interval
                     log.info(f"SSH tunnel to {peer_name} established on local port {peer.local_port}")
@@ -500,6 +502,10 @@ class SSHTunnelTransport(TransportAdapter):
         """Return detailed status for each tunnel peer."""
         status = {}
         for name, peer in self._tunnels.items():
+            connected_s = 0
+            if peer.connected and peer.connected_since:
+                import time as _t
+                connected_s = round(_t.time() - peer.connected_since, 1)
             status[name] = {
                 "connected": peer.connected,
                 "ssh_host": peer.ssh_host,
@@ -507,6 +513,8 @@ class SSHTunnelTransport(TransportAdapter):
                 "remote_port": peer.remote_port,
                 "retry_count": peer.retry_count,
                 "backoff": peer.backoff,
+                "uptime_seconds": connected_s,
+                "remote_name": peer.remote_name,
             }
         return status
 
