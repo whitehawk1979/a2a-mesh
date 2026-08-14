@@ -406,10 +406,10 @@ class SSHTunnelTransport(TransportAdapter):
                     break
 
                 # Parse A2AMessage from frame data
+                # Use from_bytes() to handle both msgpack and JSON serialization
+                # (P2P transport uses to_bytes() which prefers msgpack)
                 try:
-                    import json
-                    msg_dict = json.loads(frame_data.decode('utf-8'))
-                    msg = A2AMessage.from_dict(msg_dict)
+                    msg = A2AMessage.from_bytes(frame_data)
                     await self._receive_queue.put(msg)
                     log.debug(f"SSH tunnel received message from {peer_name}: {getattr(msg, 'type', '?')}")
                 except Exception as e:
@@ -462,9 +462,12 @@ class SSHTunnelTransport(TransportAdapter):
             return SendResult(transport="ssh_tunnel", success=False, error=str(e))
 
     async def _send_message(self, writer: asyncio.StreamWriter, message: A2AMessage):
-        """Serialize and send a message as a v3 frame."""
-        import json
-        data = json.dumps(message.to_dict()).encode('utf-8')
+        """Serialize and send a message as a v3 frame.
+
+        Uses A2AMessage.to_bytes() for serialization (msgpack if available,
+        JSON fallback) — consistent with P2P transport's serialization.
+        """
+        data = message.to_bytes()
         await self._write_frame_v3(writer, data, compressed=len(data) > 1024)
 
     async def receive(self) -> list:
