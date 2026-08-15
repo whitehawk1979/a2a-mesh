@@ -558,7 +558,7 @@ class DashboardDelegationsMixin:
                 return web.json_response({"error": "file is required"}, status=400)
 
             if not target_nodes:
-                peers = self.node.peer_discovery.get_known_peers() if hasattr(self.node, 'peer_discovery') else []
+                peers = self.node.peer_discovery.get_all_peers() if hasattr(self.node, 'peer_discovery') else []
                 target_nodes = [p for p in peers if p != self.node.node_name]
 
             if not target_nodes:
@@ -641,7 +641,7 @@ class DashboardDelegationsMixin:
 
             # If no nodes specified, deploy to all known peers
             if not target_nodes:
-                peers = self.node.peer_discovery.get_known_peers() if hasattr(self.node, 'peer_discovery') else []
+                peers = self.node.peer_discovery.get_all_peers() if hasattr(self.node, 'peer_discovery') else []
                 target_nodes = [p for p in peers if p != self.node.node_name]
 
             if not target_nodes:
