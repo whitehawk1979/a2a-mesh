@@ -3,7 +3,6 @@ mesh:
   node_id: ''
   transport_priority:
   - p2p
-  - ssh_tunnel
   - pg_notify
   - http
   capabilities:
@@ -97,7 +96,7 @@ mesh:
       timeout: 5
       retries: 3
     ssh_tunnel:
-      enabled: true
+      enabled: false
       default_ssh_user: ""
       default_identity_file: "~/.ssh/id_ed25519_openclaw"
       local_port_start: 9200
