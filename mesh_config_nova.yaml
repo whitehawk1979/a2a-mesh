@@ -96,7 +96,7 @@ mesh:
       timeout: 5
       retries: 3
     ssh_tunnel:
-      enabled: false
+      enabled: true
       default_ssh_user: ""
       default_identity_file: "~/.ssh/id_ed25519_openclaw"
       local_port_start: 9200

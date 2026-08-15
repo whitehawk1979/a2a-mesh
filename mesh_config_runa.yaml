@@ -95,6 +95,28 @@ mesh:
       health_url: http://192.168.1.30:8650/health
       timeout: 5
       retries: 3
+    ssh_tunnel:
+      enabled: true
+      default_ssh_user: ""
+      default_identity_file: "~/.ssh/id_ed25519_openclaw"
+      local_port_start: 9200
+      connect_timeout: 15
+      keepalive_interval: 30
+      max_retries: 3
+      reconnect_interval: 10
+      peers:
+        nova:
+          ssh_host: "192.168.1.8"
+          ssh_user: "zsolt"
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: "~/.ssh/id_ed25519_openclaw"
+        morzsa:
+          ssh_host: "192.168.1.30"
+          ssh_user: "openclaw"
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: "~/.ssh/id_ed25519_openclaw"
   discovery:
     min_target_peers: 2
     mdns:

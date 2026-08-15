@@ -195,6 +195,28 @@ mesh:
       password: nova_agent_2026
       port: 5432
       user: nova
+    ssh_tunnel:
+      enabled: true
+      default_ssh_user: ""
+      default_identity_file: "~/.ssh/id_ed25519_openclaw"
+      local_port_start: 9200
+      connect_timeout: 15
+      keepalive_interval: 30
+      max_retries: 3
+      reconnect_interval: 10
+      peers:
+        nova:
+          ssh_host: "192.168.1.8"
+          ssh_user: "zsolt"
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: "~/.ssh/id_ed25519_openclaw"
+        runa:
+          ssh_host: "192.168.1.100"
+          ssh_user: "zsolt"
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: "~/.ssh/id_ed25519_openclaw"
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
 plugins:
