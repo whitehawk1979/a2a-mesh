@@ -600,7 +600,7 @@ class DiagnosticEngine:
             return any(
                 target in s.title.lower()[:60]
                 and s.node == node_name
-                and s.status in ("pending", "accepted", "implemented", "investigated")
+                and s.status in ("pending", "accepted", "implemented", "investigated", "completed")
                 for s in self._suggestions
             )
         
@@ -661,8 +661,9 @@ class DiagnosticEngine:
             # measurement including all VMs. If process CPU is low (<10%), the mesh
             # process itself is not CPU-bound — skip the critical suggestion.
             cpu = cpu_effective
-            if cpu > 90 and process_cpu < 10:
+            if cpu > 75 and process_cpu < 10:
                 # System CPU high but mesh process idle → Proxmox host noise
+                # Covers both medium (75%+) and critical (90%+) thresholds
                 cpu = process_cpu  # Use process CPU instead, avoids false positive
 
             # Steal time warning (KVM/VM environments)
@@ -693,7 +694,7 @@ class DiagnosticEngine:
                     node_name_override=node_name,
                 )
                 new_suggestions.append(s)
-            elif cpu > 75 and not _suggestion_exists("CPU használat"):
+            elif cpu > 85 and not _suggestion_exists("CPU használat"):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="medium",
