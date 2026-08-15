@@ -615,11 +615,17 @@ class PeerDiscovery:
             await self.p2p_transport._connect_to_peer(
                 peer.name, peer.host, peer.p2p_port
             )
-            log.info(f"P2P connected to peer {peer.name} at {peer.host}:{peer.p2p_port}")
-            # Register connected peer with agent registry
-            if self.registry:
-                self._register_discovered_peer(peer)
-            return True
+            # Verify actual connection — _connect_to_peer catches TimeoutError internally
+            # and returns without raising, so we must check the peer dict
+            if peer.name in self.p2p_transport._peers:
+                log.info(f"P2P connected to peer {peer.name} at {peer.host}:{peer.p2p_port}")
+                # Register connected peer with agent registry
+                if self.registry:
+                    self._register_discovered_peer(peer)
+                return True
+            else:
+                log.warning(f"P2P connection to {peer.name} FAILED (not in peers dict after connect attempt)")
+                return False
         except Exception as e:
             log.warning(f"Failed to connect to {peer.name}: {e}")
             return False

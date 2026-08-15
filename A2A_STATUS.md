@@ -1,81 +1,61 @@
-## 2026-08-12 A2A Mesh Status — v0.29.0
+## 2026-08-15 A2A Mesh Status — v0.29.0
 
-### Nova (192.168.1.8 / Mac Pro)
+Generated: 2026-08-15 07:15 (automated reggeli check)
+
+### Nova (localhost)
 - **Status:** running, router
 - **Version:** 0.29.0
-- **Uptime:** ~67800s (18.8h)
-- **Transports:** PG=True, P2P=True, HTTP=True, BLE=True
+- **Uptime:** ~4288s (1.2h)
+- **Transports:** PG=True, P2P=True, HTTP=True
 - **P2P TLS:** mTLS + TLSv1.3
-- **Role:** router (coordinator election: none)
-- **Peers:** 2/2 connected (morzsa, runa)
-- **Config:** mesh_config_nova.yaml (tls_enabled: true, topology_tuning: enabled)
+- **Peers:** 2/2 connected
+  - morzsa: p2p=True pg=True http=True ver=0.29.0
+  - runa: p2p=True pg=True http=True ver=0.29.0
+- **Health Scorer:**
+  - runa: score=1.0 requests=0 failures=0
+  - morzsa: score=1.0 requests=25 failures=1
 
-### Morzsa (192.168.1.30 / OpenClaw)
+### Morzsa (192.168.1.30)
 - **Status:** running, router
 - **Version:** 0.29.0
+- **Uptime:** ~3962s (1.1h)
 - **Transports:** PG=True, P2P=True, HTTP=True
-- **P2P:** connected_s=2725s, RTT=0ms, batch_size=32, frame_version=3
-- **Tailscale:** 100.65.232.47 (idle)
+- **P2P TLS:** mTLS + TLSv1.3
+- **Peers:** 2/2 connected
+  - nova: p2p=True pg=True http=True ver=0.29.0
+  - runa: p2p=True pg=True http=True ver=0.29.0
+- **Health Scorer:**
+  - nova: score=1.0 requests=0 failures=0
+  - morzsa: score=1.0 requests=19 failures=1
+  - runa: score=1.0 requests=0 failures=0
 
-### Runa (192.168.1.100 / Ubuntu VM)
+### Runa (192.168.1.100)
 - **Status:** running, router
 - **Version:** 0.29.0
+- **Uptime:** ~3957s (1.1h)
 - **Transports:** PG=True, P2P=True, HTTP=True
-- **Monitoring:** Prometheus:9090 + Grafana:3030 + Alertmanager:9093
-- **Gitea:** v1.27.0 (port 3001), nginx proxy on 80/443
-- **Tailscale:** 100.125.223.24 (idle)
-- **Note:** connected_s=0 in peer info (fresh reconnect)
+- **P2P TLS:** mTLS + TLSv1.3
+- **Peers:** 2/2 connected
+  - nova: p2p=True pg=True http=True ver=0.29.0
+  - morzsa: p2p=True pg=True http=True ver=0.29.0
+- **Health Scorer:**
+  - nova: score=1.0 requests=0 failures=0
+  - morzsa: score=1.0 requests=25 failures=1
+  - runa: score=1.0 requests=0 failures=0
 
-### Infrastructure
-- **Brain MCP:** v2.0.0, uptime=341730s (3.95 days)
-- **PG:** 192.168.1.30:5432/agent_memory (shared)
-- **A2A messages:** 24,828 total, 1,652 unread
-- **Heartbeats:** nova (4s), morzsa (13s) — both healthy
-- **Shared tables:** shared_a2a_memory, shared_files, shared_steer
+### Mesh-wide
+- **Transport priority:** p2p (primary), pg_notify, http
+- **mDNS:** code implemented, zeroconf v0.150.0 installed, auto-enabled on non-Docker hosts
+- **Topology tuning:** enabled (check_interval=300s, auto_apply=false)
+- **DLQ:** 0
+- **Diagnostic suggestions:** 0 (1111 stale cleaned in last review)
+- **Gitea:** v1.27.0 on Runa:3001, nginx X-Forwarded-Proto config ready (deploy/nginx-gitea.conf)
+- **Latest release:** v0.29.0 (no newer version available)
 
-### Cron Jobs (Nova)
-- `*/2 * * * *` gateway_watchdog.py --node nova
-- `*/10 * * * *` session_cleanup.py --node nova
-
-### Launchd Services (Nova)
-- com.a2a-mesh.nova (running, PID 724)
-- com.a2a-mesh.caddy (running, PID 724)
-- com.a2a-mesh.gitea-ssh-proxy (running, PID 739)
-- com.hermes.a2a-heartbeat (loaded)
-- com.hermes.nova-a2a-watcher (running, PID 748)
-
-### v0.29.0 Features
-- Full installer (install.sh — 7-step, interactive + CLI)
-- Health score PG persistence (mesh_health_history)
-- Delegation feedback loop (success/fail → health score)
-- Provider status integration (heartbeat → health scorer)
-- Gateway watchdog (cron 2min)
-- Session cleanup (cron 10min)
-- Diagnostics suggestions PG persistence
-- Vector memory search in learning loop
-- Compressed P2P frames (v3, zlib)
-- Topology auto-tuning (health scorer based)
-- Gossipsub (flood_threshold: 6)
-- Workflow DAG v3 (conditional branching, retry policy)
-
-### Recent Fixes (Aug 8-11)
-- Diagnostics cooldown for restart suggestions + prefix dedup
-- HEALTH_CHECK_TIMEOUT 30→90s (eliminates spurious health probe warnings)
-- Delegation poll crash loop fix (pg_pool None guard)
-- Version field in /api/status + skill_advertiser import fix
-- Config sync: gossipsub all nodes, TLS+diagnostic_channel+wake_agent
-
-### Mesh Topology
-  nova (0x1E54, router)
-    runa (0x622E, router)
-    morzsa (0xE984, router)
-
-### Open Issues (Gitea)
-- #2: Health endpoint fails on lennie node (v0.13.0) — stale, lennie offline
-- #3: Lennie diagnostic report — stale, lennie offline
-
-### Known Limitations
-- Runa SSH not accessible from Nova (pubkey auth not configured)
-- Gitea nginx X-Forwarded-Proto fix pending (needs SSH access to Runa)
-- mesh_config.yaml contains runa config (not used by Nova, but confusing)
-- Lennie node offline (Windows, last seen 6+ days ago via Tailscale)
+### Development tasks (from Zsolt roadmap)
+- [x] P2P-first design — p2p is primary transport
+- [x] TLS P2P — mTLS + TLSv1.3 enabled on all nodes
+- [x] Topology auto-tuning — health scorer based, enabled
+- [~] mDNS auto-discovery — code ready, needs runtime verification
+- [ ] Gitea nginx X-Forwarded-Proto fix on Runa — config ready, needs deployment
+- [x] Runa mesh v0.29.0 (no newer version available)
