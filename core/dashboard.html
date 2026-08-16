@@ -866,6 +866,113 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div id="settingsPendingAgents" style="font-size:13px;color:var(--text3)">Nincs függő kérelem</div>
     </div>
 
+    <!-- ═══════════════ 1. Node Management ═══════════════ -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px;display:flex;justify-content:space-between;align-items:center">
+        🖥️ Node Management
+        <button class="btn btn-sm" style="background:var(--info);color:#fff;font-size:11px" onclick="loadSettingsNodes()">🔄 Frissít</button>
+      </h3>
+      <div id="settingsNodeList" style="font-size:13px;color:var(--text3)">Betöltés...</div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text3)">
+        <b>Elfogadásra várakozó node-ok:</b>
+        <div id="settingsPendingNodes" style="margin-top:4px">Nincs függő node</div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ 2. Alert Rules ═══════════════ -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px;display:flex;justify-content:space-between;align-items:center">
+        🚨 Alert Szabályok
+        <button class="btn btn-sm" style="background:var(--success);color:#fff;font-size:11px" onclick="document.getElementById('alertRuleForm').style.display='block'">➕ Új szabály</button>
+      </h3>
+      <div id="settingsAlertRules" style="font-size:13px;color:var(--text3)">Betöltés...</div>
+      <!-- New rule form -->
+      <div id="alertRuleForm" style="display:none;margin-top:10px;padding:10px;background:var(--surface);border-radius:6px;border:1px solid var(--border)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Azonosító</label>
+            <input id="alertRuleId" placeholder="pl. high_cpu" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Név</label>
+            <input id="alertRuleName" placeholder="pl. Magas CPU" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Metrika</label>
+            <select id="alertRuleMetric" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+              <option value="peers_connected">peers_connected</option>
+              <option value="cpu_percent">cpu_percent</option>
+              <option value="memory_percent">memory_percent</option>
+              <option value="disk_percent">disk_percent</option>
+              <option value="messages_failed">messages_failed</option>
+              <option value="delegations_pending">delegations_pending</option>
+              <option value="health_score_avg">health_score_avg</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Operátor</label>
+            <select id="alertRuleOperator" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+              <option value="<">&lt; kisebb</option>
+              <option value=">">&gt; nagyobb</option>
+              <option value="<=">&le; kisebb vagy egyenlő</option>
+              <option value=">=">&ge; nagyobb vagy egyenlő</option>
+              <option value="==">= egyenlő</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Küszöbérték</label>
+            <input id="alertRuleThreshold" type="number" step="0.1" placeholder="pl. 80" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Súlyosság</label>
+            <select id="alertRuleSeverity" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+              <option value="info">ℹ️ Info</option>
+              <option value="warning" selected>⚠️ Warning</option>
+              <option value="critical">🔴 Critical</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--text3)">Cooldown (mp)</label>
+            <input id="alertRuleCooldown" type="number" value="300" style="width:100%;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;justify-content:flex-end">
+          <button class="btn btn-sm" onclick="document.getElementById('alertRuleForm').style.display='none'">Mégsem</button>
+          <button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="addAlertRule()">💾 Hozzáad</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════ 3. P2P / Connection Tools ═══════════════ -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🔄 Kapcsolat Eszközök</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="p2pResetBackoff()">🔄 Backoff Reset</button>
+        <button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="p2pReconnect()">📡 Újracsatlakozás</button>
+      </div>
+      <div id="p2pActionResult" style="font-size:12px;color:var(--text3)">A backoff reset törli az exponenciális várakozást. Az újracsatlakozás azonnali P2P discovery-t indít.</div>
+    </div>
+
+    <!-- ═══════════════ 4. Task Cleanup ═══════════════ -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🗑️ Task Tisztítás</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <label style="font-size:12px;color:var(--text2)">Max kor (óra):</label>
+        <input id="cleanupMaxAge" type="number" value="24" min="1" max="720" style="width:70px;padding:4px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px">
+        <button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="taskCleanup()">🗑️ Töröl</button>
+      </div>
+      <div id="cleanupResult" style="font-size:12px;color:var(--text3)">Eltávolítja a befejezett/vissszavont delegációkat amik régebbiek mint a megadott kor.</div>
+    </div>
+
+    <!-- ═══════════════ 5. Memory Sync ═══════════════ -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🧠 Memória Szinkronizálás</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="memorySync()">🔄 Szinkronizálás most</button>
+      </div>
+      <div id="memorySyncResult" style="font-size:12px;color:var(--text3)">PG-ből lekéri az összes új memória bejegyzést és alkalmazza a helyi node-on.</div>
+    </div>
+
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-sm" onclick="document.getElementById('settingsModal').style.display='none'">Mégsem</button>
       <button class="btn btn-sm" style="background:var(--success)" onclick="saveAllSettings()">💾 Összes mentése</button>
@@ -2358,6 +2465,8 @@ document.getElementById("messageInput").addEventListener("keydown", function(e) 
 function showSettings() {
   document.getElementById('settingsModal').style.display = 'flex';
   loadSettings();
+  loadSettingsNodes();
+  loadAlertRules();
   loadUsers();
 }
 
@@ -3155,6 +3264,250 @@ document.getElementById("cfgSecMtls").addEventListener("change", function() {
 document.getElementById("cfgSecHmac").addEventListener("change", function() {
   document.getElementById("cfgSecHmacLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
 });
+
+// ─── 1. Node Management Functions ───────────────────────────────
+function loadSettingsNodes() {
+  var tk = localStorage.getItem("mesh_token") || "";
+  fetch("/api/nodes", {headers: {"Authorization": "Bearer " + tk}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var nodes = data.nodes || [];
+      var html = "<table style='width:100%;border-collapse:collapse;font-size:12px'>";
+      html += "<tr style='border-bottom:1px solid var(--border)'><th style='text-align:left;padding:4px'>Node</th><th style='text-align:left;padding:4px'>Státusz</th><th style='text-align:left;padding:4px'>P2P</th><th style='text-align:left;padding:4px'>PG</th><th style='text-align:right;padding:4px'>Health</th><th style='text-align:left;padding:4px'>Skills</th></tr>";
+      nodes.forEach(function(n) {
+        var dot = n.status === "online" ? "🟢" : n.status === "connected" ? "🟡" : "🔴";
+        var p2pIcon = n.p2p_available ? "✅" : "❌";
+        var pgIcon = n.pg_available ? "✅" : "❌";
+        var score = n.health_score !== undefined ? (n.health_score * 100).toFixed(0) + "%" : "-";
+        var skills = (n.skills || []).slice(0, 3).join(", ");
+        if ((n.skills || []).length > 3) skills += " +" + (n.skills.length - 3);
+        html += "<tr style='border-bottom:1px solid var(--border)'>";
+        html += "<td style='padding:4px'><b>" + escHtml(n.node_name || n.name || "?") + "</b><br><span style='font-size:10px;color:var(--text3)'>" + escHtml(n.host || "") + ":" + (n.p2p_port || "") + "</span></td>";
+        html += "<td style='padding:4px'>" + dot + " " + escHtml(n.status || "?") + "</td>";
+        html += "<td style='padding:4px;text-align:center'>" + p2pIcon + "</td>";
+        html += "<td style='padding:4px;text-align:center'>" + pgIcon + "</td>";
+        html += "<td style='padding:4px;text-align:right'>" + score + "</td>";
+        html += "<td style='padding:4px;font-size:10px;color:var(--text3)'>" + escHtml(skills) + "</td>";
+        html += "</tr>";
+      });
+      html += "</table>";
+      document.getElementById("settingsNodeList").innerHTML = html;
+    })
+    .catch(function(e) {
+      document.getElementById("settingsNodeList").innerHTML = "<span style='color:var(--danger)'>Hiba: " + escHtml(String(e)) + "</span>";
+    });
+  // Load pending nodes
+  fetch("/api/nodes/pending", {headers: {"Authorization": "Bearer " + tk}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var pn = data.nodes || [];
+      if (pn.length === 0) {
+        document.getElementById("settingsPendingNodes").innerHTML = "<span style='color:var(--text3)'>Nincs függő node ✅</span>";
+        return;
+      }
+      var html = "<table style='width:100%;border-collapse:collapse;font-size:12px'>";
+      pn.forEach(function(n) {
+        html += "<tr><td style='padding:4px'><b>" + escHtml(n.node_name) + "</b></td>";
+        html += "<td style='padding:4px;font-size:10px;color:var(--text3)'>" + escHtml(n.host || "") + "</td>";
+        html += "<td style='padding:4px;text-align:right'>";
+        html += "<button class='btn btn-sm' style='background:var(--success);margin-right:4px;font-size:10px' onclick='approveNode(\"" + n.node_name + "\")'>✅</button>";
+        html += "<button class='btn btn-sm' style='background:var(--danger);font-size:10px' onclick='rejectNode(\"" + n.node_name + "\")'>❌</button>";
+        html += "</td></tr>";
+      });
+      html += "</table>";
+      document.getElementById("settingsPendingNodes").innerHTML = html;
+    })
+    .catch(function(e) {
+      document.getElementById("settingsPendingNodes").innerHTML = "<span style='color:var(--text3)'>Nincs jogosultság vagy nincs függő node</span>";
+    });
+}
+
+function approveNode(name) {
+  fetch("/api/nodes/" + encodeURIComponent(name) + "/approve", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === "approved") { alert("✅ " + name + " elfogadva!"); loadSettingsNodes(); }
+      else { alert("❌ Hiba: " + (d.error || "ismeretlen")); }
+    });
+}
+
+function rejectNode(name) {
+  if (!confirm("Biztosan elutasítod " + name + "-t?")) return;
+  fetch("/api/nodes/" + encodeURIComponent(name) + "/reject", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === "rejected") { alert("❌ " + name + " elutasítva."); loadSettingsNodes(); }
+      else { alert("❌ Hiba: " + (d.error || "ismeretlen")); }
+    });
+}
+
+// ─── 2. Alert Rules Functions ───────────────────────────────────
+function loadAlertRules() {
+  var tk = localStorage.getItem("mesh_token") || "";
+  fetch("/api/alerts", {headers: {"Authorization": "Bearer " + tk}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var rules = data.rules || [];
+      var activeAlerts = data.active_alerts || [];
+      var html = "";
+      if (activeAlerts.length > 0) {
+        html += "<div style='margin-bottom:6px;padding:6px;background:var(--danger);border-radius:4px;color:#fff;font-size:11px'>";
+        html += "🔴 <b>Aktív alertek:</b> " + activeAlerts.length + " db";
+        activeAlerts.forEach(function(a) {
+          html += "<br>" + escHtml(a.rule_name || a.id || "?") + ": " + escHtml(a.message || "");
+        });
+        html += "</div>";
+      }
+      if (rules.length === 0) {
+        html += "<span style='color:var(--text3)'>Nincs alert szabály definiálva</span>";
+      } else {
+        html += "<table style='width:100%;border-collapse:collapse;font-size:11px'>";
+        rules.forEach(function(r) {
+          var sevIcon = r.severity === "critical" ? "🔴" : r.severity === "warning" ? "⚠️" : "ℹ️";
+          var enabledBadge = r.enabled
+            ? "<span style='color:var(--success)'>BE</span>"
+            : "<span style='color:var(--text3)'>KI</span>";
+          html += "<tr style='border-bottom:1px solid var(--border)'>";
+          html += "<td style='padding:4px'>" + sevIcon + " <b>" + escHtml(r.name || r.id) + "</b><br>";
+          html += "<span style='font-size:10px;color:var(--text3)'>" + escHtml(r.metric) + " " + escHtml(r.operator) + " " + r.threshold + " (cooldown: " + r.cooldown + "s)</span></td>";
+          html += "<td style='padding:4px;text-align:right;white-space:nowrap'>";
+          html += "<button class='btn btn-sm' style='font-size:10px;margin-right:4px' onclick='toggleAlertRule(\"" + r.id + "\")'>" + enabledBadge + "</button>";
+          html += "<button class='btn btn-sm' style='background:var(--danger);color:#fff;font-size:10px' onclick='deleteAlertRule(\"" + r.id + "\")'>🗑️</button>";
+          html += "</td></tr>";
+        });
+        html += "</table>";
+      }
+      document.getElementById("settingsAlertRules").innerHTML = html;
+    })
+    .catch(function(e) {
+      document.getElementById("settingsAlertRules").innerHTML = "<span style='color:var(--danger)'>Hiba: " + escHtml(String(e)) + "</span>";
+    });
+}
+
+function addAlertRule() {
+  var ruleId = document.getElementById("alertRuleId").value.trim();
+  if (!ruleId) { alert("❌ Azonosító kötelező!"); return; }
+  var data = {
+    id: ruleId,
+    name: document.getElementById("alertRuleName").value.trim() || ruleId,
+    metric: document.getElementById("alertRuleMetric").value,
+    operator: document.getElementById("alertRuleOperator").value,
+    threshold: parseFloat(document.getElementById("alertRuleThreshold").value),
+    severity: document.getElementById("alertRuleSeverity").value,
+    cooldown: parseFloat(document.getElementById("alertRuleCooldown").value) || 300,
+    enabled: true
+  };
+  if (isNaN(data.threshold)) { alert("❌ Érvénytelen küszöbérték!"); return; }
+  fetch("/api/alerts/rules", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    body: JSON.stringify(data)
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === "ok") {
+        alert("✅ Alert szabály hozzáadva!");
+        document.getElementById("alertRuleForm").style.display = "none";
+        document.getElementById("alertRuleId").value = "";
+        document.getElementById("alertRuleName").value = "";
+        document.getElementById("alertRuleThreshold").value = "";
+        loadAlertRules();
+      } else { alert("❌ Hiba: " + (d.error || "ismeretlen")); }
+    });
+}
+
+function toggleAlertRule(ruleId) {
+  fetch("/api/alerts/rules/" + encodeURIComponent(ruleId) + "/toggle", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(d) { if (d.status === "ok") loadAlertRules(); });
+}
+
+function deleteAlertRule(ruleId) {
+  if (!confirm("Biztosan törlöd az alert szabályt?")) return;
+  fetch("/api/alerts/rules/" + encodeURIComponent(ruleId), {
+    method: "DELETE",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(d) { if (d.status === "deleted") loadAlertRules(); });
+}
+
+// ─── 3. P2P Connection Tools ────────────────────────────────────
+function p2pResetBackoff() {
+  fetch("/api/p2p/reset-backoff", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === "ok") {
+        document.getElementById("p2pActionResult").innerHTML =
+          "<span style='color:var(--success)'>✅ " + (d.backoffs_reset || 0) + " backoff törölve</span>";
+      } else {
+        document.getElementById("p2pActionResult").innerHTML = "<span style='color:var(--danger)'>❌ " + escHtml(d.error || "") + "</span>";
+      }
+    });
+}
+
+function p2pReconnect() {
+  document.getElementById("p2pActionResult").innerHTML = "<span style='color:var(--info)'>📡 Újracsatlakozás folyamatban...</span>";
+  fetch("/api/p2p/reconnect", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === "ok") {
+        document.getElementById("p2pActionResult").innerHTML =
+          "<span style='color:var(--success)'>✅ Újracsatlakozás indítva: " + escHtml(d.discovery_result || "OK") + "</span>";
+      } else {
+        document.getElementById("p2pActionResult").innerHTML = "<span style='color:var(--danger)'>❌ " + escHtml(d.error || "") + "</span>";
+      }
+    });
+}
+
+// ─── 4. Task Cleanup ────────────────────────────────────────────
+function taskCleanup() {
+  var maxAge = parseInt(document.getElementById("cleanupMaxAge").value) || 24;
+  if (maxAge < 1) maxAge = 1;
+  if (maxAge > 720) maxAge = 720;
+  if (!confirm("Biztosan törlöd az összes befejezett/vissszavont delegációt ami régebbi mint " + maxAge + " óra?")) return;
+  document.getElementById("cleanupResult").innerHTML = "<span style='color:var(--info)'>🗑️ Tisztítás folyamatban...</span>";
+  fetch("/api/tasks/cleanup?max_age_hours=" + maxAge, {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.deleted !== undefined) {
+        document.getElementById("cleanupResult").innerHTML =
+          "<span style='color:var(--success)'>✅ " + d.deleted + " delegáció törölve (régebbi mint " + d.max_age_hours + " óra)</span>";
+      } else {
+        document.getElementById("cleanupResult").innerHTML = "<span style='color:var(--danger)'>❌ " + escHtml(d.error || "") + "</span>";
+      }
+    });
+}
+
+// ─── 5. Memory Sync ─────────────────────────────────────────────
+function memorySync() {
+  document.getElementById("memorySyncResult").innerHTML = "<span style='color:var(--info)'>🧠 Szinkronizálás folyamatban...</span>";
+  fetch("/api/memory/sync", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || ""), "Content-Type": "application/json"},
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.synced !== undefined) {
+        document.getElementById("memorySyncResult").innerHTML =
+          "<span style='color:var(--success)'>✅ " + d.synced + " memória bejegyzés szinkronizálva</span>";
+      } else {
+        document.getElementById("memorySyncResult").innerHTML = "<span style='color:var(--danger)'>❌ " + escHtml(d.error || "") + "</span>";
+      }
+    });
+}
 
 // ─── User Management Functions ──────────────────────────────────
 var _changePasswordUsername = "";
