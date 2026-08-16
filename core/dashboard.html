@@ -2986,37 +2986,58 @@ function loadSettings() {
 
 // ── Transport Status ──
 function loadTransportStatus() {
-  fetch("/api/health", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+  // Use /health (node endpoint, no auth needed) for real transport data
+  fetch("/health")
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var t = data.transports || {};
       var ssh = data.ssh_tunnel || {};
-      var html = "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px'>";
-      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.p2p ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:20px'>" + (t.p2p ? "✅" : "❌") + "</div><div style='font-size:11px'>P2P</div></div>";
-      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.pg ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:20px'>" + (t.pg ? "✅" : "❌") + "</div><div style='font-size:11px'>PG</div></div>";
-      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.ssh_tunnel ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:20px'>" + (t.ssh_tunnel ? "✅" : "❌") + "</div><div style='font-size:11px'>SSH Tunnel</div></div>";
+      var p2p = data.p2p || {};
+      var html = "<div style='display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:8px'>";
+      // P2P card
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.p2p ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:18px'>" + (t.p2p ? "✅" : "❌") + "</div><div style='font-size:10px'>P2P</div></div>";
+      // PG card
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.pg ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:18px'>" + (t.pg ? "✅" : "❌") + "</div><div style='font-size:10px'>PG</div></div>";
+      // SSH Tunnel card
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.ssh_tunnel ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:18px'>" + (t.ssh_tunnel ? "✅" : "❌") + "</div><div style='font-size:10px'>SSH Tunnel</div></div>";
+      // HTTP card
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.http ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:18px'>" + (t.http ? "✅" : "❌") + "</div><div style='font-size:10px'>HTTP</div></div>";
       html += "</div>";
-      // SSH tunnel peers
+
+      // P2P details
+      if (p2p && p2p.peers && p2p.peers.length > 0) {
+        html += "<div style='font-size:11px;margin-bottom:6px'><b>P2P:</b> port " + (p2p.listen_port || 8645) + ", TLS " + (p2p.tls_enabled ? "✅" : "❌") + ", peers: ";
+        html += p2p.peers.map(escHtml).join(", ") + "</div>";
+      }
+
+      // SSH tunnel peers table
       if (ssh && Object.keys(ssh).length > 0) {
-        html += "<div style='font-size:12px;margin-top:4px'><b>SSH Tunnel peers:</b><br>";
+        html += "<table style='width:100%;border-collapse:collapse;font-size:11px;margin-top:4px'>";
+        html += "<tr style='border-bottom:1px solid var(--border)'><th style='text-align:left;padding:3px'>Peer</th><th style='text-align:left;padding:3px'>Státusz</th><th style='text-align:left;padding:3px'>Host</th><th style='text-align:right;padding:3px'>Port</th><th style='text-align:right;padding:3px'>Uptime</th></tr>";
         for (var peer in ssh) {
           if (ssh.hasOwnProperty(peer)) {
             var p = ssh[peer];
-            var conn = p.connected ? "🟢" : "🔴";
-            var uptime = p.uptime_seconds ? " (" + Math.round(p.uptime_seconds) + "s)" : "";
-            html += conn + " " + escHtml(peer) + uptime + "<br>";
+            var conn = p.connected ? "🟢 Connected" : "🔴 Disconnected";
+            var up = p.uptime_seconds ? Math.round(p.uptime_seconds) + "s" : "-";
+            var retry = p.retry_count > 0 ? " (retry #" + p.retry_count + ")" : "";
+            html += "<tr style='border-bottom:1px solid var(--border)'>";
+            html += "<td style='padding:3px'><b>" + escHtml(peer) + "</b></td>";
+            html += "<td style='padding:3px'>" + conn + retry + "</td>";
+            html += "<td style='padding:3px;font-size:10px;color:var(--text3)'>" + escHtml(p.ssh_host || "-") + "</td>";
+            html += "<td style='padding:3px;text-align:right;font-size:10px'>" + (p.local_port || "-") + "→" + (p.remote_port || "-") + "</td>";
+            html += "<td style='padding:3px;text-align:right'>" + up + "</td>";
+            html += "</tr>";
           }
         }
-        html += "</div>";
+        html += "</table>";
+      } else if (t.ssh_tunnel) {
+        html += "<div style='font-size:11px;color:var(--text3);margin-top:4px'>SSH tunnel engedélyezve, de nincs aktív peer kapcsolat</div>";
       }
-      // P2P peers
-      if (data.p2p_peers && data.p2p_peers.length > 0) {
-        html += "<div style='font-size:12px;margin-top:4px'><b>P2P peers:</b> " + data.p2p_peers.map(escHtml).join(", ") + "</div>";
-      }
+
       document.getElementById("settingsTransport").innerHTML = html;
     })
     .catch(function(e) {
-      document.getElementById("settingsTransport").innerHTML = "<span style='color:var(--danger)'>Hiba: " + e.message + "</span>";
+      document.getElementById("settingsTransport").innerHTML = "<span style='color:var(--danger)'>Hiba: " + escHtml(e.message) + "</span>";
     });
 }
 

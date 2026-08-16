@@ -1023,10 +1023,14 @@ class DashboardAdminMixin:
         settings = {
             "mesh": {
                 "node_name": self.node.node_name if self.node else "unknown",
-                "p2p_enabled": True,
-                "pg_enabled": bool(self.node and hasattr(self.node, 'pg_transport')),
+                "p2p_enabled": bool(getattr(self.node, '_p2p_transport', None)),
+                "pg_enabled": bool(getattr(self.node, '_pg_pool', None) and self.node._pg_pool),
+                "ssh_tunnel_enabled": bool(getattr(self.node, '_ssh_tunnel_transport', None)),
                 "dashboard_port": 8650,
             },
+            "transports": {},
+            "ssh_tunnels": {},
+            "p2p_info": {},
             "registry": {
                 "auto_approve": self.registry.auto_approve,
                 "total_agents": len(self.registry.agents),
@@ -1045,6 +1049,64 @@ class DashboardAdminMixin:
                 "weights": self.registry.health_scorer.weights,
             },
         }
+
+        # ── Real transport status from live objects ──
+        try:
+            node = self.node
+            # P2P transport
+            p2p = getattr(node, '_p2p_transport', None)
+            if p2p:
+                peers = {}
+                pd = getattr(node, 'peer_discovery', None)
+                if pd and hasattr(pd, '_peers'):
+                    for pname, peer in pd._peers.items():
+                        peers[pname] = {
+                            "connected": getattr(peer, 'p2p_available', False),
+                            "host": getattr(peer, 'host', ''),
+                            "port": getattr(peer, 'p2p_port', 8645),
+                            "pg_available": getattr(peer, 'pg_available', False),
+                        }
+                settings["p2p_info"] = {
+                    "listen_port": getattr(p2p, '_listen_port', 8645),
+                    "tls_enabled": getattr(p2p, '_tls_enabled', False),
+                    "peers": list(peers.keys()),
+                    "peer_details": peers,
+                }
+                settings["transports"]["p2p"] = True
+            else:
+                settings["transports"]["p2p"] = False
+
+            # PG transport
+            pg_pool = getattr(node, '_pg_pool', None)
+            settings["transports"]["pg"] = bool(pg_pool and pg_pool.is_connected() if pg_pool else False)
+
+            # SSH tunnel transport
+            ssh = getattr(node, '_ssh_tunnel_transport', None)
+            if ssh:
+                settings["transports"]["ssh_tunnel"] = True
+                tunnels = {}
+                # Get tunnel stats from the transport object
+                if hasattr(ssh, '_tunnels'):
+                    for tname, tstate in ssh._tunnels.items():
+                        tunnels[tname] = {
+                            "connected": getattr(tstate, 'connected', False),
+                            "ssh_host": getattr(tstate, 'ssh_host', ''),
+                            "local_port": getattr(tstate, 'local_port', 0),
+                            "remote_port": getattr(tstate, 'remote_port', 0),
+                            "retry_count": getattr(tstate, 'retry_count', 0),
+                            "uptime_seconds": round(getattr(tstate, 'uptime_seconds', 0) or 0, 1),
+                        }
+                settings["ssh_tunnels"] = tunnels
+            else:
+                settings["transports"]["ssh_tunnel"] = False
+                settings["ssh_tunnels"] = {}
+
+            # HTTP transport (dashboard itself is running = http OK)
+            settings["transports"]["http"] = True
+
+        except Exception as e:
+            log.warning(f"Settings transport status error: {e}")
+
         return web.json_response(settings)
 
     async def _api_settings_update(self, request):
