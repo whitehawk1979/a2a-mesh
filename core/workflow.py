@@ -470,14 +470,15 @@ class WorkflowCoordinator:
 
                     # Use delegation to create a task and wait for result
                     import json as _json
+                    is_self = (task.assigned_agent == self.node.node_name)
                     task_id = await self.node.delegation.delegate_task(
-                        to_agent=task.assigned_agent,
+                        to_agent="any" if is_self else task.assigned_agent,
                         subject=f"[WF:{workflow.id}] {task.name}",
                         description=_json.dumps(desc),
                         task_type=task_type,
                         priority=5,
                         timeout_minutes=max(2, int(task.timeout / 30)),  # 2x buffer over task timeout
-                        available=False,
+                        available=is_self,  # self-delegation must be available=True
                         max_retries=0,  # workflow handles retries, not delegation
                     )
 

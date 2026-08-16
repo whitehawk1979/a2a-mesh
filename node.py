@@ -3080,6 +3080,21 @@ echo "Status: ok"
             "a2a_messaging", "file_transfer"
         ])
         
+        # Add skills as capabilities (skills are advertised but not used for routing)
+        skills = list(getattr(self.config, 'skills', []) or [])
+        for skill in skills:
+            if isinstance(skill, dict):
+                skill_id = skill.get('id', '')
+                if skill_id and skill_id not in capabilities:
+                    capabilities.append(skill_id)
+            elif isinstance(skill, str) and skill not in capabilities:
+                capabilities.append(skill)
+        
+        # Add common workflow capabilities (all nodes can execute delegated tasks)
+        for cap in ["task_execution", "web_search", "summarization", "data_analysis", "code_generation"]:
+            if cap not in capabilities:
+                capabilities.append(cap)
+        
         # Add role-based capabilities
         if self.role == NodeRole.COORDINATOR:
             capabilities.extend(["coordinator", "dashboard", "registry"])
