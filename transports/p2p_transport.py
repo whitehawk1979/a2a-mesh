@@ -485,8 +485,8 @@ class P2PTransport(TransportAdapter):
                             resp = _Msg.create(
                                 sender=getattr(self.config, 'node_name', ''),
                                 recipient=message.sender,
-                                msg_type=_HB,
-                                payload={"version": "ssh_tunnel_ack", "timestamp": _t.time()},
+                                msg_type=MSG_TYPE_ACK,
+                                payload={"version": self._node_version, "timestamp": _t.time()},
                             )
                             frame = self._encode_authenticated_frame(resp.to_bytes(), connected_peer_name)
                             writer.write(frame)
