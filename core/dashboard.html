@@ -572,7 +572,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
 
     <!-- Kanban board -->
-    <div id="kanbanBoard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;overflow-y:auto;flex:1;min-height:0">
+    <!-- Delegation filter bar -->
+<div id="delFilterBar" style="display:flex;gap:6px;margin-bottom:8px;flex-shrink:0;flex-wrap:wrap;align-items:center">
+  <select id="delFilterStatus" onchange="loadDelegations()" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px">
+    <option value="">Összes státusz</option>
+    <option value="available">🔄 Elérhető</option>
+    <option value="pending">⏳ Függő</option>
+    <option value="running">⚙️ Futó</option>
+    <option value="completed">✔️ Kész</option>
+    <option value="failed">❌ Hibás</option>
+  </select>
+  <select id="delFilterType" onchange="loadDelegations()" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px">
+    <option value="">Összes típus</option>
+    <option value="generic">Általános</option>
+    <option value="research">Kutatás</option>
+    <option value="code">Kódolás</option>
+    <option value="analysis">Elemzés</option>
+    <option value="monitoring">Monitorozás</option>
+  </select>
+  <select id="delFilterPriority" onchange="loadDelegations()" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px">
+    <option value="">Összes prioritás</option>
+    <option value="10">P10 Sürgős</option>
+    <option value="7">P7 Magas</option>
+    <option value="5">P5 Normál</option>
+    <option value="1">P1 Alacsony</option>
+  </select>
+  <input type="text" id="delFilterAgent" placeholder="Agent szűrés..." oninput="loadDelegations()" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;width:120px">
+  <span id="delFilterCount" style="font-size:11px;color:var(--text3);margin-left:auto"></span>
+</div>
+<div id="kanbanBoard" style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;overflow-y:auto;flex:1;min-height:0">
       <div class="kanban-col" data-status="available">
         <div class="kanban-col-header" style="background:var(--info)">🔄 Elérhető</div>
         <div class="kanban-cards" id="kanban-available"></div>
@@ -1068,8 +1096,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('workflowModal').style.display='none'">✕</button>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;flex-shrink:0;overflow-x:auto;overflow-y:hidden;white-space:nowrap;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:thin">
-      <button class="btn btn-sm" style="background:var(--primary);color:#fff;flex-shrink:0" onclick="loadWorkflows()">Listazas</button>
-      <button class="btn btn-sm" style="background:var(--green);color:#fff;flex-shrink:0" onclick="showWorkflowForm()">Uj workflow</button>
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff;flex-shrink:0" onclick="loadWorkflows()">📋 Lista</button>
+      <button class="btn btn-sm" style="background:var(--green);color:#fff;flex-shrink:0" onclick="showWorkflowForm()">➕ Új workflow</button>
       <div style="display:flex;gap:4px;margin-left:auto;flex-shrink:0">
         <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px;flex-shrink:0" onclick="loadWorkflowTemplate('research')">📋 Research</button>
         <button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px;flex-shrink:0" onclick="loadWorkflowTemplate('parallel')">📋 Parallel</button>
@@ -1079,7 +1107,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <div id="workflowList" style="flex:1;overflow-y:auto;padding:4px 0;min-height:200px"></div>
     <div id="workflowForm" style="display:none;flex-shrink:0;padding:12px;border-top:1px solid var(--border);background:var(--surface2);border-radius:8px;margin-top:8px;max-height:300px;overflow-y:auto">
-      <h3 style="margin:0 0 8px">Uj workflow inditasa</h3>
+      <h3 style="margin:0 0 8px">➕ Új workflow inditasa</h3>
       <input type="text" id="wfName" placeholder="Workflow neve (pl. research-task)" style="width:100%;padding:6px 10px;margin-bottom:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px">
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <label style="font-size:12px;color:var(--text3)">Consensus:</label>
@@ -1091,8 +1119,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
       <textarea id="wfTasksJson" placeholder='JSON taskok: [{"id":"search","name":"Web Search","capabilities":["web_search"],"payload":{"query":"AI"},"dependencies":[],"timeout":60},{"id":"summarize","name":"Summarize","capabilities":["summarization"],"dependencies":["search"],"timeout":30}]' style="width:100%;height:120px;padding:6px 10px;margin-bottom:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;font-family:monospace;resize:vertical"></textarea>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="createWorkflow()">Inditas</button>
-        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById('workflowForm').style.display='none'">Megsem</button>
+        <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="createWorkflow()">🚀 Indítás</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById('workflowForm').style.display='none'">Mégsem</button>
       </div>
     </div>
   </div>
@@ -2607,7 +2635,15 @@ function renderKanbanCard(d) {
 }
 
 function loadDelegations() {
-  var url = "/api/delegations?limit=50";
+  var filters = "";
+  var fs = document.getElementById("delFilterStatus");
+  var ft = document.getElementById("delFilterType");
+  var fp = document.getElementById("delFilterPriority");
+  var fa = document.getElementById("delFilterAgent");
+  if (fs && fs.value) filters += "&status=" + encodeURIComponent(fs.value);
+  if (ft && ft.value) filters += "&task_type=" + encodeURIComponent(ft.value);
+  if (fa && fa.value.trim()) filters += "&agent=" + encodeURIComponent(fa.value.trim());
+  var url = "/api/delegations?limit=50" + filters;
   fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -2616,6 +2652,14 @@ function loadDelegations() {
         document.getElementById("kanban-" + s).innerHTML = "";
       });
       var counts = {available:0, pending:0, running:0, completed:0, failed:0};
+      // Apply priority filter client-side
+      var fpEl = document.getElementById("delFilterPriority");
+      if (fpEl && fpEl.value) {
+        var minP = parseInt(fpEl.value);
+        delegations = delegations.filter(function(d) { return (d.priority || 5) === minP; });
+      }
+      var fcEl = document.getElementById("delFilterCount");
+      if (fcEl) fcEl.textContent = delegations.length + " feladat";
       if (delegations.length === 0) {
         ["available","pending","running","completed","failed"].forEach(function(s) {
           document.getElementById("kanban-" + s).innerHTML = '<div style="text-align:center;color:var(--text3);font-size:11px;padding:16px">Üres</div>';
@@ -2782,6 +2826,21 @@ function showTaskDetail(taskId) {
         var dur = Math.round((new Date(d.completed_at) - new Date(d.created_at)) / 1000);
         var durStr = dur < 60 ? dur + "mp" : dur < 3600 ? Math.round(dur/60) + "perc" : Math.round(dur/3600*10)/10 + "óra";
         metaHtml += '<div><span style="color:var(--text3)">Időtartam:</span> ⏱️ ' + durStr + '</div>';
+      }
+      // Deadline countdown
+      if (d.created_at && d.timeout_minutes && d.status !== "completed" && d.status !== "failed" && d.status !== "cancelled" && d.status !== "expired") {
+        var created = new Date(d.created_at);
+        var deadline = new Date(created.getTime() + d.timeout_minutes * 60000);
+        var now = new Date();
+        var remaining = deadline - now;
+        if (remaining > 0) {
+          var mins = Math.floor(remaining / 60000);
+          var secs = Math.floor((remaining % 60000) / 1000);
+          var dColor = mins < 5 ? "var(--danger)" : mins < 15 ? "var(--warning)" : "var(--success)";
+          metaHtml += '<div style="grid-column:1/-1"><span style="color:var(--text3)">Határidő:</span> <span style="color:' + dColor + ';font-weight:600">⏰ ' + mins + 'p ' + secs + 'mp</span></div>';
+        } else {
+          metaHtml += '<div style="grid-column:1/-1"><span style="color:var(--text3)">Határidő:</span> <span style="color:var(--danger);font-weight:600">⏰ Lejárt!</span></div>';
+        }
       }
       metaHtml += '</div>';
 
@@ -3873,30 +3932,152 @@ function loadWorkflows() {
     var c = document.getElementById('workflowList');
     var wfs = d.workflows || [];
     if (!wfs.length) {
-      c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Nincsenek aktiv workflow-k</div>';
+      c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Nincsenek aktív workflow-k</div>';
       return;
     }
     c.innerHTML = wfs.map(function(w) {
       var status = w.status || '?';
-      var color = status === 'completed' ? 'var(--green)' : status === 'running' ? 'var(--primary)' : status === 'failed' ? 'var(--red)' : status === 'timeout' ? 'var(--orange)' : status === 'skipped' ? 'var(--text3)' : status === 'retrying' ? 'var(--yellow)' : 'var(--text3)';
+      var statusColor = {completed:'var(--success)', running:'var(--primary)', failed:'var(--danger)', timeout:'var(--warning)', skipped:'var(--text3)', retrying:'var(--warning)', pending:'var(--text3)'}[status] || 'var(--text3)';
+      var statusIcon = {completed:'✅', running:'🔄', failed:'❌', timeout:'⏱️', skipped:'⏭️', retrying:'🔁', pending:'⏳'}[status] || '❓';
       var tasks = w.tasks || [];
       var completedTasks = tasks.filter(function(t) { return t.status === 'completed'; }).length;
       var progress = tasks.length ? Math.round(completedTasks / tasks.length * 100) : 0;
+      var runningCount = tasks.filter(function(t) { return t.status === 'running'; }).length;
+      var failedCount = tasks.filter(function(t) { return t.status === 'failed'; }).length;
+      var dagHtml = renderDagGraph(tasks);
       return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleWorkflowDetail(\'' + w.id + '\')">' +
           '<div><span style="font-weight:600">' + escHtml(w.name || w.id) + '</span>' +
-          ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + color + ';color:#fff">' + status + '</span></div>' +
-          '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="checkWorkflowStatus(\'' + w.id + '\')">Status</button>' +
-        '</div>' +
-        '<div style="margin-top:6px">' +
-          '<div style="font-size:11px;color:var(--text3);margin-bottom:3px">' + completedTasks + '/' + tasks.length + ' task · consensus: ' + (w.consensus || '?') + '</div>' +
-          '<div style="background:var(--surface2);border-radius:4px;height:6px;overflow:hidden">' +
-            '<div style="background:' + color + ';height:100%;width:' + progress + '%;transition:width .3s"></div>' +
+          ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + statusColor + ';color:#fff">' + statusIcon + ' ' + status + '</span>' +
+          (runningCount > 0 ? ' <span style="font-size:11px;color:var(--primary)">🔄 ' + runningCount + ' fut</span>' : '') +
+          (failedCount > 0 ? ' <span style="font-size:11px;color:var(--danger)">❌ ' + failedCount + ' hiba</span>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            '<span style="font-size:11px;color:var(--text3)">' + completedTasks + '/' + tasks.length + ' · ' + (w.consensus || '?') + '</span>' +
+            '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text);font-size:11px" onclick="event.stopPropagation();checkWorkflowStatus(\'' + w.id + '\')">📊 Részletek</button>' +
           '</div>' +
         '</div>' +
+        '<div style="background:var(--surface2);border-radius:4px;height:6px;overflow:hidden;margin-top:6px">' +
+          '<div style="background:' + statusColor + ';height:100%;width:' + progress + '%;transition:width .3s"></div>' +
+        '</div>' +
+        '<div id="wfDetail_' + w.id + '" style="display:none;margin-top:10px">' + dagHtml + '</div>' +
       '</div>';
     }).join('');
   }).catch(function(e) { alert('Hiba: ' + e); });
+}
+
+function toggleWorkflowDetail(wfId) {
+  var el = document.getElementById('wfDetail_' + wfId);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function renderDagGraph(tasks) {
+  if (!tasks || !tasks.length) return '<div style="font-size:12px;color:var(--text3)">Nincsenek taskok</div>';
+  var taskMap = {};
+  tasks.forEach(function(t) { taskMap[t.id] = t; });
+  var inDegree = {};
+  var dependents = {};
+  tasks.forEach(function(t) { inDegree[t.id] = 0; dependents[t.id] = []; });
+  tasks.forEach(function(t) {
+    (t.dependencies || []).forEach(function(dep) {
+      if (taskMap[dep]) { inDegree[t.id]++; dependents[dep].push(t.id); }
+    });
+  });
+  var layers = [];
+  var ready = tasks.filter(function(t) { return inDegree[t.id] === 0; }).map(function(t) { return t.id; });
+  var visited = {};
+  while (ready.length) {
+    layers.push(ready.slice());
+    ready.forEach(function(id) { visited[id] = true; });
+    var next = [];
+    ready.forEach(function(id) {
+      dependents[id].forEach(function(dep) {
+        inDegree[dep]--;
+        if (inDegree[dep] === 0 && !visited[dep]) next.push(dep);
+      });
+    });
+    ready = next;
+  }
+  var statusColors = {completed:'var(--success)', running:'var(--primary)', failed:'var(--danger)', timeout:'var(--warning)', skipped:'var(--text3)', retrying:'var(--warning)', pending:'var(--surface2)'};
+  var statusIcons = {completed:'✅', running:'🔄', failed:'❌', timeout:'⏱️', skipped:'⏭️', retrying:'🔁', pending:'⏳'};
+  var html = '<div style="display:flex;gap:12px;overflow-x:auto;padding:8px 0;min-height:80px">';
+  layers.forEach(function(layer, layerIdx) {
+    html += '<div style="display:flex;flex-direction:column;gap:6px;min-width:140px;flex-shrink:0">';
+    html += '<div style="font-size:10px;color:var(--text3);text-align:center;margin-bottom:2px">Réteg ' + (layerIdx + 1) + '</div>';
+    layer.forEach(function(tid) {
+      var t = taskMap[tid];
+      var sc = statusColors[t.status] || 'var(--surface2)';
+      var si = statusIcons[t.status] || '❓';
+      var agentInfo = t.assigned_agent ? ' 👤' + escHtml(t.assigned_agent) : '';
+      var durInfo = t.duration_ms ? ' ⏱' + Math.round(t.duration_ms) + 'ms' : '';
+      var retryInfo = t.retry_count > 0 ? ' 🔁' + t.retry_count : '';
+      var condInfo = t.condition ? ' 🔀' : '';
+      var fanInfo = t.fan_out_count > 1 ? ' 🌿×' + t.fan_out_count : '';
+      html += '<div style="background:' + sc + '22;border:1px solid ' + sc + ';border-radius:6px;padding:6px 8px;cursor:pointer" onclick="showTaskDetailModal(\'' + tid + '\')">';
+      html += '<div style="font-size:12px;font-weight:600">' + si + ' ' + escHtml(t.name || tid) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text3)">' + escHtml(t.id) + agentInfo + durInfo + retryInfo + condInfo + fanInfo + '</div>';
+      if (t.dependencies && t.dependencies.length) {
+        html += '<div style="font-size:9px;color:var(--text3);margin-top:2px">⬅ ' + t.dependencies.map(escHtml).join(', ') + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    if (layerIdx < layers.length - 1) {
+      html += '<div style="display:flex;align-items:center;color:var(--text3);font-size:16px;flex-shrink:0">→</div>';
+    }
+  });
+  html += '</div>';
+  return html;
+}
+
+function showTaskDetailModal(taskId) {
+  _skillsApiCall('/api/workflows').then(function(d) {
+    var wfs = d.workflows || [];
+    var found = null;
+    wfs.forEach(function(w) {
+      (w.tasks || []).forEach(function(t) {
+        if (t.id === taskId) found = t;
+      });
+    });
+    if (!found) { alert('Task nem található: ' + taskId); return; }
+    var sc = {completed:'var(--success)', running:'var(--primary)', failed:'var(--danger)', timeout:'var(--warning)', skipped:'var(--text3)', retrying:'var(--warning)', pending:'var(--surface2)'}[found.status] || 'var(--surface2)';
+    var si = {completed:'✅', running:'🔄', failed:'❌', timeout:'⏱️', skipped:'⏭️', retrying:'🔁', pending:'⏳'}[found.status] || '❓';
+    var html = '<div style="padding:12px;background:var(--surface2);border-radius:8px;font-size:13px">';
+    html += '<div style="display:flex;justify-content:space-between;margin-bottom:8px">';
+    html += '<div><b>' + escHtml(found.name || taskId) + '</b> <span style="font-size:11px;color:var(--text3)">(' + escHtml(found.id) + ')</span></div>';
+    html += '<span style="padding:2px 8px;border-radius:10px;background:' + sc + ';color:#fff;font-size:11px">' + si + ' ' + found.status + '</span>';
+    html += '</div>';
+    html += '<table style="width:100%;font-size:12px;border-collapse:collapse">';
+    html += '<tr><td style="padding:3px 8px;color:var(--text3);width:120px">Agent:</td><td>' + (found.assigned_agent ? '👤 ' + escHtml(found.assigned_agent) : 'auto-select') + '</td></tr>';
+    html += '<tr><td style="padding:3px 8px;color:var(--text3)">Capabilities:</td><td>' + (found.capabilities || []).map(escHtml).join(', ') + '</td></tr>';
+    html += '<tr><td style="padding:3px 8px;color:var(--text3)">Dependencies:</td><td>' + ((found.dependencies || []).map(escHtml).join(', ') || 'nincs') + '</td></tr>';
+    html += '<tr><td style="padding:3px 8px;color:var(--text3)">Timeout:</td><td>' + (found.timeout || 60) + 's</td></tr>';
+    if (found.duration_ms) html += '<tr><td style="padding:3px 8px;color:var(--text3)">Duration:</td><td>' + Math.round(found.duration_ms) + 'ms</td></tr>';
+    if (found.retry_count > 0) html += '<tr><td style="padding:3px 8px;color:var(--text3)">Retry:</td><td>' + found.retry_count + ' / ' + (found.max_retries || 0) + '</td></tr>';
+    if (found.condition) html += '<tr><td style="padding:3px 8px;color:var(--text3)">Condition:</td><td><code style="font-size:11px">' + escHtml(found.condition) + '</code></td></tr>';
+    if (found.fan_out_count > 1) html += '<tr><td style="padding:3px 8px;color:var(--text3)">Fan-out:</td><td>×' + found.fan_out_count + '</td></tr>';
+    html += '</table>';
+    if (found.payload && Object.keys(found.payload).length) {
+      html += '<div style="margin-top:8px"><b>Payload:</b><pre style="font-size:11px;background:var(--bg);padding:6px;border-radius:4px;overflow-x:auto;max-height:120px">' + escHtml(JSON.stringify(found.payload, null, 2)) + '</pre></div>';
+    }
+    if (found.result) {
+      html += '<div style="margin-top:8px"><b>Eredmény:</b><pre style="font-size:11px;background:var(--bg);padding:6px;border-radius:4px;overflow-x:auto;max-height:150px">' + escHtml(typeof found.result === 'string' ? found.result : JSON.stringify(found.result, null, 2)) + '</pre></div>';
+    }
+    if (found.error) {
+      html += '<div style="margin-top:8px;color:var(--danger)"><b>Hiba:</b> ' + escHtml(found.error) + '</div>';
+    }
+    html += '</div>';
+    // Show in a modal overlay
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:center;justify-content:center';
+    overlay.onclick = function() { document.body.removeChild(overlay); };
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--surface);border-radius:12px;padding:16px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)';
+    box.onclick = function(e) { e.stopPropagation(); };
+    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">📋 Task Részletek</h3><button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="this.closest(\\'div[style*=fixed]\\').remove()">✕</button></div>' + html;
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
 }
 
 function showWorkflowForm() {
@@ -3955,13 +4136,13 @@ function createWorkflow() {
   var name = document.getElementById('wfName').value.trim();
   var consensus = document.getElementById('wfConsensus').value;
   var tasksStr = document.getElementById('wfTasksJson').value.trim();
-  if (!name) { alert('Nev kotelezo'); return; }
-  if (!tasksStr) { alert('Taskok kotelezok'); return; }
+  if (!name) { alert('Név kötelező'); return; }
+  if (!tasksStr) { alert('Taskok kötelezők'); return; }
   var tasks;
   try { tasks = JSON.parse(tasksStr); } catch(e) { alert('JSON hiba: ' + e.message); return; }
   _skillsApiCall('/api/workflow', 'POST', { name: name, consensus: consensus, tasks: tasks }).then(function(d) {
     if (d.error) { alert('Hiba: ' + d.error); return; }
-    alert('Workflow elinditva! ID: ' + (d.workflow_id || '?'));
+    alert('Workflow elindítva! ID: ' + (d.workflow_id || '?'));
     document.getElementById('workflowForm').style.display = 'none';
     document.getElementById('wfName').value = '';
     document.getElementById('wfTasksJson').value = '';
