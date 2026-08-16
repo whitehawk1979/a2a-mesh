@@ -92,7 +92,7 @@ mesh:
       tls_cert: ~/.hermes/scripts/a2a_mesh/certs/nova.crt
       tls_key: ~/.hermes/scripts/a2a_mesh/certs/nova.key
       tls_ca: ~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt
-      tls_verify_peer: true
+      tls_verify_peer: false
     http:
       url: http://192.168.1.30:8650
       health_url: http://192.168.1.30:8650/health
