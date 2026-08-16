@@ -4074,7 +4074,7 @@ function showTaskDetailModal(taskId) {
     var box = document.createElement('div');
     box.style.cssText = 'background:var(--surface);border-radius:12px;padding:16px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)';
     box.onclick = function(e) { e.stopPropagation(); };
-    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">📋 Task Részletek</h3><button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="this.closest(\\'div[style*=fixed]\\').remove()">✕</button></div>' + html;
+    box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><h3 style="margin:0">📋 Task Részletek</h3><button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="this.closest(\'div[style*=fixed]\').remove()">✕</button></div>' + html;
     overlay.appendChild(box);
     document.body.appendChild(overlay);
   });
