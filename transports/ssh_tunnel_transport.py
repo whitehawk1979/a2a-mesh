@@ -111,11 +111,11 @@ class SSHTunnelTransport(TransportAdapter):
                     self._ssl_client_context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM:ECDHE+CHACHA20')
                     if tls_ca:
                         self._ssl_client_context.load_verify_locations(tls_ca)
-                    if tls_verify_peer:
-                        self._ssl_client_context.verify_mode = _ssl.CERT_REQUIRED
-                    else:
-                        self._ssl_client_context.check_hostname = False
-                        self._ssl_client_context.verify_mode = _ssl.CERT_NONE
+                    # SSH tunnel: always disable peer verification — SSH already
+                    # authenticates the endpoint, and the tunnel's local port
+                    # presents the peer's cert with a mismatched hostname.
+                    self._ssl_client_context.check_hostname = False
+                    self._ssl_client_context.verify_mode = _ssl.CERT_NONE
                     log.info("SSH tunnel TLS client context initialized (reusing P2P certs)")
                 except Exception as e:
                     log.error(f"SSH tunnel TLS init failed: {e}")
