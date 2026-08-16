@@ -744,6 +744,11 @@ class MeshNode:
         self.delegation.register_handler("deploy", self._handle_deploy_task)
         self.delegation.register_handler("code_review", self._handle_code_review_task)
         self.delegation.register_handler("local_maintenance", self._handle_local_maintenance_task)
+        # Workflow capability task types → generic handler
+        self.delegation.register_handler("web_search", self._handle_generic_task)
+        self.delegation.register_handler("summarization", self._handle_generic_task)
+        self.delegation.register_handler("data_analysis", self._handle_generic_task)
+        self.delegation.register_handler("code_generation", self._handle_generic_task)
         self.delegation.on_result(self._on_delegation_result)
 
 
