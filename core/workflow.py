@@ -177,6 +177,8 @@ class WorkflowCoordinator:
         self.smart_router = smart_router
         self.node = node
         self._active_workflows: Dict[str, Workflow] = {}
+        self._completed_workflows: Dict[str, Workflow] = {}  # finished workflows (max 50)
+        self._max_completed = 50
 
     def create_workflow(self, name: str, consensus_mode: ConsensusMode = ConsensusMode.ALL,
                         max_cost: Optional[float] = None, timeout: Optional[float] = None) -> Workflow:
@@ -287,7 +289,13 @@ class WorkflowCoordinator:
             log.error(f"Workflow '{workflow.name}' error: {e}")
             workflow.status = TaskStatus.FAILED
         finally:
-            del self._active_workflows[workflow.id]
+            # Move to completed history instead of deleting
+            self._completed_workflows[workflow.id] = workflow
+            self._active_workflows.pop(workflow.id, None)
+            # Trim history to max size (remove oldest)
+            if len(self._completed_workflows) > self._max_completed:
+                oldest = next(iter(self._completed_workflows))
+                del self._completed_workflows[oldest]
 
         return self._build_result(workflow)
 
@@ -632,15 +640,38 @@ class WorkflowCoordinator:
         }
 
     def get_workflow_status(self, workflow_id: str) -> Optional[Dict]:
-        """Get the current status of an active workflow."""
-        wf = self._active_workflows.get(workflow_id)
+        """Get the current status of a workflow (active or completed)."""
+        wf = self._active_workflows.get(workflow_id) or self._completed_workflows.get(workflow_id)
         if not wf:
             return None
         return self._build_result(wf)
 
     def list_active_workflows(self) -> List[Dict]:
-        """List all active workflows."""
-        return [
-            {"id": wf.id, "name": wf.name, "status": wf.status.value, "tasks": len(wf.tasks)}
-            for wf in self._active_workflows.values()
-        ]
+        """List all workflows (active + completed history)."""
+        result = []
+        for wf in self._active_workflows.values():
+            result.append({
+                "id": wf.id, "name": wf.name, "status": wf.status.value,
+                "tasks": len(wf.tasks), "consensus": wf.consensus_mode.value,
+                "created_at": wf.created_at, "active": True,
+            })
+        for wf in self._completed_workflows.values():
+            result.append({
+                "id": wf.id, "name": wf.name, "status": wf.status.value,
+                "tasks": len(wf.tasks), "consensus": wf.consensus_mode.value,
+                "created_at": wf.created_at, "active": False,
+                "results": {tid: {"status": t.status.value, "agent": t.assigned_agent, "result": str(t.result)[:200] if t.result else None, "error": t.error, "duration_ms": t.duration_ms} for tid, t in wf.tasks.items()},
+            })
+        # Sort: active first, then by created_at desc
+        result.sort(key=lambda w: (not w.get("active", False), -w.get("created_at", 0)))
+        return result
+
+    def delete_workflow(self, workflow_id: str) -> bool:
+        """Delete a completed workflow from history."""
+        if workflow_id in self._completed_workflows:
+            del self._completed_workflows[workflow_id]
+            return True
+        if workflow_id in self._active_workflows:
+            del self._active_workflows[workflow_id]
+            return True
+        return False

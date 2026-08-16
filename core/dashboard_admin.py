@@ -902,10 +902,10 @@ class DashboardAdminMixin:
         except ValueError:
             consensus = ConsensusMode.ALL
 
-        # Build workflow
+        # Build workflow — always use self.workflow_coordinator (set node if available)
         coordinator = self.workflow_coordinator
-        if self.node:
-            coordinator = WorkflowCoordinator(self.registry, self.smart_router, node=self.node)
+        if self.node and not coordinator.node:
+            coordinator.node = self.node
 
         wf = coordinator.create_workflow(name, consensus_mode=consensus)
 
@@ -950,13 +950,25 @@ class DashboardAdminMixin:
         return web.json_response(status)
 
     async def _api_workflows_list(self, request):
-        """GET /api/workflows — List active workflows."""
+        """GET /api/workflows — List all workflows (active + completed history)."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
             return err
         workflows = self.workflow_coordinator.list_active_workflows()
         return web.json_response({"workflows": workflows, "total": len(workflows)})
+
+    async def _api_workflow_delete(self, request):
+        """DELETE /api/workflow/{wf_id} — Delete a workflow from history."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        wf_id = request.match_info.get("wf_id", "")
+        deleted = self.workflow_coordinator.delete_workflow(wf_id)
+        if deleted:
+            return web.json_response({"status": "deleted", "workflow_id": wf_id})
+        return web.json_response({"error": f"Workflow '{wf_id}' not found"}, status=404)
 
     # ─── Pending Agent Approval API Handlers ──────────────────────────
 

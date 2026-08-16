@@ -186,6 +186,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/workflow", self._api_workflow_create)
         app.router.add_get("/api/workflow/{wf_id}", self._api_workflow_status)
         app.router.add_get("/api/workflows", self._api_workflows_list)
+        app.router.add_delete("/api/workflow/{wf_id}", self._api_workflow_delete)
         # Pending agent approval endpoints
         app.router.add_get("/api/registry/pending", self._api_registry_pending)
         app.router.add_post("/api/registry/approve/{name}", self._api_registry_approve)
