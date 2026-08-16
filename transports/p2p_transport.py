@@ -477,6 +477,23 @@ class P2PTransport(TransportAdapter):
                                 asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version, hb_provider_status))
                             except Exception as e:
                                 log.debug(f"Heartbeat callback error for {connected_peer_name}: {e}")
+                        # Respond to heartbeat so SSH tunnel client knows we're alive.
+                        # Without this, SSH tunnel _read_loop gets 0 bytes and closes.
+                        try:
+                            from ..core.message import A2AMessage as _Msg, MSG_TYPE_HEARTBEAT as _HB
+                            import time as _t
+                            resp = _Msg.create(
+                                sender=getattr(self.config, 'node_name', ''),
+                                recipient=message.sender,
+                                msg_type=_HB,
+                                payload={"version": "ssh_tunnel_ack", "timestamp": _t.time()},
+                            )
+                            frame = self._encode_authenticated_frame(resp.to_bytes(), connected_peer_name)
+                            writer.write(frame)
+                            await writer.drain()
+                            log.debug(f"Heartbeat ACK sent to {message.sender} via tunnel")
+                        except Exception as e:
+                            log.debug(f"Heartbeat response failed for {message.sender}: {e}")
                         # Don't re-queue heartbeats for normal processing
                         continue
 
