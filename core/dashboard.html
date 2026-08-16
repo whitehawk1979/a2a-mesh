@@ -755,6 +755,111 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
     </div>
 
+    <!-- Transport Status -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">📡 Transport Státusz</h3>
+      <div id="settingsTransport" style="font-size:13px;color:var(--text3)">Betöltés...</div>
+    </div>
+
+    <!-- Delegation Settings -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🔄 Delegáció Beállítások</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Lejárat (perc)</label>
+          <input type="number" id="cfgDelExpiry" min="1" max="1440" value="120" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Delegáció automatikus lejárata</div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Auto-megújítás</label>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <input type="checkbox" id="cfgDelAutoRenew" style="width:18px;height:18px">
+            <span style="font-size:13px" id="cfgDelAutoRenewLabel">Kikapcsolva</span>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px">Futó delegáció automatikus meghosszabbítása</div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">CPU küszöb P4 (mag)</label>
+          <input type="number" id="cfgDelCpuP4" min="0" max="32" value="4" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">CPU küszöb P7 (mag)</label>
+          <input type="number" id="cfgDelCpuP7" min="0" max="32" value="8" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Settings -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🔒 Biztonsági Beállítások</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Rate limit (üzenet/perc)</label>
+          <input type="number" id="cfgSecRateLimit" min="10" max="1000" value="100" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Token rotáció (mp)</label>
+          <input type="number" id="cfgSecTokenRot" min="300" max="86400" value="3600" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">mTLS engedélyezve</label>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <input type="checkbox" id="cfgSecMtls" style="width:18px;height:18px">
+            <span style="font-size:13px" id="cfgSecMtlsLabel">Kikapcsolva</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">HMAC engedélyezve</label>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+            <input type="checkbox" id="cfgSecHmac" style="width:18px;height:18px">
+            <span style="font-size:13px" id="cfgSecHmacLabel">Kikapcsolva</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Heartbeat Settings -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">💓 Heartbeat Beállítások</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Interval (mp)</label>
+          <input type="number" id="cfgHbInterval" min="5" max="300" value="30" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Timeout (mp)</label>
+          <input type="number" id="cfgHbTimeout" min="30" max="600" value="180" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+      </div>
+    </div>
+
+    <!-- Monitoring Settings -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">📊 Monitoring Beállítások</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Dedup cache küszöb</label>
+          <input type="number" id="cfgMonDedupThreshold" min="100" max="10000" value="1000" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Dedup cleanup (mp)</label>
+          <input type="number" id="cfgMonDedupCleanup" min="60" max="3600" value="300" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px">
+        </div>
+      </div>
+    </div>
+
+    <!-- Config Sync -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0;font-size:14px">🔄 Config Szinkronizáció</h3>
+        <button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="syncConfig()">🔄 Szinkronizálás</button>
+      </div>
+      <div id="configSyncResult" style="font-size:13px;color:var(--text3)">A "Szinkronizálás" gomb alkalmazza a shared config-ot a futó node-on.</div>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px">
+        <b>Megosztott config kulcsok:</b> delegation.expiry_minutes, delegation.auto_renew, delegation.cpu_threshold_p4/p7, security.rate_limit_per_minute, security.token_rotation_interval, security.mtls_enabled, security.hmac_enabled, heartbeat.interval, heartbeat.timeout, monitoring.dedup_cache_threshold, monitoring.dedup_cleanup_interval
+      </div>
+    </div>
+
     <!-- Pending Agents -->
     <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
       <h3 style="margin:0 0 8px 0;font-size:14px">⏳ Függő Agent Jóváhagyások</h3>
@@ -763,7 +868,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-sm" onclick="document.getElementById('settingsModal').style.display='none'">Mégsem</button>
-      <button class="btn btn-sm" style="background:var(--success)" onclick="saveSettings()">💾 Mentés</button>
+      <button class="btn btn-sm" style="background:var(--success)" onclick="saveAllSettings()">💾 Összes mentése</button>
     </div>
   </div>
 </div>
@@ -2764,8 +2869,182 @@ function loadSettings() {
       document.getElementById("settingsDecayFactor").value = data.health_scorer.decay_factor;
       document.getElementById("settingsRecoveryFactor").value = data.health_scorer.recovery_factor;
       loadPendingAgents();
+      loadTransportStatus();
+      loadSharedConfig();
     })
     .catch(function(e) { console.error("Settings load error:", e); });
+}
+
+// ── Transport Status ──
+function loadTransportStatus() {
+  fetch("/api/health", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var t = data.transports || {};
+      var ssh = data.ssh_tunnel || {};
+      var html = "<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px'>";
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.p2p ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:20px'>" + (t.p2p ? "✅" : "❌") + "</div><div style='font-size:11px'>P2P</div></div>";
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.pg ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:20px'>" + (t.pg ? "✅" : "❌") + "</div><div style='font-size:11px'>PG</div></div>";
+      html += "<div style='text-align:center;padding:6px;border-radius:6px;background:" + (t.ssh_tunnel ? "var(--success)" : "var(--danger)") + "22'><div style='font-size:20px'>" + (t.ssh_tunnel ? "✅" : "❌") + "</div><div style='font-size:11px'>SSH Tunnel</div></div>";
+      html += "</div>";
+      // SSH tunnel peers
+      if (ssh && Object.keys(ssh).length > 0) {
+        html += "<div style='font-size:12px;margin-top:4px'><b>SSH Tunnel peers:</b><br>";
+        for (var peer in ssh) {
+          if (ssh.hasOwnProperty(peer)) {
+            var p = ssh[peer];
+            var conn = p.connected ? "🟢" : "🔴";
+            var uptime = p.uptime_seconds ? " (" + Math.round(p.uptime_seconds) + "s)" : "";
+            html += conn + " " + escHtml(peer) + uptime + "<br>";
+          }
+        }
+        html += "</div>";
+      }
+      // P2P peers
+      if (data.p2p_peers && data.p2p_peers.length > 0) {
+        html += "<div style='font-size:12px;margin-top:4px'><b>P2P peers:</b> " + data.p2p_peers.map(escHtml).join(", ") + "</div>";
+      }
+      document.getElementById("settingsTransport").innerHTML = html;
+    })
+    .catch(function(e) {
+      document.getElementById("settingsTransport").innerHTML = "<span style='color:var(--danger)'>Hiba: " + e.message + "</span>";
+    });
+}
+
+// ── Shared Config Loading ──
+function loadSharedConfig() {
+  fetch("/api/config/shared", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var cfg = data.config || {};
+      // Delegation
+      if (cfg["delegation.expiry_minutes"]) document.getElementById("cfgDelExpiry").value = cfg["delegation.expiry_minutes"].value;
+      if (cfg["delegation.auto_renew"]) {
+        document.getElementById("cfgDelAutoRenew").checked = cfg["delegation.auto_renew"].value;
+        document.getElementById("cfgDelAutoRenewLabel").textContent = cfg["delegation.auto_renew"].value ? "Bekapcsolva" : "Kikapcsolva";
+      }
+      if (cfg["delegation.cpu_threshold_p4"]) document.getElementById("cfgDelCpuP4").value = cfg["delegation.cpu_threshold_p4"].value;
+      if (cfg["delegation.cpu_threshold_p7"]) document.getElementById("cfgDelCpuP7").value = cfg["delegation.cpu_threshold_p7"].value;
+      // Security
+      if (cfg["security.rate_limit_per_minute"]) document.getElementById("cfgSecRateLimit").value = cfg["security.rate_limit_per_minute"].value;
+      if (cfg["security.token_rotation_interval"]) document.getElementById("cfgSecTokenRot").value = cfg["security.token_rotation_interval"].value;
+      if (cfg["security.mtls_enabled"]) {
+        document.getElementById("cfgSecMtls").checked = cfg["security.mtls_enabled"].value;
+        document.getElementById("cfgSecMtlsLabel").textContent = cfg["security.mtls_enabled"].value ? "Bekapcsolva" : "Kikapcsolva";
+      }
+      if (cfg["security.hmac_enabled"]) {
+        document.getElementById("cfgSecHmac").checked = cfg["security.hmac_enabled"].value;
+        document.getElementById("cfgSecHmacLabel").textContent = cfg["security.hmac_enabled"].value ? "Bekapcsolva" : "Kikapcsolva";
+      }
+      // Heartbeat
+      if (cfg["heartbeat.interval"]) document.getElementById("cfgHbInterval").value = cfg["heartbeat.interval"].value;
+      if (cfg["heartbeat.timeout"]) document.getElementById("cfgHbTimeout").value = cfg["heartbeat.timeout"].value;
+      // Monitoring
+      if (cfg["monitoring.dedup_cache_threshold"]) document.getElementById("cfgMonDedupThreshold").value = cfg["monitoring.dedup_cache_threshold"].value;
+      if (cfg["monitoring.dedup_cleanup_interval"]) document.getElementById("cfgMonDedupCleanup").value = cfg["monitoring.dedup_cleanup_interval"].value;
+    })
+    .catch(function(e) { console.error("Shared config load error:", e); });
+}
+
+// ── Config Sync ──
+function syncConfig() {
+  var btn = event.target;
+  btn.textContent = "⏳ Szinkronizálás...";
+  btn.disabled = true;
+  fetch("/api/config/sync", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}
+  }).then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.textContent = "🔄 Szinkronizálás";
+      btn.disabled = false;
+      var result = document.getElementById("configSyncResult");
+      var appliedCount = Object.keys(data.applied || {}).length;
+      var skippedCount = Object.keys(data.skipped || {}).length;
+      result.innerHTML = "<span style='color:var(--success)'>✅ " + appliedCount + " beállítás alkalmazva</span>" +
+        (skippedCount > 0 ? ", <span style='color:var(--warning)'>" + skippedCount + " kihagyva</span>" : "");
+      // Reload shared config to reflect changes
+      loadSharedConfig();
+    })
+    .catch(function(e) {
+      btn.textContent = "🔄 Szinkronizálás";
+      btn.disabled = false;
+      document.getElementById("configSyncResult").innerHTML = "<span style='color:var(--danger)'>❌ Hiba: " + e.message + "</span>";
+    });
+}
+
+// ── Save All Settings (registry + health_scorer + shared config) ──
+function saveAllSettings() {
+  // 1. Validate health scorer weights sum to ~1.0
+  var wLat = parseFloat(document.getElementById("settingsWeightLatency").value) || 0;
+  var wSucc = parseFloat(document.getElementById("settingsWeightSuccess").value) || 0;
+  var wAvail = parseFloat(document.getElementById("settingsWeightAvail").value) || 0;
+  var wSum = wLat + wSucc + wAvail;
+  if (Math.abs(wSum - 1.0) > 0.01) {
+    alert("⚠️ Health Scorer súlyok összege " + wSum.toFixed(2) + " — kb. 1.0 kell legyen!\nLatencia: " + wLat + " + Siker: " + wSucc + " + Elérhetőség: " + wAvail + " = " + wSum.toFixed(2));
+    return;
+  }
+  // 2. Validate intervals
+  var hbInterval = parseInt(document.getElementById("cfgHbInterval").value);
+  var hbTimeout = parseInt(document.getElementById("cfgHbTimeout").value);
+  if (hbInterval >= hbTimeout) {
+    alert("⚠️ Heartbeat interval (" + hbInterval + "s) < timeout (" + hbTimeout + "s) kell legyen!");
+    return;
+  }
+  // 3. Save registry + health_scorer via /api/settings
+  var regData = {
+    registry: {
+      auto_approve: document.getElementById("settingsAutoApprove").checked,
+      health_check_interval: parseFloat(document.getElementById("settingsHealthInterval").value)
+    },
+    health_scorer: {
+      weights: { latency: wLat, success_rate: wSucc, availability: wAvail },
+      latency_threshold_ms: parseFloat(document.getElementById("settingsLatencyThreshold").value),
+      decay_factor: parseFloat(document.getElementById("settingsDecayFactor").value),
+      recovery_factor: parseFloat(document.getElementById("settingsRecoveryFactor").value)
+    }
+  };
+  // 4. Save shared config via /api/config/shared
+  var sharedData = {
+    "delegation.expiry_minutes": parseInt(document.getElementById("cfgDelExpiry").value),
+    "delegation.auto_renew": document.getElementById("cfgDelAutoRenew").checked,
+    "delegation.cpu_threshold_p4": parseInt(document.getElementById("cfgDelCpuP4").value),
+    "delegation.cpu_threshold_p7": parseInt(document.getElementById("cfgDelCpuP7").value),
+    "security.rate_limit_per_minute": parseInt(document.getElementById("cfgSecRateLimit").value),
+    "security.token_rotation_interval": parseInt(document.getElementById("cfgSecTokenRot").value),
+    "security.mtls_enabled": document.getElementById("cfgSecMtls").checked,
+    "security.hmac_enabled": document.getElementById("cfgSecHmac").checked,
+    "heartbeat.interval": hbInterval,
+    "heartbeat.timeout": hbTimeout,
+    "monitoring.dedup_cache_threshold": parseInt(document.getElementById("cfgMonDedupThreshold").value),
+    "monitoring.dedup_cleanup_interval": parseInt(document.getElementById("cfgMonDedupCleanup").value)
+  };
+  // Save both in parallel
+  var tok = localStorage.getItem("mesh_token") || "";
+  var p1 = fetch("/api/settings", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + tok, "Content-Type": "application/json"},
+    body: JSON.stringify(regData)
+  }).then(function(r) { return r.json(); });
+  var p2 = fetch("/api/config/shared", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + tok, "Content-Type": "application/json"},
+    body: JSON.stringify(sharedData)
+  }).then(function(r) { return r.json(); });
+  Promise.all([p1, p2])
+    .then(function(results) {
+      var ok1 = results[0].status === "ok";
+      var ok2 = !results[1].error;
+      if (ok1 && ok2) {
+        alert("✅ Összes beállítás elmentve!\n\nRegistry + Health Scorer: ✅\nShared Config: ✅ (" + Object.keys(results[1].accepted || {}).length + " kulcs)\n\n⚠️ A shared config alkalmazásához kattints a \"Szinkronizálás\" gombra.");
+        loadSettings();
+      } else {
+        alert("⚠️ Részleges mentés:\nRegistry: " + (ok1 ? "✅" : "❌ " + (results[0].error || "")) + "\nShared Config: " + (ok2 ? "✅" : "❌ " + (results[1].error || "")));
+      }
+    })
+    .catch(function(e) {
+      alert("❌ Mentési hiba: " + e.message);
+    });
 }
 
 function loadPendingAgents() {
@@ -2864,6 +3143,17 @@ function saveSettings() {
 
 document.getElementById("settingsAutoApprove").addEventListener("change", function() {
   document.getElementById("settingsAutoApproveLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
+});
+
+// Checkbox label updaters for new settings
+document.getElementById("cfgDelAutoRenew").addEventListener("change", function() {
+  document.getElementById("cfgDelAutoRenewLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
+});
+document.getElementById("cfgSecMtls").addEventListener("change", function() {
+  document.getElementById("cfgSecMtlsLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
+});
+document.getElementById("cfgSecHmac").addEventListener("change", function() {
+  document.getElementById("cfgSecHmacLabel").textContent = this.checked ? "Bekapcsolva" : "Kikapcsolva";
 });
 
 // ─── User Management Functions ──────────────────────────────────
