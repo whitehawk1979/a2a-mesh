@@ -1582,6 +1582,7 @@ class DashboardAdminMixin:
             "description": data.get("description", ""),
             "category": data.get("category", "app"),
             "url": data.get("url", ""),
+            "links": data.get("links", []),
             "tags": data.get("tags", []),
             "icon": data.get("icon", "📦"),
             "notes": data.get("notes", ""),
@@ -1606,7 +1607,7 @@ class DashboardAdminMixin:
         projects = self._load_projects()
         for p in projects:
             if p["id"] == pid:
-                for k in ["title","description","category","url","tags","icon","status","notes"]:
+                for k in ["title","description","category","url","links","tags","icon","status","notes"]:
                     if k in data:
                         p[k] = data[k]
                 p["updated_at"] = time.time()
@@ -1646,6 +1647,58 @@ class DashboardAdminMixin:
 
         results = await asyncio.gather(*[check_one(p) for p in projects], return_exceptions=False)
         return web.json_response({"results": {r["id"]: r for r in results}})
+
+    async def _api_projects_discover(self, request):
+        """GET /api/projects/discover — Scan LAN for common services."""
+        from aiohttp import web
+        import asyncio, socket, aiohttp as aiohttp_lib
+
+        # Known hosts on the LAN
+        hosts = ["192.168.1.9", "192.168.1.30", "192.168.1.35", "192.168.1.100", "192.168.1.117"]
+        # Common service ports with labels
+        ports = {
+            80: "HTTP", 443: "HTTPS", 3000: "Web App", 3001: "Gitea", 32400: "Plex",
+            5000: "Synology DSM", 5001: "Synology HTTPS", 5500: "LibreTranslate",
+            6333: "Qdrant", 8080: "Web App", 8090: "IPTV", 8091: "ESPHome MCP",
+            8123: "Home Assistant", 8650: "A2A Mesh", 8888: "SearXNG",
+            9090: "Prometheus", 9093: "Alertmanager", 3030: "Grafana",
+        }
+
+        async def check_port(host, port, label):
+            try:
+                fut = asyncio.open_connection(host, port, ssl=False)
+                reader, writer = await asyncio.wait_for(fut, timeout=1.5)
+                writer.close()
+                try: await writer.wait_closed()
+                except: pass
+                url = f"http://{host}:{port}" if port not in (443, 5001) else f"https://{host}:{port}"
+                return {"host": host, "port": port, "label": label, "url": url, "status": "up"}
+            except Exception:
+                return None
+
+        tasks = []
+        for host in hosts:
+            for port, label in ports.items():
+                tasks.append(check_port(host, port, label))
+
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        found = [r for r in results if r is not None]
+
+        # Check which are already in projects
+        existing = self._load_projects()
+        existing_urls = set()
+        for p in existing:
+            existing_urls.add(p.get("url", ""))
+            for l in p.get("links", []):
+                existing_urls.add(l.get("url", ""))
+
+        new_services = [s for s in found if s["url"] not in existing_urls]
+        return web.json_response({
+            "found": found,
+            "new": new_services,
+            "existing_count": len(existing),
+            "new_count": len(new_services)
+        })
 
     # ─── Plugin API ────────────────────────────────────────────────
 

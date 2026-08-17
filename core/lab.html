@@ -55,6 +55,9 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 }
 .stat-chip .num { font-weight: 700; color: var(--blue); }
 .stat-chip .lbl { color: var(--text3); }
+.filter-chip { cursor: pointer; transition: all 0.2s; user-select: none; }
+.filter-chip:hover { border-color: var(--blue); }
+.filter-chip.active { border-color: var(--blue); background: rgba(31,111,235,0.15); }
 
 /* Project grid */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 0 24px 24px; }
@@ -142,13 +145,24 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <input type="text" class="search-input" id="searchInput" placeholder="Projektek keresése..." oninput="searchProjects()">
   </div>
   <button class="add-btn" onclick="openModal()">+ Új projekt</button>
+  <select id="sortSelect" onchange="applyFilters()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;cursor:pointer;outline:none">
+    <option value="title">↕️ Név</option>
+    <option value="created_at">↕️ Dátum</option>
+    <option value="category">↕️ Kategória</option>
+    <option value="status">↕️ Státusz</option>
+  </select>
   <button class="add-btn" onclick="checkHealth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔄 Health</button>
+  <button class="add-btn" onclick="discoverServices()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔍 Szkennel</button>
 </div>
 
-<div class="stats">
-  <div class="stat-chip"><span class="num" id="totalCount">0</span><span class="lbl">projekt</span></div>
-  <div class="stat-chip"><span class="num" id="appCount">0</span><span class="lbl">app</span></div>
-  <div class="stat-chip"><span class="num" id="webCount">0</span><span class="lbl">weboldal</span></div>
+<div class="stats" id="filterChips">
+  <div class="stat-chip filter-chip active" onclick="filterByCategory('all')" id="chip-all"><span class="num" id="totalCount">0</span><span class="lbl">Összes</span></div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('app')" id="chip-app">📱 App (<span id="appCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('web')" id="chip-web">🌐 Web (<span id="webCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('tool')" id="chip-tool">🔧 Eszköz (<span id="toolCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('infra')" id="chip-infra">🏗️ Infra (<span id="infraCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('research')" id="chip-research">🔬 Kutatás (<span id="researchCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('other')" id="chip-other">📦 Egyéb (<span id="otherCount">0</span>)</div>
   <div class="stat-chip"><span class="num" id="activeCount">0</span><span class="lbl">aktív</span></div>
 </div>
 
@@ -179,6 +193,8 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     </select>
     <label>URL / Link</label>
     <input type="text" id="projUrl" placeholder="https://...">
+    <label>További linkek (vesszővel elválasztva: url|label)</label>
+    <textarea id="projLinks" placeholder="https://192.168.1.9:5001|HTTPS&#10;ssh://zsolt@192.168.1.100:2222|SSH"></textarea>
     <label>Ikon (emoji)</label>
     <input type="text" id="projIcon" placeholder="📦" maxlength="4">
     <label>Címkék (vesszővel elválasztva)</label>
@@ -206,6 +222,56 @@ var allProjects = [];
 document.addEventListener("DOMContentLoaded", loadProjects);
 
 var healthData = {};
+
+function checkHealth() {
+
+function discoverServices() {
+  var btn = event.target;
+  var orig = btn.textContent;
+  btn.textContent = "⏳ Szkennelés...";
+  btn.disabled = true;
+  fetch("/api/projects/discover")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      var newSvcs = data.new || [];
+      var allFound = data.found || [];
+      if (newSvcs.length === 0) {
+        alert("✅ Szkennelés kész!\n" + allFound.length + " szolgáltatás található, mind felvéve már.");
+      } else {
+        var msg = "🔍 " + allFound.length + " szolgáltatás található, " + newSvcs.length + " ÚJ:\n\n";
+        newSvcs.forEach(function(s) {
+          msg += "  " + s.label + " — " + s.url + "\n";
+        });
+        msg += "\nFelvegyem az újakat?";
+        if (confirm(msg)) {
+          newSvcs.forEach(function(s) {
+            fetch("/api/projects", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                title: s.label + " (" + s.host + ":" + s.port + ")",
+                description: "Auto-discovered: " + s.label,
+                category: "other",
+                url: s.url,
+                tags: ["auto-discovered"],
+                icon: "🔌",
+                status: "active"
+              })
+            });
+          });
+          alert("✅ " + newSvcs.length + " új szolgáltatás felvéve!");
+          loadProjects();
+        }
+      }
+    })
+    .catch(function(e) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      alert("Szkennelés hiba: " + e);
+    });
+}
 
 function checkHealth() {
   fetch("/api/projects/health")
@@ -266,17 +332,61 @@ function toggleNotes(pid, realText) {
   }
 }
 
-function searchProjects() {
+function copyNotes(pid, realText) {
+  navigator.clipboard.writeText(realText).then(function() {
+    var btn = event.target;
+    var orig = btn.textContent;
+    btn.textContent = "✅ Másolva!";
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+  }).catch(function() {
+    // Fallback for non-secure context
+    var ta = document.createElement("textarea");
+    ta.value = realText;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    var btn = event.target;
+    var orig = btn.textContent;
+    btn.textContent = "✅ Másolva!";
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+  });
+}
+
+var currentFilter = "all";
+
+function filterByCategory(cat) {
+  currentFilter = cat;
+  document.querySelectorAll(".filter-chip").forEach(function(el) { el.classList.remove("active"); });
+  var chip = document.getElementById("chip-" + cat);
+  if (chip) chip.classList.add("active");
+  applyFilters();
+}
+
+function applyFilters() {
   var q = document.getElementById("searchInput").value.toLowerCase();
+  var sortBy = document.getElementById("sortSelect").value;
   var filtered = allProjects.filter(function(p) {
-    return !q ||
+    var matchCat = currentFilter === "all" || (p.category || "other") === currentFilter;
+    var matchQ = !q ||
       (p.title || "").toLowerCase().indexOf(q) >= 0 ||
       (p.description || "").toLowerCase().indexOf(q) >= 0 ||
       (p.category || "").toLowerCase().indexOf(q) >= 0 ||
       (p.tags || []).join(" ").toLowerCase().indexOf(q) >= 0;
+    return matchCat && matchQ;
+  });
+  filtered.sort(function(a, b) {
+    if (sortBy === "created_at") return (b.created_at || 0) - (a.created_at || 0);
+    if (sortBy === "category") return (a.category || "").localeCompare(b.category || "");
+    if (sortBy === "status") return (a.status || "").localeCompare(b.status || "");
+    return (a.title || "").localeCompare(b.title || "");
   });
   renderProjects(filtered);
   updateStats(filtered);
+}
+
+function searchProjects() {
+  applyFilters();
 }
 
 function renderProjects(projects) {
@@ -290,8 +400,12 @@ function renderProjects(projects) {
   empty.style.display = "none";
   grid.innerHTML = projects.map(function(p) {
     var tags = (p.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join("");
-    var notesHtml = p.notes ? '<div class="notes-box" id="notes-' + p.id + '" style="font-size:12px;color:var(--text3);margin-bottom:8px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 <span class="notes-text">••••••••</span></span><button onclick="event.stopPropagation();toggleNotes(\'' + p.id + '\',\'' + escapeHtml(p.notes).replace(/'/g,"\\'") + '\')" class="notes-btn" style="background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap">👁️ Mutat</button></div>' : '';
+    var notesHtml = p.notes ? '<div class="notes-box" id="notes-' + p.id + '" style="font-size:12px;color:var(--text3);margin-bottom:8px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 <span class="notes-text">••••••••</span></span><button onclick="event.stopPropagation();copyNotes(\'' + p.id + '\',\'' + escapeHtml(p.notes).replace(/'/g,"\\'") + '\')" class="notes-btn" style="background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap">📋 Másol</button><button onclick="event.stopPropagation();toggleNotes(\'' + p.id + '\',\'' + escapeHtml(p.notes).replace(/'/g,"\\'") + '\')" class="notes-btn" style="background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap">👁️ Mutat</button></div>' : '';
     var link = p.url ? '<a href="' + escapeHtml(p.url) + '" target="_blank" class="card-link">Megnyit →</a>' : '';
+    var extraLinks = (p.links || []).map(function(l) {
+      return '<a href="' + escapeHtml(l.url) + '" target="_blank" class="card-link" style="margin-left:4px">' + escapeHtml(l.label || l.url) + '</a>';
+    }).join("");
+    var allLinks = link + extraLinks;
     var statusClass = "status-" + (p.status || "active");
     var statusIcon = p.status === "active" ? "🟢" : p.status === "paused" ? "🟡" : "⚫";
     return '<div class="card" onclick="editProject(\'' + p.id + '\')">' +
@@ -305,7 +419,7 @@ function renderProjects(projects) {
       (tags ? '<div class="card-tags">' + tags + '</div>' : '') +
       notesHtml +
       '<div class="card-footer">' +
-        link +
+        allLinks +
         '<div class="card-actions">' +
           '<span class="' + statusClass + '" style="font-size:12px">' + statusIcon + ' ' + (p.status || "active") + '</span>' +
           '<button class="action-btn" onclick="event.stopPropagation();editProject(\'' + p.id + '\')">✏️</button>' +
@@ -318,8 +432,11 @@ function renderProjects(projects) {
 
 function updateStats(projects) {
   document.getElementById("totalCount").textContent = projects.length;
-  document.getElementById("appCount").textContent = projects.filter(function(p) { return p.category === "app"; }).length;
-  document.getElementById("webCount").textContent = projects.filter(function(p) { return p.category === "web"; }).length;
+  var cats = ["app","web","tool","infra","research","other"];
+  cats.forEach(function(c) {
+    var el = document.getElementById(c + "Count");
+    if (el) el.textContent = projects.filter(function(p) { return (p.category || "other") === c; }).length;
+  });
   document.getElementById("activeCount").textContent = projects.filter(function(p) { return p.status === "active"; }).length;
 }
 
@@ -330,6 +447,7 @@ function openModal() {
   document.getElementById("projDesc").value = "";
   document.getElementById("projCategory").value = "app";
   document.getElementById("projUrl").value = "";
+  document.getElementById("projLinks").value = "";
   document.getElementById("projIcon").value = "📦";
   document.getElementById("projTags").value = "";
   document.getElementById("projNotes").value = "";
@@ -346,6 +464,7 @@ function editProject(pid) {
   document.getElementById("projDesc").value = p.description || "";
   document.getElementById("projCategory").value = p.category || "app";
   document.getElementById("projUrl").value = p.url || "";
+  document.getElementById("projLinks").value = (p.links || []).map(function(l) { return l.url + (l.label ? "|" + l.label : ""); }).join("\n");
   document.getElementById("projIcon").value = p.icon || "📦";
   document.getElementById("projTags").value = (p.tags || []).join(", ");
   document.getElementById("projNotes").value = p.notes || "";
@@ -364,6 +483,10 @@ function saveProject() {
     description: document.getElementById("projDesc").value.trim(),
     category: document.getElementById("projCategory").value,
     url: document.getElementById("projUrl").value.trim(),
+    links: document.getElementById("projLinks").value.split("\n").map(function(l) {
+      var parts = l.trim().split("|");
+      return parts[0].trim() ? { url: parts[0].trim(), label: (parts[1] || "").trim() } : null;
+    }).filter(function(l) { return l; }),
     icon: document.getElementById("projIcon").value.trim() || "📦",
     tags: document.getElementById("projTags").value.split(",").map(function(t) { return t.trim(); }).filter(function(t) { return t; }),
     notes: document.getElementById("projNotes").value.trim(),
