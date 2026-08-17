@@ -282,6 +282,71 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
+  <!-- 12. Model Fallback -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔄</span><span class="title">Model Fallback</span>
+      <span class="status status-ok" id="fallbackStatus">✓ Primary</span>
+    </div>
+    <div class="card-body" id="fallbackBody">
+      <div class="stat-row"><span class="label">Jelenlegi model</span><span class="value blue" id="fbModel">—</span></div>
+      <div class="stat-row"><span class="label">Chain pozíció</span><span class="value" id="fbPos">0</span></div>
+      <div class="progress-bar"><div class="progress-fill green" id="fbBar" style="width:100%"></div></div>
+      <div class="stat-row"><span class="label">Recent errors</span><span class="value green" id="fbErrors">0</span></div>
+      <div class="stat-row"><span class="label">Chain</span><span class="value" style="font-size:11px" id="fbChain">—</span></div>
+    </div>
+  </div>
+
+  <!-- 13. Pending Retries -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔁</span><span class="title">Pending Retries</span>
+      <span class="status status-ok" id="retryStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="retryBody">
+      <div class="stat-row"><span class="label">Várakozó task-ok</span><span class="value blue" id="rTotal">0</span></div>
+      <div class="stat-row"><span class="label">Alert küldve</span><span class="value orange" id="rAlerts">0</span></div>
+      <div class="stat-row"><span class="label">Legrégebbi (perc)</span><span class="value" id="rOldest">—</span></div>
+    </div>
+  </div>
+
+  <!-- 14. Tool Timeouts -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">⏱️</span><span class="title">Tool Timeouts</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="timeoutBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 15. Process Lock -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔐</span><span class="title">Process Lock</span>
+      <span class="status status-ok" id="lockStatus">✓</span>
+    </div>
+    <div class="card-body" id="lockBody">
+      <div class="stat-row"><span class="label">Port</span><span class="value" id="lockPort">8650</span></div>
+      <div class="stat-row"><span class="label">Aktív PID-ek</span><span class="value green" id="lockPids">—</span></div>
+      <div class="stat-row"><span class="label">Saját PID</span><span class="value" id="lockOurPid">—</span></div>
+    </div>
+  </div>
+
+  <!-- 16. Remote Enrollment -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Remote Enrollment</span>
+      <span class="status status-ok" id="enrollStatus">✓</span>
+    </div>
+    <div class="card-body" id="enrollBody">
+      <div class="stat-row"><span class="label">SSH kulcs</span><span class="value green" id="enrollKey">—</span></div>
+      <div class="stat-row"><span class="label">Kulcs típus</span><span class="value" id="enrollType">ssh-ed25519</span></div>
+      <div class="stat-row"><span class="label">Útvonal</span><span class="value" style="font-size:11px" id="enrollPath">—</span></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -296,6 +361,11 @@ function loadAll() {
   loadContextGuard();
   loadCostOps();
   loadTrust();
+  loadFallback();
+  loadRetries();
+  loadTimeouts();
+  loadLock();
+  loadEnroll();
 }
 
 function loadSkills() {
@@ -461,6 +531,75 @@ function testSafety() {
 
 document.addEventListener("DOMContentLoaded", loadAll);
 setInterval(loadAll, 60000);
+
+function loadFallback() {
+  api("/api/model-fallback/Nova").then(function(d) {
+    if (!d) return;
+    document.getElementById("fbModel").textContent = d.current_model;
+    document.getElementById("fbPos").textContent = d.chain_position + "/" + (d.chain.length-1);
+    document.getElementById("fbErrors").textContent = d.recent_errors;
+    document.getElementById("fbChain").textContent = d.chain.join(" → ");
+    var pct = 100 - (d.chain_position / (d.chain.length-1) * 100);
+    var bar = document.getElementById("fbBar");
+    bar.style.width = pct + "%";
+    bar.className = "progress-fill " + (pct > 75 ? "green" : pct > 50 ? "orange" : "red");
+    if (d.chain_position > 0) {
+      document.getElementById("fallbackStatus").className = "status status-warn";
+      document.getElementById("fallbackStatus").textContent = "⚠️ Downgraded";
+    }
+  });
+}
+
+function loadRetries() {
+  api("/api/pending-retries").then(function(d) {
+    if (!d || !d.stats) return;
+    var s = d.stats;
+    document.getElementById("rTotal").textContent = s.total;
+    document.getElementById("rAlerts").textContent = s.alerting;
+    document.getElementById("rOldest").textContent = Math.round(s.oldest_age_min) + "p";
+    if (s.total > 0) {
+      document.getElementById("retryStatus").className = "status status-warn";
+      document.getElementById("retryStatus").textContent = "⚠️ " + s.total;
+    }
+  });
+}
+
+function loadTimeouts() {
+  api("/api/tool-timeouts").then(function(d) {
+    if (!d || !d.timeouts) return;
+    var cats = d.categories || {};
+    var html = "";
+    Object.keys(cats).forEach(function(cat) {
+      var tools = cats[cat];
+      var items = Object.keys(tools).map(function(t) {
+        return '<span class="badge badge-blue" style="margin:2px">' + t + ': ' + tools[t] + 's</span>';
+      }).join(" ");
+      html += '<div class="stat-row"><span class="label">' + cat + '</span><span style="font-size:11px">' + items + '</span></div>';
+    });
+    document.getElementById("timeoutBody").innerHTML = html || '<div class="empty">Nincs adat</div>';
+  });
+}
+
+function loadLock() {
+  api("/api/process-lock").then(function(d) {
+    if (!d) return;
+    document.getElementById("lockPort").textContent = d.port;
+    document.getElementById("lockPids").textContent = (d.pids || []).length;
+    document.getElementById("lockOurPid").textContent = d.our_pid;
+  });
+}
+
+function loadEnroll() {
+  api("/api/remote-enroll").then(function(d) {
+    if (!d) return;
+    document.getElementById("enrollKey").textContent = d.key_exists ? "✓ Megvan" : "✗ Hiányzik";
+    document.getElementById("enrollPath").textContent = d.key_path;
+    if (!d.ready) {
+      document.getElementById("enrollStatus").className = "status status-err";
+      document.getElementById("enrollStatus").textContent = "✗ Not ready";
+    }
+  });
+}
 </script>
 </body>
 </html>

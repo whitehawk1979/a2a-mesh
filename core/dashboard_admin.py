@@ -1924,6 +1924,46 @@ class DashboardAdminMixin:
         safe, reason = is_safe_for_dispatch(content)
         return web.json_response({"safe": safe, "reason": reason, "wrapped": wrap_untrusted("api", content) if not safe else None})
 
+    async def _api_model_fallback(self, request):
+        """GET /api/model-fallback/{node} — Get model fallback status."""
+        from aiohttp import web
+        from .model_fallback import get_node_status, check_revert
+        node = request.match_info.get("node", "unknown")
+        check_revert(node)
+        return web.json_response(get_node_status(node))
+
+    async def _api_model_fallback_error(self, request):
+        """POST /api/model-fallback/error — Record a model error."""
+        from aiohttp import web
+        from .model_fallback import record_error
+        data = await request.json()
+        model = record_error(data.get("node",""), data.get("model",""), data.get("error_type","unknown"))
+        return web.json_response({"current_model": model})
+
+    async def _api_pending_retries(self, request):
+        """GET /api/pending-retries — Get retry queue stats."""
+        from aiohttp import web
+        from .pending_retries import get_stats, get_pending
+        return web.json_response({"stats": get_stats(), "queue": get_pending()[:20]})
+
+    async def _api_tool_timeouts(self, request):
+        """GET /api/tool-timeouts — Get all tool timeout config."""
+        from aiohttp import web
+        from .tool_timeouts import get_all_timeouts
+        return web.json_response(get_all_timeouts())
+
+    async def _api_process_lock(self, request):
+        """GET /api/process-lock — Get port lock status."""
+        from aiohttp import web
+        from .process_lock import get_lock_status
+        return web.json_response(get_lock_status())
+
+    async def _api_remote_enroll(self, request):
+        """GET /api/remote-enroll — Get enrollment status."""
+        from aiohttp import web
+        from .remote_enroll import get_enrollment_status
+        return web.json_response(get_enrollment_status())
+
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""
         from aiohttp import web

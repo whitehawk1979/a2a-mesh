@@ -237,6 +237,17 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/trust", self._api_trust_set)
         # Prompt Safety
         app.router.add_post("/api/prompt-safety/check", self._api_prompt_safety_check)
+        # Model Fallback
+        app.router.add_get("/api/model-fallback/{node}", self._api_model_fallback)
+        app.router.add_post("/api/model-fallback/error", self._api_model_fallback_error)
+        # Pending Retries
+        app.router.add_get("/api/pending-retries", self._api_pending_retries)
+        # Tool Timeouts
+        app.router.add_get("/api/tool-timeouts", self._api_tool_timeouts)
+        # Process Lock
+        app.router.add_get("/api/process-lock", self._api_process_lock)
+        # Remote Enrollment
+        app.router.add_get("/api/remote-enroll", self._api_remote_enroll)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
