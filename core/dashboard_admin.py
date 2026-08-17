@@ -1556,8 +1556,6 @@ class DashboardAdminMixin:
         """GET /api/projects — List all projects, optional ?q=search."""
         from aiohttp import web
         import json
-        user, err = self._check_auth(request)
-        if err: return err
         projects = self._load_projects()
         q = request.query.get("q", "").lower()
         if q:
@@ -1571,8 +1569,6 @@ class DashboardAdminMixin:
         """POST /api/projects — Create a new project."""
         from aiohttp import web
         import json, uuid, time
-        user, err = self._check_auth(request)
-        if err: return err
         try:
             data = await request.json()
         except Exception:
@@ -1601,8 +1597,6 @@ class DashboardAdminMixin:
         """PUT /api/projects/{pid} — Update a project."""
         from aiohttp import web
         import time
-        user, err = self._check_auth(request)
-        if err: return err
         pid = request.match_info.get("pid", "")
         try:
             data = await request.json()
@@ -1622,8 +1616,6 @@ class DashboardAdminMixin:
     async def _api_projects_delete(self, request):
         """DELETE /api/projects/{pid} — Delete a project."""
         from aiohttp import web
-        user, err = self._check_auth(request)
-        if err: return err
         pid = request.match_info.get("pid", "")
         projects = self._load_projects()
         before = len(projects)
