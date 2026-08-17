@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A2A Mesh Kanban</title>
+    <style>
+        :root {
+            --bg: #0f0f0f;
+            --surface1: #1a1a1a;
+            --surface2: #252525;
+            --text1: #e0e0e0;
+            --text2: #a0a0a0;
+            --text3: #707070;
+            --blue: #3b82f6;
+            --border: #333;
+            --green: #22c55e;
+            --orange: #f59e0b;
+            --red: #ef4444;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text1);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background-color: var(--surface1);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+            flex-shrink: 0;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text1);
+            white-space: nowrap;
+        }
+
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-grow: 1;
+        }
+
+        select, input {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text1);
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        input[type="text"] {
+            flex-grow: 1;
+            max-width: 400px;
+        }
+
+        .btn {
+            background: var(--blue);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover {
+            opacity: 0.9;
+        }
+
+        .btn-danger {
+            background: var(--red);
+        }
+
+        main {
+            flex-grow: 1;
+            display: flex;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            overflow-x: auto;
+            align-items: flex-start;
+        }
+
+        .column {
+            background-color: var(--surface1);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            width: 300px;
+            min-width: 300px;
+            max-height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .column-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .column-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text1);
+        }
+
+        .column-count {
+            font-size: 0.8rem;
+            color: var(--text3);
+            background: var(--surface2);
+            padding: 2px 6px;
+            border-radius: 10px;
+        }
+
+        .card-list {
+            padding: 1rem;
+            flex-grow: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            min-height: 100px;
+        }
+
+        .card {
+            background-color: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.75rem;
+            cursor: grab;
+            transition: border-color 0.2s, transform 0.1s;
+            position: relative;
+            group: hover;
+        }
+
+        .card:hover {
+            border-color: var(--blue);
+        }
+
+        .card:active {
+            cursor: grabbing;
+            transform: scale(0.98);
+        }
+
+        .card-title {
+            font-size: 0.9rem;
+            color: var(--text1);
+            word-break: break-word;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+
+        .card-actions {
+            display: none;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+
+        .card:hover .card-actions {
+            display: flex;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            color: var(--text3);
+            cursor: pointer;
+            font-size: 0.75rem;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .action-btn:hover {
+            color: var(--red);
+            background: rgba(239, 68, 68, 0.1);
+        }
+
+        .dragging {
+            opacity: 0.5;
+            border: 2px dashed var(--blue);
+        }
+
+        .drop-zone-active {
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        /* Modal */
+        #modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+
+        .modal {
+            background: var(--surface1);
+            border: 1px solid var(--border);
+            padding: 2rem;
+            border-radius: 8px;
+            width: 400px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .modal-header {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .modal-footer {
+            margin-top: 1.5rem;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>A2A Mesh Kanban</h1>
+    <div class="controls">
+        <select id="board-select"></select>
+        <input type="text" id="search-input" placeholder="Filter cards...">
+        <button class="btn" id="add-card-btn">+ New Card</button>
+    </div>
+</header>
+
+<main id="board-container"></main>
+
+<div id="modal-overlay">
+    <div class="modal">
+        <div class="modal-header">Add New Card</div>
+        <div class="modal-form">
+            <input type="text" id="new-card-title" placeholder="Card title...">
+            <select id="new-card-column"></select>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-danger" id="modal-cancel">Cancel</button>
+            <button class="btn" id="modal-save">Save Card</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE = '/api/kanban';
+    
+    let state = {
+        boards: [],
+        currentBoardId: null,
+        filterText: ''
+    };
+
+    // DOM Elements
+    const boardSelect = document.getElementById('board-select');
+    const boardContainer = document.getElementById('board-container');
+    const searchInput = document.getElementById('search-input');
+    const addCardBtn = document.getElementById('add-card-btn');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalCancel = document.getElementById('modal-cancel');
+    const modalSave = document.getElementById('modal-save');
+    const newCardTitle = document.getElementById('new-card-title');
+    const newCardColumn = document.getElementById('new-card-column');
+
+    async function api(path, method = 'GET', body = null) {
+        const options = {
+            method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (body) options.body = JSON.stringify(body);
+        
+        const response = await fetch(path, options);
+        if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
+        return response.status === 204 ? null : response.json();
+    }
+
+    async function loadBoards() {
+        try {
+            const data = await api(API_BASE);
+            state.boards = data.boards;
+            
+            if (state.boards.length === 0) {
+                boardContainer.innerHTML = '<div style="padding: 2rem; color: var(--text3);">No boards found.</div>';
+                return;
+            }
+
+            if (!state.currentBoardId) {
+                state.currentBoardId = state.boards[0].id;
+            }
+
+            renderBoardSelect();
+            renderBoard();
+        } catch (e) {
+            console.error(e);
+            boardContainer.innerHTML = `<div style="padding: 2rem; color: var(--red);">Failed to load boards: ${e.message}</div>`;
+        }
+    }
+
+    function renderBoardSelect() {
+        boardSelect.innerHTML = state.boards.map(b => 
+            `<option value="${b.id}" ${b.id === state.currentBoardId ? 'selected' : ''}>${b.title}</option>`
+        ).join('');
+    }
+
+    function renderBoard() {
+        const board = state.boards.find(b => b.id === state.currentBoardId);
+        if (!board) return;
+
+        boardContainer.innerHTML = '';
+        
+        board.columns.forEach(col => {
+            const colDiv = document.createElement('div');
+            colDiv.className = 'column';
+            colDiv.dataset.columnId = col.id;
+            
+            const filteredCards = col.cards.filter(c => 
+                c.title.toLowerCase().includes(state.filterText.toLowerCase())
+            );
+
+            colDiv.innerHTML = `
+                <div class="column-header">
+                    <span class="column-title">${col.title}</span>
+                    <span class="column-count">${filteredCards.length}</span>
+                </div>
+                <div class="card-list" id="col-${col.id}"></div>
+            `;
+
+            const cardList = colDiv.querySelector('.card-list');
+            
+            filteredCards.forEach(card => {
+                const cardEl = document.createElement('div');
+                cardEl.className = 'card';
+                cardEl.draggable = true;
+                cardEl.dataset.cardId = card.id;
+                cardEl.innerHTML = `
+                    <span class="card-title">${card.title}</span>
+                    <div class="card-actions">
+                        <button class="action-btn" onclick="deleteCard('${card.id}')">Delete</button>
+                    </div>
+                `;
+
+                cardEl.addEventListener('dragstart', handleDragStart);
+                cardEl.addEventListener('dragend', handleDragEnd);
+                cardList.appendChild(cardEl);
+            });
+
+            cardList.addEventListener('dragover', handleDragOver);
+            cardList.addEventListener('dragleave', handleDragLeave);
+            cardList.addEventListener('drop', handleDrop);
+
+            boardContainer.appendChild(colDiv);
+        });
+    }
+
+    // Drag and Drop
+    let draggedCardId = null;
+
+    function handleDragStart(e) {
+        draggedCardId = this.dataset.cardId;
+        this.classList.add('dragging');
+        e.dataTransfer.setData('text/plain', draggedCardId);
+    }
+
+    function handleDragEnd() {
+        this.classList.remove('dragging');
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault();
+        this.classList.add('drop-zone-active');
+    }
+
+    function handleDragLeave() {
+        this.classList.remove('drop-zone-active');
+    }
+
+    async function handleDrop(e) {
+        e.preventDefault();
+        this.classList.remove('drop-zone-active');
+        
+        const cardId = e.dataTransfer.getData('text/plain');
+        const columnId = this.parentElement.dataset.columnId;
+
+        if (!cardId || !columnId) return;
+
+        try {
+            await api(`${API_BASE}/card/${cardId}`, 'PATCH', { column_id: columnId });
+            await loadBoards();
+        } catch (e) {
+            alert('Failed to move card: ' + e.message);
+        }
+    }
+
+    async function deleteCard(cardId) {
+        if (!confirm('Delete this card?')) return;
+        try {
+            await api(`${API_BASE}/card/${cardId}`, 'DELETE');
+            await loadBoards();
+        } catch (e) {
+            alert('Failed to delete card: ' + e.message);
+        }
+    }
+
+    async function saveCard() {
+        const title = newCardTitle.value.trim();
+        const columnId = newCardColumn.value;
+        
+        if (!title) return alert('Please enter a title');
+
+        try {
+            await api(API_BASE + '/card', 'POST', {
+                board_id: state.currentBoardId,
+                column_id: columnId,
+                title: title
+            });
+            closeModal();
+            await loadBoards();
+        } catch (e) {
+            alert('Failed to create card: ' + e.message);
+        }
+    }
+
+    function openModal() {
+        const board = state.boards.find(b => b.id === state.currentBoardId);
+        if (!board) return;
+
+        newCardColumn.innerHTML = board.columns.map(col => 
+            `<option value="${col.id}">${col.title}</option>`
+        ).join('');
+        
+        newCardTitle.value = '';
+        modalOverlay.style.display = 'flex';
+        newCardTitle.focus();
+    }
+
+    function closeModal() {
+        modalOverlay.style.display = 'none';
+    }
+
+    // Event Listeners
+    boardSelect.addEventListener('change', (e) => {
+        state.currentBoardId = e.target.value;
+        renderBoard();
+    });
+
+    searchInput.addEventListener('input', (e) => {
+        state.filterText = e.target.value;
+        renderBoard();
+    });
+
+    addCardBtn.addEventListener('click', openModal);
+    modalCancel.addEventListener('click', closeModal);
+    modalSave.addEventListener('click', saveCard);
+
+    // Init
+    loadBoards();
+
+</script>
+</body>
+</html>

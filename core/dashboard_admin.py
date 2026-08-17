@@ -1528,6 +1528,16 @@ class DashboardAdminMixin:
         except FileNotFoundError:
             return web.Response(text="<h1>Lab page not found</h1>", status=404)
 
+    async def _kanban_page(self, request):
+        """GET /kanban — Kanban task management page."""
+        from aiohttp import web
+        html_path = os.path.join(os.path.dirname(__file__), "kanban.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.Response(text="<h1>Kanban page not found</h1>", status=404)
+
     def _projects_file(self):
         """Get projects JSON file path."""
         import os
@@ -1701,6 +1711,114 @@ class DashboardAdminMixin:
         })
 
     # ─── Plugin API ────────────────────────────────────────────────
+
+    # ─── Kanban API ──────────────────────────────────────────────
+
+    def _get_kanban(self):
+        """Get or create KanbanManager instance."""
+        if not hasattr(self, '_kanban_mgr'):
+            from .kanban import KanbanManager
+            node_name = getattr(self, 'node_name', 'unknown')
+            self._kanban_mgr = KanbanManager(pg_pool=getattr(self, '_pg_pool', None), node_name=node_name)
+        return self._kanban_mgr
+
+    async def _api_kanban_boards(self, request):
+        """GET /api/kanban — List all boards."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        return web.json_response({"boards": mgr.get_boards()})
+
+    async def _api_kanban_create_board(self, request):
+        """POST /api/kanban — Create a new board."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        data = await request.json()
+        board = mgr.create_board(data.get("title", "New Board"), data.get("columns"))
+        return web.json_response(board)
+
+    async def _api_kanban_delete_board(self, request):
+        """DELETE /api/kanban/{board_id} — Delete a board."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        board_id = request.match_info.get("board_id", "")
+        if mgr.delete_board(board_id):
+            return web.json_response({"status": "deleted"})
+        return web.json_response({"error": "not found"}, status=404)
+
+    async def _api_kanban_get_board(self, request):
+        """GET /api/kanban/{board_id} — Get a single board with cards."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        board_id = request.match_info.get("board_id", "")
+        board = mgr.get_board(board_id)
+        if board:
+            return web.json_response(board)
+        return web.json_response({"error": "not found"}, status=404)
+
+    async def _api_kanban_add_card(self, request):
+        """POST /api/kanban/{board_id}/cards — Add a card to a board."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        board_id = request.match_info.get("board_id", "")
+        data = await request.json()
+        card = mgr.add_card(
+            board_id, data.get("title", ""),
+            column=data.get("column", "todo"),
+            description=data.get("description", ""),
+            priority=data.get("priority", "medium"),
+            assigned_to=data.get("assigned_to", ""),
+            parent_id=data.get("parent_id"),
+        )
+        return web.json_response(card)
+
+    async def _api_kanban_update_card(self, request):
+        """PUT /api/kanban/{board_id}/cards/{card_id} — Update a card."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        board_id = request.match_info.get("board_id", "")
+        card_id = request.match_info.get("card_id", "")
+        data = await request.json()
+        card = mgr.update_card(board_id, card_id, data)
+        return web.json_response(card)
+
+    async def _api_kanban_delete_card(self, request):
+        """DELETE /api/kanban/{board_id}/cards/{card_id} — Delete a card."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        board_id = request.match_info.get("board_id", "")
+        card_id = request.match_info.get("card_id", "")
+        if mgr.delete_card(board_id, card_id):
+            return web.json_response({"status": "deleted"})
+        return web.json_response({"error": "not found"}, status=404)
+
+    async def _api_kanban_breakdown(self, request):
+        """POST /api/kanban/{board_id}/cards/{card_id}/breakdown — Break a card into subtasks."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        board_id = request.match_info.get("board_id", "")
+        card_id = request.match_info.get("card_id", "")
+        data = await request.json()
+        subtasks = data.get("subtasks", [])
+        created = await mgr.auto_breakdown(board_id, card_id, subtasks)
+        return web.json_response({"created": created})
+
+    async def _api_kanban_audit(self, request):
+        """GET /api/kanban/audit — Audit stale cards across all boards."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        result = await mgr.audit_stale_cards()
+        return web.json_response(result)
+
+    # ─── Plugin API (original) ────────────────────────────────────
+
+    async def _api_precompact_audit(self, request):
+        """GET /api/precompact/audit — Audit precompact memories."""
+        from aiohttp import web
+        from .precompact_hook import precompact_audit
+        node_name = getattr(self, 'node_name', 'unknown')
+        pg_pool = getattr(self, '_pg_pool', None)
+        result = await precompact_audit(pg_pool, node_name=node_name)
+        return web.json_response(result)
 
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""

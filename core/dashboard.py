@@ -197,6 +197,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/topology", self._api_topology_page)
         # Lab — project showcase
         app.router.add_get("/lab", self._lab_page)
+        # Kanban — task management
+        app.router.add_get("/kanban", self._kanban_page)
         # Project CRUD API
         app.router.add_get("/api/projects", self._api_projects_list)
         app.router.add_post("/api/projects", self._api_projects_create)
@@ -206,6 +208,18 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/projects/health", self._api_projects_health)
         # Auto-discovery — scan LAN for services
         app.router.add_get("/api/projects/discover", self._api_projects_discover)
+        # Kanban API
+        app.router.add_get("/api/kanban", self._api_kanban_boards)
+        app.router.add_post("/api/kanban", self._api_kanban_create_board)
+        app.router.add_delete("/api/kanban/{board_id}", self._api_kanban_delete_board)
+        app.router.add_get("/api/kanban/{board_id}", self._api_kanban_get_board)
+        app.router.add_post("/api/kanban/{board_id}/cards", self._api_kanban_add_card)
+        app.router.add_put("/api/kanban/{board_id}/cards/{card_id}", self._api_kanban_update_card)
+        app.router.add_delete("/api/kanban/{board_id}/cards/{card_id}", self._api_kanban_delete_card)
+        app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/breakdown", self._api_kanban_breakdown)
+        app.router.add_get("/api/kanban/audit", self._api_kanban_audit)
+        # PreCompact audit
+        app.router.add_get("/api/precompact/audit", self._api_precompact_audit)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
