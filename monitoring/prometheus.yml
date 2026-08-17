@@ -1,23 +1,15 @@
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-rule_files:
-  - alert_rules.yml
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          - localhost:9093
+# Prometheus scrape config for A2A Mesh nodes
+# Add this to your prometheus.yml under scrape_configs:
 
 scrape_configs:
   - job_name: 'a2a-mesh'
+    scrape_interval: 10s
     metrics_path: /metrics
     static_configs:
       - targets:
-        - 192.168.1.8:8650
-        - 192.168.1.30:8650
-        - 192.168.1.100:8650
+          - '192.168.1.8:8650'    # Nova
+          - '192.168.1.30:8650'   # Morzsa
+          - '192.168.1.100:8650'  # Runa
         labels:
           mesh: 'a2a-mesh'
+          version: '0.29.0'

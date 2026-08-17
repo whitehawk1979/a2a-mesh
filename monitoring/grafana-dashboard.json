@@ -1,0 +1,68 @@
+{
+  "title": "A2A Mesh Monitoring",
+  "tags": ["a2a-mesh", "nova", "morzsa", "runa"],
+  "timezone": "Europe/Bucharest",
+  "refresh": "10s",
+  "panels": [
+    {
+      "title": "Node Status",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "a2a_mesh_node_up", "legendFormat": "{{node}}"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "red", "value": 0}, {"color": "green", "value": 1}]}}}
+    },
+    {
+      "title": "Uptime (hours)",
+      "type": "stat",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "a2a_mesh_uptime_seconds / 3600", "legendFormat": "{{node}}"}],
+      "fieldConfig": {"defaults": {"unit": "h", "decimals": 1}}
+    },
+    {
+      "title": "Peers Connected",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "a2a_mesh_peers_connected", "legendFormat": "{{node}}"}]
+    },
+    {
+      "title": "Transport Errors",
+      "type": "stat",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{"expr": "a2a_mesh_transport_errors_total", "legendFormat": "{{node}}"}],
+      "fieldConfig": {"defaults": {"thresholds": {"steps": [{"color": "green", "value": 0}, {"color": "red", "value": 1}]}}}
+    },
+    {
+      "title": "Messages Sent/Received (rate)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(a2a_mesh_messages_sent_total[5m])", "legendFormat": "sent {{node}}"},
+        {"expr": "rate(a2a_mesh_messages_received_total[5m])", "legendFormat": "recv {{node}}"}
+      ]
+    },
+    {
+      "title": "Messages Forwarded/Duplicated (rate)",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "rate(a2a_mesh_messages_forwarded_total[5m])", "legendFormat": "fwd {{node}}"},
+        {"expr": "rate(a2a_mesh_messages_duplicated_total[5m])", "legendFormat": "dup {{node}}"}
+      ]
+    },
+    {
+      "title": "Dedup Cache Size",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "targets": [{"expr": "a2a_mesh_dedup_cache_size", "legendFormat": "{{node}}"}]
+    },
+    {
+      "title": "Peers Known vs Connected",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "targets": [
+        {"expr": "a2a_mesh_peers_known", "legendFormat": "known {{node}}"},
+        {"expr": "a2a_mesh_peers_connected", "legendFormat": "connected {{node}}"}
+      ]
+    }
+  ]
+}

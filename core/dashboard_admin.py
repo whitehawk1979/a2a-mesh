@@ -980,6 +980,66 @@ class DashboardAdminMixin:
             return web.json_response({"status": "deleted", "workflow_id": wf_id})
         return web.json_response({"error": f"Workflow '{wf_id}' not found"}, status=404)
 
+    # ─── P2P Status API ──────────────────────────────────────────────
+
+    async def _api_p2p_status(self, request):
+        """GET /api/p2p/status — Live P2P transport status."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if not self.node:
+            return web.json_response({"error": "Node not available"}, status=503)
+        p2p = getattr(self.node, '_p2p_transport', None)
+        if not p2p:
+            return web.json_response({"error": "P2P transport not available"}, status=503)
+        status = {
+            "running": getattr(p2p, '_running', False),
+            "listen_port": getattr(p2p, '_listen_port', 8645),
+            "tls_enabled": True,  # mTLS is always on
+            "peers": list(getattr(p2p, '_peers', {}).keys()),
+            "peer_count": len(getattr(p2p, '_peers', {})),
+            "backoff_peers": [],  # Backoff is handled per-peer in connect logic
+            "incoming_queue": getattr(p2p, '_incoming_queue', None).qsize() if hasattr(p2p, '_incoming_queue') and p2p._incoming_queue else 0,
+        }
+        return web.json_response(status)
+
+    # ─── Memory Sync Status API ──────────────────────────────────────
+
+    async def _api_memory_sync_status(self, request):
+        """GET /api/memory/sync/status — Memory sync status."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if not self.node:
+            return web.json_response({"error": "Node not available"}, status=503)
+        stats = {
+            "node": self.node.node_name,
+            "pg_connected": bool(getattr(self.node, '_pg_pool', None) and self.node._pg_pool.is_connected()),
+            "local_store_active": hasattr(self.node, 'local_store') and self.node.local_store is not None,
+            "memory_entries": 0,
+        }
+        # Try to get memory count from PG
+        try:
+            pool = getattr(self.node, '_pg_pool', None)
+            if pool and pool.is_connected():
+                result = await pool.fetch("SELECT count(*) as cnt FROM shared_a2a_memory WHERE node_name = $1", self.node.node_name)
+                if result:
+                    stats["memory_entries"] = int(result[0].get('cnt', 0))
+        except Exception:
+            pass
+        # Local store message count
+        try:
+            if stats["local_store_active"]:
+                ls = self.node.local_store
+                if ls._conn:
+                    row = ls._conn.execute("SELECT count(*) as c FROM outbound_messages").fetchone()
+                    stats["local_store_messages"] = int(row['c']) if row else 0
+        except Exception:
+            stats["local_store_messages"] = 0
+        return web.json_response(stats)
+
     # ─── Pending Agent Approval API Handlers ──────────────────────────
 
     async def _api_registry_pending(self, request):
