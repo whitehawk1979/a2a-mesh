@@ -30,6 +30,7 @@ CORE_FILES = [
     "core/precompact_hook.py",
     "core/kanban.py",
     "core/kanban.html",
+    "core/marveen.html",
     "core/dream_engine.py",
     "core/context_guard.py",
     "core/prompt_safety.py",

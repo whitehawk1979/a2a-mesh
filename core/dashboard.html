@@ -448,6 +448,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">📋</span>
       <span class="nav-label">Kanban</span>
     </button>
+    <button class="nav-item" onclick="switchMobileTab('marveen')" id="navMarveen">
+      <span class="nav-icon">🧠</span>
+      <span class="nav-label">Marveen</span>
+    </button>
     <button class="nav-item" onclick="showSettings()" id="navSettings">
       <span class="nav-icon">⚙️</span>
       <span class="nav-label">Beállítások</span>
@@ -1297,12 +1301,15 @@ function switchMobileTab(tab) {
   } else if (tab === "kanban") {
     // Open Kanban task management in new tab
     window.open(location.protocol + "//" + location.host + "/kanban", "_blank");
+  } else if (tab === "marveen") {
+    // Open Marveen Engine visual dashboard in new tab
+    window.open(location.protocol + "//" + location.host + "/marveen", "_blank");
   }
 }
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts", lab: "navLab", kanban: "navKanban", settings: "navSettings"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts", lab: "navLab", kanban: "navKanban", marveen: "navMarveen", settings: "navSettings"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }

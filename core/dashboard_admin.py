@@ -1538,6 +1538,16 @@ class DashboardAdminMixin:
         except FileNotFoundError:
             return web.Response(text="<h1>Kanban page not found</h1>", status=404)
 
+    async def _marveen_page(self, request):
+        """GET /marveen — Marveen Engine visual dashboard."""
+        from aiohttp import web
+        html_path = os.path.join(os.path.dirname(__file__), "marveen.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.Response(text="<h1>Marveen page not found</h1>", status=404)
+
     def _projects_file(self):
         """Get projects JSON file path."""
         import os

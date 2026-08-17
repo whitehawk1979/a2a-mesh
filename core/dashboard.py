@@ -199,6 +199,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/lab", self._lab_page)
         # Kanban — task management
         app.router.add_get("/kanban", self._kanban_page)
+        # Marveen Engine — visual dashboard
+        app.router.add_get("/marveen", self._marveen_page)
         # Project CRUD API
         app.router.add_get("/api/projects", self._api_projects_list)
         app.router.add_post("/api/projects", self._api_projects_create)

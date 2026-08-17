@@ -61,16 +61,88 @@
         "id": "card-1786978422667-4",
         "title": "Marveen funkciók integrálása A2A Mesh-be",
         "description": "Minden Marveen feature beépítése: réteges memória, skill-factory, kanban audit, precompact hook, autonómia szintek, heartbeat, card-aging",
-        "column": "in_progress",
+        "column": "done",
         "priority": "high",
         "assigned_to": "Nova",
         "parent_id": null,
         "created_at": 1786978422.667157,
-        "updated_at": 1786978422.6671581,
+        "updated_at": 1786980033.46799,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786980034069-5",
+        "title": "Dream Engine",
+        "description": "Marveen-inspired feature",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786980034.0698729,
+        "updated_at": 1786980034.0698729,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786980034614-6",
+        "title": "Kanban Dispatch",
+        "description": "Marveen-inspired feature",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786980034.614539,
+        "updated_at": 1786980034.61454,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786980035129-7",
+        "title": "Context Guard",
+        "description": "Marveen-inspired feature",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786980035.129847,
+        "updated_at": 1786980035.129847,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786980035774-8",
+        "title": "Prompt Safety",
+        "description": "Marveen-inspired feature",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786980035.774656,
+        "updated_at": 1786980035.774656,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786980036390-9",
+        "title": "CostOps",
+        "description": "Marveen-inspired feature",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786980036.390341,
+        "updated_at": 1786980036.390342,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786980036953-10",
+        "title": "Team Trust Graph",
+        "description": "Marveen-inspired feature",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786980036.9531121,
+        "updated_at": 1786980036.9531121,
         "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1786979146.1423428
+    "updated_at": 1786980036.953115
   }
 ]

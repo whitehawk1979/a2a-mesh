@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A2A Mesh — Marveen Engine</title>
+<style>
+:root {
+  --bg: #0d1117; --surface1: #161b22; --surface2: #21262d;
+  --text1: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --blue: #58a6ff; --border: #30363d;
+  --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #bc8cff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text1); min-height: 100vh; }
+a { color: var(--blue); text-decoration: none; }
+
+.header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .links { margin-left: auto; display: flex; gap: 12px; font-size: 14px; }
+.header .links a { color: var(--text2); }
+.header .links a:hover { color: var(--blue); }
+.refresh-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text1); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.refresh-btn:hover { border-color: var(--blue); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 20px; }
+
+.card { background: var(--surface1); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card-header { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.card-header .icon { font-size: 18px; }
+.card-header .title { font-size: 14px; font-weight: 600; }
+.card-header .status { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+.status-ok { background: rgba(63,185,80,0.15); color: var(--green); }
+.status-warn { background: rgba(210,153,34,0.15); color: var(--orange); }
+.status-err { background: rgba(248,81,73,0.15); color: var(--red); }
+.card-body { padding: 14px 16px; }
+
+/* Trust Graph visualization */
+.trust-graph { display: flex; justify-content: center; align-items: center; gap: 0; padding: 20px; position: relative; min-height: 140px; }
+.trust-node { display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 2; }
+.trust-circle { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; border: 2px solid; }
+.trust-name { font-size: 12px; color: var(--text2); }
+.trust-line { flex: 1; height: 2px; background: var(--green); position: relative; min-width: 40px; }
+.trust-line::after { content: '✓'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--green); }
+
+/* Stat rows */
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.stat-row:last-child { border-bottom: none; }
+.stat-row .label { font-size: 13px; color: var(--text2); }
+.stat-row .value { font-size: 14px; font-weight: 600; }
+.stat-row .value.green { color: var(--green); }
+.stat-row .value.orange { color: var(--orange); }
+.stat-row .value.red { color: var(--red); }
+.stat-row .value.blue { color: var(--blue); }
+.stat-row .value.purple { color: var(--purple); }
+
+/* Progress bar */
+.progress-bar { width: 100%; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.progress-fill.green { background: var(--green); }
+.progress-fill.orange { background: var(--orange); }
+.progress-fill.red { background: var(--red); }
+.progress-fill.blue { background: var(--blue); }
+
+/* Badge */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+.badge-orange { background: rgba(210,153,34,0.15); color: var(--orange); }
+.badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-blue { background: rgba(88,166,255,0.15); color: var(--blue); }
+
+/* Autonomy levels */
+.autonomy-level { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.autonomy-level:last-child { border-bottom: none; }
+.autonomy-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.al-1 { background: rgba(63,185,80,0.15); }
+.al-2 { background: rgba(210,153,34,0.15); }
+.al-3 { background: rgba(248,81,73,0.15); }
+.autonomy-text { flex: 1; }
+.autonomy-text .name { font-size: 13px; font-weight: 500; }
+.autonomy-text .desc { font-size: 11px; color: var(--text3); }
+
+/* Dream buckets */
+.dream-bucket { padding: 10px 0; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.dream-bucket:last-child { border-bottom: none; }
+.dream-bucket .btitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.dream-bucket .bcontent { font-size: 12px; color: var(--text2); }
+
+/* Skill list */
+.skill-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+.skill-item .sname { flex: 1; }
+.skill-item .scount { font-size: 12px; color: var(--text3); }
+
+/* Cost bar chart */
+.cost-bar { display: flex; align-items: flex-end; gap: 6px; height: 80px; padding: 8px 0; }
+.cost-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.cost-col .bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 2px; transition: height 0.5s; }
+.cost-col .lbl { font-size: 10px; color: var(--text3); }
+
+/* Kanban mini */
+.kanban-mini { display: flex; gap: 8px; }
+.kanban-mini-col { flex: 1; background: var(--surface2); border-radius: 8px; padding: 8px; text-align: center; }
+.kanban-mini-col .count { font-size: 18px; font-weight: 700; }
+.kanban-mini-col .lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; }
+
+.empty { color: var(--text3); font-size: 13px; text-align: center; padding: 12px; }
+.loading { color: var(--text3); font-size: 13px; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🧠 Marveen Engine</h1>
+  <button class="refresh-btn" onclick="loadAll()">🔄 Frissítés</button>
+  <div class="links">
+    <a href="/">← Dashboard</a>
+    <a href="/lab">🧪 Lab</a>
+    <a href="/kanban">📋 Kanban</a>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- 1. Auto Skill-Factory -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🧠</span><span class="title">Auto Skill-Factory</span>
+      <span class="status status-ok" id="skillStatus">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="skillBody">
+      <div class="stat-row"><span class="label">Trigger: 5+ tool hívás</span><span class="value green">Auto</span></div>
+      <div class="stat-row"><span class="label">Generált skill-ek</span><span class="value blue" id="skillCount">—</span></div>
+      <div class="stat-row"><span class="label">Utolsó generálás</span><span class="value" id="skillLast">—</span></div>
+      <div class="stat-row"><span class="label">Recovery-ből tanult</span><span class="value" id="skillRecovery">—</span></div>
+    </div>
+  </div>
+
+  <!-- 2. Salience Decay -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📉</span><span class="title">Salience Decay</span>
+      <span class="status status-ok" id="decayStatus">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="decayBody">
+      <div class="stat-row"><span class="label">Memóriák összesen</span><span class="value blue" id="decayTotal">—</span></div>
+      <div class="stat-row"><span class="label">Átlag fontosság</span><span class="value" id="decayAvg">—</span></div>
+      <div class="progress-bar"><div class="progress-fill blue" id="decayBar" style="width:0%"></div></div>
+      <div class="stat-row"><span class="label">Decyalt (>7 nap)</span><span class="value orange" id="decayStale">—</span></div>
+      <div class="stat-row"><span class="label">Gyakran hivatkozott</span><span class="value green" id="decayActive">—</span></div>
+    </div>
+  </div>
+
+  <!-- 3. Kanban Overview -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📋</span><span class="title">Kanban Áttekintés</span>
+      <span class="status status-ok" id="kanbanStatus">✓</span>
+    </div>
+    <div class="card-body" id="kanbanBody">
+      <div class="kanban-mini" id="kanbanMini"></div>
+      <div class="stat-row" style="margin-top:10px"><span class="label">Beragadt task-ok</span><span class="value orange" id="kanbanStuck">0</span></div>
+      <div class="stat-row"><span class="label">Card-aging audit</span><span class="value" id="kanbanAudit">—</span></div>
+    </div>
+  </div>
+
+  <!-- 4. PreCompact Hook -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">💾</span><span class="title">PreCompact Hook</span>
+      <span class="status status-ok" id="precompactStatus">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="precompactBody">
+      <div class="stat-row"><span class="label">Mentett döntések</span><span class="value blue" id="pcSaved">—</span></div>
+      <div class="stat-row"><span class="label">Kritikus események</span><span class="value" id="pcCritical">—</span></div>
+      <div class="stat-row"><span class="label">Utolsó mentés</span><span class="value" id="pcLast">—</span></div>
+    </div>
+  </div>
+
+  <!-- 5. Autonomy Levels -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🎚️</span><span class="title">Autonómia Szintek</span>
+      <span class="status status-ok">✓ 3 szint</span>
+    </div>
+    <div class="card-body">
+      <div class="autonomy-level">
+        <div class="autonomy-icon al-1">🟡</div>
+        <div class="autonomy-text"><div class="name">L1 — Notify</div><div class="desc">Csak jelzés a dashboard-on</div></div>
+      </div>
+      <div class="autonomy-level">
+        <div class="autonomy-icon al-2">🟠</div>
+        <div class="autonomy-text"><div class="name">L2 — Suggest</div><div class="desc">Javaslat a chat-be</div></div>
+      </div>
+      <div class="autonomy-level">
+        <div class="autonomy-icon al-3">🔴</div>
+        <div class="autonomy-text"><div class="name">L3 — Auto-Act</div><div class="desc">Önálló végrehajtás (P2P reconnect)</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Dream Engine -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🌙</span><span class="title">Dream Engine</span>
+      <span class="status status-ok" id="dreamStatus">✓</span>
+    </div>
+    <div class="card-body" id="dreamBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 7. Kanban Dispatch -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Kanban Dispatch</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body">
+      <div class="stat-row"><span class="label">in_progress → Agent</span><span class="value green">Auto</span></div>
+      <div class="stat-row"><span class="label">Dispatch-eltek</span><span class="value blue" id="dispatchCount">0</span></div>
+      <div class="stat-row"><span class="label">Logika</span><span class="value" style="font-size:12px">card→in_progress = notify agent</span></div>
+    </div>
+  </div>
+
+  <!-- 8. Context Guard -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🛡️</span><span class="title">Context Guard</span>
+      <span class="status status-ok" id="ctxStatus">✓ OK</span>
+    </div>
+    <div class="card-body" id="ctxBody">
+      <div class="stat-row"><span class="label">Aktív alert-ek</span><span class="value green" id="ctxAlerts">0</span></div>
+      <div class="stat-row"><span class="label">Threshold (act)</span><span class="value">80%</span></div>
+      <div class="stat-row"><span class="label">Threshold (hard)</span><span class="value orange">95%</span></div>
+      <div class="stat-row"><span class="label">Saturation net</span><span class="value red">100% → restart</span></div>
+    </div>
+  </div>
+
+  <!-- 9. Prompt Safety -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔒</span><span class="title">Prompt Safety</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body">
+      <div class="stat-row"><span class="label">Untrusted wrapping</span><span class="value green">✓</span></div>
+      <div class="stat-row"><span class="label">Trusted-peer wrapping</span><span class="value green">✓</span></div>
+      <div class="stat-row"><span class="label">Injection detection</span><span class="value green">✓</span></div>
+      <div class="stat-row"><span class="label">Tag scrubbing</span><span class="value green">✓</span></div>
+      <div style="margin-top:8px">
+        <input type="text" id="safetyInput" placeholder="Teszt szöveg..." style="width:65%;font-size:12px;padding:6px">
+        <button class="refresh-btn" style="padding:6px 10px" onclick="testSafety()">Teszt</button>
+      </div>
+      <div id="safetyResult" style="margin-top:6px;font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- 10. CostOps -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">💰</span><span class="title">CostOps</span>
+      <span class="status status-ok" id="costStatus">✓</span>
+    </div>
+    <div class="card-body" id="costBody">
+      <div class="stat-row"><span class="label">Havi költség</span><span class="value green" id="costTotal">$0.00</span></div>
+      <div class="stat-row"><span class="label">Token-ek (be/ki)</span><span class="value" id="costTokens">0 / 0</span></div>
+      <div class="stat-row"><span class="label">Kérések</span><span class="value blue" id="costReqs">0</span></div>
+      <div class="stat-row"><span class="label">Budget alert-ek</span><span class="value green" id="costAlerts">0</span></div>
+      <div class="cost-bar" id="costChart"></div>
+    </div>
+  </div>
+
+  <!-- 11. Team Trust Graph -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🤝</span><span class="title">Team Trust Graph</span>
+      <span class="status status-ok" id="trustStatus">✓ Full Mesh</span>
+    </div>
+    <div class="card-body">
+      <div class="trust-graph" id="trustGraph"></div>
+      <div id="trustDetails" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function api(path) { return fetch(path).then(function(r) { return r.json(); }).catch(function(e) { return null; }); }
+
+function loadAll() {
+  loadSkills();
+  loadDecay();
+  loadKanban();
+  loadPrecompact();
+  loadDream();
+  loadContextGuard();
+  loadCostOps();
+  loadTrust();
+}
+
+function loadSkills() {
+  api("/api/dream").then(function(d) {
+    if (!d || !d.buckets) return;
+    var mp = d.buckets.memory_patterns || {};
+    var sug = mp.suggestions || [];
+    document.getElementById("skillCount").textContent = sug.length;
+    document.getElementById("skillLast").textContent = sug.length > 0 ? sug[0].title.substring(0,30) : "—";
+    document.getElementById("skillRecovery").textContent = sug.filter(function(s){return s.access_count>=8;}).length;
+  });
+}
+
+function loadDecay() {
+  api("/api/dream").then(function(d) {
+    if (!d || !d.buckets) return;
+    var mh = d.buckets.memory_health || {};
+    var mp = d.buckets.memory_patterns || {};
+    var total = mp.total_memories || 0;
+    document.getElementById("decayTotal").textContent = total;
+    document.getElementById("decayStale").textContent = mh.stale_hot || 0;
+    document.getElementById("decayActive").textContent = (mp.suggestions||[]).length;
+    var pct = total > 0 ? Math.round((1 - (mh.stale_hot||0) / total) * 100) : 0;
+    document.getElementById("decayBar").style.width = pct + "%";
+    document.getElementById("decayAvg").textContent = pct + "%";
+  });
+}
+
+function loadKanban() {
+  api("/api/kanban").then(function(d) {
+    if (!d || !d.boards) return;
+    var allCards = [];
+    d.boards.forEach(function(b) { allCards = allCards.concat(b.cards||[]); });
+    var cols = ["todo","in_progress","review","done"];
+    var mini = document.getElementById("kanbanMini");
+    mini.innerHTML = cols.map(function(c) {
+      var n = allCards.filter(function(card) { return card.column === c; }).length;
+      var colors = {"todo":"var(--text3)","in_progress":"var(--orange)","review":"var(--purple)","done":"var(--green)"};
+      return '<div class="kanban-mini-col"><div class="count" style="color:'+colors[c]+'">'+n+'</div><div class="lbl">'+c.replace("_"," ")+'</div></div>';
+    }).join("");
+    document.getElementById("kanbanStuck").textContent = allCards.filter(function(c) { return c.column === "in_progress"; }).length;
+  });
+  api("/api/kanban/audit").then(function(d) {
+    if (!d) return;
+    document.getElementById("kanbanAudit").textContent = (d.stale_count||0) + " stale, " + (d.dead_count||0) + " dead";
+  });
+}
+
+function loadPrecompact() {
+  api("/api/precompact/audit").then(function(d) {
+    if (!d) { document.getElementById("pcSaved").textContent = "0"; return; }
+    document.getElementById("pcSaved").textContent = d.saved_count || d.total || 0;
+    document.getElementById("pcCritical").textContent = d.critical_count || 0;
+    document.getElementById("pcLast").textContent = d.last_save || "—";
+  });
+}
+
+function loadDream() {
+  api("/api/dream/latest").then(function(d) {
+    if (!d || !d.exists) { document.getElementById("dreamBody").innerHTML = '<div class="empty">Még nem futott a Dream Engine.</div>'; return; }
+    var lines = d.content.split("\n");
+    var html = "";
+    var inBucket = false;
+    lines.forEach(function(line) {
+      if (line.startsWith("## ")) {
+        if (inBucket) html += "</div>";
+        html += '<div class="dream-bucket"><div class="btitle">' + line.replace(/## /,"") + '</div><div class="bcontent">';
+        inBucket = true;
+      } else if (line.trim() && !line.startsWith("#") && !line.startsWith("---") && !line.startsWith("*")) {
+        html += line + "<br>";
+      }
+    });
+    if (inBucket) html += "</div>";
+    document.getElementById("dreamBody").innerHTML = html || '<div class="empty">Üres</div>';
+  });
+}
+
+function loadContextGuard() {
+  api("/api/context-guard").then(function(d) {
+    if (!d) return;
+    var checks = d.checks || [];
+    document.getElementById("ctxAlerts").textContent = checks.length;
+    if (checks.length > 0) {
+      document.getElementById("ctxStatus").className = "status status-warn";
+      document.getElementById("ctxStatus").textContent = "⚠️ " + checks.length + " alert";
+    }
+  });
+}
+
+function loadCostOps() {
+  api("/api/costops/summary").then(function(d) {
+    if (!d) return;
+    document.getElementById("costTotal").textContent = "$" + (d.total_cost_usd||0).toFixed(4);
+    document.getElementById("costTokens").textContent = (d.total_input_tokens||0) + " / " + (d.total_output_tokens||0);
+    document.getElementById("costReqs").textContent = d.total_requests || 0;
+    // Mini chart by model
+    var models = d.by_model || {};
+    var keys = Object.keys(models).slice(0, 5);
+    var maxVal = Math.max.apply(null, keys.map(function(k){return models[k];}).concat([0.01]));
+    var chart = document.getElementById("costChart");
+    chart.innerHTML = keys.map(function(k) {
+      var v = models[k] || 0;
+      var h = Math.round(v / maxVal * 60);
+      return '<div class="cost-col"><div class="bar" style="height:'+h+'px;background:var(--blue)"></div><div class="lbl">'+k.substring(0,8)+'</div></div>';
+    }).join("") || '<div class="empty" style="width:100%">Még nincs adat</div>';
+  });
+  api("/api/costops/alerts").then(function(d) {
+    if (!d) return;
+    var alerts = d.alerts || [];
+    document.getElementById("costAlerts").textContent = alerts.length;
+    if (alerts.length > 0) {
+      document.getElementById("costStatus").className = "status status-warn";
+      document.getElementById("costStatus").textContent = "⚠️ Budget!";
+    }
+  });
+}
+
+function loadTrust() {
+  api("/api/trust").then(function(d) {
+    if (!d || !d.graph) return;
+    var g = d.graph;
+    var nodes = Object.keys(g);
+    var colors = {"Nova":"var(--blue)","Morzsa":"var(--green)","Runa":"var(--purple)"};
+    var initials = {"Nova":"N","Morzsa":"M","Runa":"R"};
+    // Build trust visualization
+    var html = "";
+    for (var i = 0; i < nodes.length; i++) {
+      if (i > 0) {
+        var level = g[nodes[i-1]][nodes[i]] || "none";
+        var lineColor = level === "full" ? "var(--green)" : level === "limited" ? "var(--orange)" : "var(--red)";
+        var icon = level === "full" ? "✓" : level === "limited" ? "~" : "✗";
+        html += '<div class="trust-line" style="background:'+lineColor+'"><span style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:12px;color:'+lineColor+'">'+icon+'</span></div>';
+      }
+      html += '<div class="trust-node"><div class="trust-circle" style="border-color:'+(colors[nodes[i]]||"var(--text3)")+';color:'+(colors[nodes[i]]||"var(--text3)")+'">'+(initials[nodes[i]]||"?")+'</div><div class="trust-name">'+nodes[i]+'</div></div>';
+    }
+    document.getElementById("trustGraph").innerHTML = html;
+    // Details
+    var details = "";
+    nodes.forEach(function(n) {
+      var trusted = Object.keys(g[n]||{}).filter(function(k){return g[n][k]==="full";});
+      details += '<div class="stat-row"><span class="label">'+n+'</span><span class="value green">'+trusted.join(", ")+'</span></div>';
+    });
+    document.getElementById("trustDetails").innerHTML = details;
+  });
+}
+
+function testSafety() {
+  var text = document.getElementById("safetyInput").value;
+  if (!text) return;
+  fetch("/api/prompt-safety/check", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({content: text})
+  }).then(function(r){return r.json();}).then(function(d) {
+    var el = document.getElementById("safetyResult");
+    if (d.safe) {
+      el.innerHTML = '<span style="color:var(--green)">✅ Biztonságos</span>';
+    } else {
+      el.innerHTML = '<span style="color:var(--red)">🚫 ' + d.reason + '</span>';
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", loadAll);
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
