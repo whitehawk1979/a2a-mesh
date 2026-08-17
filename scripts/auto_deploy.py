@@ -102,8 +102,8 @@ def main():
     restart_nova()
     
     # Wait for nodes to come up
-    print("\n⏳ Waiting 25s for nodes to boot...")
-    time.sleep(25)
+    print("\n⏳ Waiting 35s for nodes to boot...")
+    time.sleep(35)
     
     # Health check
     print("\n🏥 Health check:")
