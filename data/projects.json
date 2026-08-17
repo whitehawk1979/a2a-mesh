@@ -1,0 +1,291 @@
+[
+  {
+    "id": "4d3e52a5",
+    "title": "Nova Dashboard",
+    "description": "A2A Mesh node — macOS Intel Mac Pro. Dashboard, chat, delegáció, monitoring. Coordinátor node.",
+    "category": "app",
+    "url": "http://100.75.253.52:8650",
+    "tags": [
+      "a2a",
+      "mesh",
+      "dashboard",
+      "nova",
+      "coordinator"
+    ],
+    "icon": "🧪",
+    "status": "active",
+    "created_at": 1786962423.8223329,
+    "updated_at": 1786963132.41394
+  },
+  {
+    "id": "84b819c3",
+    "title": "Morzsa Dashboard",
+    "description": "A2A Mesh node — Debian 12. Dashboard, P2P transport, agent kommunikáció.",
+    "category": "app",
+    "url": "http://192.168.1.30:8650",
+    "tags": [
+      "a2a",
+      "mesh",
+      "dashboard",
+      "morzsa"
+    ],
+    "icon": "🤖",
+    "status": "active",
+    "created_at": 1786962423.831094,
+    "updated_at": 1786963132.435327
+  },
+  {
+    "id": "14f745ba",
+    "title": "Runa Dashboard",
+    "description": "A2A Mesh node — Ubuntu 24.04 VM. Dashboard, Prometheus, Grafana monitoring.",
+    "category": "app",
+    "url": "http://192.168.1.100:8650",
+    "tags": [
+      "a2a",
+      "mesh",
+      "dashboard",
+      "runa"
+    ],
+    "icon": "🖥️",
+    "status": "active",
+    "created_at": 1786962423.840406,
+    "updated_at": 1786963132.44842
+  },
+  {
+    "id": "669a21c1",
+    "title": "Synology NAS DSM",
+    "description": "Belső hálózati file szerver, backup, Docker container host. DSM webes felület.",
+    "category": "infra",
+    "url": "http://192.168.1.9:5000",
+    "tags": [
+      "nas",
+      "storage",
+      "synology",
+      "backup",
+      "docker"
+    ],
+    "icon": "💾",
+    "status": "active",
+    "created_at": 1786962423.84714,
+    "updated_at": 1786963132.461778
+  },
+  {
+    "id": "158f07cc",
+    "title": "Synology DSM (HTTPS)",
+    "description": "Synology DSM biztonságos elérés HTTPS-en keresztül.",
+    "category": "infra",
+    "url": "https://192.168.1.9:5001",
+    "tags": [
+      "nas",
+      "synology",
+      "https"
+    ],
+    "icon": "🔒",
+    "status": "active",
+    "created_at": 1786962423.8569012,
+    "updated_at": 1786963132.4735072
+  },
+  {
+    "id": "e320e050",
+    "title": "Home Assistant",
+    "description": "Okosotthon automatizáció — fények, szenzorok, eszközök vezérlése. Runa VM-en fut.",
+    "category": "app",
+    "url": "http://192.168.1.100:8123",
+    "tags": [
+      "smart-home",
+      "automation",
+      "iot",
+      "sensors",
+      "lights"
+    ],
+    "icon": "🏠",
+    "status": "active",
+    "created_at": 1786962423.8655,
+    "updated_at": 1786963132.4854789
+  },
+  {
+    "id": "e07bd553",
+    "title": "Grafana Monitoring",
+    "description": "A2A Mesh monitoring dashboard — Prometheus metrics, node health, P2P status. Runa Docker container.",
+    "category": "tool",
+    "url": "http://192.168.1.100:3030",
+    "tags": [
+      "monitoring",
+      "grafana",
+      "metrics",
+      "prometheus",
+      "dashboard"
+    ],
+    "icon": "📊",
+    "status": "active",
+    "created_at": 1786962423.876192,
+    "updated_at": 1786963132.497791
+  },
+  {
+    "id": "185b2a7b",
+    "title": "Frigate NVR",
+    "description": "AI alapú biztonsági kamera rendszer — object detection, recording. Helyszín: Synology Docker (port TBD).",
+    "category": "app",
+    "url": "http://192.168.1.9:5001",
+    "tags": [
+      "camera",
+      "nvr",
+      "frigate",
+      "ai",
+      "security"
+    ],
+    "icon": "📹",
+    "status": "active",
+    "created_at": 1786962423.885045,
+    "updated_at": 1786963132.5080278
+  },
+  {
+    "id": "d9edc7f6",
+    "title": "Gitea Git Server",
+    "description": "Belső Git szerver az A2A Mesh és egyéb projektek kódjainak tárolására. Runa Docker container.",
+    "category": "tool",
+    "url": "http://192.168.1.100:3001",
+    "tags": [
+      "git",
+      "code",
+      "gitea",
+      "repository"
+    ],
+    "icon": "🔧",
+    "status": "active",
+    "created_at": 1786962423.8955588,
+    "updated_at": 1786963132.5189602
+  },
+  {
+    "id": "940e7f8f",
+    "title": "Prometheus",
+    "description": "A2A Mesh metrika gyűjtés — scrape-eli mind a 3 node /metrics endpointját.",
+    "category": "tool",
+    "url": "http://192.168.1.100:9090",
+    "tags": [
+      "monitoring",
+      "prometheus",
+      "metrics"
+    ],
+    "icon": "🔥",
+    "status": "active",
+    "created_at": 1786962423.906294,
+    "updated_at": 1786963132.529983
+  },
+  {
+    "id": "7156c1b0",
+    "title": "Plex Media Server",
+    "description": "Média szerver — filmek, sorozatok streamelése. Synology-n fut.",
+    "category": "app",
+    "url": "http://192.168.1.9:32400/web",
+    "tags": [
+      "media",
+      "plex",
+      "streaming",
+      "movies"
+    ],
+    "icon": "🎬",
+    "status": "active",
+    "created_at": 1786962423.9143438,
+    "updated_at": 1786963132.54066
+  },
+  {
+    "id": "48a7d5bd",
+    "title": "IPTV Manager",
+    "description": "IPTV csatornák kezelése és streamelése. Runa Docker container.",
+    "category": "app",
+    "url": "http://192.168.1.100:8090",
+    "tags": [
+      "iptv",
+      "streaming",
+      "tv"
+    ],
+    "icon": "📺",
+    "status": "active",
+    "created_at": 1786962423.925569,
+    "updated_at": 1786963132.552362
+  },
+  {
+    "id": "8e661e58",
+    "title": "SearXNG Search",
+    "description": "Privát keresőmotor — meta-keresés tor proxy nélkül. Runa Docker.",
+    "category": "tool",
+    "url": "http://192.168.1.100:8888",
+    "tags": [
+      "search",
+      "privacy",
+      "searxng"
+    ],
+    "icon": "🔍",
+    "status": "active",
+    "created_at": 1786962423.942345,
+    "updated_at": 1786963132.5663779
+  },
+  {
+    "id": "5efdb12a",
+    "title": "LibreTranslate",
+    "description": "Önálló fordító szerver — nyelvközi fordítás API. Runa Docker.",
+    "category": "tool",
+    "url": "http://192.168.1.100:5500",
+    "tags": [
+      "translate",
+      "nlp",
+      "api"
+    ],
+    "icon": "🌍",
+    "status": "active",
+    "created_at": 1786962423.9577951,
+    "updated_at": 1786963132.575553
+  },
+  {
+    "id": "f76b21df",
+    "title": "ESPHome MCP",
+    "description": "ESP32 firmware építő és flash szerver. Runa Docker.",
+    "category": "tool",
+    "url": "http://192.168.1.100:8091",
+    "tags": [
+      "esp32",
+      "firmware",
+      "iot",
+      "esphome"
+    ],
+    "icon": "⚡",
+    "status": "active",
+    "created_at": 1786962423.966431,
+    "updated_at": 1786963132.5861871
+  },
+  {
+    "id": "57fc0393",
+    "title": "Hospital Shift Management",
+    "description": "Sürgősségi osztály beosztás kezelő rendszer — orvosi beosztások, mentős ügyeletek.",
+    "category": "app",
+    "url": "http://192.168.1.100",
+    "tags": [
+      "hospital",
+      "schedule",
+      "shift",
+      "medical"
+    ],
+    "icon": "🏥",
+    "status": "active",
+    "created_at": 1786962423.976128,
+    "updated_at": 1786963132.597653
+  },
+  {
+    "id": "73acadd7",
+    "title": "Qdrant Vector DB",
+    "description": "Vektor adatbázis — semantic search, embedding tárolás. Runa Docker.",
+    "category": "infra",
+    "url": "http://192.168.1.100:6333/dashboard",
+    "tags": [
+      "vector",
+      "database",
+      "embedding",
+      "search"
+    ],
+    "icon": "🧠",
+    "status": "active",
+    "created_at": 1786962423.984716,
+    "updated_at": 1786963132.605911
+  }
+]

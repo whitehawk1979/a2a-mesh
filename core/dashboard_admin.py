@@ -1584,6 +1584,7 @@ class DashboardAdminMixin:
             "url": data.get("url", ""),
             "tags": data.get("tags", []),
             "icon": data.get("icon", "📦"),
+            "notes": data.get("notes", ""),
             "status": data.get("status", "active"),
             "created_at": time.time(),
             "updated_at": time.time()
@@ -1605,7 +1606,7 @@ class DashboardAdminMixin:
         projects = self._load_projects()
         for p in projects:
             if p["id"] == pid:
-                for k in ["title","description","category","url","tags","icon","status"]:
+                for k in ["title","description","category","url","tags","icon","status","notes"]:
                     if k in data:
                         p[k] = data[k]
                 p["updated_at"] = time.time()
