@@ -4113,6 +4113,12 @@ echo "Status: ok"
                                 # Reset rate limit and trigger broadcast
                                 self._last_skills_announcement = 0
                                 await self._auto_advertise_skills()
+                                # Also update PG with full capabilities
+                                try:
+                                    await self._update_pg_capabilities(reg_card.capabilities)
+                                    log.info(f"[self-heal] PG capabilities updated ({len(reg_card.capabilities)} caps)")
+                                except Exception as e:
+                                    log.error(f"[self-heal] PG capabilities update failed: {e}")
                                 _last_caps_broadcast = now
                             else:
                                 _last_caps_broadcast = now
