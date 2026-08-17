@@ -1528,3 +1528,17 @@ class DiagnosticEngine:
                 
         except Exception as e:
             log.warning(f"Failed to dedup suggestions in PG: {e}")
+        
+        # Auto-cleanup: mark old 'accepted' suggestions as 'superseded' (older than 3 days)
+        try:
+            cleanup_result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE status = 'accepted'
+                   AND created_at < NOW() - INTERVAL '3 days'"""
+            )
+            cleanup_count = cleanup_result.split()[-1] if hasattr(cleanup_result, 'split') else '0'
+            if cleanup_count.isdigit() and int(cleanup_count) > 0:
+                log.info(f"📋 Cleanup: {cleanup_count} old accepted suggestions → superseded (>3 days)")
+        except Exception as e:
+            log.warning(f"Failed to cleanup old accepted suggestions: {e}")

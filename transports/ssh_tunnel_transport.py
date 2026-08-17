@@ -303,6 +303,9 @@ class SSHTunnelTransport(TransportAdapter):
         await asyncio.sleep(2)
 
         # Check if SSH process is still running
+        if peer.process is None:
+            log.error(f"SSH process for {peer.name} is None (already closed)")
+            return False
         if peer.process.returncode is not None:
             stderr = ""
             try:
@@ -398,9 +401,12 @@ class SSHTunnelTransport(TransportAdapter):
         if not peer or not peer.reader:
             return
 
+        last_keepalive = time.time()
+        KEEPALIVE_INTERVAL = 30  # Send keepalive every 30s to prevent P2P 90s idle timeout
+
         while self._started and peer.connected:
             try:
-                frame_data = await self._read_frame_v3(peer.reader)
+                frame_data = await self._read_frame_v3(peer.reader, timeout=15)
                 if frame_data is None:
                     log.warning(f"SSH tunnel to {peer_name} closed by remote")
                     peer.connected = False
@@ -418,6 +424,26 @@ class SSHTunnelTransport(TransportAdapter):
                     log.error(f"SSH tunnel parse error from {peer_name}: {e}")
 
             except asyncio.TimeoutError:
+                # No data received in 15s — send keepalive if needed
+                now = time.time()
+                if now - last_keepalive >= KEEPALIVE_INTERVAL:
+                    try:
+                        from ..core.message import A2AMessage, MSG_TYPE_HEARTBEAT
+                        import time as _time
+                        hb = A2AMessage.create(
+                            sender=self._node_name,
+                            recipient=peer_name,
+                            msg_type=MSG_TYPE_HEARTBEAT,
+                            payload={"node_name": self._node_name, "version": getattr(self, '_version', '0.29.0'), "keepalive": True},
+                            priority=10,
+                            ttl=60,
+                        )
+                        frame = self._write_frame_v3(peer.writer, hb.to_bytes())
+                        await peer.writer.drain()
+                        last_keepalive = now
+                        log.debug(f"SSH tunnel keepalive sent to {peer_name}")
+                    except Exception as e:
+                        log.warning(f"SSH tunnel keepalive failed for {peer_name}: {e}")
                 continue
             except Exception as e:
                 log.error(f"SSH tunnel read error from {peer_name}: {e}")
