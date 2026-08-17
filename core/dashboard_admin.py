@@ -2020,6 +2020,99 @@ class DashboardAdminMixin:
         from .store_watcher import get_inventory_summary, get_events
         return web.json_response({"inventory": get_inventory_summary(), "events": get_events(20)})
 
+    async def _api_vault_status(self, request):
+        """GET /api/vault — Vault status."""
+        from aiohttp import web
+        from .vault import get_vault_status
+        return web.json_response(get_vault_status())
+
+    async def _api_vault_list(self, request):
+        """GET /api/vault/list — List vault entries (no secrets)."""
+        from aiohttp import web
+        from .vault import list_secrets
+        return web.json_response({"entries": list_secrets()})
+
+    async def _api_vault_store(self, request):
+        """POST /api/vault/store — Store a secret."""
+        from aiohttp import web
+        from .vault import store_secret
+        data = await request.json()
+        result = store_secret(data.get("label", ""), data.get("secret", ""), data.get("type", "generic"))
+        return web.json_response(result)
+
+    async def _api_vault_delete(self, request):
+        """DELETE /api/vault/{entry_id} — Delete a secret."""
+        from aiohttp import web
+        from .vault import delete_secret
+        entry_id = request.match_info.get("entry_id", "")
+        return web.json_response({"deleted": delete_secret(entry_id)})
+
+    async def _api_login_throttle(self, request):
+        """GET /api/login-throttle — Throttle status."""
+        from aiohttp import web
+        from .login_throttle import get_throttle_status
+        return web.json_response(get_throttle_status())
+
+    async def _api_csrf_status(self, request):
+        """GET /api/csrf — CSRF config status."""
+        from aiohttp import web
+        from .csrf_gate import get_csrf_status
+        return web.json_response(get_csrf_status())
+
+    async def _api_channel_health(self, request):
+        """GET /api/channel-health — Channel health status."""
+        from aiohttp import web
+        from .channel_health import get_health_status
+        return web.json_response(get_health_status())
+
+    async def _api_federation_status(self, request):
+        """GET /api/federation — Federation status."""
+        from aiohttp import web
+        from .federation import get_federation_status
+        return web.json_response(get_federation_status())
+
+    async def _api_federation_add(self, request):
+        """POST /api/federation/peer — Add federated peer."""
+        from aiohttp import web
+        from .federation import add_federation_peer
+        data = await request.json()
+        return web.json_response(add_federation_peer(
+            data.get("name", ""), data.get("address", ""),
+            data.get("port", 8650), data.get("ssh_tunnel", False)
+        ))
+
+    async def _api_model_suggest(self, request):
+        """GET /api/model-suggest — All model suggestions."""
+        from aiohttp import web
+        from .model_suggest import get_model_suggestions
+        return web.json_response(get_model_suggestions())
+
+    async def _api_model_suggest_node(self, request):
+        """GET /api/model-suggest/{node} — Suggestion for a node."""
+        from aiohttp import web
+        from .model_suggest import get_node_suggestion
+        node = request.match_info.get("node", "")
+        return web.json_response(get_node_suggestion(node))
+
+    async def _api_voice_status(self, request):
+        """GET /api/voice — Voice directive status."""
+        from aiohttp import web
+        from .voice_directive import get_voice_status
+        return web.json_response(get_voice_status())
+
+    async def _api_voice_parse(self, request):
+        """POST /api/voice/parse — Parse a voice transcript."""
+        from aiohttp import web
+        from .voice_directive import parse_voice_directive
+        data = await request.json()
+        return web.json_response(parse_voice_directive(data.get("text", "")))
+
+    async def _api_inbox_nudge(self, request):
+        """GET /api/inbox-nudge — Inbox nudge status."""
+        from aiohttp import web
+        from .inbox_nudge import get_inbox_status
+        return web.json_response(get_inbox_status())
+
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""
         from aiohttp import web

@@ -264,6 +264,28 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/update-preflight", self._api_update_preflight)
         # Store Watcher
         app.router.add_get("/api/store-watcher", self._api_store_watcher)
+        # Vault
+        app.router.add_get("/api/vault", self._api_vault_status)
+        app.router.add_get("/api/vault/list", self._api_vault_list)
+        app.router.add_post("/api/vault/store", self._api_vault_store)
+        app.router.add_delete("/api/vault/{entry_id}", self._api_vault_delete)
+        # Login Throttle
+        app.router.add_get("/api/login-throttle", self._api_login_throttle)
+        # CSRF Gate
+        app.router.add_get("/api/csrf", self._api_csrf_status)
+        # Channel Health
+        app.router.add_get("/api/channel-health", self._api_channel_health)
+        # Federation
+        app.router.add_get("/api/federation", self._api_federation_status)
+        app.router.add_post("/api/federation/peer", self._api_federation_add)
+        # Model Suggest
+        app.router.add_get("/api/model-suggest", self._api_model_suggest)
+        app.router.add_get("/api/model-suggest/{node}", self._api_model_suggest_node)
+        # Voice Directive
+        app.router.add_get("/api/voice", self._api_voice_status)
+        app.router.add_post("/api/voice/parse", self._api_voice_parse)
+        # Inbox Nudge
+        app.router.add_get("/api/inbox-nudge", self._api_inbox_nudge)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
