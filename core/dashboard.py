@@ -286,6 +286,24 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/voice/parse", self._api_voice_parse)
         # Inbox Nudge
         app.router.add_get("/api/inbox-nudge", self._api_inbox_nudge)
+        # Memory Boundary
+        app.router.add_get("/api/memory-boundary", self._api_memory_boundary)
+        # Message Router
+        app.router.add_get("/api/message-router", self._api_message_router)
+        # Agent Team
+        app.router.add_get("/api/team", self._api_team_status)
+        app.router.add_post("/api/team/update", self._api_team_update)
+        # Cron Scheduler
+        app.router.add_get("/api/cron", self._api_cron_status)
+        app.router.add_post("/api/cron/add", self._api_cron_add)
+        # Update Checker
+        app.router.add_get("/api/update-checker", self._api_update_checker)
+        # Network Info
+        app.router.add_get("/api/network-info", self._api_network_info)
+        # Password Hash
+        app.router.add_get("/api/auth-status", self._api_auth_status)
+        # Sanitize
+        app.router.add_get("/api/sanitize", self._api_sanitize)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)

@@ -2113,6 +2113,76 @@ class DashboardAdminMixin:
         from .inbox_nudge import get_inbox_status
         return web.json_response(get_inbox_status())
 
+    async def _api_memory_boundary(self, request):
+        """GET /api/memory-boundary — Memory boundary status."""
+        from aiohttp import web
+        from .memory_boundary import get_boundary_status
+        return web.json_response(get_boundary_status())
+
+    async def _api_message_router(self, request):
+        """GET /api/message-router — Message router status."""
+        from aiohttp import web
+        from .message_router import get_router_status
+        return web.json_response(get_router_status())
+
+    async def _api_team_status(self, request):
+        """GET /api/team — Team hierarchy status."""
+        from aiohttp import web
+        from .agent_team import get_team_status
+        return web.json_response(get_team_status())
+
+    async def _api_team_update(self, request):
+        """POST /api/team/update — Update a node's team config."""
+        from aiohttp import web
+        from .agent_team import update_node_role
+        data = await request.json()
+        result = update_node_role(
+            data.get("node", ""),
+            data.get("role"),
+            data.get("reports_to"),
+            data.get("delegates_to"),
+            data.get("auto_delegation"),
+        )
+        return web.json_response(result)
+
+    async def _api_cron_status(self, request):
+        """GET /api/cron — Cron scheduler status."""
+        from aiohttp import web
+        from .cron_scheduler import get_cron_status
+        return web.json_response(get_cron_status())
+
+    async def _api_cron_add(self, request):
+        """POST /api/cron/add — Add a scheduled task."""
+        from aiohttp import web
+        from .cron_scheduler import add_task
+        data = await request.json()
+        result = add_task(data.get("name", ""), data.get("cron", ""), data.get("action", ""), data.get("description", ""))
+        return web.json_response(result)
+
+    async def _api_update_checker(self, request):
+        """GET /api/update-checker — Git update status."""
+        from aiohttp import web
+        from .update_checker import get_update_status
+        return web.json_response(get_update_status())
+
+    async def _api_network_info(self, request):
+        """GET /api/network-info — Network info."""
+        from aiohttp import web
+        from .network_info import get_network_status
+        return web.json_response(get_network_status())
+
+    async def _api_auth_status(self, request):
+        """GET /api/auth-status — Password auth status."""
+        from aiohttp import web
+        from .password_hash import get_auth_status
+        return web.json_response(get_auth_status())
+
+    async def _api_sanitize(self, request):
+        """GET /api/sanitize — Sanitizer status."""
+        from aiohttp import web
+        from .sanitize import get_sanitize_status
+        return web.json_response(get_sanitize_status())
+
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""
         from aiohttp import web
