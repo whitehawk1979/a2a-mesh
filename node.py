@@ -702,6 +702,8 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
+        # v0.29: Auto-Bootstrap + Self-Healing loop
+        self._tasks.append(asyncio.create_task(self._auto_bootstrap_heal_loop()))
 
         # Start alert manager evaluation loop
         if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'alert_manager'):
@@ -4015,6 +4017,125 @@ echo "Status: ok"
                 break
             except Exception as e:
                 log.error(f"Health monitor error: {e}")
+
+    # ─── v0.29: Auto-Bootstrap + Self-Healing Loop ────────────────────
+
+    async def _auto_bootstrap_heal_loop(self):
+        """v0.29: Auto-bootstrap + self-healing loop.
+
+        Runs every 60s and performs:
+        1. PG connection health check + auto-reconnect (bootstrap retry)
+        2. Node re-registration if PG was lost and restored
+        3. P2P peer connection audit — reconnect disconnected peers
+        4. Capability re-broadcast if peers are missing caps
+        5. Transport recovery — restart failed transports
+        """
+        _pg_was_down = False
+        _last_caps_broadcast = 0
+        CAPS_REBROADCAST_INTERVAL = 300  # 5 min
+
+        while self._running:
+            try:
+                await asyncio.sleep(60)  # Check every 60s
+                if not self._running:
+                    break
+
+                # 1. PG connection check + auto-reconnect
+                pg_ok = False
+                if self._pg_pool:
+                    pg_ok = self._pg_pool.is_connected()
+                    if not pg_ok:
+                        log.warning("[self-heal] PG pool disconnected — attempting reconnect")
+                        try:
+                            if await self._pg_pool.connect():
+                                log.info("[self-heal] PG pool reconnected")
+                                pg_ok = True
+                        except Exception as e:
+                            log.error(f"[self-heal] PG reconnect failed: {e}")
+                elif not self._pg_conn:
+                    # No PG connection at all — retry bootstrap
+                    if not _pg_was_down:
+                        log.warning("[self-heal] No PG connection — attempting bootstrap")
+                    if await self._init_pg_write_conn():
+                        log.info("[self-heal] PG bootstrap successful")
+                        pg_ok = True
+
+                # 2. Re-register node if PG was lost and is now restored
+                if pg_ok and _pg_was_down:
+                    log.info("[self-heal] PG restored — re-registering node")
+                    try:
+                        await self._register_node()
+                        log.info("[self-heal] Node re-registered in PG")
+                        _pg_was_down = False
+                    except Exception as e:
+                        log.error(f"[self-heal] Node re-registration failed: {e}")
+                elif not pg_ok:
+                    _pg_was_down = True
+
+                # 3. P2P peer connection audit
+                if self._p2p_transport and self.peer_discovery:
+                    p2p_connected = set(self._p2p_transport._peers.keys())
+                    all_peers = set()
+                    try:
+                        all_peers = set(self.peer_discovery.get_all_peers().keys())
+                    except Exception:
+                        pass
+                    disconnected = all_peers - p2p_connected - {self.node_name}
+                    if disconnected:
+                        log.info(f"[self-heal] Disconnected peers: {disconnected} — triggering discovery cycle")
+                        try:
+                            await self.peer_discovery.discover_and_connect()
+                        except Exception as e:
+                            log.debug(f"[self-heal] Discovery cycle error: {e}")
+
+                # 4. Capability re-broadcast (if peers missing caps or periodic)
+                now = time.time()
+                if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') and \
+                   (now - _last_caps_broadcast > CAPS_REBROADCAST_INTERVAL):
+                    try:
+                        reg_card = self.dashboard.registry.get(self.node_name)
+                        if reg_card and getattr(reg_card, 'capabilities', None):
+                            # Check if any peer has fewer caps than us
+                            peers_data = self.peer_discovery.get_all_peers() if self.peer_discovery else {}
+                            need_broadcast = False
+                            for pname, peer_info in peers_data.items():
+                                if pname == self.node_name:
+                                    continue
+                                peer_card = self.dashboard.registry.get(pname)
+                                peer_caps = len(getattr(peer_card, 'capabilities', []) or []) if peer_card else 0
+                                if peer_caps < len(reg_card.capabilities):
+                                    need_broadcast = True
+                                    break
+                            if need_broadcast:
+                                log.info(f"[self-heal] Re-broadcasting capabilities ({len(reg_card.capabilities)} caps)")
+                                await self._broadcast_skills_announcement()
+                                _last_caps_broadcast = now
+                            else:
+                                _last_caps_broadcast = now
+                    except Exception as e:
+                        log.debug(f"[self-heal] Capabilities broadcast check error: {e}")
+
+                # 5. Transport recovery — restart failed transports
+                for name, transport in self.router.transports.items():
+                    if not transport.is_available():
+                        log.debug(f"[self-heal] Transport {name} unavailable — checking if restartable")
+                        # P2P transport: let the reconnect loop handle it
+                        if name == 'p2p':
+                            continue
+                        # PG transport: health monitor already handles reconnect
+                        if name == 'pg_notify':
+                            continue
+                        # HTTP transport: try health check
+                        if name == 'http' and hasattr(transport, 'health_check'):
+                            try:
+                                await transport.health_check()
+                            except Exception:
+                                pass
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"[self-heal] Loop error: {e}")
 
     # ─── Stats Update Loop ───────────────────────────────────────────
 
