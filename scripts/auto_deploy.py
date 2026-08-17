@@ -24,8 +24,10 @@ CORE_FILES = [
     "core/dashboard_admin.py",
     "core/workflow.py",
     "core/alert_manager.py",
+    "core/lab.html",
     "node.py",
     "transports/p2p_transport.py",
+    "data/projects.json",
 ]
 
 MESH_DIR = os.path.expanduser("~/.hermes/scripts/a2a_mesh")
