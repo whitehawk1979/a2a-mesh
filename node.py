@@ -3420,11 +3420,21 @@ echo "Status: ok"
         if reg_card and reg_card.capabilities:
             capabilities = list(reg_card.capabilities)
         else:
+            # Build full capabilities list (same as _auto_register_self)
             capabilities = list(getattr(self.config, 'capabilities', []) or [
                 "a2a_messaging", "file_transfer"
             ])
+            # Add workflow capabilities
+            for cap in ["task_execution", "web_search", "summarization", "data_analysis", "code_generation"]:
+                if cap not in capabilities:
+                    capabilities.append(cap)
+            # Add role-based capabilities
             if self.role == NodeRole.COORDINATOR:
                 capabilities.extend(["coordinator", "dashboard", "registry"])
+            # Add transport + health caps
+            capabilities.append("p2p_transport")
+            capabilities.append("pg_transport")
+            capabilities.append("health_monitor")
         capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
         # Get skills from config — these are the node's own skills (not from plugins)
