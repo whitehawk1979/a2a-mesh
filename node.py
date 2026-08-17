@@ -4108,7 +4108,9 @@ echo "Status: ok"
                                     break
                             if need_broadcast:
                                 log.info(f"[self-heal] Re-broadcasting capabilities ({len(reg_card.capabilities)} caps)")
-                                await self._broadcast_skills_announcement()
+                                # Reset rate limit and trigger broadcast
+                                self._last_skills_announcement = 0
+                                await self._auto_advertise_skills()
                                 _last_caps_broadcast = now
                             else:
                                 _last_caps_broadcast = now
