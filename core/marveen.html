@@ -347,6 +347,98 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
+  <!-- 17. Auto-Restart -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔄</span><span class="title">Auto-Restart</span>
+      <span class="status status-ok" id="arStatus">✓ OK</span>
+    </div>
+    <div class="card-body" id="arBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 18. Context Gate -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🚪</span><span class="title">Context Gate</span>
+      <span class="status status-ok" id="cgStatus">✓ OK</span>
+    </div>
+    <div class="card-body" id="cgBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 19. LLM Breakdown -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🧩</span><span class="title">LLM Task Breakdown</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body">
+      <div style="margin-bottom:8px">
+        <input type="text" id="breakdownInput" placeholder="Feladat címe..." style="width:70%;padding:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text1);border-radius:4px">
+        <button onclick="doBreakdown()" style="padding:6px 12px;background:var(--blue);color:white;border:none;border-radius:4px;cursor:pointer">🔍 Felbontás</button>
+      </div>
+      <div id="breakdownResult" style="font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- 20. Worker Liveness -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">💓</span><span class="title">Worker Liveness</span>
+      <span class="status status-ok" id="wlStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="wlBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 21. Stuck Watcher -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🪤</span><span class="title">Stuck Watcher</span>
+      <span class="status status-ok" id="swStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="swBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 22. Token Usage -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🎯</span><span class="title">Token Usage</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="tuBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 23. Update Preflight -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">✈️</span><span class="title">Update Preflight</span>
+      <span class="status status-ok" id="upStatus">✓</span>
+    </div>
+    <div class="card-body" id="upBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 24. Store Watcher -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📦</span><span class="title">Store Watcher</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="stwBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -366,6 +458,13 @@ function loadAll() {
   loadTimeouts();
   loadLock();
   loadEnroll();
+  loadAutoRestart();
+  loadContextGate();
+  loadWorkerLiveness();
+  loadStuckWatcher();
+  loadTokenUsage();
+  loadUpdatePreflight();
+  loadStoreWatcher();
 }
 
 function loadSkills() {
@@ -598,6 +697,142 @@ function loadEnroll() {
       document.getElementById("enrollStatus").className = "status status-err";
       document.getElementById("enrollStatus").textContent = "✗ Not ready";
     }
+  });
+}
+
+function loadAutoRestart() {
+  api("/api/auto-restart").then(function(d) {
+    if (!d) return;
+    var html = "";
+    Object.keys(d).forEach(function(node) {
+      var s = d[node];
+      var color = s.needs_restart ? "orange" : "green";
+      html += '<div class="stat-row"><span class="label">' + node + '</span><span class="value ' + color + '">' + s.uptime_hours + 'h (mode: ' + s.mode + ')</span></div>';
+      if (s.needs_restart) {
+        html += '<div style="color:var(--orange);font-size:11px;padding:2px 0">⚠️ Restart javasolt!</div>';
+      }
+    });
+    document.getElementById("arBody").innerHTML = html || '<div class="empty">Nincs adat</div>';
+  });
+}
+
+function loadContextGate() {
+  api("/api/context-gate").then(function(d) {
+    if (!d) return;
+    var checks = d.checks || [];
+    if (checks.length === 0) {
+      document.getElementById("cgBody").innerHTML = '<div class="stat-row"><span class="label">Státusz</span><span class="value green">✓ Minden OK</span></div>';
+      return;
+    }
+    var html = checks.map(function(c) {
+      var color = c.severity === "critical" ? "red" : "orange";
+      return '<div class="stat-row"><span class="label">' + c.node + '</span><span class="value ' + color + '">' + c.pct + '%</span></div>';
+    }).join("");
+    document.getElementById("cgBody").innerHTML = html;
+  });
+}
+
+function loadWorkerLiveness() {
+  api("/api/worker-liveness").then(function(d) {
+    if (!d) return;
+    var workers = d.workers || [];
+    var issues = d.issues || [];
+    document.getElementById("wlStatus").textContent = "✓ " + workers.length;
+    var html = workers.map(function(w) {
+      var color = w.status === "alive" ? "green" : w.status === "stale" ? "orange" : "red";
+      return '<div class="stat-row"><span class="label">' + w.worker + '</span><span class="value ' + color + '">' + w.status + ' (' + w.last_heartbeat_ago_s + 's)</span></div>';
+    }).join("");
+    document.getElementById("wlBody").innerHTML = html || '<div class="empty">Nincs worker</div>';
+    if (issues.length > 0) {
+      document.getElementById("wlStatus").className = "status status-warn";
+      document.getElementById("wlStatus").textContent = "⚠️ " + issues.length;
+    }
+  });
+}
+
+function loadStuckWatcher() {
+  api("/api/stuck-watcher").then(function(d) {
+    if (!d) return;
+    var issues = d.issues || [];
+    document.getElementById("swStatus").textContent = "✓ " + issues.length;
+    if (issues.length > 0) {
+      document.getElementById("swStatus").className = "status status-warn";
+    }
+    var html = issues.map(function(i) {
+      var color = i.severity === "critical" ? "red" : "orange";
+      return '<div class="stat-row"><span class="label">' + i.delegation_id + '</span><span class="value ' + color + '">' + i.status + ' (' + i.elapsed_s + 's)</span></div>';
+    }).join("");
+    document.getElementById("swBody").innerHTML = html || '<div class="stat-row"><span class="label">Státusz</span><span class="value green">✓ Nincs beragadt</span></div>';
+  });
+}
+
+function loadTokenUsage() {
+  api("/api/token-usage").then(function(d) {
+    if (!d) return;
+    var html = '<div class="stat-row"><span class="label">Total tokens</span><span class="value blue">' + (d.total_tokens || 0).toLocaleString() + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Input</span><span class="value">' + (d.total_input || 0).toLocaleString() + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Output</span><span class="value">' + (d.total_output || 0).toLocaleString() + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Requests</span><span class="value">' + (d.total_requests || 0) + '</span></div>';
+    var agents = d.by_agent || {};
+    Object.keys(agents).forEach(function(a) {
+      html += '<div class="stat-row"><span class="label">' + a + '</span><span class="value" style="font-size:11px">' + (agents[a].input + agents[a].output).toLocaleString() + ' tokens</span></div>';
+    });
+    document.getElementById("tuBody").innerHTML = html;
+  });
+}
+
+function loadUpdatePreflight() {
+  api("/api/update-preflight").then(function(d) {
+    if (!d) return;
+    var color = d.can_update ? "green" : "red";
+    var html = '<div class="stat-row"><span class="label">Branch</span><span class="value">' + (d.branch || "?") + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Frissíthető</span><span class="value ' + color + '">' + (d.can_update ? "✓ Igen" : "✗ Nem") + '</span></div>';
+    if (d.issues && d.issues.length > 0) {
+      html += '<div style="color:var(--red);font-size:11px;padding:4px 0">' + d.issues.join("<br>") + '</div>';
+    }
+    if (d.warnings && d.warnings.length > 0) {
+      html += '<div style="color:var(--orange);font-size:11px;padding:4px 0">' + d.warnings.join("<br>") + '</div>';
+    }
+    document.getElementById("upBody").innerHTML = html;
+    if (!d.can_update) {
+      document.getElementById("upStatus").className = "status status-err";
+      document.getElementById("upStatus").textContent = "✗ Blocked";
+    }
+  });
+}
+
+function loadStoreWatcher() {
+  api("/api/store-watcher").then(function(d) {
+    if (!d || !d.inventory) return;
+    var inv = d.inventory;
+    var html = '<div class="stat-row"><span class="label">Fájlok</span><span class="value">' + inv.total_files + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Méret</span><span class="value">' + (inv.total_size_bytes > 1024 ? Math.round(inv.total_size_bytes/1024) + "KB" : inv.total_size_bytes + "B") + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Agent fájlok</span><span class="value blue">' + inv.agent_files + '</span></div>';
+    var events = d.events || [];
+    if (events.length > 0) {
+      html += '<div style="margin-top:6px;font-size:10px;color:var(--text3)">Utoljára ' + events.length + ' esemény</div>';
+    }
+    document.getElementById("stwBody").innerHTML = html;
+  });
+}
+
+function doBreakdown() {
+  var title = document.getElementById("breakdownInput").value;
+  if (!title) return;
+  document.getElementById("breakdownResult").innerHTML = '<div class="loading">Feldolgozás...</div>';
+  fetch("/api/llm-breakdown", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({title: title, description: ""})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    var subtasks = d.subtasks || [];
+    var html = subtasks.map(function(s, i) {
+      var pColor = s.priority === "high" ? "red" : s.priority === "normal" ? "blue" : "text3";
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--' + pColor + ')">[' + (s.priority || "normal") + ']</span> ' + (i+1) + '. ' + s.title + '</div>';
+    }).join("");
+    document.getElementById("breakdownResult").innerHTML = html || '<div class="empty">Nincs eredmény</div>';
+  }).catch(function() {
+    document.getElementById("breakdownResult").innerHTML = '<div class="empty">Hiba történt</div>';
   });
 }
 </script>

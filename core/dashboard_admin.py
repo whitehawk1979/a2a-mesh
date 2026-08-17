@@ -1964,6 +1964,62 @@ class DashboardAdminMixin:
         from .remote_enroll import get_enrollment_status
         return web.json_response(get_enrollment_status())
 
+    async def _api_auto_restart(self, request):
+        """GET /api/auto-restart — Get restart status for all nodes."""
+        from aiohttp import web
+        from .auto_restart import get_all_nodes_status
+        return web.json_response(get_all_nodes_status())
+
+    async def _api_context_gate(self, request):
+        """GET /api/context-gate — Check context saturation."""
+        from aiohttp import web
+        from .context_gate import context_gate_tick
+        pg_pool = getattr(self, '_pg_pool', None)
+        results = await context_gate_tick(pg_pool)
+        return web.json_response({"checks": results})
+
+    async def _api_llm_breakdown(self, request):
+        """POST /api/llm-breakdown — Break down a task into subtasks."""
+        from aiohttp import web
+        from .llm_breakdown import llm_breakdown
+        data = await request.json()
+        subtasks = await llm_breakdown(data.get("title", ""), data.get("description", ""))
+        return web.json_response({"subtasks": subtasks})
+
+    async def _api_worker_liveness(self, request):
+        """GET /api/worker-liveness — Get worker liveness status."""
+        from aiohttp import web
+        from .worker_liveness import get_all_workers, check_liveness
+        issues = check_liveness()
+        workers = get_all_workers()
+        return web.json_response({"workers": workers, "issues": issues})
+
+    async def _api_stuck_watcher(self, request):
+        """GET /api/stuck-watcher — Check for stuck delegations."""
+        from aiohttp import web
+        from .stuck_watcher import check_stuck
+        # In production, fetch from PG
+        issues = check_stuck([])
+        return web.json_response({"issues": issues})
+
+    async def _api_token_usage(self, request):
+        """GET /api/token-usage — Get token usage summary."""
+        from aiohttp import web
+        from .token_usage import get_summary
+        return web.json_response(get_summary())
+
+    async def _api_update_preflight(self, request):
+        """GET /api/update-preflight — Run preflight check."""
+        from aiohttp import web
+        from .update_preflight import run_preflight
+        return web.json_response(run_preflight())
+
+    async def _api_store_watcher(self, request):
+        """GET /api/store-watcher — Get store inventory + events."""
+        from aiohttp import web
+        from .store_watcher import get_inventory_summary, get_events
+        return web.json_response({"inventory": get_inventory_summary(), "events": get_events(20)})
+
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""
         from aiohttp import web

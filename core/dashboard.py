@@ -248,6 +248,22 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/process-lock", self._api_process_lock)
         # Remote Enrollment
         app.router.add_get("/api/remote-enroll", self._api_remote_enroll)
+        # Auto-Restart
+        app.router.add_get("/api/auto-restart", self._api_auto_restart)
+        # Context Gate
+        app.router.add_get("/api/context-gate", self._api_context_gate)
+        # LLM Breakdown
+        app.router.add_post("/api/llm-breakdown", self._api_llm_breakdown)
+        # Worker Liveness
+        app.router.add_get("/api/worker-liveness", self._api_worker_liveness)
+        # Stuck Watcher
+        app.router.add_get("/api/stuck-watcher", self._api_stuck_watcher)
+        # Token Usage
+        app.router.add_get("/api/token-usage", self._api_token_usage)
+        # Update Preflight
+        app.router.add_get("/api/update-preflight", self._api_update_preflight)
+        # Store Watcher
+        app.router.add_get("/api/store-watcher", self._api_store_watcher)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
