@@ -4040,6 +4040,8 @@ echo "Status: ok"
                 if not self._running:
                     break
 
+                log.info("[self-heal] Loop tick — checking node health")
+
                 # 1. PG connection check + auto-reconnect
                 pg_ok = False
                 if self._pg_pool:
