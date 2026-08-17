@@ -1842,6 +1842,15 @@ function renderAgents(agents) {
       if (skills.length > 5) skillTags += '<span style="color:var(--text3);font-size:9px;">+' + (skills.length - 5) + '</span>';
       html += '<div style="display:flex;flex-wrap:wrap;gap:1px;margin-top:1px;">' + skillTags + '</div>';
     }
+    // Show capabilities as green badges
+    var caps = a.capabilities || [];
+    if (caps.length > 0) {
+      var capTags = caps.slice(0, 8).map(function(c) {
+        return '<span style="background:rgba(76,175,80,.12);color:#4caf50;padding:1px 4px;border-radius:3px;font-size:8px;margin:1px;">' + escapeHtml(c) + '</span>';
+      }).join('');
+      if (caps.length > 8) capTags += '<span style="color:var(--text3);font-size:8px;">+' + (caps.length - 8) + '</span>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:1px;margin-top:1px;\">' + capTags + '</div>';
+    }
     html += '</div>';
   });
   agentList.innerHTML = html;
@@ -1991,11 +2000,14 @@ function loadAllNodes() {
         var healthScore = n.health_score != null ? n.health_score : null;
         var msgCount = n.message_count != null ? n.message_count : (n.messages_sent != null ? n.messages_sent : "—");
         var version = n.version || "—";
-        var skills = n.skills || n.capabilities || [];
+        var skills = n.skills || [];
+        var caps = n.capabilities || [];
         var skillsHtml = "";
-        if (skills.length > 0) {
-          skillsHtml = '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Képességek / Skillek</div><div class="node-detail-skills">' +
-            skills.map(function(s) { return '<span class="skill-tag">' + escapeHtml(s) + '</span>'; }).join('') +
+        if (skills.length > 0 || caps.length > 0) {
+          var skillsPart = skills.map(function(s) { return '<span class="skill-tag">' + escapeHtml(s) + '</span>'; }).join('');
+          var capsPart = caps.map(function(c) { return '<span class="skill-tag" style="color:#4caf50;background:rgba(76,175,80,.12)">' + escapeHtml(c) + '</span>'; }).join('');
+          skillsHtml = '<div class="node-detail-item" style="grid-column:span 2"><div class="dlabel">Képességek (' + caps.length + ') / Skillek (' + skills.length + ')</div><div class="node-detail-skills">' +
+            capsPart + skillsPart +
           '</div></div>';
         }
         var healthHtml = "";

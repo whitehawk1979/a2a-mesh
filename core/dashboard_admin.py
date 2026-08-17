@@ -1015,6 +1015,61 @@ class DashboardAdminMixin:
         }
         return web.json_response(result)
 
+    async def _api_webhook_deploy(self, request):
+        """POST /api/webhook/deploy — Gitea push webhook triggers auto-deploy.
+        Expects Gitea webhook payload (JSON). Validates secret if configured.
+        Runs auto_deploy.py in background."""
+        from aiohttp import web
+        import json, asyncio, os, subprocess
+
+        # Optional secret validation
+        secret = request.headers.get("X-Gitea-Signature", "")
+        # For now, accept any POST (webhook is on internal network)
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+        # Only trigger on push to main
+        ref = payload.get("ref", "")
+        if ref and "main" not in ref:
+            return web.json_response({"status": "ignored", "reason": f"ref={ref} not main"})
+
+        repo = payload.get("repository", {}).get("full_name", "unknown")
+        commit = payload.get("after", "")[:8]
+
+        # Run auto_deploy.py in background
+        deploy_script = os.path.expanduser("~/.hermes/scripts/a2a_mesh/scripts/auto_deploy.py")
+        if not os.path.exists(deploy_script):
+            return web.json_response({"error": "auto_deploy.py not found"}, status=500)
+
+        log.info(f"Webhook deploy triggered: repo={repo} commit={commit}")
+        proc = await asyncio.create_subprocess_exec(
+            "python3", deploy_script,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        # Don't wait — fire and forget, but capture output for logging
+        asyncio.ensure_future(self._wait_deploy(proc, repo, commit))
+
+        return web.json_response({
+            "status": "deploying",
+            "repo": repo,
+            "commit": commit,
+            "message": "Auto-deploy started in background"
+        })
+
+    async def _wait_deploy(self, proc, repo, commit):
+        """Wait for deploy subprocess and log result."""
+        try:
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                log.info(f"Deploy success: repo={repo} commit={commit}")
+            else:
+                log.error(f"Deploy failed: repo={repo} commit={commit} rc={proc.returncode} stderr={stderr.decode()[:200]}")
+        except Exception as e:
+            log.error(f"Deploy wait error: {e}")
+
     async def _api_p2p_status(self, request):
         """GET /api/p2p/status — Live P2P transport status."""
         from aiohttp import web

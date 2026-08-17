@@ -253,6 +253,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/skills/advertise", self._api_skills_advertise)
         # Broadcast all skills + capabilities to peers
         app.router.add_post("/api/skills/broadcast", self._api_skills_broadcast)
+        # Gitea webhook → auto-deploy
+        app.router.add_post("/api/webhook/deploy", self._api_webhook_deploy)
         app.router.add_delete("/api/skills/{skill_id}", self._api_skills_delete)
         app.router.add_post("/api/skills/{skill_id}/delegate", self._api_skills_delegate)
         app.router.add_post("/api/skills/{skill_id}/rate", self._api_skills_rate)
