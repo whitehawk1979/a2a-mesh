@@ -25,6 +25,7 @@ CORE_FILES = [
     "core/workflow.py",
     "core/alert_manager.py",
     "core/lab.html",
+    "core/auto_skill.py",
     "node.py",
     "transports/p2p_transport.py",
     "data/projects.json",

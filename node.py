@@ -951,6 +951,17 @@ class MeshNode:
                 await self._hindsight_sync.save_delegation_result(task_row)
         except Exception as e:
             log.debug(f"Hindsight save skipped: {e}")
+        
+        # ── Auto Skill-Factory ──
+        try:
+            from .core.auto_skill import maybe_generate_skill
+            skill_name = await maybe_generate_skill(task_row, self.node_name)
+            if skill_name:
+                log.info(f"🧠 Auto-skill generated: {skill_name}")
+                # Broadcast to mesh so other nodes know about the new skill
+                await self._auto_advertise_skills()
+        except Exception as e:
+            log.debug(f"Auto-skill generation skipped: {e}")
 
 
     # ── Delegation task handlers ──
