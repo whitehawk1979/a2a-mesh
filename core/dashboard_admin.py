@@ -1626,6 +1626,27 @@ class DashboardAdminMixin:
         self._save_projects(projects)
         return web.json_response({"status": "deleted", "id": pid})
 
+    async def _api_projects_health(self, request):
+        """GET /api/projects/health — Ping all project URLs and return status."""
+        from aiohttp import web
+        import asyncio, aiohttp as aiohttp_lib
+        projects = self._load_projects()
+
+        async def check_one(p):
+            url = p.get("url", "")
+            if not url:
+                return {"id": p["id"], "status": "no-url", "code": 0}
+            try:
+                timeout = aiohttp_lib.ClientTimeout(total=5)
+                async with aiohttp_lib.ClientSession(timeout=timeout) as session:
+                    async with session.get(url, ssl=False, allow_redirects=True) as resp:
+                        return {"id": p["id"], "status": "up" if resp.status < 500 else "down", "code": resp.status}
+            except Exception:
+                return {"id": p["id"], "status": "down", "code": 0}
+
+        results = await asyncio.gather(*[check_one(p) for p in projects], return_exceptions=False)
+        return web.json_response({"results": {r["id"]: r for r in results}})
+
     # ─── Plugin API ────────────────────────────────────────────────
 
     async def _api_plugins(self, request):

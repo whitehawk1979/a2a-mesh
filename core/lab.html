@@ -142,6 +142,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
     <input type="text" class="search-input" id="searchInput" placeholder="Projektek keresése..." oninput="searchProjects()">
   </div>
   <button class="add-btn" onclick="openModal()">+ Új projekt</button>
+  <button class="add-btn" onclick="checkHealth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔄 Health</button>
 </div>
 
 <div class="stats">
@@ -204,6 +205,35 @@ var allProjects = [];
 // Load projects on start
 document.addEventListener("DOMContentLoaded", loadProjects);
 
+var healthData = {};
+
+function checkHealth() {
+  fetch("/api/projects/health")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      healthData = data.results || {};
+      Object.keys(healthData).forEach(function(pid) {
+        var el = document.getElementById("health-" + pid);
+        if (!el) return;
+        var h = healthData[pid];
+        if (h.status === "up") {
+          el.textContent = "🟢 " + h.code;
+          el.style.background = "rgba(63,185,80,0.15)";
+          el.style.color = "#3fb950";
+        } else if (h.status === "down") {
+          el.textContent = "🔴";
+          el.style.background = "rgba(248,81,73,0.15)";
+          el.style.color = "#f85149";
+        } else {
+          el.textContent = "⚪";
+          el.style.background = "var(--surface2)";
+          el.style.color = "var(--text3)";
+        }
+      });
+    })
+    .catch(function(e) { console.error("Health check error:", e); });
+}
+
 function loadProjects() {
   fetch("/api/projects", { headers: { "Authorization": "Bearer " + token } })
     .then(function(r) { return r.json(); })
@@ -211,9 +241,13 @@ function loadProjects() {
       allProjects = data.projects || [];
       renderProjects(allProjects);
       updateStats(allProjects);
+      checkHealth();
     })
     .catch(function(e) { console.error("Load error:", e); });
 }
+
+// Auto health check every 60s
+setInterval(function() { if (allProjects.length) checkHealth(); }, 60000);
 
 function toggleNotes(pid, realText) {
   var box = document.getElementById("notes-" + pid);
@@ -265,6 +299,7 @@ function renderProjects(projects) {
         '<span class="card-icon">' + (p.icon || "📦") + '</span>' +
         '<span class="card-title">' + escapeHtml(p.title || "") + '</span>' +
         '<span class="card-category">' + escapeHtml(p.category || "other") + '</span>' +
+        '<span class="health-badge" id="health-' + p.id + '" style="font-size:11px;padding:3px 8px;border-radius:6px;background:var(--surface2);color:var(--text3)">⏳</span>' +
       '</div>' +
       '<div class="card-desc">' + escapeHtml(p.description || "Nincs leírás") + '</div>' +
       (tags ? '<div class="card-tags">' + tags + '</div>' : '') +

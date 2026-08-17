@@ -202,6 +202,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/projects", self._api_projects_create)
         app.router.add_put("/api/projects/{pid}", self._api_projects_update)
         app.router.add_delete("/api/projects/{pid}", self._api_projects_delete)
+        # Project health check
+        app.router.add_get("/api/projects/health", self._api_projects_health)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
