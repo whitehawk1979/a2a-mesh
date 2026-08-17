@@ -4053,7 +4053,9 @@ echo "Status: ok"
         """
         _pg_was_down = False
         _last_caps_broadcast = 0
+        _last_decay = 0
         CAPS_REBROADCAST_INTERVAL = 300  # 5 min
+        DECAY_INTERVAL = 3600  # 1 hour
 
         while self._running:
             try:
@@ -4155,10 +4157,28 @@ echo "Status: ok"
                             except Exception:
                                 pass
 
+                # 6. Salience decay — fade unused memories hourly
+                now_ts = time.time()
+                if now_ts - _last_decay > DECAY_INTERVAL:
+                    await self._salience_decay_tick()
+                    _last_decay = now_ts
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.error(f"[self-heal] Loop error: {e}")
+
+    async def _salience_decay_tick(self):
+        """Apply salience decay to Brain memories. Called hourly by self-healing loop."""
+        try:
+            from .core.salience_decay import apply_decay
+            if self._pg_pool and self._pg_pool.is_connected():
+                async with self._pg_pool.acquire() as conn:
+                    result = await apply_decay(conn, hours=1.0)
+                    if result:
+                        log.info(f"[self-heal] Salience decay: {result}")
+        except Exception as e:
+            log.debug(f"[self-heal] Salience decay skipped: {e}")
 
     # ─── Stats Update Loop ───────────────────────────────────────────
 
