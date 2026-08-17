@@ -746,7 +746,7 @@ class DashboardAdminMixin:
                 return web.json_response({"error": "DB not connected"}, status=503)
             result = await pool.execute(
                 "DELETE FROM shared_delegations "
-                "WHERE status IN ('completed', 'cancelled') "
+                "WHERE status IN ('completed', 'cancelled', 'expired') "
                 "AND created_at < NOW() - ($1 || ' hours')::INTERVAL",
                 str(max_age_hours)
             )
@@ -906,6 +906,13 @@ class DashboardAdminMixin:
         coordinator = self.workflow_coordinator
         if self.node and not coordinator.node:
             coordinator.node = self.node
+            # Initialize history file if not already done
+            if not coordinator._history_file and coordinator.node:
+                import os
+                hist_dir = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data")
+                os.makedirs(hist_dir, exist_ok=True)
+                coordinator._history_file = os.path.join(hist_dir, "workflow_history.json")
+                coordinator._load_history()
 
         wf = coordinator.create_workflow(name, consensus_mode=consensus)
 
@@ -955,6 +962,9 @@ class DashboardAdminMixin:
         user, err = self._require_auth(request)
         if err:
             return err
+        # Ensure coordinator has node reference for history loading
+        if self.node and not self.workflow_coordinator.node:
+            self.workflow_coordinator.node = self.node
         workflows = self.workflow_coordinator.list_active_workflows()
         return web.json_response({"workflows": workflows, "total": len(workflows)})
 

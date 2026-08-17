@@ -703,6 +703,10 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
 
+        # Start alert manager evaluation loop
+        if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'alert_manager'):
+            asyncio.create_task(self.dashboard.alert_manager.start())
+
         # Auto-update: check for new versions periodically
         auto_update_cfg = getattr(self.config, 'auto_update', None)
         if auto_update_cfg and getattr(auto_update_cfg, 'enabled', False):

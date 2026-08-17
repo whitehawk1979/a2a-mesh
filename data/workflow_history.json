@@ -1,0 +1,21 @@
+[
+  {
+    "id": "6f74712a",
+    "name": "persist-test-2",
+    "status": "completed",
+    "consensus": "all",
+    "created_at": 1786937457.226531,
+    "tasks": {
+      "t1": {
+        "name": "Teszt",
+        "status": "completed",
+        "agent": "nova",
+        "result": "{'result': \"[morzsa] Acknowledged task '[WF:6f74712a] Teszt' at 2026-08-17T03:31:01.130516+00:00\"}",
+        "error": null,
+        "duration_ms": 6732.91277885437,
+        "dependencies": []
+      }
+    },
+    "total_cost": 0.0
+  }
+]
