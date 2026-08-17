@@ -215,6 +215,23 @@ function loadProjects() {
     .catch(function(e) { console.error("Load error:", e); });
 }
 
+function toggleNotes(pid, realText) {
+  var box = document.getElementById("notes-" + pid);
+  if (!box) return;
+  var textEl = box.querySelector(".notes-text");
+  var btn = box.querySelector(".notes-btn");
+  if (btn.textContent.indexOf("Mutat") >= 0) {
+    textEl.textContent = realText;
+    textEl.style.whiteSpace = "normal";
+    textEl.style.wordBreak = "break-all";
+    btn.textContent = "🙈 Rejts";
+  } else {
+    textEl.textContent = "••••••••";
+    textEl.style.whiteSpace = "nowrap";
+    btn.textContent = "👁️ Mutat";
+  }
+}
+
 function searchProjects() {
   var q = document.getElementById("searchInput").value.toLowerCase();
   var filtered = allProjects.filter(function(p) {
@@ -239,7 +256,7 @@ function renderProjects(projects) {
   empty.style.display = "none";
   grid.innerHTML = projects.map(function(p) {
     var tags = (p.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join("");
-    var notes = p.notes ? '<div style="font-size:12px;color:var(--text3);margin-bottom:8px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)">📝 ' + escapeHtml(p.notes) + '</div>' : '';
+    var notesHtml = p.notes ? '<div class="notes-box" id="notes-' + p.id + '" style="font-size:12px;color:var(--text3);margin-bottom:8px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 <span class="notes-text">••••••••</span></span><button onclick="event.stopPropagation();toggleNotes(\'' + p.id + '\',\'' + escapeHtml(p.notes).replace(/'/g,"\\'") + '\')" class="notes-btn" style="background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap">👁️ Mutat</button></div>' : '';
     var link = p.url ? '<a href="' + escapeHtml(p.url) + '" target="_blank" class="card-link">Megnyit →</a>' : '';
     var statusClass = "status-" + (p.status || "active");
     var statusIcon = p.status === "active" ? "🟢" : p.status === "paused" ? "🟡" : "⚫";
@@ -251,7 +268,7 @@ function renderProjects(projects) {
       '</div>' +
       '<div class="card-desc">' + escapeHtml(p.description || "Nincs leírás") + '</div>' +
       (tags ? '<div class="card-tags">' + tags + '</div>' : '') +
-      notes +
+      notesHtml +
       '<div class="card-footer">' +
         link +
         '<div class="card-actions">' +
