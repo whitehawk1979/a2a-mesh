@@ -317,7 +317,13 @@ function toggleNotes(pid, realText) {
   var box = document.getElementById("notes-" + pid);
   if (!box) return;
   var textEl = box.querySelector(".notes-text");
-  var btn = box.querySelector(".notes-btn");
+  var btns = box.querySelectorAll(".notes-btn");
+  // Find the toggle button (the one with Mutat or Rejts text)
+  var btn = null;
+  btns.forEach(function(b) {
+    if (b.textContent.indexOf("Mutat") >= 0 || b.textContent.indexOf("Rejts") >= 0) btn = b;
+  });
+  if (!btn) return;
   if (btn.textContent.indexOf("Mutat") >= 0) {
     textEl.textContent = realText;
     textEl.style.whiteSpace = "normal";

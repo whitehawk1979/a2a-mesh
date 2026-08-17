@@ -304,5 +304,277 @@
     "created_at": 1786962423.984716,
     "updated_at": 1786963335.0957482,
     "notes": "Nincs auth — dashboard nyílt elérés"
+  },
+  {
+    "id": "a66b3b30",
+    "title": "HTTP (192.168.1.9:80)",
+    "description": "Auto-discovered: HTTP",
+    "category": "other",
+    "url": "http://192.168.1.9:80",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.1000152,
+    "updated_at": 1786965551.100016
+  },
+  {
+    "id": "2eb5a095",
+    "title": "HTTPS (192.168.1.9:443)",
+    "description": "Auto-discovered: HTTPS",
+    "category": "other",
+    "url": "https://192.168.1.9:443",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.127886,
+    "updated_at": 1786965551.127887
+  },
+  {
+    "id": "24af3cbc",
+    "title": "Plex (192.168.1.9:32400)",
+    "description": "Auto-discovered: Plex",
+    "category": "other",
+    "url": "http://192.168.1.9:32400",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.144534,
+    "updated_at": 1786965551.144534
+  },
+  {
+    "id": "4f5c9777",
+    "title": "HTTP (192.168.1.30:80)",
+    "description": "Auto-discovered: HTTP",
+    "category": "other",
+    "url": "http://192.168.1.30:80",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.1630561,
+    "updated_at": 1786965551.1630569
+  },
+  {
+    "id": "6dbf5fba",
+    "title": "HTTPS (192.168.1.30:443)",
+    "description": "Auto-discovered: HTTPS",
+    "category": "other",
+    "url": "https://192.168.1.30:443",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.178932,
+    "updated_at": 1786965551.178933
+  },
+  {
+    "id": "54aa7a96",
+    "title": "Gitea (192.168.1.30:3001)",
+    "description": "Auto-discovered: Gitea",
+    "category": "other",
+    "url": "http://192.168.1.30:3001",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.1965492,
+    "updated_at": 1786965551.1965492
+  },
+  {
+    "id": "d04457b9",
+    "title": "Synology DSM (192.168.1.30:5000)",
+    "description": "Auto-discovered: Synology DSM",
+    "category": "other",
+    "url": "http://192.168.1.30:5000",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.433717,
+    "updated_at": 1786965551.433718
+  },
+  {
+    "id": "ad07feb3",
+    "title": "Qdrant (192.168.1.30:6333)",
+    "description": "Auto-discovered: Qdrant",
+    "category": "other",
+    "url": "http://192.168.1.30:6333",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.459717,
+    "updated_at": 1786965551.459717
+  },
+  {
+    "id": "7e83d0b7",
+    "title": "Web App (192.168.1.30:8080)",
+    "description": "Auto-discovered: Web App",
+    "category": "other",
+    "url": "http://192.168.1.30:8080",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.472469,
+    "updated_at": 1786965551.47247
+  },
+  {
+    "id": "6893815a",
+    "title": "IPTV (192.168.1.30:8090)",
+    "description": "Auto-discovered: IPTV",
+    "category": "other",
+    "url": "http://192.168.1.30:8090",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.4885561,
+    "updated_at": 1786965551.488557
+  },
+  {
+    "id": "713e7aa8",
+    "title": "HTTP (192.168.1.100:80)",
+    "description": "Auto-discovered: HTTP",
+    "category": "other",
+    "url": "http://192.168.1.100:80",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.5117598,
+    "updated_at": 1786965551.511761
+  },
+  {
+    "id": "c04d00df",
+    "title": "HTTPS (192.168.1.100:443)",
+    "description": "Auto-discovered: HTTPS",
+    "category": "other",
+    "url": "https://192.168.1.100:443",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.535157,
+    "updated_at": 1786965551.535158
+  },
+  {
+    "id": "fa4f399c",
+    "title": "Web App (192.168.1.100:3000)",
+    "description": "Auto-discovered: Web App",
+    "category": "other",
+    "url": "http://192.168.1.100:3000",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.708503,
+    "updated_at": 1786965551.708504
+  },
+  {
+    "id": "88e583db",
+    "title": "Qdrant (192.168.1.100:6333)",
+    "description": "Auto-discovered: Qdrant",
+    "category": "other",
+    "url": "http://192.168.1.100:6333",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.723836,
+    "updated_at": 1786965551.723837
+  },
+  {
+    "id": "7349750a",
+    "title": "Web App (192.168.1.100:8080)",
+    "description": "Auto-discovered: Web App",
+    "category": "other",
+    "url": "http://192.168.1.100:8080",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.739777,
+    "updated_at": 1786965551.739777
+  },
+  {
+    "id": "9c22f285",
+    "title": "Alertmanager (192.168.1.100:9093)",
+    "description": "Auto-discovered: Alertmanager",
+    "category": "other",
+    "url": "http://192.168.1.100:9093",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.7539232,
+    "updated_at": 1786965551.7539241
+  },
+  {
+    "id": "85778a1c",
+    "title": "HTTP (192.168.1.117:80)",
+    "description": "Auto-discovered: HTTP",
+    "category": "other",
+    "url": "http://192.168.1.117:80",
+    "links": [],
+    "tags": [
+      "auto-discovered"
+    ],
+    "icon": "🔌",
+    "notes": "",
+    "status": "active",
+    "created_at": 1786965551.773505,
+    "updated_at": 1786965551.773505
   }
 ]
