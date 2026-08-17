@@ -78,11 +78,13 @@ class SSHTunnelTransport(TransportAdapter):
     """
 
     def __init__(self, config, node_name: str = "", peer_discovery=None,
+                 node_version: str = "",
                  on_message_callback=None, peer_connected_callback=None,
                  mesh_config=None):
         from ..core.config import SSHTunnelConfig
         self._config: SSHTunnelConfig = config
         self._node_name = node_name
+        self._node_version = node_version
         self._peer_discovery = peer_discovery
         self._on_message_callback = on_message_callback
         self._peer_connected_callback = peer_connected_callback
@@ -335,7 +337,7 @@ class SSHTunnelTransport(TransportAdapter):
                 recipient=peer.name,
                 msg_type=MSG_TYPE_HEARTBEAT,
                 payload={
-                    "version": "ssh_tunnel",
+                    "version": self._node_version or "unknown",
                     "frame_version": 3,
                     "timestamp": _time.time(),
                 },

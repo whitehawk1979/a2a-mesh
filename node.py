@@ -258,6 +258,7 @@ class MeshNode:
         self._ssh_tunnel_transport = SSHTunnelTransport(
             self.config.ssh_tunnel,
             node_name=self.node_name,
+            node_version=self._resolved_version,
             peer_discovery=getattr(self, '_discovery', None),
             peer_connected_callback=self._on_transport_peer_connected,
             mesh_config=self.config,
