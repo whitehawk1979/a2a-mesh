@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧪 Lab — Projekt Showcase</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #1c2128; --border: #30363d;
+  --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --blue: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149;
+  --purple: #bc8cff; --accent: #1f6feb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+/* Header */
+.header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 16px 24px; position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+.header h1 { font-size: 22px; white-space: nowrap; }
+.header h1 span { margin-right: 8px; }
+.back-btn {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  text-decoration: none; transition: all 0.2s;
+}
+.back-btn:hover { background: var(--border); color: var(--text); }
+
+/* Search */
+.search-wrap { flex: 1; min-width: 250px; position: relative; }
+.search-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 16px 10px 42px; border-radius: 8px; font-size: 14px;
+  outline: none; transition: border 0.2s;
+}
+.search-input:focus { border-color: var(--blue); }
+.search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text3); font-size: 16px; }
+
+/* Add button */
+.add-btn {
+  background: var(--accent); border: none; color: white;
+  padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  font-weight: 600; transition: all 0.2s; white-space: nowrap;
+}
+.add-btn:hover { background: #3884fd; }
+
+/* Stats */
+.stats { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; }
+.stat-chip {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 13px;
+}
+.stat-chip .num { font-weight: 700; color: var(--blue); }
+.stat-chip .lbl { color: var(--text3); }
+
+/* Project grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 0 24px 24px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px; transition: all 0.2s; cursor: pointer; position: relative;
+}
+.card:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+.card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.card-icon { font-size: 28px; }
+.card-title { font-size: 16px; font-weight: 600; flex: 1; }
+.card-category {
+  font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px;
+  background: var(--surface2); padding: 3px 8px; border-radius: 6px;
+}
+.card-desc { color: var(--text2); font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tag {
+  font-size: 11px; background: var(--surface2); color: var(--text2);
+  padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+}
+.card-footer { display: flex; justify-content: space-between; align-items: center; }
+.card-link {
+  color: var(--blue); text-decoration: none; font-size: 13px;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s;
+}
+.card-link:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.card-actions { display: flex; gap: 6px; }
+.action-btn {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.2s;
+}
+.action-btn:hover { background: var(--border); color: var(--text); }
+.action-btn.del:hover { background: var(--red); color: white; border-color: var(--red); }
+
+/* Modal */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 200; justify-content: center; align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 24px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto;
+}
+.modal h2 { margin-bottom: 20px; font-size: 18px; }
+.modal label { display: block; font-size: 12px; color: var(--text3); margin-bottom: 4px; margin-top: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+.modal input, .modal textarea, .modal select {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 12px; border-radius: 8px; font-size: 14px; outline: none;
+}
+.modal input:focus, .modal textarea:focus, .modal select:focus { border-color: var(--blue); }
+.modal textarea { resize: vertical; min-height: 80px; }
+.modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+.btn-save { background: var(--green); border: none; color: white; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.btn-save:hover { background: #2ea043; }
+.btn-cancel { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn-cancel:hover { background: var(--border); }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 24px; color: var(--text3); }
+.empty h3 { font-size: 18px; margin-bottom: 8px; }
+.empty p { font-size: 14px; }
+
+/* Status badges */
+.status-active { color: var(--green); }
+.status-paused { color: var(--yellow); }
+.status-archived { color: var(--text3); }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .header { padding: 12px 16px; }
+  .grid { grid-template-columns: 1fr; padding: 0 16px 16px; }
+  .stats { padding: 12px 16px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/" class="back-btn">← A2A Mesh</a>
+  <h1><span>🧪</span>Lab</h1>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" class="search-input" id="searchInput" placeholder="Projektek keresése..." oninput="searchProjects()">
+  </div>
+  <button class="add-btn" onclick="openModal()">+ Új projekt</button>
+</div>
+
+<div class="stats">
+  <div class="stat-chip"><span class="num" id="totalCount">0</span><span class="lbl">projekt</span></div>
+  <div class="stat-chip"><span class="num" id="appCount">0</span><span class="lbl">app</span></div>
+  <div class="stat-chip"><span class="num" id="webCount">0</span><span class="lbl">weboldal</span></div>
+  <div class="stat-chip"><span class="num" id="activeCount">0</span><span class="lbl">aktív</span></div>
+</div>
+
+<div class="grid" id="projectGrid"></div>
+
+<div class="empty" id="emptyState" style="display:none">
+  <h3>🔬 Még nincsenek projektek</h3>
+  <p>Kattints az "+ Új projekt" gombra az első hozzáadásához.</p>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">Új projekt</h2>
+    <input type="hidden" id="editId">
+    <label>Cím</label>
+    <input type="text" id="projTitle" placeholder="Projekt neve">
+    <label>Leírás</label>
+    <textarea id="projDesc" placeholder="Mit csinál? Mi a célja?"></textarea>
+    <label>Kategória</label>
+    <select id="projCategory">
+      <option value="app">📱 App</option>
+      <option value="web">🌐 Weboldal</option>
+      <option value="tool">🔧 Eszköz</option>
+      <option value="research">🔬 Kutatás</option>
+      <option value="infra">🏗️ Infrastruktúra</option>
+      <option value="other">📦 Egyéb</option>
+    </select>
+    <label>URL / Link</label>
+    <input type="text" id="projUrl" placeholder="https://...">
+    <label>Ikon (emoji)</label>
+    <input type="text" id="projIcon" placeholder="📦" maxlength="4">
+    <label>Címkék (vesszővel elválasztva)</label>
+    <input type="text" id="projTags" placeholder="ai, mesh, automation">
+    <label>Státusz</label>
+    <select id="projStatus">
+      <option value="active">🟢 Aktív</option>
+      <option value="paused">🟡 Szüneteltetve</option>
+      <option value="archived">⚫ Archivált</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Mégse</button>
+      <button class="btn-save" onclick="saveProject()">Mentés</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var token = localStorage.getItem("mesh_token") || "";
+var allProjects = [];
+
+// Load projects on start
+document.addEventListener("DOMContentLoaded", loadProjects);
+
+function loadProjects() {
+  fetch("/api/projects", { headers: { "Authorization": "Bearer " + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      allProjects = data.projects || [];
+      renderProjects(allProjects);
+      updateStats(allProjects);
+    })
+    .catch(function(e) { console.error("Load error:", e); });
+}
+
+function searchProjects() {
+  var q = document.getElementById("searchInput").value.toLowerCase();
+  var filtered = allProjects.filter(function(p) {
+    return !q ||
+      (p.title || "").toLowerCase().indexOf(q) >= 0 ||
+      (p.description || "").toLowerCase().indexOf(q) >= 0 ||
+      (p.category || "").toLowerCase().indexOf(q) >= 0 ||
+      (p.tags || []).join(" ").toLowerCase().indexOf(q) >= 0;
+  });
+  renderProjects(filtered);
+  updateStats(filtered);
+}
+
+function renderProjects(projects) {
+  var grid = document.getElementById("projectGrid");
+  var empty = document.getElementById("emptyState");
+  if (projects.length === 0) {
+    grid.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+  grid.innerHTML = projects.map(function(p) {
+    var tags = (p.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join("");
+    var link = p.url ? '<a href="' + escapeHtml(p.url) + '" target="_blank" class="card-link">Megnyit →</a>' : '';
+    var statusClass = "status-" + (p.status || "active");
+    var statusIcon = p.status === "active" ? "🟢" : p.status === "paused" ? "🟡" : "⚫";
+    return '<div class="card" onclick="editProject(\'' + p.id + '\')">' +
+      '<div class="card-header">' +
+        '<span class="card-icon">' + (p.icon || "📦") + '</span>' +
+        '<span class="card-title">' + escapeHtml(p.title || "") + '</span>' +
+        '<span class="card-category">' + escapeHtml(p.category || "other") + '</span>' +
+      '</div>' +
+      '<div class="card-desc">' + escapeHtml(p.description || "Nincs leírás") + '</div>' +
+      (tags ? '<div class="card-tags">' + tags + '</div>' : '') +
+      '<div class="card-footer">' +
+        link +
+        '<div class="card-actions">' +
+          '<span class="' + statusClass + '" style="font-size:12px">' + statusIcon + ' ' + (p.status || "active") + '</span>' +
+          '<button class="action-btn" onclick="event.stopPropagation();editProject(\'' + p.id + '\')">✏️</button>' +
+          '<button class="action-btn del" onclick="event.stopPropagation();deleteProject(\'' + p.id + '\')">🗑️</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join("");
+}
+
+function updateStats(projects) {
+  document.getElementById("totalCount").textContent = projects.length;
+  document.getElementById("appCount").textContent = projects.filter(function(p) { return p.category === "app"; }).length;
+  document.getElementById("webCount").textContent = projects.filter(function(p) { return p.category === "web"; }).length;
+  document.getElementById("activeCount").textContent = projects.filter(function(p) { return p.status === "active"; }).length;
+}
+
+function openModal() {
+  document.getElementById("modalTitle").textContent = "Új projekt";
+  document.getElementById("editId").value = "";
+  document.getElementById("projTitle").value = "";
+  document.getElementById("projDesc").value = "";
+  document.getElementById("projCategory").value = "app";
+  document.getElementById("projUrl").value = "";
+  document.getElementById("projIcon").value = "📦";
+  document.getElementById("projTags").value = "";
+  document.getElementById("projStatus").value = "active";
+  document.getElementById("modalOverlay").classList.add("show");
+}
+
+function editProject(pid) {
+  var p = allProjects.find(function(x) { return x.id === pid; });
+  if (!p) return;
+  document.getElementById("modalTitle").textContent = "Szerkesztés";
+  document.getElementById("editId").value = p.id;
+  document.getElementById("projTitle").value = p.title || "";
+  document.getElementById("projDesc").value = p.description || "";
+  document.getElementById("projCategory").value = p.category || "app";
+  document.getElementById("projUrl").value = p.url || "";
+  document.getElementById("projIcon").value = p.icon || "📦";
+  document.getElementById("projTags").value = (p.tags || []).join(", ");
+  document.getElementById("projStatus").value = p.status || "active";
+  document.getElementById("modalOverlay").classList.add("show");
+}
+
+function closeModal() {
+  document.getElementById("modalOverlay").classList.remove("show");
+}
+
+function saveProject() {
+  var id = document.getElementById("editId").value;
+  var data = {
+    title: document.getElementById("projTitle").value.trim(),
+    description: document.getElementById("projDesc").value.trim(),
+    category: document.getElementById("projCategory").value,
+    url: document.getElementById("projUrl").value.trim(),
+    icon: document.getElementById("projIcon").value.trim() || "📦",
+    tags: document.getElementById("projTags").value.split(",").map(function(t) { return t.trim(); }).filter(function(t) { return t; }),
+    status: document.getElementById("projStatus").value
+  };
+  if (!data.title) { alert("Cím kötelező!"); return; }
+
+  var method = id ? "PUT" : "POST";
+  var url = id ? "/api/projects/" + id : "/api/projects";
+
+  fetch(url, {
+    method: method,
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+    body: JSON.stringify(data)
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { alert(data.error); return; }
+      closeModal();
+      loadProjects();
+    })
+    .catch(function(e) { alert("Hiba: " + e); });
+}
+
+function deleteProject(pid) {
+  if (!confirm("Biztosan törlöd ezt a projektet?")) return;
+  fetch("/api/projects/" + pid, {
+    method: "DELETE",
+    headers: { "Authorization": "Bearer " + token }
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { loadProjects(); })
+    .catch(function(e) { alert("Törlés hiba: " + e); });
+}
+
+function escapeHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+</script>
+</body>
+</html>

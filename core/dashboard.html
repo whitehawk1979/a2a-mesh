@@ -440,6 +440,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">🚨</span>
       <span class="nav-label">Alertek</span>
     </button>
+    <button class="nav-item" onclick="switchMobileTab('lab')" id="navLab">
+      <span class="nav-icon">🧪</span>
+      <span class="nav-label">Lab</span>
+    </button>
     <button class="nav-item" onclick="showSettings()" id="navSettings">
       <span class="nav-icon">⚙️</span>
       <span class="nav-label">Beállítások</span>
@@ -1283,12 +1287,15 @@ function switchMobileTab(tab) {
       var ns = document.getElementById("allNodesList");
       if (ns) ns.scrollIntoView({behavior: "smooth", block: "start"});
     }, 350);
+  } else if (tab === "lab") {
+    // Open Lab project showcase in new tab
+    window.open(location.protocol + "//" + location.host + "/lab", "_blank");
   }
 }
 
 function updateMobileNav(active) {
   document.querySelectorAll(".mobile-bottom-nav .nav-item").forEach(function(el) { el.classList.remove("active"); });
-  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts", settings: "navSettings"};
+  var map = {chat: "navChat", channels: "navChannels", info: "navInfo", nodes: "navNodes", topology: "navTopology", skills: "navSkills", workflows: "navWorkflows", alerts: "navAlerts", lab: "navLab", settings: "navSettings"};
   var el = document.getElementById(map[active] || "navChat");
   if (el) el.classList.add("active");
 }

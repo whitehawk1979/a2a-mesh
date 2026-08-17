@@ -1516,6 +1516,123 @@ class DashboardAdminMixin:
         except FileNotFoundError:
             return web.Response(text="<h1>Topology page not found</h1>", status=404)
 
+    # ─── Lab — Project Showcase ─────────────────────────────────────
+
+    async def _lab_page(self, request):
+        """GET /lab — Project showcase page with search."""
+        from aiohttp import web
+        html_path = os.path.join(os.path.dirname(__file__), "lab.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.Response(text="<h1>Lab page not found</h1>", status=404)
+
+    def _projects_file(self):
+        """Get projects JSON file path."""
+        import os
+        path = os.path.join(os.path.dirname(__file__), "..", "data", "projects.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path
+
+    def _load_projects(self):
+        """Load projects from JSON file."""
+        import json, os
+        path = self._projects_file()
+        try:
+            with open(path, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return []
+
+    def _save_projects(self, projects):
+        """Save projects to JSON file."""
+        import json
+        path = self._projects_file()
+        with open(path, "w") as f:
+            json.dump(projects, f, ensure_ascii=False, indent=2)
+
+    async def _api_projects_list(self, request):
+        """GET /api/projects — List all projects, optional ?q=search."""
+        from aiohttp import web
+        import json
+        user, err = self._check_auth(request)
+        if err: return err
+        projects = self._load_projects()
+        q = request.query.get("q", "").lower()
+        if q:
+            projects = [p for p in projects if q in p.get("title","").lower() or
+                         q in p.get("description","").lower() or
+                         q in p.get("category","").lower() or
+                         q in " ".join(p.get("tags",[])).lower()]
+        return web.json_response({"projects": projects, "count": len(projects)})
+
+    async def _api_projects_create(self, request):
+        """POST /api/projects — Create a new project."""
+        from aiohttp import web
+        import json, uuid, time
+        user, err = self._check_auth(request)
+        if err: return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        if not data.get("title"):
+            return web.json_response({"error": "title required"}, status=400)
+        pid = str(uuid.uuid4())[:8]
+        project = {
+            "id": pid,
+            "title": data["title"],
+            "description": data.get("description", ""),
+            "category": data.get("category", "app"),
+            "url": data.get("url", ""),
+            "tags": data.get("tags", []),
+            "icon": data.get("icon", "📦"),
+            "status": data.get("status", "active"),
+            "created_at": time.time(),
+            "updated_at": time.time()
+        }
+        projects = self._load_projects()
+        projects.append(project)
+        self._save_projects(projects)
+        return web.json_response({"status": "ok", "project": project})
+
+    async def _api_projects_update(self, request):
+        """PUT /api/projects/{pid} — Update a project."""
+        from aiohttp import web
+        import time
+        user, err = self._check_auth(request)
+        if err: return err
+        pid = request.match_info.get("pid", "")
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        projects = self._load_projects()
+        for p in projects:
+            if p["id"] == pid:
+                for k in ["title","description","category","url","tags","icon","status"]:
+                    if k in data:
+                        p[k] = data[k]
+                p["updated_at"] = time.time()
+                self._save_projects(projects)
+                return web.json_response({"status": "ok", "project": p})
+        return web.json_response({"error": "not found"}, status=404)
+
+    async def _api_projects_delete(self, request):
+        """DELETE /api/projects/{pid} — Delete a project."""
+        from aiohttp import web
+        user, err = self._check_auth(request)
+        if err: return err
+        pid = request.match_info.get("pid", "")
+        projects = self._load_projects()
+        before = len(projects)
+        projects = [p for p in projects if p["id"] != pid]
+        if len(projects) == before:
+            return web.json_response({"error": "not found"}, status=404)
+        self._save_projects(projects)
+        return web.json_response({"status": "deleted", "id": pid})
+
     # ─── Plugin API ────────────────────────────────────────────────
 
     async def _api_plugins(self, request):
