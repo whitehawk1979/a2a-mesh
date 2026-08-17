@@ -2883,8 +2883,12 @@ echo "Status: ok"
             log.debug(f"Skipping P2P skills announcement to {peer_name} — rate limited (last sent {now - self._last_skills_announcement:.0f}s ago)")
             return
         self._last_skills_announcement = now
+        # Use full skills + capabilities from registry (auto-built in _auto_register_self)
         skills = list(getattr(self.config, 'skills', []) or [])
-        if skills:
+        # Get capabilities from registry card (includes workflow + transport + role caps)
+        reg_card = self.dashboard.registry.get_card(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        full_caps = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else list(getattr(self.config, 'capabilities', []) or [])
+        if skills or full_caps:
             sent_via = []
             # Try P2P transport
             if self._p2p_transport and self._p2p_transport.is_available():
@@ -2897,7 +2901,7 @@ echo "Status: ok"
                         payload={
                             "type": "skills_announcement",
                             "skills": skills,
-                            "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                            "capabilities": full_caps,
                             "version": self._resolved_version,
                         },
                         type="skills_announcement",
@@ -2921,7 +2925,7 @@ echo "Status: ok"
                         payload={
                             "type": "skills_announcement",
                             "skills": skills,
-                            "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                            "capabilities": full_caps,
                             "version": self._resolved_version,
                         },
                         type="skills_announcement",
@@ -3042,9 +3046,11 @@ echo "Status: ok"
             return
         self._last_skills_announcement = now
         skills = list(getattr(self.config, 'skills', []) or [])
-        if not skills:
+        # Get capabilities from registry card (includes workflow + transport + role caps)
+        reg_card = self.dashboard.registry.get_card(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        capabilities = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else list(getattr(self.config, 'capabilities', []) or [])
+        if not skills and not capabilities:
             return
-        capabilities = list(getattr(self.config, 'capabilities', []) or [])
         
         # Use router broadcast for skills announcement — this applies smart dedup
         # (P2P first + PG store-only) instead of direct PG NOTIFY which causes
@@ -3144,6 +3150,24 @@ echo "Status: ok"
 
         # P0: Send PG NOTIFY for near-instant peer discovery
         self._notify_node_update("register")
+
+        # Update PG with full capabilities (async, fire-and-forget)
+        import asyncio as _aio
+        _aio.ensure_future(self._update_pg_capabilities(card.capabilities))
+
+    async def _update_pg_capabilities(self, capabilities: list):
+        """Update PG mesh_nodes.capabilities with the full list from registry."""
+        try:
+            if self._pg_pool and self._pg_pool.is_connected():
+                import json as _json
+                await self._pg_pool.execute(
+                    "UPDATE mesh.mesh_nodes SET capabilities = $1 WHERE node_name = $2",
+                    _json.dumps(capabilities),
+                    self.node_name,
+                )
+                log.info(f"PG capabilities updated for {self.node_name}: {len(capabilities)} caps")
+        except Exception as e:
+            log.warning(f"Failed to update PG capabilities: {e}")
 
     def _notify_node_update(self, action: str = "register"):
         """Send PG NOTIFY for peer discovery (P0: near-instant node discovery).
@@ -3389,12 +3413,16 @@ echo "Status: ok"
             log.error("_register_node: PG pool not available after retries, skipping registration")
             return
 
-        # Get capabilities from config (same as _auto_register_self)
-        capabilities = list(getattr(self.config, 'capabilities', []) or [
-            "a2a_messaging", "file_transfer"
-        ])
-        if self.role == NodeRole.COORDINATOR:
-            capabilities.extend(["coordinator", "dashboard", "registry"])
+        # Get capabilities from registry card (auto-built in _auto_register_self), fallback to config
+        reg_card = self.dashboard.registry.get(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        if reg_card and reg_card.capabilities:
+            capabilities = list(reg_card.capabilities)
+        else:
+            capabilities = list(getattr(self.config, 'capabilities', []) or [
+                "a2a_messaging", "file_transfer"
+            ])
+            if self.role == NodeRole.COORDINATOR:
+                capabilities.extend(["coordinator", "dashboard", "registry"])
         capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
         # Get skills from config — these are the node's own skills (not from plugins)

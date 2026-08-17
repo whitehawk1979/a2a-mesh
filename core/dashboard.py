@@ -251,6 +251,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/skills/search", self._api_skills_search)
         app.router.add_get("/api/skills/best", self._api_skills_best)
         app.router.add_post("/api/skills/advertise", self._api_skills_advertise)
+        # Broadcast all skills + capabilities to peers
+        app.router.add_post("/api/skills/broadcast", self._api_skills_broadcast)
         app.router.add_delete("/api/skills/{skill_id}", self._api_skills_delete)
         app.router.add_post("/api/skills/{skill_id}/delegate", self._api_skills_delegate)
         app.router.add_post("/api/skills/{skill_id}/rate", self._api_skills_rate)

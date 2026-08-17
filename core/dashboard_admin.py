@@ -63,6 +63,11 @@ class DashboardAdminMixin:
         self_skill_list = [s if isinstance(s, str) else s.get('id', str(s)) for s in (self.node.config.skills or [])]
         if self.node.node_name in db_skills and len(db_skills[self.node.node_name]) > len(self_skill_list):
             self_skill_list = [s if isinstance(s, str) else s.get('id', str(s)) for s in db_skills[self.node.node_name]]
+        # Self capabilities: from registry card or config
+        self_card = self.registry.get(self.node.node_name) if hasattr(self, 'registry') else None
+        self_caps = list(getattr(self_card, 'capabilities', []) or []) if self_card else []
+        if not self_caps:
+            self_caps = list(getattr(self.node.config, 'capabilities', []) or [])
         agents.append({
             "name": self.node.node_name,
             "role": self.node.config.topology.node_role,
@@ -71,6 +76,7 @@ class DashboardAdminMixin:
             "health_port": getattr(self.node, '_health_port', 8650),
             "version": self.node._resolved_version,
             "skills": self_skill_list,
+            "capabilities": self_caps,
             "transports": {
                 "p2p": self_transports.get("p2p", False),
                 "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
@@ -94,7 +100,7 @@ class DashboardAdminMixin:
                 peer_ver = db_versions.get(peer.name, peer_ver or '')
             # Get skills from registry, fall back to DB
             peer_skills = []
-            card = self.node.registry.get_card(peer.name) if hasattr(self.node, 'registry') else None
+            card = self.registry.get(peer.name) if hasattr(self, 'registry') else None
             if card and hasattr(card, 'skills') and card.skills:
                 peer_skills = [s if isinstance(s, str) else s.get('id', str(s)) for s in card.skills]
             elif peer.name in db_skills:
@@ -109,6 +115,7 @@ class DashboardAdminMixin:
                 "health_port": peer.health_port,
                 "last_seen": peer.last_seen,
                 "skills": peer_skills,
+                "capabilities": list(getattr(card, 'capabilities', []) or []) if card else [],
                 "transports": {
                     "p2p": peer.p2p_available,
                     "pg": peer.pg_available,
@@ -981,6 +988,32 @@ class DashboardAdminMixin:
         return web.json_response({"error": f"Workflow '{wf_id}' not found"}, status=404)
 
     # ─── P2P Status API ──────────────────────────────────────────────
+
+    async def _api_skills_broadcast(self, request):
+        """POST /api/skills/broadcast — Force broadcast skills + capabilities to all peers."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if not self.node:
+            return web.json_response({"error": "Node not available"}, status=503)
+        # Reset rate limit + force broadcast
+        self.node._last_skills_announcement = 0
+        try:
+            await self.node._on_peer_discovered("__broadcast__")
+        except Exception:
+            pass
+        # Also try direct P2P announcement to each peer
+        skills = list(getattr(self.node.config, 'skills', []) or [])
+        reg_card = self.registry.get(self.node.node_name) if hasattr(self, 'registry') else None
+        full_caps = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else []
+        result = {
+            "node": self.node.node_name,
+            "skills_count": len(skills),
+            "capabilities_count": len(full_caps),
+            "capabilities": full_caps,
+        }
+        return web.json_response(result)
 
     async def _api_p2p_status(self, request):
         """GET /api/p2p/status — Live P2P transport status."""
