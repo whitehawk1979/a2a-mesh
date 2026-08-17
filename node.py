@@ -4030,7 +4030,27 @@ echo "Status: ok"
                         metrics = self._collect_alert_metrics()
                         fired = self.dashboard.alert_manager.evaluate(metrics)
                         for alert in fired:
-                            log.warning(f"ALERT: {alert['name']} — {alert['message']}")
+                            level = alert.get("autonomy_level", 1)
+                            action = alert.get("auto_action", "")
+                            if level == 1:
+                                # Notify only — just log
+                                log.warning(f"🟡 ALERT [L1-NOTIFY]: {alert['name']} — {alert['message']}")
+                            elif level == 2:
+                                # Suggest — log + suggest action
+                                log.warning(f"🟠 ALERT [L2-SUGGEST]: {alert['name']} — {alert['message']} → Suggested: {action}")
+                            elif level == 3:
+                                # Auto-act — log + take action
+                                log.warning(f"🔴 ALERT [L3-AUTO]: {alert['name']} — {alert['message']} → Auto-action: {action}")
+                                if action == "reconnect_p2p":
+                                    # Force P2P reconnect for all peers
+                                    if hasattr(self, 'router'):
+                                        for name, transport in self.router.transports.items():
+                                            if name == 'p2p' and hasattr(transport, 'reconnect_all'):
+                                                try:
+                                                    await transport.reconnect_all()
+                                                    log.info("🟢 Auto-action: P2P reconnect triggered")
+                                                except Exception as e:
+                                                    log.error(f"Auto-action P2P reconnect failed: {e}")
                     except Exception as e:
                         log.debug(f"Alert evaluation error: {e}")
 

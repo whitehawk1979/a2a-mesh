@@ -1,0 +1,64 @@
+[
+  {
+    "id": "board-1786966798-0",
+    "title": "A2A Mesh Sprint",
+    "columns": [
+      "todo",
+      "in_progress",
+      "review",
+      "done"
+    ],
+    "cards": [
+      {
+        "id": "card-1786966812230-0",
+        "title": "Auto Skill-Factory implementálása",
+        "description": "5+ tool hívás után auto SKILL.md",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1786966812.2302551,
+        "updated_at": 1786966812.230256,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786966813008-1",
+        "title": "Salience Decay",
+        "description": "Memória halványulás óránként",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1786966813.0080361,
+        "updated_at": 1786966813.008037,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786966813801-2",
+        "title": "Kanban Dashboard",
+        "description": "Auto-breakdown + card-aging + audit",
+        "column": "in_progress",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1786966813.801625,
+        "updated_at": 1786966813.801625,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786966814365-3",
+        "title": "PreCompact Hook",
+        "description": "",
+        "column": "in_progress",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1786966814.3657138,
+        "updated_at": 1786966814.365715,
+        "created_by": "unknown"
+      }
+    ],
+    "created_at": 1786966798.705906,
+    "updated_at": 1786966814.365719
+  }
+]
