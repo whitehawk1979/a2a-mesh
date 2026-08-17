@@ -439,6 +439,98 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
+  <!-- 25. Vault -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔐</span><span class="title">Vault</span>
+      <span class="status status-ok" id="vaultStatus">✓</span>
+    </div>
+    <div class="card-body" id="vaultBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 26. Login Throttle -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🚫</span><span class="title">Login Throttle</span>
+      <span class="status status-ok" id="ltStatus">✓</span>
+    </div>
+    <div class="card-body" id="ltBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 27. CSRF Gate -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🛡️</span><span class="title">CSRF Gate</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="csrfBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 28. Channel Health -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Channel Health</span>
+      <span class="status status-ok" id="chStatus">✓</span>
+    </div>
+    <div class="card-body" id="chBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 29. Federation -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🌐</span><span class="title">Federation</span>
+      <span class="status" id="fedStatus">—</span>
+    </div>
+    <div class="card-body" id="fedBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 30. Model Suggest -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🧭</span><span class="title">Model Suggest</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="msBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 31. Voice Directive -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🎤</span><span class="title">Voice Directive</span>
+      <span class="status status-ok">✓ HU+EN</span>
+    </div>
+    <div class="card-body">
+      <div style="margin-bottom:8px">
+        <input type="text" id="voiceInput" placeholder="pl: mutasd a kanbant" style="width:70%;padding:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text1);border-radius:4px">
+        <button onclick="doVoiceParse()" style="padding:6px 12px;background:var(--blue);color:white;border:none;border-radius:4px;cursor:pointer">🎤 Értelmez</button>
+      </div>
+      <div id="voiceResult" style="font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- 32. Inbox Nudge -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📬</span><span class="title">Inbox Nudge</span>
+      <span class="status status-ok" id="inStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="inBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -465,6 +557,13 @@ function loadAll() {
   loadTokenUsage();
   loadUpdatePreflight();
   loadStoreWatcher();
+  loadVault();
+  loadLoginThrottle();
+  loadCSRF();
+  loadChannelHealth();
+  loadFederation();
+  loadModelSuggest();
+  loadInboxNudge();
 }
 
 function loadSkills() {
@@ -696,6 +795,110 @@ function loadEnroll() {
     if (!d.ready) {
       document.getElementById("enrollStatus").className = "status status-err";
       document.getElementById("enrollStatus").textContent = "✗ Not ready";
+    }
+  });
+}
+
+function loadVault() {
+  api("/api/vault").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("vaultBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Bejegyzések</span><span class="value blue">' + d.entry_count + '</span></div>' +
+      '<div class="stat-row"><span class="label">Titkosítás</span><span class="value ' + (d.encrypted ? "green" : "orange") + '">' + (d.encrypted ? "AES-256-GCM" : "Plaintext") + '</span></div>';
+    if (!d.encrypted) {
+      document.getElementById("vaultStatus").className = "status status-warn";
+      document.getElementById("vaultStatus").textContent = "⚠️ No crypto";
+    }
+  });
+}
+
+function loadLoginThrottle() {
+  api("/api/login-throttle").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("ltBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Zárolt userek</span><span class="value ' + (d.locked_users.length > 0 ? "red" : "green") + '">' + d.locked_users.length + '</span></div>' +
+      '<div class="stat-row"><span class="label">Globális hibák/óra</span><span class="value">' + d.global_failures_hour + '/' + d.global_threshold + '</span></div>';
+  });
+}
+
+function loadCSRF() {
+  api("/api/csrf").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("csrfBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Engedélyezve</span><span class="value green">' + (d.enabled ? "✓" : "✗") + '</span></div>' +
+      '<div class="stat-row"><span class="label">SameSite</span><span class="value">' + d.same_site_cookie + '</span></div>' +
+      '<div class="stat-row"><span class="label">Tailscale</span><span class="value green">' + (d.tailscale_allowed ? "✓" : "✗") + '</span></div>';
+  });
+}
+
+function loadChannelHealth() {
+  api("/api/channel-health").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("chBody");
+    var html = "";
+    var channels = d.channels || {};
+    Object.keys(channels).forEach(function(name) {
+      var st = channels[name].status;
+      var cls = st === "ok" ? "green" : st === "down" ? "red" : "";
+      html += '<div class="stat-row"><span class="label">' + name + '</span><span class="value ' + cls + '">' + st + '</span></div>';
+    });
+    body.innerHTML = html || '<div class="empty">Nincs adat</div>';
+  });
+}
+
+function loadFederation() {
+  api("/api/federation").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("fedBody");
+    var st = document.getElementById("fedStatus");
+    if (d.enabled) {
+      st.className = "status status-ok"; st.textContent = "✓ " + d.peer_count;
+    } else {
+      st.className = "status"; st.textContent = "⚪ Off";
+    }
+    body.innerHTML = '<div class="stat-row"><span class="label">Peer-ek</span><span class="value">' + d.peer_count + '</span></div>';
+    (d.peers || []).forEach(function(p) {
+      body.innerHTML += '<div class="stat-row"><span class="label">' + p.name + '</span><span class="value" style="font-size:11px">' + p.address + ':' + p.port + '</span></div>';
+    });
+  });
+}
+
+function loadModelSuggest() {
+  api("/api/model-suggest/Nova").then(function(d) {
+    if (!d || d.error) return;
+    var body = document.getElementById("msBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Jelenlegi</span><span class="value blue">' + d.current_model + '</span></div>' +
+      '<div class="stat-row"><span class="label">Ajánlott</span><span class="value green">' + d.recommended_model + '</span></div>' +
+      '<div class="stat-row"><span class="label">Szint</span><span class="value">' + d.recommended_tier + '</span></div>' +
+      '<div class="stat-row"><span class="label">Változás</span><span class="value ' + (d.change_advised ? "orange" : "green") + '">' + (d.change_advised ? "⚠️ Igen" : "✓ Nem") + '</span></div>';
+  });
+}
+
+function doVoiceParse() {
+  var text = document.getElementById("voiceInput").value;
+  if (!text) return;
+  fetch("/api/voice/parse", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: text})})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("voiceResult");
+      if (d.matched) {
+        el.innerHTML = '<span class="green">✓ ' + d.action + '</span> → <code>' + JSON.stringify(d.params) + '</code>';
+      } else {
+        el.innerHTML = '<span class="red">✗ Ismeretlen directive</span>';
+      }
+    });
+}
+
+function loadInboxNudge() {
+  api("/api/inbox-nudge").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("inBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Olvasatlan</span><span class="value blue">' + d.total_unread + '</span></div>' +
+      '<div class="stat-row"><span class="label">Nudge</span><span class="value orange">' + d.nudged + '</span></div>' +
+      '<div class="stat-row"><span class="label">Alert</span><span class="value red">' + d.alerted + '</span></div>';
+    if (d.total_unread > 0) {
+      document.getElementById("inStatus").className = "status status-warn";
+      document.getElementById("inStatus").textContent = "⚠️ " + d.total_unread;
     }
   });
 }
