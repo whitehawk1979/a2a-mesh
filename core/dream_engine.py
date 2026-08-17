@@ -1,0 +1,250 @@
+"""
+Dream Engine — Nightly analysis loop for A2A Mesh.
+
+Inspired by Marveen's Dream Engine:
+  Runs at 02:00 AM (configurable). Analyzes the day's:
+  1. Memories — skill suggestions from repeated patterns
+  2. Memory health — unvectorized, stale hot-tier → cold
+  3. Kanban — stuck tasks, archivable done cards
+  4. Errors — recurring patterns → skill/skill-update
+  5. Synthesis — 4 prioritized action suggestions for morning
+
+Output: DREAM.md file + morning brief delivered via Telegram.
+
+Deterministic core (no LLM dependency):
+  - SQL queries against Brain PG + Kanban JSON
+  - Pattern detection via frequency analysis
+  - File generation (DREAM.md)
+  - Optional: LLM-powered synthesis (if available)
+"""
+
+import asyncio
+import json
+import os
+import time
+import logging
+from datetime import datetime, timezone
+
+log = logging.getLogger("dream_engine")
+
+DREAM_FILE = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/DREAM.md")
+
+
+async def run_dream_cycle(pg_pool, node_name="unknown", kanban_mgr=None):
+    """Run one dream cycle. Returns dict with analysis results."""
+    results = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "node": node_name,
+        "buckets": {}
+    }
+
+    # Bucket 1: Memory patterns — find repeated operations
+    results["buckets"]["memory_patterns"] = await _analyze_memory_patterns(pg_pool)
+
+    # Bucket 2: Memory health — unvectorized + stale hot-tier
+    results["buckets"]["memory_health"] = await _check_memory_health(pg_pool)
+
+    # Bucket 3: Kanban — stuck tasks + archivable
+    if kanban_mgr:
+        results["buckets"]["kanban"] = await _analyze_kanban(kanban_mgr)
+    else:
+        results["buckets"]["kanban"] = {"stuck": [], "archivable": 0}
+
+    # Bucket 4: Error patterns from PG
+    results["buckets"]["errors"] = await _analyze_errors(pg_pool)
+
+    # Generate DREAM.md
+    dream_md = _generate_dream_md(results)
+    try:
+        os.makedirs(os.path.dirname(DREAM_FILE), exist_ok=True)
+        with open(DREAM_FILE, "w", encoding="utf-8") as f:
+            f.write(dream_md)
+        log.info(f"Dream Engine: DREAM.md written to {DREAM_FILE}")
+    except Exception as e:
+        log.error(f"Dream Engine: Failed to write DREAM.md: {e}")
+
+    return results
+
+
+async def _analyze_memory_patterns(pg_pool):
+    """Find repeated memory patterns that could become skills."""
+    if not pg_pool or not pg_pool.is_connected():
+        return {"suggestions": [], "total_memories": 0}
+    try:
+        async with pg_pool.acquire() as conn:
+            # Count memories by category in last 24h
+            rows = await conn.fetch(
+                """SELECT category, COUNT(*) as cnt
+                   FROM agent_memory
+                   WHERE created_at > NOW() - INTERVAL '24 hours'
+                   GROUP BY category ORDER BY cnt DESC"""
+            )
+            total = sum(r["cnt"] for r in rows)
+            cats = {r["category"]: r["cnt"] for r in rows}
+
+            # Find frequently accessed memories (potential skill candidates)
+            hot = await conn.fetch(
+                """SELECT title, importance, access_count
+                   FROM agent_memory
+                   WHERE access_count > 3 AND importance >= 70
+                   ORDER BY access_count DESC LIMIT 10"""
+            )
+            suggestions = []
+            for m in hot:
+                if m["access_count"] >= 5:
+                    suggestions.append({
+                        "title": m["title"] or "(untitled)",
+                        "access_count": m["access_count"],
+                        "importance": m["importance"],
+                        "recommendation": "Consider creating a SKILL.md — accessed 5+ times"
+                    })
+            return {"suggestions": suggestions, "total_memories": total, "categories": cats}
+    except Exception as e:
+        log.debug(f"Dream memory patterns error: {e}")
+        return {"suggestions": [], "total_memories": 0, "error": str(e)}
+
+
+async def _check_memory_health(pg_pool):
+    """Check memory vectorization + stale hot-tier."""
+    if not pg_pool or not pg_pool.is_connected():
+        return {"unvectorized": 0, "stale_hot": 0}
+    try:
+        async with pg_pool.acquire() as conn:
+            # Unvectorized memories
+            unvec = await conn.fetchval(
+                "SELECT COUNT(*) FROM agent_memory WHERE embedding IS NULL"
+            )
+            # Stale hot-tier (>7 days, not accessed)
+            stale = await conn.fetchval(
+                """SELECT COUNT(*) FROM agent_memory
+                   WHERE importance >= 70
+                   AND COALESCE(last_accessed_at, updated_at) < NOW() - INTERVAL '7 days'"""
+            )
+            return {"unvectorized": unvec or 0, "stale_hot": stale or 0}
+    except Exception as e:
+        log.debug(f"Dream memory health error: {e}")
+        return {"unvectorized": 0, "stale_hot": 0, "error": str(e)}
+
+
+async def _analyze_kanban(kanban_mgr):
+    """Find stuck + archivable kanban cards."""
+    try:
+        audit = await kanban_mgr.audit_stale_cards()
+        return {
+            "stuck": audit.get("stale_cards", []),
+            "archivable": audit.get("dead_count", 0),
+            "total_cards": audit.get("total_cards", 0),
+        }
+    except Exception as e:
+        return {"stuck": [], "archivable": 0, "error": str(e)}
+
+
+async def _analyze_errors(pg_pool):
+    """Find recurring error patterns."""
+    if not pg_pool or not pg_pool.is_connected():
+        return {"recurring": [], "total_errors": 0}
+    try:
+        async with pg_pool.acquire() as conn:
+            # Check if error_log table exists
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='error_log')"
+            )
+            if not exists:
+                return {"recurring": [], "total_errors": 0}
+            # Recurring errors in last 24h
+            rows = await conn.fetch(
+                """SELECT substring(content from 1 for 80) as err_prefix, COUNT(*) as cnt
+                   FROM error_log
+                   WHERE created_at > NOW() - INTERVAL '24 hours'
+                   GROUP BY err_prefix
+                   HAVING COUNT(*) > 2
+                   ORDER BY cnt DESC LIMIT 5"""
+            )
+            recurring = [{"pattern": r["err_prefix"], "count": r["cnt"]} for r in rows]
+            total = sum(r["cnt"] for r in rows)
+            return {"recurring": recurring, "total_errors": total}
+    except Exception as e:
+        log.debug(f"Dream error analysis error: {e}")
+        return {"recurring": [], "total_errors": 0, "error": str(e)}
+
+
+def _generate_dream_md(results):
+    """Generate DREAM.md from analysis results."""
+    ts = results["timestamp"]
+    node = results["node"]
+    b = results["buckets"]
+
+    lines = [
+        f"# 🌙 Dream Engine — {ts}",
+        f"**Node:** {node}",
+        "",
+        "## 💡 Bucket 1 — Skill javaslatok",
+        "",
+    ]
+
+    mp = b.get("memory_patterns", {})
+    if mp.get("suggestions"):
+        for s in mp["suggestions"]:
+            lines.append(f"- **{s['title']}** (access={s['access_count']}, imp={s['importance']}) — {s['recommendation']}")
+    else:
+        lines.append("*(nincs skill-javaslat)*")
+    lines.append(f"\nÖsszes memória (24h): {mp.get('total_memories', 0)}")
+
+    lines.extend([
+        "",
+        "## 🧹 Bucket 2 — Memória egészség",
+        "",
+        f"- Vektorizálatlan: {b.get('memory_health', {}).get('unvectorized', 0)}",
+        f"- Stale hot-tier (>7nap): {b.get('memory_health', {}).get('stale_hot', 0)}",
+    ])
+
+    lines.extend([
+        "",
+        "## 📋 Bucket 3 — Kanban audit",
+        "",
+    ])
+    kb = b.get("kanban", {})
+    if kb.get("stuck"):
+        for s in kb["stuck"]:
+            lines.append(f"- ⚠️ Beragadt: {s}")
+    else:
+        lines.append("*(nincs beragadt task)*")
+    lines.append(f"\nArchiválható (done >7nap): {kb.get('archivable', 0)}")
+
+    lines.extend([
+        "",
+        "## 🔴 Bucket 4 — Hibák",
+        "",
+    ])
+    err = b.get("errors", {})
+    if err.get("recurring"):
+        for e in err["recurring"]:
+            lines.append(f"- **{e['count']}x**: {e['pattern']}")
+    else:
+        lines.append("*(nincs visszatérő hiba)*")
+
+    lines.extend([
+        "",
+        "## 🎯 Reggeli javaslatok",
+        "",
+    ])
+    # Generate 4 prioritized suggestions
+    suggestions = []
+    if mp.get("suggestions"):
+        suggestions.append(f"1. 🧠 Skill: {mp['suggestions'][0]['title']} — gyakran használt, érdemes skill-be önteni")
+    if b.get("memory_health", {}).get("unvectorized", 0) > 0:
+        suggestions.append(f"2. 🧹 {b['memory_health']['unvectorized']} vektorizálatlan memória — backfill szükséges")
+    if kb.get("stuck"):
+        suggestions.append(f"3. 📋 {len(kb['stuck'])} beragadt kanban task — ping el needed")
+    if err.get("recurring"):
+        suggestions.append(f"4. 🔴 {err['total_errors']} visszatérő hiba — root cause elemzés")
+    if not suggestions:
+        suggestions.append("✅ Minden rendben — nincs azonnali teendő")
+    for s in suggestions[:4]:
+        lines.append(f"- {s}")
+
+    lines.append("")
+    lines.append("---")
+    lines.append("*Dream Engine — A2A Mesh v0.29+*")
+
+    return "\n".join(lines)

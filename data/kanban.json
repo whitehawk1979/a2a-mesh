@@ -37,28 +37,40 @@
         "id": "card-1786966813801-2",
         "title": "Kanban Dashboard",
         "description": "Auto-breakdown + card-aging + audit",
-        "column": "in_progress",
+        "column": "done",
         "priority": "high",
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1786966813.801625,
-        "updated_at": 1786966813.801625,
+        "updated_at": 1786979144.451307,
         "created_by": "unknown"
       },
       {
         "id": "card-1786966814365-3",
         "title": "PreCompact Hook",
         "description": "",
-        "column": "in_progress",
+        "column": "done",
         "priority": "high",
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1786966814.3657138,
-        "updated_at": 1786966814.365715,
+        "updated_at": 1786979146.1423411,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1786978422667-4",
+        "title": "Marveen funkciók integrálása A2A Mesh-be",
+        "description": "Minden Marveen feature beépítése: réteges memória, skill-factory, kanban audit, precompact hook, autonómia szintek, heartbeat, card-aging",
+        "column": "in_progress",
+        "priority": "high",
+        "assigned_to": "Nova",
+        "parent_id": null,
+        "created_at": 1786978422.667157,
+        "updated_at": 1786978422.6671581,
         "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1786966814.365719
+    "updated_at": 1786979146.1423428
   }
 ]

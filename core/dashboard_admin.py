@@ -1779,6 +1779,19 @@ class DashboardAdminMixin:
         card_id = request.match_info.get("card_id", "")
         data = await request.json()
         card = mgr.update_card(board_id, card_id, data)
+        # Kanban Dispatch: if card moved to in_progress, notify assigned agent
+        if data.get("column") == "in_progress" and card.get("assigned_to"):
+            try:
+                node = getattr(self, '_node_ref', None) or self
+                if hasattr(node, 'send_a2a_message'):
+                    await node.send_a2a_message(
+                        to_agent=card["assigned_to"],
+                        subject=f"Kanban feladat: {card['title']}",
+                        content=f"Kártya '{card['title']}' in_progress státuszba került. Hozzárendelve: {card['assigned_to']}. Leírás: {card.get('description','')}"
+                    )
+                    log.info(f"Kanban dispatch: notified {card['assigned_to']} about '{card['title']}'")
+            except Exception as e:
+                log.debug(f"Kanban dispatch skipped: {e}")
         return web.json_response(card)
 
     async def _api_kanban_delete_card(self, request):
@@ -1819,6 +1832,87 @@ class DashboardAdminMixin:
         pg_pool = getattr(self, '_pg_pool', None)
         result = await precompact_audit(pg_pool, node_name=node_name)
         return web.json_response(result)
+
+    async def _api_dream_run(self, request):
+        """GET /api/dream — Run dream cycle on demand."""
+        from aiohttp import web
+        from .dream_engine import run_dream_cycle
+        node_name = getattr(self, 'node_name', 'unknown')
+        pg_pool = getattr(self, '_pg_pool', None)
+        kanban_mgr = None
+        if hasattr(self, '_kanban_mgr'):
+            kanban_mgr = self._kanban_mgr
+        result = await run_dream_cycle(pg_pool, node_name=node_name, kanban_mgr=kanban_mgr)
+        return web.json_response(result)
+
+    async def _api_dream_latest(self, request):
+        """GET /api/dream/latest — Get latest DREAM.md content."""
+        from aiohttp import web
+        import os
+        dream_path = os.path.join(os.path.dirname(__file__), "..", "data", "DREAM.md")
+        try:
+            with open(dream_path, "r", encoding="utf-8") as f:
+                return web.json_response({"content": f.read(), "exists": True})
+        except FileNotFoundError:
+            return web.json_response({"content": "", "exists": False})
+
+    async def _api_context_guard(self, request):
+        """GET /api/context-guard — Check agent context saturation."""
+        from aiohttp import web
+        from .context_guard import context_guard_tick
+        node_name = getattr(self, 'node_name', 'unknown')
+        pg_pool = getattr(self, '_pg_pool', None)
+        results = await context_guard_tick(pg_pool, node_name=node_name)
+        return web.json_response({"checks": results})
+
+    async def _api_costops_summary(self, request):
+        """GET /api/costops/summary — Monthly cost summary."""
+        from aiohttp import web
+        from .costops import get_monthly_summary
+        month = request.query.get("month")
+        return web.json_response(get_monthly_summary(month))
+
+    async def _api_costops_budget(self, request):
+        """POST /api/costops/budget — Set budget."""
+        from aiohttp import web
+        from .costops import set_budget
+        data = await request.json()
+        return web.json_response(set_budget(data.get("category",""), data.get("limit",0)))
+
+    async def _api_costops_alerts(self, request):
+        """GET /api/costops/alerts — Check budget alerts."""
+        from aiohttp import web
+        from .costops import check_budget_alerts
+        return web.json_response({"alerts": check_budget_alerts()})
+
+    async def _api_trust_graph(self, request):
+        """GET /api/trust — Full trust graph."""
+        from aiohttp import web
+        from .team_trust import get_trust_graph
+        return web.json_response({"graph": get_trust_graph()})
+
+    async def _api_trust_agent(self, request):
+        """GET /api/trust/{agent} — Trust report for agent."""
+        from aiohttp import web
+        from .team_trust import get_agent_trust_report
+        agent = request.match_info.get("agent", "")
+        return web.json_response(get_agent_trust_report(agent))
+
+    async def _api_trust_set(self, request):
+        """POST /api/trust — Set trust level."""
+        from aiohttp import web
+        from .team_trust import set_trust
+        data = await request.json()
+        return web.json_response(set_trust(data.get("from",""), data.get("to",""), data.get("level","full")))
+
+    async def _api_prompt_safety_check(self, request):
+        """POST /api/prompt-safety/check — Check content safety."""
+        from aiohttp import web
+        from .prompt_safety import is_safe_for_dispatch, wrap_untrusted
+        data = await request.json()
+        content = data.get("content", "")
+        safe, reason = is_safe_for_dispatch(content)
+        return web.json_response({"safe": safe, "reason": reason, "wrapped": wrap_untrusted("api", content) if not safe else None})
 
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""

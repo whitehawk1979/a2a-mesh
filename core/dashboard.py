@@ -220,6 +220,21 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/kanban/audit", self._api_kanban_audit)
         # PreCompact audit
         app.router.add_get("/api/precompact/audit", self._api_precompact_audit)
+        # Dream Engine
+        app.router.add_get("/api/dream", self._api_dream_run)
+        app.router.add_get("/api/dream/latest", self._api_dream_latest)
+        # Context Guard
+        app.router.add_get("/api/context-guard", self._api_context_guard)
+        # CostOps
+        app.router.add_get("/api/costops/summary", self._api_costops_summary)
+        app.router.add_post("/api/costops/budget", self._api_costops_budget)
+        app.router.add_get("/api/costops/alerts", self._api_costops_alerts)
+        # Team Trust
+        app.router.add_get("/api/trust", self._api_trust_graph)
+        app.router.add_get("/api/trust/{agent}", self._api_trust_agent)
+        app.router.add_post("/api/trust", self._api_trust_set)
+        # Prompt Safety
+        app.router.add_post("/api/prompt-safety/check", self._api_prompt_safety_check)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)

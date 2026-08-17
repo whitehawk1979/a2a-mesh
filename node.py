@@ -4075,8 +4075,10 @@ echo "Status: ok"
         _pg_was_down = False
         _last_caps_broadcast = 0
         _last_decay = 0
+        _last_dream = 0
         CAPS_REBROADCAST_INTERVAL = 300  # 5 min
         DECAY_INTERVAL = 3600  # 1 hour
+        DREAM_INTERVAL = 21600  # 6 hours
 
         while self._running:
             try:
@@ -4183,6 +4185,17 @@ echo "Status: ok"
                 if now_ts - _last_decay > DECAY_INTERVAL:
                     await self._salience_decay_tick()
                     _last_decay = now_ts
+
+                # 7. Dream Engine — nightly analysis (every 6h)
+                if now_ts - _last_dream > DREAM_INTERVAL:
+                    try:
+                        from .core.dream_engine import run_dream_cycle
+                        kanban_mgr = getattr(self.dashboard, '_kanban_mgr', None) if hasattr(self, 'dashboard') else None
+                        dream_result = await run_dream_cycle(self._pg_pool, node_name=self.node_name, kanban_mgr=kanban_mgr)
+                        log.info(f"[self-heal] Dream Engine: {len(dream_result.get('buckets', {}))} buckets analyzed")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Dream Engine skipped: {e}")
+                    _last_dream = now_ts
 
             except asyncio.CancelledError:
                 break
