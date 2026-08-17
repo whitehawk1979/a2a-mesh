@@ -2886,7 +2886,7 @@ echo "Status: ok"
         # Use full skills + capabilities from registry (auto-built in _auto_register_self)
         skills = list(getattr(self.config, 'skills', []) or [])
         # Get capabilities from registry card (includes workflow + transport + role caps)
-        reg_card = self.dashboard.registry.get_card(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        reg_card = self.dashboard.registry.get(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
         full_caps = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else list(getattr(self.config, 'capabilities', []) or [])
         if skills or full_caps:
             sent_via = []
@@ -3047,7 +3047,7 @@ echo "Status: ok"
         self._last_skills_announcement = now
         skills = list(getattr(self.config, 'skills', []) or [])
         # Get capabilities from registry card (includes workflow + transport + role caps)
-        reg_card = self.dashboard.registry.get_card(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        reg_card = self.dashboard.registry.get(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
         capabilities = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else list(getattr(self.config, 'capabilities', []) or [])
         if not skills and not capabilities:
             return
