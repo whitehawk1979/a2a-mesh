@@ -4090,38 +4090,30 @@ echo "Status: ok"
                         except Exception as e:
                             log.debug(f"[self-heal] Discovery cycle error: {e}")
 
-                # 4. Capability re-broadcast (if peers missing caps or periodic)
+                # 4. Capability sync — compare PG caps vs registry caps, update if mismatch
                 now = time.time()
                 if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') and \
-                   (now - _last_caps_broadcast > CAPS_REBROADCAST_INTERVAL):
+                   (now - _last_caps_broadcast > 60):  # Check every 60s
                     try:
                         reg_card = self.dashboard.registry.get(self.node_name)
                         if reg_card and getattr(reg_card, 'capabilities', None):
-                            # Check if any peer has fewer caps than us
-                            peers_data = self.peer_discovery.get_all_peers() if self.peer_discovery else {}
-                            need_broadcast = False
-                            for pname, peer_info in peers_data.items():
-                                if pname == self.node_name:
-                                    continue
-                                peer_card = self.dashboard.registry.get(pname)
-                                peer_caps = len(getattr(peer_card, 'capabilities', []) or []) if peer_card else 0
-                                if peer_caps < len(reg_card.capabilities):
-                                    need_broadcast = True
-                                    break
-                            if need_broadcast:
-                                log.info(f"[self-heal] Re-broadcasting capabilities ({len(reg_card.capabilities)} caps)")
-                                # Reset rate limit and trigger broadcast
-                                self._last_skills_announcement = 0
-                                await self._auto_advertise_skills()
-                                # Also update PG with full capabilities
+                            my_cap_count = len(reg_card.capabilities)
+                            # Direct PG check — if PG has fewer caps, update
+                            if self._pg_pool and pg_ok:
                                 try:
-                                    await self._update_pg_capabilities(reg_card.capabilities)
-                                    log.info(f"[self-heal] PG capabilities updated ({len(reg_card.capabilities)} caps)")
+                                    async with self._pg_pool.acquire() as conn:
+                                        pg_caps = await conn.fetchval(
+                                            "SELECT jsonb_array_length(capabilities) FROM mesh.mesh_nodes WHERE node_name=$1",
+                                            self.node_name
+                                        )
+                                    if pg_caps is not None and pg_caps < my_cap_count:
+                                        log.info(f"[self-heal] PG caps mismatch: PG={pg_caps}, registry={my_cap_count} — updating PG")
+                                        await self._update_pg_capabilities(reg_card.capabilities)
+                                        self._last_skills_announcement = 0
+                                        await self._auto_advertise_skills()
                                 except Exception as e:
-                                    log.error(f"[self-heal] PG capabilities update failed: {e}")
-                                _last_caps_broadcast = now
-                            else:
-                                _last_caps_broadcast = now
+                                    log.debug(f"[self-heal] PG caps check error: {e}")
+                            _last_caps_broadcast = now
                     except Exception as e:
                         log.debug(f"[self-heal] Capabilities broadcast check error: {e}")
 
