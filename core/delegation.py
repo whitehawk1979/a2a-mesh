@@ -251,6 +251,14 @@ class DelegationManager:
             if hasattr(self, 'router') and self.router:
                 await self.router.send(msg)
                 log.info(f"Delegation message sent to {recipient} via router")
+                # Trace via message_router
+                try:
+                    from .message_router import create_message
+                    create_message(self.node_name, recipient,
+                        f"[delegation] {subject}", msg_type="delegation",
+                        trace_id=f"trace-{self.node_name}-{task_id[:8]}")
+                except Exception:
+                    pass
             else:
                 log.debug("No router available — delegation stored in DB only")
             # Also send PG NOTIFY for immediate pickup by listeners
@@ -438,6 +446,14 @@ class DelegationManager:
                     )
                     if hasattr(self, 'router') and self.router:
                         await self.router.send(msg)
+                        try:
+                            from .message_router import create_message
+                            create_message("system", from_agent,
+                                f"[STUCK] {subject} on {assigned}",
+                                msg_type="delegation_alert",
+                                trace_id=f"trace-{assigned}-{task_id[:8]}")
+                        except Exception:
+                            pass
                 except Exception as e:
                     log.debug(f"Stuck alert P2P send failed: {e}")
         except Exception as e:
@@ -797,6 +813,14 @@ class DelegationManager:
             )
             if hasattr(self, 'router') and self.router:
                 await self.router.send(msg)
+                try:
+                    from .message_router import create_message
+                    create_message("system", from_agent,
+                        f"[HANDOFF FAIL] {subject} on {self.node_name}",
+                        msg_type="delegation_alert",
+                        trace_id=trace_id)
+                except Exception:
+                    pass
         except Exception as e:
             log.debug(f"Handoff failure P2P alert failed: {e}")
 
