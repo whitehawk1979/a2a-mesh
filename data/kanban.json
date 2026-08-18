@@ -11,8 +11,8 @@
     "cards": [
       {
         "id": "card-1786966812230-0",
-        "title": "Auto Skill-Factory implementálása",
-        "description": "5+ tool hívás után auto SKILL.md",
+        "title": "Auto Skill-Factory implement\u00e1l\u00e1sa",
+        "description": "5+ tool h\u00edv\u00e1s ut\u00e1n auto SKILL.md",
         "column": "done",
         "priority": "high",
         "assigned_to": "",
@@ -24,7 +24,7 @@
       {
         "id": "card-1786966813008-1",
         "title": "Salience Decay",
-        "description": "Memória halványulás óránként",
+        "description": "Mem\u00f3ria halv\u00e1nyul\u00e1s \u00f3r\u00e1nk\u00e9nt",
         "column": "done",
         "priority": "medium",
         "assigned_to": "",
@@ -59,8 +59,8 @@
       },
       {
         "id": "card-1786978422667-4",
-        "title": "Marveen funkciók integrálása A2A Mesh-be",
-        "description": "Minden Marveen feature beépítése: réteges memória, skill-factory, kanban audit, precompact hook, autonómia szintek, heartbeat, card-aging",
+        "title": "Marveen funkci\u00f3k integr\u00e1l\u00e1sa A2A Mesh-be",
+        "description": "Minden Marveen feature be\u00e9p\u00edt\u00e9se: r\u00e9teges mem\u00f3ria, skill-factory, kanban audit, precompact hook, auton\u00f3mia szintek, heartbeat, card-aging",
         "column": "done",
         "priority": "high",
         "assigned_to": "Nova",
@@ -143,7 +143,7 @@
       },
       {
         "id": "card-1786988905767-11",
-        "title": "Delegáció teszt: Marveen integráció",
+        "title": "Deleg\u00e1ci\u00f3 teszt: Marveen integr\u00e1ci\u00f3",
         "description": "",
         "column": "done",
         "priority": "high",
@@ -155,7 +155,7 @@
       },
       {
         "id": "card-1787000698129-12",
-        "title": "Delegáció: c8498522",
+        "title": "Deleg\u00e1ci\u00f3: c8498522",
         "description": "",
         "column": "done",
         "priority": "high",
@@ -167,7 +167,7 @@
       },
       {
         "id": "card-1787000698428-13",
-        "title": "Delegáció: 6574d592",
+        "title": "Deleg\u00e1ci\u00f3: 6574d592",
         "description": "",
         "column": "done",
         "priority": "high",
@@ -206,7 +206,7 @@
       {
         "id": "card-1787036290353-16",
         "title": "Desired State: SSH auto-restart",
-        "description": "Delegált fejlesztési feladat",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "high",
         "assigned_to": "morzsa",
@@ -219,7 +219,7 @@
       {
         "id": "card-1787036290662-17",
         "title": "Process-Lock: cross-platform teszt",
-        "description": "Delegált fejlesztési feladat",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "medium",
         "assigned_to": "morzsa",
@@ -232,7 +232,7 @@
       {
         "id": "card-1787036290938-18",
         "title": "Marveen UI: theme toggle + mobil",
-        "description": "Delegált fejlesztési feladat",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "medium",
         "assigned_to": "runa",
@@ -244,8 +244,8 @@
       },
       {
         "id": "card-1787036291183-19",
-        "title": "Governance: PII bővítés + audit vizual",
-        "description": "Delegált fejlesztési feladat",
+        "title": "Governance: PII b\u0151v\u00edt\u00e9s + audit vizual",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "high",
         "assigned_to": "morzsa",
@@ -258,7 +258,7 @@
       {
         "id": "card-1787036291435-20",
         "title": "Kanban: sprint analytics + burndown",
-        "description": "Delegált fejlesztési feladat",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "medium",
         "assigned_to": "runa",
@@ -271,7 +271,7 @@
       {
         "id": "card-1787036291694-21",
         "title": "Mesh: progress callback + streaming",
-        "description": "Delegált fejlesztési feladat",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "medium",
         "assigned_to": "morzsa",
@@ -284,7 +284,7 @@
       {
         "id": "card-1787036291947-22",
         "title": "Dashboard: tab navigation + breadcrumb",
-        "description": "Delegált fejlesztési feladat",
+        "description": "Deleg\u00e1lt fejleszt\u00e9si feladat",
         "column": "review",
         "priority": "low",
         "assigned_to": "runa",
@@ -293,6 +293,15 @@
         "updated_at": 1787037188.244312,
         "created_by": "unknown",
         "delegation_task_id": "7d7ad5fa-9bd6-4a58-ac03-d882a0125c1c"
+      },
+      {
+        "id": "card-test-stuck-1787038059",
+        "title": "TEST: Stuck card",
+        "column": "in_progress",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787035659.624125,
+        "updated_at": 1787035659.6241338
       }
     ],
     "created_at": 1786966798.705906,

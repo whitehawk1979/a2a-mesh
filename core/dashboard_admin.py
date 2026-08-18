@@ -3020,35 +3020,40 @@ class DashboardAdminMixin:
                    ORDER BY created_at DESC LIMIT 50"""
             )
             for row in rows:
-                age = now - row["created_at"]
                 r = dict(row)
+                # asyncpg returns datetime for timestamps — convert to epoch
+                created = r.get("created_at")
+                if hasattr(created, 'timestamp'):
+                    age = now - created.timestamp()
+                else:
+                    age = now - float(created or 0)
                 r["age_seconds"] = int(age)
                 r["age_human"] = _fmt_age(age)
 
-                if row["status"] == "failed":
+                if r["status"] == "failed":
                     alerts.append({
                         "severity": "critical",
                         "source": "delegation",
-                        "task_id": row["task_id"],
-                        "title": f"Delegáció FAILED: {row['subject'][:50]}",
-                        "message": f"{row['from_agent']} → {row['to_agent']}, {r['age_human']}, kanban={row['kanban_card_id'] or 'N/A'}",
+                        "task_id": str(r["task_id"]),
+                        "title": f"Delegáció FAILED: {r['subject'][:50]}",
+                        "message": f"{r['from_agent']} → {r['to_agent']}, {r['age_human']}, kanban={r.get('kanban_card_id') or 'N/A'}",
                         "age": r["age_human"],
                     })
-                elif row["status"] == "running" and age > 600:
+                elif r["status"] == "running" and age > 600:
                     alerts.append({
                         "severity": "warning",
                         "source": "delegation",
-                        "task_id": row["task_id"],
-                        "title": f"Delegáció beragadva: {row['subject'][:50]}",
-                        "message": f"Running {r['age_human']}, {row['from_agent']} → {row['to_agent']}",
+                        "task_id": str(r["task_id"]),
+                        "title": f"Delegáció beragadva: {r['subject'][:50]}",
+                        "message": f"Running {r['age_human']}, {r['from_agent']} → {r['to_agent']}",
                         "age": r["age_human"],
                     })
-                elif row["status"] == "available" and age > 300:
+                elif r["status"] == "available" and age > 300:
                     alerts.append({
                         "severity": "warning",
                         "source": "delegation",
-                        "task_id": row["task_id"],
-                        "title": f"Available task nem claimelt: {row['subject'][:50]}",
+                        "task_id": str(r["task_id"]),
+                        "title": f"Available task nem claimelt: {r['subject'][:50]}",
                         "message": f"Available {r['age_human']}, no peer claimed it yet",
                         "age": r["age_human"],
                     })
