@@ -216,6 +216,38 @@ class DelegationManager:
         log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
         clear_trace_id()
 
+        # ── Auto-create Kanban card for this delegation ──
+        kanban_card_id = None
+        try:
+            from .kanban import KanbanManager, _load_boards
+            km = KanbanManager(self.node_name)
+            boards = _load_boards()
+            if boards:
+                priority_str = "high" if priority >= 7 else ("medium" if priority >= 4 else "low")
+                col = "todo" if status == STATUS_AVAILABLE else "todo"
+                card = km.add_card(
+                    boards[0]["id"], subject[:80], column=col,
+                    description=description if isinstance(description, str) else str(description),
+                    priority=priority_str,
+                    assigned_to=actual_to if actual_to != "any" else "",
+                )
+                if card:
+                    kanban_card_id = card["id"]
+                    # Link card to delegation task
+                    card["delegation_task_id"] = task_id
+                    card["delegation_status"] = status
+                    card["from_agent"] = self.node_name
+                    card["to_agent"] = actual_to
+                    _save_boards_local(boards)
+                    # Update PG with kanban_card_id
+                    await self.pg_pool.execute(
+                        "UPDATE shared_delegations SET kanban_card_id = $1 WHERE task_id = $2",
+                        kanban_card_id, task_id,
+                    )
+                    log.info(f"Auto-created Kanban card {kanban_card_id} for delegation '{subject[:40]}'")
+        except Exception as kb_err:
+            log.debug(f"Kanban auto-card error: {kb_err}")
+
         # ── Fan-out: create identical tasks for N agents ──
         if fan_out > 0:
             task_ids = [task_id]
@@ -229,6 +261,30 @@ class DelegationManager:
                     status, priority, expires_at, None, max_retries,
                 )
                 task_ids.append(fan_id)
+                # Auto-create Kanban card for fan-out child
+                try:
+                    from .kanban import KanbanManager, _load_boards
+                    km2 = KanbanManager(self.node_name)
+                    boards2 = _load_boards()
+                    if boards2:
+                        child_card = km2.add_card(
+                            boards2[0]["id"], f"Fanout: {subject}"[:80], column="todo",
+                            description=description if isinstance(description, str) else str(description),
+                            priority="high" if priority >= 7 else "medium",
+                            assigned_to="",
+                        )
+                        if child_card:
+                            child_card["delegation_task_id"] = fan_id
+                            child_card["delegation_status"] = status
+                            child_card["from_agent"] = self.node_name
+                            child_card["to_agent"] = "any"
+                            _save_boards(boards2)
+                            await self.pg_pool.execute(
+                                "UPDATE shared_delegations SET kanban_card_id = $1 WHERE task_id = $2",
+                                child_card["id"], fan_id,
+                            )
+                except Exception as fc_err:
+                    log.debug(f"Fan-out Kanban card error: {fc_err}")
             log.info(f"Fan-out: created {len(task_ids)} tasks for '{subject}' (P{priority})")
             return task_ids
 
