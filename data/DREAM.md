@@ -1,8 +1,4 @@
-<<<<<<< Updated upstream
-# 🌙 Dream Engine — 2026-08-18T14:17:20.868858+00:00
-=======
-# 🌙 Dream Engine — 2026-08-18T15:37:17.929218+00:00
->>>>>>> Stashed changes
+# 🌙 Dream Engine — 2026-08-18T16:18:04.581052+00:00
 **Node:** nova
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -20,11 +16,7 @@
 
 *(nincs beragadt task)*
 
-<<<<<<< Updated upstream
-Archiválható (done >7nap): 2
-=======
-Archiválható (done >7nap): 11
->>>>>>> Stashed changes
+Archiválható (done >7nap): 0
 
 ## 🔴 Bucket 4 — Hibák
 

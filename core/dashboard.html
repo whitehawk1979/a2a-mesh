@@ -2993,6 +2993,10 @@ function showTaskDetail(taskId) {
         actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">📝 Jegyzet</button>';
       }
       if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">📊 Haladás</button>';
+      if (d.status === "cancelled" || d.status === "completed" || d.status === "expired") {
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="deleteDelegation(\'' + d.task_id + '\')">🗑️ Törlés</button>';
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="redispatchDelegation(\'' + d.task_id + '\')">🔄 Újra kiosztás</button>';
+      }
       actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="showTaskDetail(\'' + d.task_id + '\')">🔄 Frissítés</button>';
       actionsHtml += '</div>';
 
@@ -3132,6 +3136,45 @@ function cancelDelegation(taskId) {
     loadDelegations();
     loadDelegationStats();
   });
+}
+
+function deleteDelegation(taskId) {
+  if (!confirm("Biztosan törlöd ezt a feladatot? Ez végleges!")) return;
+  fetch("/api/delegations/" + taskId, {
+    method: "DELETE",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert("Hiba: " + data.error); }
+    else {
+      document.getElementById("taskDetailModal").style.display = "none";
+      var dm = document.getElementById("delegationsModal");
+      if (dm) dm.style.display = "flex";
+      loadDelegations();
+      loadDelegationStats();
+    }
+  })
+  .catch(function(e) { alert("Hiba: " + e); });
+}
+
+function redispatchDelegation(taskId) {
+  if (!confirm("Újra kiosztod ezt a feladatot?")) return;
+  fetch("/api/delegations/" + taskId + "/redispatch", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) { alert("Hiba: " + data.error); }
+    else {
+      alert("✅ Újra kiosztva: " + data.new_task_id);
+      if (data.new_task_id) showTaskDetail(data.new_task_id);
+      loadDelegations();
+      loadDelegationStats();
+    }
+  })
+  .catch(function(e) { alert("Hiba: " + e); });
 }
 
 function timeSince(date) {

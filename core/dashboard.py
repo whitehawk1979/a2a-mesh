@@ -358,6 +358,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/delegations/{task_id}/note", self._api_delegations_note)
         app.router.add_post("/api/delegations/{task_id}/progress", self._api_delegations_progress)
         app.router.add_get("/api/delegations/{task_id}/files", self._api_delegations_files)
+        app.router.add_delete("/api/delegations/{task_id}", self._api_delegations_delete)
+        app.router.add_post("/api/delegations/{task_id}/redispatch", self._api_delegations_redispatch)
         # Deploy API
         app.router.add_post("/api/deploy", self._api_deploy)
         # Smart routing API

@@ -922,3 +922,64 @@ class DashboardDelegationsMixin:
         except Exception as e:
             log.error(f"Smart route error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_delete(self, request):
+        """Delete a delegation permanently. DELETE /api/delegations/{task_id}"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG pool not available"}, status=503)
+            await pool.execute(
+                "DELETE FROM shared_delegations WHERE task_id = $1", task_id
+            )
+            await pool.execute(
+                "DELETE FROM delegation_results WHERE task_id = $1", task_id
+            )
+            log.info(f"Deleted delegation {task_id}")
+            return web.json_response({"task_id": task_id, "deleted": True})
+        except Exception as e:
+            log.error(f"Delegation delete error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_redispatch(self, request):
+        """Re-dispatch a cancelled/completed task as available. POST /api/delegations/{task_id}/redispatch"""
+        from aiohttp import web
+        import uuid, time
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG pool not available"}, status=503)
+            row = await pool.fetchrow(
+                "SELECT * FROM shared_delegations WHERE task_id = $1", task_id
+            )
+            if not row:
+                return web.json_response({"error": "Task not found"}, status=404)
+            row = dict(row)
+            new_task_id = str(uuid.uuid4())
+            await pool.execute(
+                """INSERT INTO shared_delegations
+                   (task_id, from_agent, to_agent, subject, description, status, priority, task_type, created_at, expires_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW() + INTERVAL '1 hour')""",
+                new_task_id,
+                row.get("from_agent", "nova"),
+                row.get("to_agent", "any"),
+                row.get("subject", ""),
+                row.get("description", ""),
+                "available",
+                row.get("priority", 5),
+                row.get("task_type", "generic"),
+            )
+            log.info(f"Redispatched {task_id} -> {new_task_id}")
+            return web.json_response({"old_task_id": task_id, "new_task_id": new_task_id, "status": "available"})
+        except Exception as e:
+            log.error(f"Delegation redispatch error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
