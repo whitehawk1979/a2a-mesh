@@ -405,6 +405,13 @@ class P2PTransport(TransportAdapter):
             log.info(f"TLS connection from {peer_addr}: {ssl_obj.version()} cipher={ssl_obj.cipher()}")
         else:
             log.warning(f"PLAIN TCP connection from {peer_addr} (no TLS handshake)")
+            # If server is TLS-enabled but peer sent plain TCP, close immediately
+            # to avoid frame parser reading TLS handshake bytes as frame data
+            # (which causes "Payload too large: 369295616 bytes" errors)
+            if self._ssl_context is not None:
+                log.warning(f"Closing plain TCP connection from {peer_addr}: server requires TLS")
+                writer.close()
+                return
 
         # Try to identify which peer this connection is from
         connected_peer_name = None
