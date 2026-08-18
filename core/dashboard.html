@@ -4945,28 +4945,59 @@ function showKanbanCardDetail(cardId) {
   fetch("/api/kanban/cards/" + cardId, {headers: {"Authorization": "Bearer " + token}})
     .then(r => r.json())
     .then(card => {
+      // If card has delegation_task_id, redirect to full task detail
+      if (card.delegation_task_id) {
+        showTaskDetail(card.delegation_task_id);
+        return;
+      }
+      
       var modal = document.createElement('div');
       modal.className = 'modal-overlay';
       modal.id = 'kanbanCardDetailModal';
       modal.style.zIndex = '1000';
+      modal.style.display = 'flex';
+      modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
       
       var approveBtn = card.approval_required ? '<button class="btn btn-sm" style="background:var(--success)" onclick="approveKanbanCard(\'' + card.id + '\')">✅ Jóváhagyás</button>' : '';
       
-      modal.innerHTML = '<div class="modal">' +
-        '<h2 style="margin:0 0 10px 0">📋 Kártya részletei</h2>' +
-        '<div style="margin-bottom:12px;font-size:14px;line-height:1.6">' +
-        '<div><b style="color:var(--text3)">Cím:</b> ' + escHtml(card.title) + '</div>' +
-        '<div><b style="color:var(--text3)">Osztály:</b> ' + escHtml(card.column) + '</div>' +
-        '<div><b style="color:var(--text3)">Prioritás:</b> P' + (card.priority || 5) + '</div>' +
-        '<div><b style="color:var(--text3)">Hozza:</b> ' + (card.created_at ? new Date(card.created_at).toLocaleString() : '...') + '</div>' +
-        '<div style="margin-top:8px;padding:8px;background:var(--surface2);border-radius:4px;color:var(--text2)">' + escHtml(card.description || 'Nincs leírás') + '</div>' +
+      // Delegation result section
+      var resultHtml = '';
+      if (card.delegation_result) {
+        resultHtml = '<div style="margin-bottom:12px"><h4 style="margin:0 0 8px 0;font-size:13px">📄 Eredmény</h4>' +
+          '<div style="padding:10px;background:var(--surface2);border-radius:8px;font-size:12px;color:var(--text2);max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.4">' + escHtml(card.delegation_result).substring(0, 3000) + '</div></div>';
+      }
+      
+      // Source info
+      var sourceHtml = card.source ? '<div><b style="color:var(--text3)">Forrás:</b> ' + escHtml(card.source) + '</div>' : '';
+      var updatedHtml = card.updated_at ? '<div><b style="color:var(--text3)">Módosítva:</b> ' + new Date(card.updated_at).toLocaleString() + '</div>' : '';
+      
+      // Status badge
+      var colLabels = {todo:"📋 Teendő", in_progress:"⚙️ Folyamatban", review:"👁️ Ellenőrzés", done:"✅ Kész"};
+      var colColors = {todo:"var(--text3)", in_progress:"var(--warning)", review:"#8b5cf6", done:"var(--success)"};
+      var statusBadge = '<span style="background:' + (colColors[card.column]||'var(--info)') + ';color:#fff;padding:2px 8px;border-radius:4px;font-size:11px">' + (colLabels[card.column]||card.column) + '</span>';
+      
+      modal.innerHTML = '<div class="file-modal" style="width:600px;max-width:95vw;max-height:80vh;overflow-y:auto">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+        '<h2 style="margin:0">📋 ' + escHtml(card.title) + '</h2>' +
+        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove()">✕</button>' +
         '</div>' +
+        '<div style="margin-bottom:12px;font-size:14px;line-height:1.6">' +
+        '<div style="margin-bottom:8px">' + statusBadge + ' <span class="priority-badge priority-' + (card.priority||5) + '">P' + (card.priority||5) + '</span></div>' +
+        '<div><b style="color:var(--text3)">Létrehozva:</b> ' + (card.created_at ? new Date(card.created_at).toLocaleString() : '...') + '</div>' +
+        updatedHtml + sourceHtml +
+        (card.assigned_to ? '<div><b style="color:var(--text3)">Felelős:</b> 👤' + escHtml(card.assigned_to) + '</div>' : '') +
+        '</div>' +
+        '<div style="margin-bottom:12px;padding:10px;background:var(--surface2);border-radius:8px;font-size:13px;color:var(--text2);line-height:1.5">' + escHtml(card.description || 'Nincs leírás') + '</div>' +
+        resultHtml +
         '<div style="display:flex;justify-content:flex-end;gap:8px">' +
         approveBtn +
-        '<button class="btn btn-sm" onclick="document.getElementById(\'kanbanCardDetailModal\').remove()">Bezárás</button>' +
-        '</div>' +
-        '</div>';
+        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove()">Bezárás</button>' +
+        '</div></div>';
+      
       document.body.appendChild(modal);
+    })
+    .catch(function(e) {
+      alert('Hiba: ' + e.message);
     });
 }
 
