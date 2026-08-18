@@ -333,7 +333,6 @@ class SSHTunnelTransport(TransportAdapter):
         # Send initial handshake — a heartbeat A2AMessage so P2P listener can process it
         # The P2P transport's _handle_connection expects A2AMessage.from_bytes()
         try:
-            from ..core.message import A2AMessage, MSG_TYPE_HEARTBEAT
             import time as _time
             hb_msg = A2AMessage.create(
                 sender=self._node_name,
@@ -428,9 +427,7 @@ class SSHTunnelTransport(TransportAdapter):
                 now = time.time()
                 if now - last_keepalive >= KEEPALIVE_INTERVAL:
                     try:
-                        from ..core.message import A2AMessage, MSG_TYPE_HEARTBEAT
-                        import time as _time
-                        hb = A2AMessage.create(
+                        hb_msg = A2AMessage.create(
                             sender=self._node_name,
                             recipient=peer_name,
                             msg_type=MSG_TYPE_HEARTBEAT,
@@ -438,8 +435,7 @@ class SSHTunnelTransport(TransportAdapter):
                             priority=10,
                             ttl=60,
                         )
-                        frame = self._write_frame_v3(peer.writer, hb.to_bytes())
-                        await peer.writer.drain()
+                        await self._write_frame_v3(peer.writer, hb_msg.to_bytes())
                         last_keepalive = now
                         log.debug(f"SSH tunnel keepalive sent to {peer_name}")
                     except Exception as e:
