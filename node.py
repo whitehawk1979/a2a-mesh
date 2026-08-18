@@ -188,6 +188,12 @@ class MeshNode:
         )
         self.delegation.router = self.router  # Wire router for A2A message sending
 
+        # Initialize message router (Marveen-inspired: tracing + backlog batching)
+        from .core.message_router import create_message, process_backlog, get_router_status
+        self._msg_router_create = create_message
+        self._msg_router_process = process_backlog
+        self._msg_router_status = get_router_status
+
         # Initialize P2P file transfer
         self.file_transfer = P2PFileTransfer(
             node_name=self.node_name,
@@ -2657,7 +2663,10 @@ echo "Status: ok"
 
     async def send_direct(self, recipient: str, msg_type: str,
                           payload: dict, priority: int = 5) -> SendResult:
-        """Convenience method to send a directed message."""
+        """Convenience method to send a directed message.
+        
+        Marveen-inspired: logs to message_router for distributed tracing.
+        """
         msg = A2AMessage.create(
             sender=self.node_name,
             recipient=recipient,
@@ -2665,6 +2674,17 @@ echo "Status: ok"
             payload=payload,
             priority=priority,
         )
+        # Trace via message_router
+        try:
+            trace_id = payload.get("trace_id") if isinstance(payload, dict) else None
+            self._msg_router_create(
+                self.node_name, recipient,
+                f"[{msg_type}] {str(payload.get('text', payload.get('subject', '')))[:100]}",
+                msg_type=msg_type,
+                trace_id=trace_id,
+            )
+        except Exception:
+            pass
         return await self.send(msg)
 
     async def broadcast(self, msg_type: str, payload: dict,
