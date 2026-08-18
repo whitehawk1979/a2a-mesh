@@ -650,13 +650,37 @@
         "priority": 5,
         "assigned_to": "",
         "created_at": 1787089854.829359,
-        "updated_at": 1787090070.01546,
+        "updated_at": 1787090170.615405,
         "delegation_task_id": "21b515b1-c9f7-496a-bfe7-c68b7bf3a941",
         "description": "Írj egy 4 soros verset a holdról.",
+        "task_type": "code_generation"
+      },
+      {
+        "id": "card-1787090148410-45",
+        "title": "Review test 3: írj egy rövid verset a csillagokról",
+        "description": "Írj egy 4 soros verset a csillagokról.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787090148.410744,
+        "updated_at": 1787090148.4107451,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787090148477-46",
+        "title": "Review test 3: írj egy rövid verset a csillagokról",
+        "column": "review",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787090148.477654,
+        "updated_at": 1787090363.1406,
+        "delegation_task_id": "f414990e-1335-454a-afe7-8800128da879",
+        "description": "Írj egy 4 soros verset a csillagokról.",
         "task_type": "code_generation"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787090070.015462
+    "updated_at": 1787090363.140602
   }
 ]
