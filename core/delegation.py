@@ -1768,14 +1768,13 @@ class DelegationManager:
                                 result_text: str, assigned_agent: str, kanban_card_id: str):
         """Delegate review to a 3rd-party agent (or delegator as fallback)."""
         try:
-            # Dedup: check if review already delegated for this task
-            existing = await self.pg_pool.fetchval(
-                "SELECT task_id FROM shared_delegations WHERE from_agent = $1 AND task_type = 'code_review' AND notes::text LIKE $2 LIMIT 1",
-                self.node_name, f'%[REVIEW_OF] {original_task_id}%',
-            )
-            if existing:
-                log.debug(f"Review already delegated for {str(original_task_id)[:8]} — skipping")
+            # Dedup: use in-memory set to prevent repeated review
+            if not hasattr(self, '_reviewed_tasks'):
+                self._reviewed_tasks = set()
+            task_key = str(original_task_id)
+            if task_key in self._reviewed_tasks:
                 return
+            self._reviewed_tasks.add(task_key)
             from_agent = self.node_name
             reviewer = await self._select_reviewer(from_agent, assigned_agent)
             if not reviewer:
