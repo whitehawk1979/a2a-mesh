@@ -122,3 +122,101 @@ You are continuing from a context restart. The above summary contains the key
 decisions, progress, and next steps from your previous session. Pick up where
 you left off. Do not repeat completed work.
 """
+
+
+# ── Marveen-inspired: decideGate state machine ──────────────────
+# Adapted from Marveen's context-restart-gate.ts (pure logic, no tmux I/O).
+# Makes a deterministic "should we compact/restart this agent?" decision
+# based on multiple fail-closed gate conditions.
+
+from dataclasses import dataclass, field
+from typing import Optional
+from enum import Enum
+
+class GateAction(Enum):
+    ALLOW = "allow"       # Safe to compact/restart
+    BLOCK = "block"       # Work in flight, do not touch
+    ALERT = "block-alert" # Blocked too long, escalate
+
+@dataclass
+class GateConfig:
+    enabled: bool = True
+    threshold_turns: int = 70           # Trigger at 70 turns (our context proxy)
+    stale_cutoff_ms: int = 2 * 60 * 60 * 1000  # 2h — stale tasks don't block
+    retry_interval_ms: int = 5 * 60 * 1000    # 5 min between re-checks
+    persistent_block_alert_ms: int = 2 * 60 * 60 * 1000  # 2h → alert
+
+@dataclass
+class GateInputs:
+    turns_used: Optional[int]      # Current turn count (null = unmeasurable)
+    is_busy: bool                  # Agent has running tasks
+    has_pending_outbound: bool     # Pending P2P messages to deliver
+    has_open_question: bool        # Unresolved inbound message
+    has_live_task_state: bool      # Structured task in flight
+    has_stale_outbound: bool       # Pending messages older than stale_cutoff
+    hard_guard_active: bool        # Hard guard already managing this agent
+
+@dataclass
+class GateDecision:
+    action: GateAction
+    reason: str
+    note_stale: bool = False
+
+DEFAULT_GATE_CONFIG = GateConfig()
+
+def decide_gate(inputs: GateInputs, cfg: GateConfig = None,
+                first_blocked_at: Optional[float] = None,
+                now_ms: Optional[float] = None) -> GateDecision:
+    """Marveen-inspired gate decision — pure logic, fail-closed.
+
+    Returns ALLOW if safe to compact/restart, BLOCK if work is in flight,
+    ALERT if blocked for too long (escalate to owner).
+
+    FAIL-CLOSED: any unmeasurable signal blocks, never allows.
+    """
+    if cfg is None:
+        cfg = DEFAULT_GATE_CONFIG
+    if now_ms is None:
+        now_ms = time.time() * 1000
+
+    if not cfg.enabled:
+        return GateDecision(GateAction.BLOCK, "gate-disabled")
+
+    # Trigger: below threshold → no action needed
+    if inputs.turns_used is None:
+        return GateDecision(GateAction.BLOCK, "turns-unmeasurable (fail-closed)")
+    if inputs.turns_used < cfg.threshold_turns:
+        return GateDecision(GateAction.BLOCK, f"below-threshold ({inputs.turns_used} < {cfg.threshold_turns})")
+
+    # Interlock: hard guard is managing → stand aside
+    if inputs.hard_guard_active:
+        return _block_or_alert(first_blocked_at, now_ms, cfg, "hard-guard-armed")
+
+    # Gate conditions (FAIL-CLOSED)
+    if inputs.is_busy:
+        return _block_or_alert(first_blocked_at, now_ms, cfg, "agent-busy (running tasks)")
+
+    if inputs.has_pending_outbound and not inputs.has_stale_outbound:
+        return _block_or_alert(first_blocked_at, now_ms, cfg, "pending-outbound (live dispatched work)")
+
+    if inputs.has_open_question:
+        return _block_or_alert(first_blocked_at, now_ms, cfg, "open-question (unresolved inbound)")
+
+    if inputs.has_live_task_state:
+        return _block_or_alert(first_blocked_at, now_ms, cfg, "live-task-state (structured task in flight)")
+
+    # All conditions clear → ALLOW
+    decision = GateDecision(GateAction.ALLOW, f"safe-to-compact ({inputs.turns_used} turns)")
+    if inputs.has_stale_outbound:
+        decision.note_stale = True
+    return decision
+
+
+def _block_or_alert(first_blocked_at: Optional[float], now_ms: float,
+                    cfg: GateConfig, reason: str) -> GateDecision:
+    """Block, or escalate to ALERT if blocked too long."""
+    if first_blocked_at is not None:
+        blocked_duration = now_ms - first_blocked_at
+        if blocked_duration >= cfg.persistent_block_alert_ms:
+            return GateDecision(GateAction.ALERT, f"persistent-block ({reason}, {blocked_duration/1000/60:.0f}min)")
+    return GateDecision(GateAction.BLOCK, reason)
