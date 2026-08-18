@@ -100,7 +100,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Alert manager
         from .alert_manager import AlertManager
         self.alert_manager = AlertManager()
-        self.rate_limiter = RateLimiter(max_requests=300, window_seconds=60)
+        self.rate_limiter = RateLimiter(max_requests=600, window_seconds=60)
         self._users: Dict[str, DashboardUser] = {}
         self._message_history: List[dict] = []
         self._max_history = 100

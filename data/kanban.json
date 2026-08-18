@@ -181,13 +181,14 @@
         "id": "card-1787032799581-14",
         "title": "Kanban sync test",
         "description": "Test: card should auto-move to done when delegation completes",
-        "column": "in_progress",
+        "column": "review",
         "priority": "high",
-        "assigned_to": "Morzsa",
+        "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787032799.581865,
-        "updated_at": 1787033114.628803,
-        "created_by": "unknown"
+        "updated_at": 1787036014.0503628,
+        "created_by": "unknown",
+        "delegation_task_id": "7e68e9c1-2110-452c-a716-be22a9af5069"
       },
       {
         "id": "card-1787033258489-15",
@@ -201,9 +202,93 @@
         "updated_at": 1787033322.369694,
         "created_by": "unknown",
         "delegation_task_id": "44807a85-c804-4a07-b52c-357f8acd66b5"
+      },
+      {
+        "id": "card-1787036290353-16",
+        "title": "Desired State: SSH auto-restart",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787036290.353693,
+        "updated_at": 1787036290.353693,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787036290662-17",
+        "title": "Process-Lock: cross-platform teszt",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787036290.6621618,
+        "updated_at": 1787036290.6621618,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787036290938-18",
+        "title": "Marveen UI: theme toggle + mobil",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787036290.9380858,
+        "updated_at": 1787036290.9380858,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787036291183-19",
+        "title": "Governance: PII bővítés + audit vizual",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787036291.183543,
+        "updated_at": 1787036291.183543,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787036291435-20",
+        "title": "Kanban: sprint analytics + burndown",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787036291.4352698,
+        "updated_at": 1787036291.4352698,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787036291694-21",
+        "title": "Mesh: progress callback + streaming",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787036291.694199,
+        "updated_at": 1787036291.694199,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787036291947-22",
+        "title": "Dashboard: tab navigation + breadcrumb",
+        "description": "Delegált fejlesztési feladat",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787036291.947223,
+        "updated_at": 1787036291.947223,
+        "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787033322.369695
+    "updated_at": 1787036291.947228
   }
 ]

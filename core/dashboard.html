@@ -3884,11 +3884,17 @@ function generateImage() {
 }
 
 // ─── Skills Marketplace Modal ──────────────────────────────
-function _skillsApiCall(url, method, body) {
+function _skillsApiCall(url, method, body, _retry) {
+  _retry = _retry || 0;
   var token = localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || authToken || '';
   var opts = { method: method || 'GET', headers: { 'Authorization': 'Bearer ' + token } };
   if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   return fetch(url, opts).then(function(r) {
+    if (r.status === 429 && _retry < 3) {
+      // Auto-retry on rate limit with exponential backoff
+      return new Promise(function(resolve) { setTimeout(resolve, 1000 * (_retry + 1)); })
+        .then(function() { return _skillsApiCall(url, method, body, _retry + 1); });
+    }
     if (!r.ok) return r.json().then(function(e) { throw e.error || 'API error'; });
     return r.json();
   });
