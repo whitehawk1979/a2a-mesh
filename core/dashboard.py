@@ -310,6 +310,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/fleet/import", self._api_fleet_import)
         # Marveen DB
         app.router.add_get("/api/marveen-db/status", self._api_marveen_db_status)
+        # Channel Monitor Watchdog
+        app.router.add_get("/api/watchdog/status", self._api_watchdog_status)
         app.router.add_get("/api/task-runs", self._api_task_runs)
         app.router.add_post("/api/kanban/comments", self._api_kanban_add_comment)
         app.router.add_get("/api/kanban/comments/{card_id}", self._api_kanban_get_comments)

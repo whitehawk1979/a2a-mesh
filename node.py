@@ -4081,6 +4081,69 @@ echo "Status: ok"
                     except Exception as e:
                         log.debug(f"Alert evaluation error: {e}")
 
+                        # ── Channel Monitor Watchdog (Marveen-inspired) ──
+                        try:
+                            from .core.channel_monitor import watchdog_tick, get_watchdog_status
+                            # Run watchdog for each known peer
+                            for peer_name in (self.router.peers if hasattr(self, 'router') else {}):
+                                async def _get_hb(name):
+                                    peers = self.router.peers if hasattr(self, 'router') else {}
+                                    p = peers.get(name, {})
+                                    last_hb = p.get("last_heartbeat")
+                                    if last_hb is None:
+                                        return None
+                                    import time as _t
+                                    return _t.time() - last_hb
+                                async def _get_active(name):
+                                    if self._pg_pool and self._pg_pool.is_connected():
+                                        try:
+                                            row = await self._pg_pool.fetchrow(
+                                                "SELECT COUNT(*) as n FROM shared_delegations WHERE assigned_agent=$1 AND status IN ('pending','running')",
+                                                name)
+                                            return row["n"] if row else 0
+                                        except Exception:
+                                            return 0
+                                    return 0
+                                async def _get_progress(name):
+                                    if self._pg_pool and self._pg_pool.is_connected():
+                                        try:
+                                            row = await self._pg_pool.fetchrow(
+                                                "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(updated_at))) as age FROM shared_delegations WHERE assigned_agent=$1 AND status='running'",
+                                                name)
+                                            return float(row["age"]) if row and row["age"] else None
+                                        except Exception:
+                                            return None
+                                    return None
+                                async def _get_proc_age(name):
+                                    import time as _t
+                                    return _t.time() - getattr(self, '_start_time', _t.time())
+                                async def _restart_node(name):
+                                    log.warning(f"Watchdog: restarting peer {name}")
+                                    # Trigger P2P reconnect as recovery
+                                    if hasattr(self, 'router'):
+                                        for tname, transport in self.router.transports.items():
+                                            if tname == 'p2p' and hasattr(transport, 'reconnect_all'):
+                                                try:
+                                                    await transport.reconnect_all()
+                                                except Exception:
+                                                    pass
+                                async def _alert(name, msg):
+                                    log.error(f"Watchdog ALERT {name}: {msg}")
+                                try:
+                                    await watchdog_tick(self._pg_pool, peer_name,
+                                        get_heartbeat_age=_get_hb,
+                                        get_active_delegations=_get_active,
+                                        get_last_progress=_get_progress,
+                                        get_process_age=_get_proc_age,
+                                        restart_callback=_restart_node,
+                                        alert_callback=_alert)
+                                except Exception as e:
+                                    log.debug(f"Watchdog tick for {peer_name}: {e}")
+                        except ImportError:
+                            pass
+                        except Exception as e:
+                            log.debug(f"Watchdog loop error: {e}")
+
             except asyncio.CancelledError:
                 break
             except Exception as e:

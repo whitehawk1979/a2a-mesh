@@ -2223,6 +2223,29 @@ class DashboardAdminMixin:
         from .marveen_db import get_marveen_db_status
         return web.json_response(await get_marveen_db_status())
 
+    async def _api_watchdog_status(self, request):
+        """GET /api/watchdog/status — Channel Monitor Watchdog status."""
+        from aiohttp import web
+        from .channel_monitor import get_watchdog_status, WatchdogAction
+        status = get_watchdog_status()
+        return web.json_response({
+            "monitored_nodes": status,
+            "thresholds": {
+                "warning_s": 30,
+                "busy_s": 60,
+                "stuck_s": 300,
+                "frozen_s": 600,
+                "dead_s": 1800,
+            },
+            "policy": {
+                "startup_grace_s": 30,
+                "restart_grace_s": 60,
+                "max_restart_attempts": 5,
+                "down_confirm_s": 10,
+                "busy_defer_max_s": 600,
+            },
+        })
+
     async def _api_task_runs(self, request):
         """GET /api/task-runs?agent=Nova&limit=50 — task execution audit trail."""
         from aiohttp import web
