@@ -2756,6 +2756,12 @@ function loadDelegations() {
     // Enrich Kanban cards with delegation data
     var enrichedCards = kanbanCards.map(function(card) {
       var del = delegations.find(d => d.task_id === card.delegation_task_id);
+      // Override card column based on delegation status
+      if (del) {
+        if (del.status === 'completed' || del.status === 'cancelled' || del.status === 'failed' || del.status === 'expired') card.column = 'done';
+        else if (del.status === 'running' || del.status === 'accepted') card.column = 'in_progress';
+        else if (del.status === 'available' || del.status === 'pending') card.column = 'todo';
+      }
       return { card: card, delegation: del };
     });
     
@@ -2763,7 +2769,7 @@ function loadDelegations() {
     delegations.forEach(function(d) {
       if (!kanbanCards.find(c => c.delegation_task_id === d.task_id)) {
         enrichedCards.push({
-          card: { id: d.task_id, title: d.subject, column: (d.status === 'completed' ? 'done' : d.status === 'running' ? 'in_progress' : 'todo'), priority: d.priority, created_at: d.created_at },
+          card: { id: d.task_id, title: d.subject, column: (d.status === 'completed' || d.status === 'cancelled' || d.status === 'failed' || d.status === 'expired' ? 'done' : d.status === 'running' || d.status === 'accepted' ? 'in_progress' : 'todo'), priority: d.priority, created_at: d.created_at },
           delegation: d
         });
       }

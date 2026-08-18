@@ -1,4 +1,4 @@
-# 🌙 Dream Engine — 2026-08-18T16:54:26.633169+00:00
+# 🌙 Dream Engine — 2026-08-18T17:02:11.304326+00:00
 **Node:** nova
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -16,7 +16,7 @@
 
 *(nincs beragadt task)*
 
-Archiválható (done >7nap): 0
+Archiválható (done >7nap): 11
 
 ## 🔴 Bucket 4 — Hibák
 

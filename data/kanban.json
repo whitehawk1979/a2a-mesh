@@ -290,9 +290,162 @@
           "reason": "",
           "summary": "[morzsa] System analysis completed at 2026-08-18T10:29:[PHONE REDACTED]+00:00"
         }
+      },
+      {
+        "id": "card-1787072471517-22",
+        "title": "Test: auto Kanban card creation",
+        "description": "Test task to verify auto Kanban card creation for delegations",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787072471.517353,
+        "updated_at": 1787072471.517354,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787072471733-23",
+        "title": "Fanout: Test: auto Kanban card creation",
+        "description": "Test task to verify auto Kanban card creation for delegations",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787072471.733921,
+        "updated_at": 1787072471.733922,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787072471738-24",
+        "title": "Test: auto Kanban card creation",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787072471.7383602,
+        "updated_at": 1787072773.6379242,
+        "delegation_task_id": "13a1d543-77fe-4339-8689-992f1a999534",
+        "description": "Test task to verify auto Kanban card creation for delegations",
+        "task_type": "generic",
+        "delegation_result": "[runa] System analysis completed at 2026-08-18T17:01:[PHONE REDACTED]+00:00",
+        "delegation_status": "completed",
+        "result_file": "7dd5bf4b-0ce3-4da3-ab06-578d50424d82",
+        "completed_at": "2026-08-18 17:01:15.037056+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[runa] System analysis completed at 2026-08-18T17:01:[PHONE REDACTED]+00:00"
+        }
+      },
+      {
+        "id": "card-1787072471738-25",
+        "title": "Test: auto Kanban card creation",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787072471.738914,
+        "updated_at": 1787072773.592578,
+        "delegation_task_id": "8c18b585-bd29-4936-bfee-54b7faa788e8",
+        "description": "Test task to verify auto Kanban card creation for delegations",
+        "task_type": "generic",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-18T17:01:[PHONE REDACTED]+00:00",
+        "delegation_status": "completed",
+        "result_file": "06fd6078-8f48-40ce-872d-0f6f04c9cb19",
+        "completed_at": "2026-08-18 17:01:15.614071+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[morzsa] System analysis completed at 2026-08-18T17:01:[PHONE REDACTED]+00:00"
+        }
+      },
+      {
+        "id": "card-1787072558140-26",
+        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787072558.1404002,
+        "updated_at": 1787072558.140401,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787072558281-27",
+        "title": "Fanout: Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787072558.281486,
+        "updated_at": 1787072558.281486,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787072558497-28",
+        "title": "Fanout: Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787072558.497211,
+        "updated_at": 1787072558.497211,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787072558501-29",
+        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "column": "done",
+        "priority": 8,
+        "assigned_to": "",
+        "created_at": 1787072558.5011368,
+        "updated_at": 1787072862.788317,
+        "delegation_task_id": "c7357e4b-6ed7-4216-a3bc-4f2500337c4d",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "task_type": "generic",
+        "delegation_result": "[runa] System analysis completed at 2026-08-18T17:02:[PHONE REDACTED]+00:00",
+        "delegation_status": "completed",
+        "result_file": "febfea36-9ba0-4a45-8a7c-801538fb02e7",
+        "completed_at": "2026-08-18 17:02:44.561595+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[runa] System analysis completed at 2026-08-18T17:02:[PHONE REDACTED]+00:00"
+        }
+      },
+      {
+        "id": "card-1787072558501-30",
+        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "column": "in_progress",
+        "priority": 8,
+        "assigned_to": "",
+        "created_at": 1787072558.501573,
+        "updated_at": 1787072558.501573,
+        "delegation_task_id": "725897a8-6c92-4c95-8eca-449031a89726",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "task_type": "generic"
+      },
+      {
+        "id": "card-1787072558501-31",
+        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "column": "in_progress",
+        "priority": 8,
+        "assigned_to": "",
+        "created_at": 1787072558.501961,
+        "updated_at": 1787072558.501961,
+        "delegation_task_id": "3795f970-968d-4763-b31b-52e1f2eecada",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "task_type": "generic"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787049289.833777
+    "updated_at": 1787072862.789502
   }
 ]

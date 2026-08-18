@@ -1152,11 +1152,11 @@ class DelegationManager:
         """Check for completed tasks that we delegated out."""
         rows = await self.pg_pool.fetch(
             """SELECT * FROM shared_delegations 
-               WHERE from_agent = $1 AND status IN ($2, $3) 
+               WHERE from_agent = $1 AND status IN ($2, $3, $4) 
                AND completed_at > NOW() - INTERVAL '5 minutes'
                AND kanban_card_id IS NOT NULL
                ORDER BY completed_at DESC LIMIT 10""",
-            self.node_name, STATUS_COMPLETED, STATUS_FAILED,
+            self.node_name, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
         )
 
         for row in rows:
@@ -1215,7 +1215,8 @@ class DelegationManager:
                                             log.info(f"Review: new subtask card '{sub_card['title']}' from '{c.get('title','')}'")
                                         target_col = "done"
                                 else:
-                                    target_col = "todo"
+                                    # Cancelled/failed/expired → done (not actionable)
+                                    target_col = "done"
                                     c["delegation_status"] = row["status"]
                                     c["delegation_result"] = result_text
                                     c["updated_at"] = time.time()
