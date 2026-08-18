@@ -267,7 +267,7 @@ class DelegationManager:
             if distribute_mode:
                 try:
                     known_agents = [r['node_name'] for r in await self.pg_pool.fetch(
-                        "SELECT DISTINCT node_name FROM mesh_registry WHERE status = 'online' AND node_name != $1",
+                        "SELECT DISTINCT node_name FROM agent_registry WHERE status = 'online' AND node_name != $1",
                         self.node_name,
                     )] if hasattr(self, 'pg_pool') else []
                 except Exception:
@@ -1333,7 +1333,7 @@ class DelegationManager:
                     for child in children:
                         child_id = child["task_id"]
                         await self.pg_pool.execute(
-                            "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                            "UPDATE shared_delegations SET status = $1, completed_at = NOW() WHERE task_id = $2",
                             STATUS_AVAILABLE, child_id,
                         )
                         log.info(f"🔗 DEPENDENCY: {child_id[:8]} '{child['subject'][:30]}' activated — parent {task_id[:8]} completed")
@@ -1735,7 +1735,7 @@ class DelegationManager:
         """Select a reviewer agent: 3rd party if available, else delegator."""
         try:
             online_agents = await self.pg_pool.fetch(
-                "SELECT DISTINCT node_name FROM mesh_registry WHERE status = 'online'",
+                "SELECT DISTINCT node_name FROM agent_registry WHERE status = 'online'",
             )
             all_agents = [r["node_name"] for r in online_agents]
             candidates = [a for a in all_agents if a != from_agent and a != assigned_agent]
@@ -1792,8 +1792,8 @@ class DelegationManager:
             
             await self.pg_pool.execute(
                 """INSERT INTO shared_delegations 
-                   (task_id, from_agent, to_agent, subject, description, task_type, priority, status, created_at, updated_at, timeout_minutes)
-                   VALUES ($1, $2, $3, $4, $5, 'code_review', 3, $6, NOW(), NOW(), 15)""",
+                   (task_id, from_agent, to_agent, subject, description, task_type, priority, status, created_at, timeout_minutes)
+                   VALUES ($1, $2, $3, $4, $5, 'code_review', 3, $6, NOW(), 15)""",
                 review_task_id, from_agent, reviewer, review_subject, desc_json, STATUS_AVAILABLE,
             )
             
@@ -1883,7 +1883,7 @@ class DelegationManager:
             else:
                 await self.add_note(original_task_id, f"[REVIEW_REJECTED] {reason[:200]}", "system")
                 await self.pg_pool.execute(
-                    "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                    "UPDATE shared_delegations SET status = $1, completed_at = NOW() WHERE task_id = $2",
                     STATUS_AVAILABLE, original_task_id,
                 )
                 log.info(f"🔍 Review: {str(original_task_id)[:8]} REJECTED — redispatched")

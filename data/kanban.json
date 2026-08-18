@@ -630,9 +630,33 @@
           "reason": "",
           "summary": "[runa] LLM (glm-5.2:cloud) generated code for 'Auto-Chain B: Eredmeny osszegzes' \\u2014 8862 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nAuto-Chain B: Eredmeny osszegzes\n\nNincs megadva forrasfaj"
         }
+      },
+      {
+        "id": "card-1787089854790-43",
+        "title": "Review test 2: írj egy rövid verset a holdról",
+        "description": "Írj egy 4 soros verset a holdról.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787089854.790058,
+        "updated_at": 1787089854.790058,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787089854829-44",
+        "title": "Review test 2: írj egy rövid verset a holdról",
+        "column": "review",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787089854.829359,
+        "updated_at": 1787090070.01546,
+        "delegation_task_id": "21b515b1-c9f7-496a-bfe7-c68b7bf3a941",
+        "description": "Írj egy 4 soros verset a holdról.",
+        "task_type": "code_generation"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787080953.6508749
+    "updated_at": 1787090070.015462
   }
 ]
