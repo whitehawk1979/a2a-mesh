@@ -663,7 +663,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="file-modal" style="width:700px;max-width:95vw;max-height:85vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="margin:0" id="taskDetailTitle">📋 Feladat részletei</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('taskDetailModal').style.display='none'">✕</button>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('taskDetailModal').style.display='none';var dm=document.getElementById('delegationsModal');if(dm)dm.style.display='flex';">✕</button>
     </div>
     <div id="taskDetailContent">Betöltés...</div>
   </div>
@@ -2837,6 +2837,9 @@ function loadDelegationStats() {
 }
 
 function showTaskDetail(taskId) {
+  // Hide delegations modal background so it doesn't block the detail modal
+  var delModal = document.getElementById('delegationsModal');
+  if (delModal) delModal.style.display = 'none';
   document.getElementById('taskDetailModal').style.display = 'flex';
   document.getElementById('taskDetailTitle').textContent = '📋 Betöltés...';
   document.getElementById('taskDetailContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Betöltés...</div>';
@@ -4942,6 +4945,9 @@ function approveInlineCard(boardId, cardId) {
 
 function showKanbanCardDetail(cardId) {
   var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  // Hide delegations modal background
+  var delModal = document.getElementById('delegationsModal');
+  if (delModal) delModal.style.display = 'none';
   fetch("/api/kanban/cards/" + cardId, {headers: {"Authorization": "Bearer " + token}})
     .then(r => r.json())
     .then(card => {
@@ -4979,7 +4985,7 @@ function showKanbanCardDetail(cardId) {
       modal.innerHTML = '<div class="file-modal" style="width:600px;max-width:95vw;max-height:80vh;overflow-y:auto">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<h2 style="margin:0">📋 ' + escHtml(card.title) + '</h2>' +
-        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove()">✕</button>' +
+        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();var dm=document.getElementById(\'delegationsModal\');if(dm)dm.style.display=\'flex\';">✕</button>' +
         '</div>' +
         '<div style="margin-bottom:12px;font-size:14px;line-height:1.6">' +
         '<div style="margin-bottom:8px">' + statusBadge + ' <span class="priority-badge priority-' + (card.priority||5) + '">P' + (card.priority||5) + '</span></div>' +
@@ -4991,7 +4997,7 @@ function showKanbanCardDetail(cardId) {
         resultHtml +
         '<div style="display:flex;justify-content:flex-end;gap:8px">' +
         approveBtn +
-        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove()">Bezárás</button>' +
+        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();var dm=document.getElementById(\'delegationsModal\');if(dm)dm.style.display=\'flex\';">Bezárás</button>' +
         '</div></div>';
       
       document.body.appendChild(modal);
