@@ -854,6 +854,13 @@ class DelegationManager:
             "UPDATE shared_delegations SET status = $1, assigned_agent = $2 WHERE task_id = $3",
             STATUS_RUNNING, self.node_name, task_id,
         )
+        # Marveen-inspired: audit trail in task_runs
+        _run_id = None
+        try:
+            from .marveen_db import start_task_run
+            _run_id = await start_task_run(task_id, self.node_name, task_type)
+        except Exception:
+            pass
         # Add start note
         await self.add_note(task_id, f"Task started by {self.node_name}")
 
@@ -932,6 +939,14 @@ class DelegationManager:
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
 
+            # Marveen-inspired: complete task_run audit trail
+            if _run_id:
+                try:
+                    from .marveen_db import complete_task_run
+                    await complete_task_run(_run_id, "completed", result_summary=result_text[:500])
+                except Exception:
+                    pass
+
             # Record success in circuit breaker for the assigned agent
             assigned = task.get("assigned_agent") or task.get("to_agent", "") or self.node_name
             self.record_success(assigned)
@@ -991,6 +1006,14 @@ class DelegationManager:
                     STATUS_FAILED, _safe_ascii(str(e))[:4000], task_id,
                 )
                 await self.add_note(task_id, f"Task failed permanently after {max_retries} retries: {str(e)[:150]}")
+
+                # Marveen-inspired: record failure in task_run audit
+                if _run_id:
+                    try:
+                        from .marveen_db import complete_task_run
+                        await complete_task_run(_run_id, "failed", error=str(e)[:500])
+                    except Exception:
+                        pass
 
                 # Update skill marketplace stats (failure)
                 elapsed_ms = (time.time() - _exec_start) * 1000.0

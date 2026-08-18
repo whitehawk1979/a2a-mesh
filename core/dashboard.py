@@ -308,6 +308,15 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/fleet/status", self._api_fleet_status)
         app.router.add_get("/api/fleet/export", self._api_fleet_export)
         app.router.add_post("/api/fleet/import", self._api_fleet_import)
+        # Marveen DB
+        app.router.add_get("/api/marveen-db/status", self._api_marveen_db_status)
+        app.router.add_get("/api/task-runs", self._api_task_runs)
+        app.router.add_post("/api/kanban/comments", self._api_kanban_add_comment)
+        app.router.add_get("/api/kanban/comments/{card_id}", self._api_kanban_get_comments)
+        app.router.add_get("/api/kanban/events/{card_id}", self._api_kanban_get_events)
+        app.router.add_get("/api/labels", self._api_labels_list)
+        app.router.add_post("/api/labels", self._api_labels_create)
+        app.router.add_get("/api/daily-logs", self._api_daily_logs)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)

@@ -2217,6 +2217,70 @@ class DashboardAdminMixin:
         results = import_fleet(data.get("snapshot", data), dry_run=dry_run)
         return web.json_response(results)
 
+    async def _api_marveen_db_status(self, request):
+        """GET /api/marveen-db/status — Marveen DB tables status."""
+        from aiohttp import web
+        from .marveen_db import get_marveen_db_status
+        return web.json_response(await get_marveen_db_status())
+
+    async def _api_task_runs(self, request):
+        """GET /api/task-runs?agent=Nova&limit=50 — task execution audit trail."""
+        from aiohttp import web
+        from .marveen_db import get_task_runs
+        agent = request.query.get("agent")
+        limit = int(request.query.get("limit", "50"))
+        return web.json_response({"runs": await get_task_runs(agent, limit)})
+
+    async def _api_kanban_add_comment(self, request):
+        """POST /api/kanban/comments — add a comment to a card."""
+        from aiohttp import web
+        from .marveen_db import add_kanban_comment
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        comment_id = await add_kanban_comment(data.get("card_id"), data.get("author", "system"), data.get("comment", ""))
+        return web.json_response({"id": comment_id})
+
+    async def _api_kanban_get_comments(self, request):
+        """GET /api/kanban/comments/{card_id} — get comments for a card."""
+        from aiohttp import web
+        from .marveen_db import get_kanban_comments
+        card_id = int(request.match_info["card_id"])
+        return web.json_response({"comments": await get_kanban_comments(card_id)})
+
+    async def _api_kanban_get_events(self, request):
+        """GET /api/kanban/events/{card_id} — get event history for a card."""
+        from aiohttp import web
+        from .marveen_db import get_card_events
+        card_id = int(request.match_info["card_id"])
+        return web.json_response({"events": await get_card_events(card_id)})
+
+    async def _api_labels_list(self, request):
+        """GET /api/labels — list all kanban labels."""
+        from aiohttp import web
+        from .marveen_db import list_labels
+        return web.json_response({"labels": await list_labels()})
+
+    async def _api_labels_create(self, request):
+        """POST /api/labels — create a label."""
+        from aiohttp import web
+        from .marveen_db import create_label
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        label_id = await create_label(data.get("name", ""), data.get("color", "#6366f1"))
+        return web.json_response({"id": label_id})
+
+    async def _api_daily_logs(self, request):
+        """GET /api/daily-logs?agent=Nova&days=7 — get daily logs."""
+        from aiohttp import web
+        from .marveen_db import get_daily_logs
+        agent = request.query.get("agent")
+        days = int(request.query.get("days", "7"))
+        return web.json_response({"logs": await get_daily_logs(agent, days)})
+
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""
         from aiohttp import web

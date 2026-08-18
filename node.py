@@ -194,6 +194,10 @@ class MeshNode:
         self._msg_router_process = process_backlog
         self._msg_router_status = get_router_status
 
+        # Initialize Marveen DB (audit trail, kanban comments, daily logs)
+        from .core.marveen_db import set_pg_pool as set_marveen_db_pool
+        self._set_marveen_db_pool = set_marveen_db_pool
+
         # Initialize P2P file transfer
         self.file_transfer = P2PFileTransfer(
             node_name=self.node_name,
@@ -740,6 +744,8 @@ class MeshNode:
         self.memory_sync._pg_pool = self._pg_pool
         # Wire up delegation manager with PG pool and start polling
         self.delegation.pg_pool = self._pg_pool
+        # Wire up Marveen DB (audit trail, kanban comments, daily logs)
+        self._set_marveen_db_pool(self._pg_pool)
         # Wire up health scorer with PG pool for persistence
         if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
             self.router._health_scorer.set_pg_pool(self._pg_pool, self.node_name)
