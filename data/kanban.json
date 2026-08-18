@@ -560,9 +560,79 @@
           "reason": "",
           "summary": "[morzsa] LLM (glm-5.2:cloud) generated code for 'Lanc C: Jelentes generalasa' \\u2014 31502 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n\n\n\\u2500\\u2500 Execution Error \\u2500\\u2500\n  File \"/tmp/a2"
         }
+      },
+      {
+        "id": "card-1787076173315-39",
+        "title": "Auto-Chain A: Hálózat scan",
+        "description": "{\"type\": \"generic\", \"description\": \"Futtass: ping -c 1 192.168.1.1 && ping -c 1 192.168.1.30 && echo done\", \"context\": {}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787076173.3159559,
+        "updated_at": 1787076173.315957,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787076173379-40",
+        "title": "Auto-Chain A: Hálózat scan",
+        "column": "done",
+        "priority": 7,
+        "assigned_to": "",
+        "created_at": 1787076173.379045,
+        "updated_at": 1787076460.793025,
+        "delegation_task_id": "6b606767-b538-4cbe-8293-6436651b6959",
+        "description": "{\"type\": \"generic\", \"description\": \"Futtass: ping -c 1 192.168.1.1 && ping -c 1 192.168.1.30 && echo done\", \"context\": {}}",
+        "task_type": "generic",
+        "delegation_result": "[runa] Network check completed: 6/6 OK",
+        "delegation_status": "completed",
+        "result_file": "c4678ef5-6f83-40cb-8322-5de91a6de998",
+        "completed_at": "2026-08-18 18:03:00.098304+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[runa] Network check completed: 6/6 OK"
+        }
+      },
+      {
+        "id": "card-1787076173724-41",
+        "title": "Auto-Chain B: Eredmény összegzés",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy r\\u00f6vid \\u00f6sszefoglal\\u00f3t a h\\u00e1l\\u00f3zat scan eredm\\u00e9ny\\u00e9r\\u0151l\", \"context\": {}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787076173.724513,
+        "updated_at": 1787076173.724513,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787076174166-42",
+        "title": "Auto-Chain B: Eredmény összegzés",
+        "column": "done",
+        "priority": 7,
+        "assigned_to": "",
+        "created_at": 1787076174.1662002,
+        "updated_at": 1787080674.9419048,
+        "delegation_task_id": "6acf5d13-2f07-4a3d-892e-fadf4d4f1c8a",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy r\\u00f6vid \\u00f6sszefoglal\\u00f3t a h\\u00e1l\\u00f3zat scan eredm\\u00e9ny\\u00e9r\\u0151l\", \"context\": {}}",
+        "task_type": "generic",
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for 'Auto-Chain B: Eredmeny osszegzes' \\u2014 8862 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nAuto-Chain B: Eredmeny osszegzes\n\nNincs megadva forrasfajl \\u2014 demo adatok hasznalata.\n\n============================================================\n  HALOZATI SCAN OSSZEFOGLALO\n============================================================\n  Scan datuma: 2026-08-18T22:17:[PHONE REDACTED]\n  Osszes host: 5\n  Aktiv (up) hostok: 4\n  Inaktiv (down) hostok: 1",
+        "delegation_status": "completed",
+        "result_file": "7a38c5ea-c830-43cb-b03b-4b854dd13a2d",
+        "completed_at": "2026-08-18 19:17:34.698434+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[runa] LLM (glm-5.2:cloud) generated code for 'Auto-Chain B: Eredmeny osszegzes' \\u2014 8862 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nAuto-Chain B: Eredmeny osszegzes\n\nNincs megadva forrasfaj"
+        }
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787074830.27724
+    "updated_at": 1787080674.943577
   }
 ]

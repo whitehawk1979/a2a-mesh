@@ -482,20 +482,38 @@ class DelegationManager:
 
     async def _poll_loop(self):
         """Poll shared_delegations for tasks assigned to this node."""
+        _heartbeat_counter = 0
         while self._running:
             try:
+                _heartbeat_counter += 1
+                if _heartbeat_counter % 12 == 1:  # Every ~60s
+                    log.info(f"Delegation poll heartbeat #{_heartbeat_counter} (pg_pool={'connected' if (self.pg_pool and self.pg_pool.is_connected()) else 'DISCONNECTED'})")
                 # Guard: if pg_pool is None or not connected, skip polling
                 # (health monitor will attempt reconnect every 30s)
-                if self.pg_pool is None or not self.pg_pool.is_connected():
-                    log.debug("Delegation poll skipped: pg_pool not connected — attempting reconnect")
-                    if self.pg_pool is not None:
-                        try:
-                            if await self.pg_pool.connect():
-                                log.info("Delegation: PG pool reconnected successfully")
-                        except Exception as re_err:
-                            log.warning(f"Delegation: PG reconnect failed: {re_err}")
+                # Guard: if pg_pool is None, skip
+                if self.pg_pool is None:
+                    log.warning("Delegation poll skipped: pg_pool is None")
                     await asyncio.sleep(self._poll_interval)
                     continue
+
+                # Health check: try simple query — force reconnect on failure
+                try:
+                    await self.pg_pool.fetchval("SELECT 1")
+                except Exception as hc_err:
+                    log.warning(f"Delegation poll: PG health check failed — forcing reconnect: {hc_err}")
+                    try:
+                        if self.pg_pool._pool and not self.pg_pool._pool._closed:
+                            await self.pg_pool._pool.close()
+                        self.pg_pool._pool = None
+                        if await self.pg_pool.connect():
+                            log.info("Delegation: PG reconnected after health check")
+                        else:
+                            await asyncio.sleep(self._poll_interval)
+                            continue
+                    except Exception as re_err:
+                        log.warning(f"Delegation: PG reconnect failed: {re_err}")
+                        await asyncio.sleep(self._poll_interval)
+                        continue
 
                 # Cleanup expired dedup entries (older than 1 hour)
                 now = time.time()
@@ -1413,12 +1431,22 @@ class DelegationManager:
             pending = await self.pg_pool.fetch(
                 """SELECT task_id, subject, notes FROM shared_delegations
                    WHERE from_agent = $1 AND status = $2
-                   AND notes::text LIKE '%%[DEPENDS_ON]%%'""",
+                   AND notes::text LIKE '%[DEPENDS_ON]%'""",
                 self.node_name, STATUS_PENDING,
             )
+            if pending:
+                log.info(f"Dependency check: found {len(pending)} pending tasks with dependencies")
+            else:
+                log.debug("Dependency check: no pending tasks with [DEPENDS_ON] notes")
             for row in pending:
-                task_id = row["task_id"]
+                task_id = str(row["task_id"])
                 notes = row.get("notes", [])
+                # asyncpg returns JSONB as string — parse it
+                if isinstance(notes, str) and notes:
+                    try:
+                        notes = json.loads(notes)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 if not notes:
                     continue
                 # Find the depends_on task_id in notes
@@ -1428,27 +1456,27 @@ class DelegationManager:
                         parent_id = note_text.replace("[DEPENDS_ON]", "").strip()
                         # Check if parent is completed
                         parent_status = await self.pg_pool.fetchval(
-                            "SELECT status FROM shared_delegations WHERE task_id = $1",
+                            "SELECT status FROM shared_delegations WHERE task_id = $1::text::uuid",
                             parent_id,
                         )
                         if parent_status == STATUS_COMPLETED:
                             await self.pg_pool.execute(
-                                "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                                "UPDATE shared_delegations SET status = $1, completed_at = NOW() WHERE task_id = $2::text::uuid",
                                 STATUS_AVAILABLE, task_id,
                             )
-                            log.info(f"🔗 DEPENDENCY: {task_id[:8]} '{row['subject'][:30]}' activated — parent {parent_id[:8]} completed")
+                            log.info(f"🔗 DEPENDENCY: {task_id[:8]} '{str(row['subject'])[:30]}' activated — parent {parent_id[:8]} completed")
                             await self.add_note(task_id, f"[ACTIVATED] Parent {parent_id[:8]} completed — now available", "system")
                         elif parent_status in (STATUS_CANCELLED, STATUS_FAILED, STATUS_EXPIRED):
                             # Parent failed — activate anyway so it can be reassigned or manually handled
                             await self.pg_pool.execute(
-                                "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                                "UPDATE shared_delegations SET status = $1, completed_at = NOW() WHERE task_id = $2::text::uuid",
                                 STATUS_AVAILABLE, task_id,
                             )
                             log.warning(f"🔗 DEPENDENCY: {task_id[:8]} activated — parent {parent_id[:8]} {parent_status} (cascading)")
                             await self.add_note(task_id, f"[CASCADE] Parent {parent_id[:8]} {parent_status} — activated for manual handling", "system")
                         break
         except Exception as e:
-            log.debug(f"Dependency check failed: {e}")
+            log.warning(f"Dependency check failed: {e}")
 
     def _analyze_review(self, result_text: str, card_title: str) -> dict:
         """Analyze a delegation result to determine review action.
