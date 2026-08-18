@@ -2263,11 +2263,8 @@ class DashboardAdminMixin:
         """POST /api/daily-summary/generate — Generate daily summary from task_runs."""
         from aiohttp import web
         from .marveen_db import generate_daily_summary
-        # Use the node's PG pool
-        pool = getattr(request.app.get("node", None), "_pg_pool", None) or \
-               getattr(request.app.get("mesh_node", None), "_pg_pool", None)
+        pool = getattr(self.node, "_pg_pool", None)
         if not pool:
-            # Try via router
             return web.json_response({"error": "PG pool not available"}, status=503)
         result = await generate_daily_summary(pool)
         return web.json_response(result)
