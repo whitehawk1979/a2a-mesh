@@ -301,7 +301,7 @@
         "priority": 5,
         "assigned_to": "",
         "created_at": 1787044172.8379788,
-        "updated_at": 1787044280.8017018,
+        "updated_at": 1787044470.745899,
         "delegation_task_id": "aaabbfbc-3c1e-448a-aa51-711fa6005876",
         "description": "test",
         "task_type": "test",
@@ -355,9 +355,74 @@
         "parent_card_id": "",
         "task_type": "breakdown_subtask",
         "source": "llm_breakdown"
+      },
+      {
+        "id": "card-1787044340099-27",
+        "title": "Előkészület: Test: Mesh monitoring dashboard",
+        "column": "todo",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787044340.099434,
+        "updated_at": 1787044340.099435,
+        "description": "Kontextus + követelmények",
+        "parent_card_id": "",
+        "task_type": "breakdown_subtask",
+        "source": "llm_breakdown",
+        "delegation_task_id": "840ddddb-86db-4a1f-a440-065433bd6444"
+      },
+      {
+        "id": "card-1787044340099-29",
+        "title": "Végrehajtás: Test: Mesh monitoring dashboard",
+        "column": "todo",
+        "priority": 8,
+        "assigned_to": "",
+        "created_at": 1787044340.099464,
+        "updated_at": 1787044340.099465,
+        "description": "Create monitoring dashboard",
+        "parent_card_id": "",
+        "task_type": "breakdown_subtask",
+        "source": "llm_breakdown",
+        "delegation_task_id": "87cf1258-9dba-422a-81e3-c4769a901c33"
+      },
+      {
+        "id": "card-1787044340099-31",
+        "title": "Ellenőrzés: Test: Mesh monitoring dashboard",
+        "column": "todo",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787044340.099484,
+        "updated_at": 1787044340.099485,
+        "description": "Eredmény verifikálása",
+        "parent_card_id": "",
+        "task_type": "breakdown_subtask",
+        "source": "llm_breakdown",
+        "delegation_task_id": "b0c8ba0c-621d-4325-a26d-90626a69a296"
+      },
+      {
+        "id": "card-1787045990709-30",
+        "title": "TEST: Auto Kanban card",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787045990.7092228,
+        "updated_at": 1787046100.7605782,
+        "delegation_task_id": "4369b8b7-7e83-417c-be27-19afcf54eb1d",
+        "description": "test",
+        "task_type": "test",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-18T09:39:[PHONE REDACTED]+00:00",
+        "delegation_status": "completed",
+        "result_file": "99eb477e-4788-41fc-9f79-ff216ab1f848",
+        "completed_at": "2026-08-18 09:40:01.279868+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[morzsa] System analysis completed at 2026-08-18T09:39:[PHONE REDACTED]+00:00"
+        }
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787044280.802707
+    "updated_at": 1787046100.761836
   }
 ]

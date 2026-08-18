@@ -1208,6 +1208,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <h2 style="margin:0">📋 Kanban Tábla</h2>
       <div style="display:flex;gap:8px;align-items:center">
         <select id="inlineKanbanBoard" onchange="loadInlineKanban()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px"></select>
+        <button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="addInlineCard()">+ Kártya</button>
         <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="loadInlineKanban()">🔄</button>
         <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('kanbanModal').style.display='none'">✕</button>
       </div>
@@ -2593,6 +2594,22 @@ function showDelegations() {
   populateDelegationTargets();
   loadDelegations();
   loadDelegationStats();
+  startDelegationAutoRefresh();
+}
+
+var _delegationAutoRefresh = null;
+function startDelegationAutoRefresh() {
+  if (_delegationAutoRefresh) clearInterval(_delegationAutoRefresh);
+  _delegationAutoRefresh = setInterval(function() {
+    var modal = document.getElementById('delegationsModal');
+    if (!modal || modal.style.display === 'none') {
+      clearInterval(_delegationAutoRefresh);
+      _delegationAutoRefresh = null;
+      return;
+    }
+    loadDelegations();
+    loadDelegationStats();
+  }, 5000);
 }
 
 // Known agents cache for eligible agents panel
@@ -4834,10 +4851,50 @@ function loadInlineKanban() {
         _inlineKanbanCurrent = _inlineKanbanBoards[0].id;
       sel.value = _inlineKanbanCurrent;
       renderInlineKanban();
+      startKanbanAutoRefresh();
     })
     .catch(function(e) {
       document.getElementById('inlineKanbanArea').innerHTML = '<div style="color:var(--danger);padding:16px">Hiba: ' + e.message + '</div>';
     });
+}
+
+// Auto-refresh inline Kanban when modal is open
+var _kanbanAutoRefresh = null;
+function startKanbanAutoRefresh() {
+  if (_kanbanAutoRefresh) clearInterval(_kanbanAutoRefresh);
+  _kanbanAutoRefresh = setInterval(function() {
+    var modal = document.getElementById('kanbanModal');
+    if (!modal || modal.style.display === 'none') {
+      clearInterval(_kanbanAutoRefresh);
+      _kanbanAutoRefresh = null;
+      return;
+    }
+    // Silent refresh — just fetch and re-render, don't reset modal
+    var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+    fetch("/api/kanban", {headers: {"Authorization": "Bearer " + token}})
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        _inlineKanbanBoards = data.boards || [];
+        renderInlineKanban();
+      }).catch(function() {});
+  }, 5000);
+}
+
+function addInlineCard() {
+  var title = prompt("Kártya címe:");
+  if (!title) return;
+  var board = _inlineKanbanBoards.find(function(b) { return b.id === _inlineKanbanCurrent; });
+  if (!board) return;
+  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  var col = prompt("Oszlop (todo/in_progress/review/done):", "todo") || "todo";
+  fetch("/api/kanban/" + board.id + "/cards", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    body: JSON.stringify({title: title, column: col, priority: 5})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error) { alert("Hiba: " + d.error); return; }
+    loadInlineKanban();
+  });
 }
 
 function renderInlineKanban() {
