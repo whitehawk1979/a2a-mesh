@@ -89,6 +89,10 @@ class DelegationManager:
         self._max_notify_per_tick = 5  # Max P2P notifications per tick
         # ── Stuck delegation tracking ──
         self._alerted_stuck: set = set()  # task_ids already alerted (avoid repeat)
+        # ── Result callback dedup: avoid calling callback for same completed task repeatedly ──
+        self._results_seen: set = set()  # task_ids already passed to callback
+        self._results_seen_timestamps: Dict[str, float] = {}  # TTL tracking
+        self._results_seen_ttl = 300.0  # 5 min (matches query window)
 
     async def start(self):
         """Start polling for delegated tasks."""
@@ -1301,7 +1305,14 @@ class DelegationManager:
             self.node_name, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
         )
 
+        now = time.time()
         for row in rows:
+            task_id = row.get("task_id", "")
+            # Dedup: skip if callback already fired for this task
+            if task_id in self._results_seen:
+                continue
+            self._results_seen.add(task_id)
+            self._results_seen_timestamps[task_id] = now
             if self._on_result_callback:
                 try:
                     if asyncio.iscoroutinefunction(self._on_result_callback):
@@ -1431,6 +1442,14 @@ class DelegationManager:
                                 break
             except Exception as e:
                 log.debug(f"Kanban auto-move skipped: {e}")
+
+        # Cleanup expired result dedup entries (matches query 5-minute window)
+        now2 = time.time()
+        expired = [tid for tid, ts in self._results_seen_timestamps.items()
+                   if now2 - ts > self._results_seen_ttl]
+        for tid in expired:
+            self._results_seen.discard(tid)
+            self._results_seen_timestamps.pop(tid, None)
 
     async def _check_dependencies(self):
         """Activate pending tasks whose parent (depends_on) has completed.
