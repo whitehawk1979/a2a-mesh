@@ -1297,7 +1297,6 @@ class DelegationManager:
             """SELECT * FROM shared_delegations 
                WHERE from_agent = $1 AND status IN ($2, $3, $4) 
                AND completed_at > NOW() - INTERVAL '5 minutes'
-               AND kanban_card_id IS NOT NULL
                ORDER BY completed_at DESC LIMIT 10""",
             self.node_name, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
         )
@@ -1311,6 +1310,14 @@ class DelegationManager:
                         self._on_result_callback(dict(row))
                 except Exception as e:
                     log.debug(f"Result callback error: {e}")
+
+            # ── Process review results ──
+            if row["status"] == STATUS_COMPLETED and row.get("task_type") == "code_review":
+                try:
+                    result_text = row.get("result", "") or ""
+                    asyncio.create_task(self._process_review_result(str(row["task_id"]), result_text))
+                except Exception as re_err:
+                    log.debug(f"Review result processing error: {re_err}")
 
             # ── Dependency chain: activate children waiting on this task ──
             if row["status"] == STATUS_COMPLETED:
@@ -1346,23 +1353,25 @@ class DelegationManager:
                             if c["id"] == kanban_card_id:
                                 result_text = row.get("result", "")[:500] if row.get("result") else ""
                                 if row["status"] == STATUS_COMPLETED:
-                                    # ── Auto-review analysis ──
-                                    analysis = self._analyze_review(result_text, c.get("title", ""))
-                                    target_col = analysis["target_col"]
+                                    # ── Agent-based review ──
+                                    target_col = "review"
                                     
-                                    # Save result + analysis on card
                                     c["delegation_result"] = result_text
                                     c["delegation_status"] = row["status"]
                                     c["result_file"] = row.get("result_file", "") if row.get("result_file") else ""
                                     c["completed_at"] = str(row.get("completed_at", ""))[:30]
                                     c["updated_at"] = time.time()
-                                    c["review_analysis"] = analysis
+                                    c["review_status"] = "pending"
                                     
-                                    if analysis.get("needs_approval"):
-                                        # Stay in review, wait for human approval
-                                        c["approval_required"] = True
-                                        log.info(f"Review: card '{c.get('title','')}' needs approval: {analysis.get('reason','')}")
-                                    elif analysis.get("subtasks"):
+                                    asyncio.create_task(self._delegate_review(
+                                        str(row["task_id"]),
+                                        row.get("subject", c.get("title", "")),
+                                        result_text,
+                                        row.get("assigned_agent", ""),
+                                        kanban_card_id,
+                                    ))
+                                    # Keep old subtask logic below
+                                    if False and analysis.get("subtasks"):
                                         # Create new Kanban cards for subtasks
                                         for sub in analysis["subtasks"]:
                                             sub_card = {
@@ -1717,3 +1726,166 @@ class DelegationManager:
                 return False
             return True
         return False
+
+    # ─────────────────────────────────────────────────────────────────
+    #  Agent-based Review System
+    # ─────────────────────────────────────────────────────────────────
+
+    async def _select_reviewer(self, from_agent: str, assigned_agent: str) -> Optional[str]:
+        """Select a reviewer agent: 3rd party if available, else delegator."""
+        try:
+            online_agents = await self.pg_pool.fetch(
+                "SELECT DISTINCT node_name FROM mesh_registry WHERE status = 'online'",
+            )
+            all_agents = [r["node_name"] for r in online_agents]
+            candidates = [a for a in all_agents if a != from_agent and a != assigned_agent]
+            
+            if candidates:
+                reviewer = None
+                min_load = 999
+                for agent in candidates:
+                    load = await self.pg_pool.fetchval(
+                        "SELECT COUNT(*) FROM shared_delegations WHERE to_agent = $1 AND task_type = 'code_review' AND status IN ($2, $3)",
+                        agent, STATUS_AVAILABLE, STATUS_RUNNING,
+                    )
+                    if load is None:
+                        load = 0
+                    if load < min_load:
+                        min_load = load
+                        reviewer = agent
+                
+                if reviewer:
+                    log.info(f"🔍 Review: selected 3rd-party reviewer '{reviewer}' (load={min_load})")
+                    return reviewer
+            
+            log.info(f"🔍 Review: no 3rd-party agent — delegator '{from_agent}' will review")
+            return from_agent
+        except Exception as e:
+            log.warning(f"Reviewer selection failed: {e} — falling back to delegator")
+            return from_agent
+
+    async def _delegate_review(self, original_task_id: str, original_subject: str,
+                                result_text: str, assigned_agent: str, kanban_card_id: str):
+        """Delegate review to a 3rd-party agent (or delegator as fallback)."""
+        try:
+            from_agent = self.node_name
+            reviewer = await self._select_reviewer(from_agent, assigned_agent)
+            if not reviewer:
+                reviewer = from_agent
+            
+            review_subject = f"[REVIEW] {original_subject[:60]}"
+            review_desc = (
+                f"You are reviewing a task result from agent '{assigned_agent}'.\n\n"
+                f"Original task: {original_subject}\n\n"
+                f"Result:\n{result_text[:2000]}\n\n"
+                f"Evaluate the result. Respond in JSON:\n"
+                f'{{"verdict": "accept" | "reject", "reason": "brief explanation"}}\n'
+                f"- accept: result is correct and complete\n"
+                f"- reject: result is wrong, incomplete, or needs rework\n"
+            )
+            
+            review_task_id = str(uuid.uuid4())
+            desc_json = json.dumps({
+                "description": review_desc,
+                "context": {"original_task_id": str(original_task_id), "kanban_card_id": kanban_card_id},
+            })
+            
+            await self.pg_pool.execute(
+                """INSERT INTO shared_delegations 
+                   (task_id, from_agent, to_agent, subject, description, task_type, priority, status, created_at, updated_at, timeout_minutes)
+                   VALUES ($1, $2, $3, $4, $5, 'code_review', 3, $6, NOW(), NOW(), 15)""",
+                review_task_id, from_agent, reviewer, review_subject, desc_json, STATUS_AVAILABLE,
+            )
+            
+            await self.add_note(review_task_id, f"[REVIEW_OF] {original_task_id}", "system")
+            await self.add_note(review_task_id, f"[REVIEW_CARD] {kanban_card_id}", "system")
+            
+            log.info(f"🔍 Review delegated: task={review_task_id[:8]} reviewer={reviewer} original={str(original_task_id)[:8]}")
+        except Exception as e:
+            log.error(f"Review delegation failed: {e}")
+
+    async def _process_review_result(self, review_task_id: str, review_result: str):
+        """Process a completed review — accept or reject the original task."""
+        try:
+            import re as _re
+            verdict = "accept"
+            reason = ""
+            
+            json_match = _re.search(r'\{[^{}]*"verdict"[^{}]*\}', review_result, _re.DOTALL)
+            if json_match:
+                try:
+                    verdict_data = json.loads(json_match.group())
+                    verdict = verdict_data.get("verdict", "accept")
+                    reason = verdict_data.get("reason", "")
+                except json.JSONDecodeError:
+                    pass
+            else:
+                result_lower = review_result.lower()
+                if "reject" in result_lower or "redo" in result_lower or "újra" in result_lower:
+                    verdict = "reject"
+                if "accept" in result_lower or "correct" in result_lower or "rendben" in result_lower:
+                    verdict = "accept"
+            
+            notes_row = await self.pg_pool.fetchrow(
+                "SELECT notes FROM shared_delegations WHERE task_id = $1",
+                review_task_id,
+            )
+            if not notes_row:
+                return
+            
+            notes = notes_row.get("notes", [])
+            if isinstance(notes, str):
+                try:
+                    notes = json.loads(notes)
+                except json.JSONDecodeError:
+                    notes = []
+            
+            original_task_id = None
+            kanban_card_id = None
+            for note_entry in (notes if isinstance(notes, list) else []):
+                note_text = note_entry.get("note", "") if isinstance(note_entry, dict) else str(note_entry)
+                if "[REVIEW_OF]" in note_text:
+                    original_task_id = note_text.replace("[REVIEW_OF]", "").strip()
+                elif "[REVIEW_CARD]" in note_text:
+                    kanban_card_id = note_text.replace("[REVIEW_CARD]", "").strip()
+            
+            if not original_task_id:
+                return
+            
+            log.info(f"🔍 Review result: task={str(original_task_id)[:8]} verdict={verdict} reason={reason[:60]}")
+            
+            if kanban_card_id:
+                try:
+                    from .kanban import _load_boards, _save_boards
+                    boards = _load_boards()
+                    for board in boards:
+                        for c in board.get("cards", []):
+                            if c["id"] == kanban_card_id:
+                                c["review_status"] = verdict
+                                c["review_reason"] = reason[:300]
+                                c["reviewed_at"] = time.time()
+                                c["updated_at"] = time.time()
+                                if verdict == "accept":
+                                    c["column"] = "done"
+                                    log.info(f"🔍 Review ACCEPT: card → done")
+                                else:
+                                    c["column"] = "todo"
+                                    c["review_status"] = "rejected"
+                                    log.info(f"🔍 Review REJECT: card → todo (redispatch)")
+                                break
+                    _save_boards(boards)
+                except Exception as ke:
+                    log.warning(f"Review Kanban update failed: {ke}")
+            
+            if verdict == "accept":
+                await self.add_note(original_task_id, f"[REVIEW_ACCEPTED] {reason[:200]}", "system")
+                log.info(f"🔍 Review: {str(original_task_id)[:8]} ACCEPTED")
+            else:
+                await self.add_note(original_task_id, f"[REVIEW_REJECTED] {reason[:200]}", "system")
+                await self.pg_pool.execute(
+                    "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                    STATUS_AVAILABLE, original_task_id,
+                )
+                log.info(f"🔍 Review: {str(original_task_id)[:8]} REJECTED — redispatched")
+        except Exception as e:
+            log.error(f"Review result processing failed: {e}")
