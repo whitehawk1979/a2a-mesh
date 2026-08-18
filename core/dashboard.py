@@ -221,6 +221,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/breakdown", self._api_kanban_breakdown)
         app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/approve", self._api_kanban_approve)
         app.router.add_get("/api/kanban/audit", self._api_kanban_audit)
+        app.router.add_get("/api/kanban/cards/{card_id}", self._api_kanban_get_card_by_id)
+        app.router.add_post("/api/kanban/cards/{card_id}/approve", self._api_kanban_approve_by_card_id)
         # PreCompact audit
         app.router.add_get("/api/precompact/audit", self._api_precompact_audit)
         # Dream Engine

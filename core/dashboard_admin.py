@@ -1777,6 +1777,18 @@ class DashboardAdminMixin:
             return web.json_response(board)
         return web.json_response({"error": "not found"}, status=404)
 
+    async def _api_kanban_get_card_by_id(self, request):
+        """GET /api/kanban/cards/{card_id} — Get a single card by ID (searches all boards)."""
+        from aiohttp import web
+        mgr = self._get_kanban()
+        card_id = request.match_info.get("card_id", "")
+        for board in mgr.get_boards():
+            for card in board.get("cards", []):
+                if card.get("id") == card_id:
+                    card["board_id"] = board.get("id", "")
+                    return web.json_response(card)
+        return web.json_response({"error": "card not found"}, status=404)
+
     async def _api_kanban_add_card(self, request):
         """POST /api/kanban/{board_id}/cards — Add a card to a board."""
         from aiohttp import web
@@ -1883,6 +1895,33 @@ class DashboardAdminMixin:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _api_kanban_approve_by_card_id(self, request):
+        """POST /api/kanban/cards/{card_id}/approve — Approve by card ID (searches all boards)."""
+        from aiohttp import web
+        import os as _os, json as _json, time as _time
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        card_id = request.match_info.get("card_id", "")
+        kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+        try:
+            with open(kanban_path) as f:
+                boards = _json.load(f)
+            for board in boards:
+                for card in board.get("cards", []):
+                    if card["id"] == card_id:
+                        card["column"] = "done"
+                        card["approval_required"] = False
+                        card["approved_by"] = user.username if hasattr(user, 'username') else "unknown"
+                        card["approved_at"] = _time.time()
+                        card["updated_at"] = _time.time()
+                        with open(kanban_path, 'w') as f:
+                            _json.dump(boards, f, indent=2)
+                        log.info(f"Kanban approve: card '{card.get('title','')}' approved by {card['approved_by']}")
+                        return web.json_response({"status": "approved", "card_id": card_id})
+            return web.json_response({"error": "Card not found"}, status=404)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
     async def _api_kanban_audit(self, request):
         """GET /api/kanban/audit — Audit stale cards across all boards."""
         from aiohttp import web
