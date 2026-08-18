@@ -279,6 +279,93 @@ psql -h <pg-host> -U nova -d agent_memory -c \
 - **mTLS + HMAC** — node-ok közötti titkosítás
 - **P2P + PG + HTTP transport** — háromszintű fallback
 
+---
+
+## Garantált Végrehajtási Modell (v0.29+)
+
+A mesh három delegációs módot támogat a feladatok garantált elvégzéséhez:
+
+### 1. RACE mód (verseny)
+
+Egy feladat több agentnek kiosztva — az első aki befejezi nyer, a többi auto-cancelled.
+
+```
+Nova → [Task] → Morzsa ✅ (winner)
+              → Runa   ✗ (cancelled: sibling completed)
+```
+
+- `fan_out: true` (alapértelmezett)
+- Redundáns végrehajtás, reliability
+- Auto-cancel siblings amikor az első completed
+
+### 2. DISTRIBUTE mód (szétosztás)
+
+Minden fan-out gyerek különböző agentnek megy, **mindnek el kell készülnie**.
+
+```
+Nova → [Task 1/3] → Morzsa ✅
+     → [Task 2/3] → Runa   ✅
+     → [Task 3/3] → Nova   ✅
+```
+
+- `fan_out: true, distribute_mode: true`
+- Komplex feladat bontás, párhuzamos munka
+- Nincs sibling cancellation — minden gyerek önálló
+
+### 3. Dependency Chain (láncolt végrehajtás)
+
+Feladatok sorrendben hajtódnak végre — B csak A befejezése után indul.
+
+```
+A (available) → completed → trigger B (available) → completed → trigger C
+```
+
+- `depends_on: <parent_task_id>`
+- Láncolt workflow-k, pipeline-ek
+- Auto-activation: `_check_dependencies` poll minden 5s
+- Cascade: ha parent fail/cancelled → gyermek auto-activate (manual handling)
+
+### Auto-Reassign
+
+Stuck/failed taskok automatikus újrakiosztása:
+
+```
+Task stuck >10min → retry_count++ → reset to available → újra kiosztás
+max_retries exhausted → P9 escalate + alert
+```
+
+### Auto-Kanban
+
+Minden delegált feladat automatikusan kap Kanban kártyát:
+- `todo` → `in_progress` → `review` → `done`
+- Státusz alapú auto-mozgatás
+- Cancelled/failed/expired → `done` oszlop
+
+### 7 napos Retention
+
+A rendszer automatikusan tisztítja a régi rekordokat:
+- 7 napnál régebbi completed/failed/cancelled/expired taskok
+- Fájlok és PG rekordok törlése
+
+---
+
+## P2P Transport
+
+Teljes mesh P2P topology TLS-elve:
+
+```
+Nova (macOS) ←→ Morzsa (Debian 12) ←→ Runa (Ubuntu 24.04)
+     ↕                    ↕                    ↕
+     └────────────────────┴────────────────────┘
+              Full mesh P2P (TLS 1.3)
+```
+
+- `tls_verify_peer: false` minden node-on
+- `tls_enabled: true` — TLSv1.3, mTLS
+- SSH tunnel fallback (heartbeat 60s)
+- PG NOTIFY transport fallback
+- HTTP bridge fallback
+
 ## Fájlok
 
 ```
