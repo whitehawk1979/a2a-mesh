@@ -13,6 +13,7 @@ to keep diagnostic traffic isolated and allow fine-grained filtering.
 """
 
 import asyncio
+import re
 import json
 import os
 import platform
@@ -881,12 +882,14 @@ class DiagnosticEngine:
             peers = health.get("peers", [])
             if isinstance(peers, list) and len(peers) > 0:
                 versions = set()
+                # Semver pattern: X.Y.Z (optionally with pre-release suffix)
+                _ver_re = re.compile(r'^\d+\.\d+\.\d+')
                 for p in peers:
                     v = p.get("version", "?")
-                    if v and v != "?":
+                    if v and v != "?" and _ver_re.match(str(v)):
                         versions.add(v)
                 own_ver = getattr(self.node, '_resolved_version', None) or 'unknown'
-                if own_ver and own_ver != 'unknown':
+                if own_ver and own_ver != 'unknown' and _ver_re.match(str(own_ver)):
                     versions.add(own_ver)
                 if len(versions) > 1 and not _suggestion_exists("verzió"):
                     s = await self.generate_suggestion(
