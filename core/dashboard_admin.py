@@ -1792,7 +1792,7 @@ class DashboardAdminMixin:
         # Kanban Dispatch: if card moved to in_progress, create delegation + notify assigned agent
         if data.get("column") == "in_progress" and card.get("assigned_to"):
             try:
-                node = getattr(self, '_node_ref', None) or self
+                node = getattr(self, 'node', None) or getattr(self, '_node_ref', None) or self
                 # Create a delegation for this card so the Kanban tracks it
                 if hasattr(node, '_pg_pool') and node._pg_pool and not card.get("delegation_task_id"):
                     import uuid
