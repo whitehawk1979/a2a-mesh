@@ -121,6 +121,7 @@ def get_team_status():
                 "delegates_to": cfg.get("delegates_to", []),
                 "auto_delegation": cfg.get("auto_delegation", False),
                 "can_split_tasks": cfg.get("can_split_tasks", False),
+                "security_profile": resolve_security_profile(name, cfg.get("security_profile")),
             }
             for name, cfg in config["nodes"].items()
         ],

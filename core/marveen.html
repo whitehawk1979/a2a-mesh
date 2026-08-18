@@ -472,6 +472,23 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
+  <!-- 26. Fleet Transfer -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🚢</span><span class="title">Fleet Transfer</span>
+      <span class="status status-ok" id="fleetStatus">✓</span>
+    </div>
+    <div class="card-body" id="fleetBody">
+      <div class="stat-row"><span class="label">Exports</span><span class="value blue" id="fleetExports">0</span></div>
+      <div class="stat-row"><span class="label">Schema</span><span class="value" id="fleetSchema">v1</span></div>
+      <div id="fleetRecent" style="margin-top:6px;font-size:10px;color:var(--text3)">—</div>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button onclick="fleetExport()" style="padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Export</button>
+        <button onclick="fleetExportEnc()" style="padding:4px 12px;background:var(--accent2);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Encrypt + Export</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 26. Login Throttle -->
   <div class="card">
     <div class="card-header">
@@ -580,6 +597,7 @@ function loadAll() {
   loadUpdatePreflight();
   loadStoreWatcher();
   loadDelegEngine();
+  loadFleet();
   loadVault();
   loadLoginThrottle();
   loadCSRF();
@@ -1057,6 +1075,35 @@ function loadDelegEngine() {
   api("/api/message-router").then(function(d) {
     if (!d) return;
     document.getElementById("delegBudget").textContent = d.max_per_tick || 25;
+  });
+}
+
+function loadFleet() {
+  api("/api/fleet/status").then(function(d) {
+    if (!d) return;
+    document.getElementById("fleetExports").textContent = d.exports || 0;
+    document.getElementById("fleetSchema").textContent = "v" + (d.schemaVersion || 1);
+    var recent = (d.recentExports || []).slice(0, 3);
+    if (recent.length > 0) {
+      var html = recent.map(function(e) {
+        return e.name + " (" + e.size + "b" + (e.encrypted ? " 🔒" : "") + ")";
+      }).join("<br>");
+      document.getElementById("fleetRecent").innerHTML = html;
+    }
+  });
+}
+
+function fleetExport() {
+  fetch("/api/fleet/export").then(function(r) { return r.json(); }).then(function(d) {
+    if (d.exported) { alert("Export kész: " + d.file + " (" + d.size + " bytes)"); loadFleet(); }
+  });
+}
+
+function fleetExportEnc() {
+  var pw = prompt("Jelszó az encryptáláshoz:");
+  if (!pw) return;
+  fetch("/api/fleet/export?password=" + encodeURIComponent(pw)).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.exported) { alert("Encryptelt export: " + d.file + " (" + d.size + " bytes)"); loadFleet(); }
   });
 }
 
