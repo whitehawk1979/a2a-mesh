@@ -156,14 +156,14 @@ async def breakdown_and_delegate(task_title, task_description="", node=None, boa
     if node and hasattr(node, 'delegation') and node.delegation:
         for card in created_cards:
             try:
-                task_id = await node.delegation.create_task(
+                task_id = await node.delegation.delegate_task(
+                    to_agent=card.get("assigned_to") or "any",
                     subject=card["title"],
                     description=card.get("description", ""),
-                    from_agent=node.name,
-                    to_agent=card.get("assigned_to") or "any",
                     task_type="breakdown_subtask",
                     priority=card.get("priority", 5),
-                    metadata={"kanban_card_id": card["id"], "source": "llm_breakdown"},
+                    available=True if not card.get("assigned_to") else False,
+                    context={"kanban_card_id": card["id"], "source": "llm_breakdown"},
                 )
                 # Write kanban_card_id back to card
                 card["delegation_task_id"] = str(task_id)
