@@ -1065,6 +1065,26 @@ class DelegationManager:
                 except Exception as e:
                     log.debug(f"Result callback error: {e}")
 
+            # ── Auto-move Kanban card based on delegation result ──
+            try:
+                kanban_card_id = row.get("kanban_card_id") or ""
+                if kanban_card_id:
+                    from .kanban import KanbanManager, _load_boards
+                    km = KanbanManager(self.node_name)
+                    boards = _load_boards()
+                    for board in boards:
+                        for c in board.get("cards", []):
+                            if c["id"] == kanban_card_id:
+                                if row["status"] == STATUS_COMPLETED:
+                                    target_col = "review" if "review" in board.get("columns", []) else "done"
+                                else:
+                                    target_col = "todo"
+                                km.move_card(board["id"], kanban_card_id, target_col)
+                                log.info(f"Kanban auto-move: card '{c.get('title','')}' → {target_col} ({row['status']})")
+                                break
+            except Exception as e:
+                log.debug(f"Kanban auto-move skipped: {e}")
+
     # ── Query helpers ──
 
     async def get_my_delegations(self, status: Optional[str] = None) -> List[Dict]:

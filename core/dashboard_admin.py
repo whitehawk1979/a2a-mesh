@@ -1789,10 +1789,25 @@ class DashboardAdminMixin:
         card_id = request.match_info.get("card_id", "")
         data = await request.json()
         card = mgr.update_card(board_id, card_id, data)
-        # Kanban Dispatch: if card moved to in_progress, notify assigned agent
+        # Kanban Dispatch: if card moved to in_progress, create delegation + notify assigned agent
         if data.get("column") == "in_progress" and card.get("assigned_to"):
             try:
                 node = getattr(self, '_node_ref', None) or self
+                # Create a delegation for this card so the Kanban tracks it
+                if hasattr(node, '_pg_pool') and node._pg_pool and not card.get("delegation_task_id"):
+                    import uuid
+                    task_id = str(uuid.uuid4())
+                    await node._pg_pool.execute(
+                        """INSERT INTO shared_delegations
+                           (task_id, from_agent, to_agent, subject, description, status, priority, kanban_card_id)
+                           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                        task_id, node.node_name, card["assigned_to"],
+                        card["title"][:200], card.get("description", "")[:2000],
+                        "available", int(card.get("priority_num", 5)), card["id"],
+                    )
+                    # Store delegation task_id on the card
+                    card = mgr.update_card(board_id, card_id, {"delegation_task_id": task_id})
+                    log.info(f"Kanban dispatch: created delegation {task_id} for card '{card['title']}' → {card['assigned_to']}")
                 if hasattr(node, 'send_a2a_message'):
                     await node.send_a2a_message(
                         to_agent=card["assigned_to"],
