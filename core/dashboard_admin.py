@@ -3014,7 +3014,7 @@ class DashboardAdminMixin:
                 return web.json_response({"error": "PG pool not available"}, status=503)
             rows = await pool.fetch(
                 """SELECT task_id, subject, status, to_agent, from_agent,
-                          created_at, updated_at, kanban_card_id, priority
+                          created_at, kanban_card_id, priority
                    FROM shared_delegations
                    WHERE status IN ('failed', 'available', 'pending', 'running')
                    ORDER BY created_at DESC LIMIT 50"""
