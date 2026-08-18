@@ -2246,6 +2246,32 @@ class DashboardAdminMixin:
             },
         })
 
+    async def _api_governance_rules(self, request):
+        """GET /api/governance/rules — List all governance rules."""
+        from aiohttp import web
+        from .governance import get_gates
+        return web.json_response({"rules": get_gates().get_rules()})
+
+    async def _api_governance_audit(self, request):
+        """GET /api/governance/audit — Get governance audit log."""
+        from aiohttp import web
+        from .governance import get_gates
+        limit = int(request.query.get("limit", "100"))
+        return web.json_response({"audit_log": get_gates().get_audit_log(limit)})
+
+    async def _api_generate_daily_summary(self, request):
+        """POST /api/daily-summary/generate — Generate daily summary from task_runs."""
+        from aiohttp import web
+        from .marveen_db import generate_daily_summary
+        # Use the node's PG pool
+        pool = getattr(request.app.get("node", None), "_pg_pool", None) or \
+               getattr(request.app.get("mesh_node", None), "_pg_pool", None)
+        if not pool:
+            # Try via router
+            return web.json_response({"error": "PG pool not available"}, status=503)
+        result = await generate_daily_summary(pool)
+        return web.json_response(result)
+
     async def _api_task_runs(self, request):
         """GET /api/task-runs?agent=Nova&limit=50 — task execution audit trail."""
         from aiohttp import web

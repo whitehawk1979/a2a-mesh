@@ -39,6 +39,10 @@ class AgentHealthRecord:
     # Provider status fields (from provider_health)
     provider_primary: str = ""
     provider_fallback: str = ""
+    # Agent state machine (Marveen pane-state inspired)
+    agent_state: str = "idle"       # idle/busy/typing/stuck/frozen/dead/unknown
+    last_progress: Optional[float] = None  # Timestamp of last progress update
+    active_delegations: int = 0     # Count of running delegations
 
 
 class HealthScorer:
@@ -265,6 +269,19 @@ class HealthScorer:
         """Check if an agent is healthy (score >= threshold)."""
         return self.get_score(agent_name) >= threshold
 
+    def update_agent_state(self, agent_name: str, state: str,
+                           active_delegations: int = 0,
+                           last_progress: Optional[float] = None):
+        """Update agent state machine (Marveen pane-state inspired).
+        
+        Called by the watchdog loop to sync agent state into health records.
+        """
+        record = self.get_record(agent_name)
+        record.agent_state = state
+        record.active_delegations = active_delegations
+        if last_progress is not None:
+            record.last_progress = last_progress
+
     @property
     def stats(self) -> dict:
         """Return health scorer statistics."""
@@ -280,6 +297,8 @@ class HealthScorer:
                     "consecutive_failures": rec.consecutive_failures,
                     "provider_primary": rec.provider_primary,
                     "provider_fallback": rec.provider_fallback,
+                    "agent_state": rec.agent_state,
+                    "active_delegations": rec.active_delegations,
                 }
                 for name, rec in self._records.items()
             },

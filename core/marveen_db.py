@@ -372,3 +372,91 @@ async def get_marveen_db_status() -> Dict[str, Any]:
         return {"tables": tables, "total_tables": len(tables)}
     except Exception as e:
         return {"error": str(e)}
+
+
+async def generate_daily_summary(pg_pool, agent: str = None) -> Dict:
+    """Generate daily summary from task_runs and write to daily_logs.
+
+    Called by a cron job once per day. Aggregates:
+    - Total delegations, success rate, avg duration
+    - Error count, most common errors
+    - Agent ranking by throughput
+
+    Returns the summary dict.
+    """
+    import json as _json
+    import datetime as _dt
+    if not pg_pool:
+        return {"error": "No PG pool"}
+
+    try:
+        rows = await pg_pool.fetch(
+            """SELECT agent,
+                      COUNT(*) as total,
+                      COUNT(CASE WHEN status='completed' THEN 1 END) as completed,
+                      COUNT(CASE WHEN status='failed' THEN 1 END) as failed,
+                      AVG(duration_ms) as avg_duration_ms,
+                      MAX(duration_ms) as max_duration_ms
+               FROM task_runs
+               WHERE started_at >= CURRENT_DATE
+               GROUP BY agent
+               ORDER BY total DESC"""
+        )
+
+        total_delegations = 0
+        total_completed = 0
+        total_failed = 0
+        agent_stats = []
+
+        for r in rows:
+            ag = r["agent"]
+            total = r["total"]
+            completed = r["completed"]
+            failed = r["failed"]
+            avg_dur = float(r["avg_duration_ms"]) if r["avg_duration_ms"] else 0
+            max_dur = float(r["max_duration_ms"]) if r["max_duration_ms"] else 0
+            success_rate = completed / total if total > 0 else 0
+
+            total_delegations += total
+            total_completed += completed
+            total_failed += failed
+
+            summary = (
+                f"📊 {ag}: {total} tasks ({completed}✅ {failed}❌) "
+                f"avg={avg_dur:.0f}ms max={max_dur:.0f}ms "
+                f"success={success_rate:.0%}"
+            )
+            agent_stats.append({"agent": ag, "summary": summary,
+                               "total": total, "completed": completed,
+                               "failed": failed, "avg_ms": avg_dur})
+
+            await pg_pool.execute(
+                """INSERT INTO daily_logs (agent, date, summary, task_count, error_count, metadata)
+                   VALUES ($1, CURRENT_DATE, $2, $3, $4, $5)
+                   ON CONFLICT (agent, date) DO UPDATE SET
+                     summary = $2, task_count = $3, error_count = $4, metadata = $5""",
+                ag, summary, total, failed,
+                _json.dumps({"avg_ms": avg_dur, "max_ms": max_dur,
+                             "success_rate": success_rate}),
+            )
+
+        overall_rate = total_completed / total_delegations if total_delegations > 0 else 0
+        overall_summary = (
+            f"📅 Daily Summary: {total_delegations} delegations "
+            f"({total_completed}✅ {total_failed}❌) "
+            f"success_rate={overall_rate:.0%}"
+        )
+
+        log.info(f"Daily summary generated: {overall_summary}")
+        return {
+            "date": _dt.date.today().isoformat(),
+            "total_delegations": total_delegations,
+            "total_completed": total_completed,
+            "total_failed": total_failed,
+            "success_rate": overall_rate,
+            "agents": agent_stats,
+            "summary": overall_summary,
+        }
+    except Exception as e:
+        log.error(f"generate_daily_summary failed: {e}")
+        return {"error": str(e)}

@@ -922,6 +922,28 @@ class DelegationManager:
             else:
                 result_text = _safe_ascii(str(handler_result))[:4000]
 
+            # ── Governance/Egress Gate (Marveen-inspired) ──
+            try:
+                from .governance import get_gates, GateResult
+                gates = get_gates()
+                # Determine security profile from agent_team
+                sec_profile = "default"
+                try:
+                    from .agent_team import resolve_security_profile
+                    sec_profile = resolve_security_profile(self.node_name)
+                except Exception:
+                    pass
+                gate_result = gates.check(result_text, self.node_name, sec_profile)
+                if gate_result.action == GateResult.BLOCK:
+                    log.warning(
+                        f"Governance BLOCK for task {task_id}: {gate_result.blocked_items}"
+                    )
+                    result_text = f"[BLOCKED BY GOVERNANCE: {', '.join(gate_result.matched_rules)}]"
+                else:
+                    result_text = gate_result.cleaned_output
+            except Exception as gov_err:
+                log.debug(f"Governance check failed (non-fatal): {gov_err}")
+
             # Mark as completed with optional result_file
             if result_file_id:
                 await self.pg_pool.execute(
