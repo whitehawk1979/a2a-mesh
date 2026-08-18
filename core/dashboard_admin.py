@@ -2047,10 +2047,24 @@ class DashboardAdminMixin:
     async def _api_worker_liveness(self, request):
         """GET /api/worker-liveness — Get worker liveness status."""
         from aiohttp import web
-        from .worker_liveness import get_all_workers, check_liveness
+        from .worker_liveness import get_all_workers, check_liveness, load_state, save_state, record_heartbeat
+        import time as _time
+        
+        # Auto-register known nodes as workers from registry
+        try:
+            if hasattr(self, 'node') and hasattr(self.node, 'registry'):
+                agents = self.node.registry.list_agents() or []
+                for agent_card, health in agents:
+                    name = agent_card.name if hasattr(agent_card, 'name') else str(agent_card)
+                    hb = health.last_heartbeat if health and hasattr(health, 'last_heartbeat') else 0
+                    if hb and hb > 0:
+                        record_heartbeat(name, '')
+        except:
+            pass
+        
         issues = check_liveness()
         workers = get_all_workers()
-        return web.json_response({"workers": workers, "issues": issues})
+        return web.json_response({"workers": workers, "issues": issues, "count": len(workers)})
 
     async def _api_stuck_watcher(self, request):
         """GET /api/stuck-watcher — Check for stuck delegations."""
@@ -2320,7 +2334,26 @@ class DashboardAdminMixin:
     async def _api_desired_state(self, request):
         """GET /api/desired-state — Desired state reconciler status."""
         from aiohttp import web
-        from .desired_state import get_status
+        from .desired_state import get_status, ensure_initialized, set_pg_pool, auto_enroll_from_registry
+        # Initialize on first call
+        pool = getattr(self.node, '_pg_pool', None)
+        if pool:
+            set_pg_pool(pool)
+        await ensure_initialized()
+        # Auto-enroll from registry
+        known = {}
+        try:
+            if hasattr(self, 'node') and hasattr(self.node, 'registry'):
+                agents = self.node.registry.list_agents() or []
+                for agent_card, health in agents:
+                    name = agent_card.name if hasattr(agent_card, 'name') else str(agent_card)
+                    known[name] = {
+                        'last_heartbeat': health.last_heartbeat if health and hasattr(health, 'last_heartbeat') else 0,
+                        'status': 'online' if health and hasattr(health, 'status') else 'unknown',
+                    }
+        except:
+            pass
+        await auto_enroll_from_registry(known)
         return web.json_response(get_status())
 
     async def _api_desired_state_add(self, request):
