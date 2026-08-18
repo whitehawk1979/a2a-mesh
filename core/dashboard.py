@@ -219,6 +219,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_put("/api/kanban/{board_id}/cards/{card_id}", self._api_kanban_update_card)
         app.router.add_delete("/api/kanban/{board_id}/cards/{card_id}", self._api_kanban_delete_card)
         app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/breakdown", self._api_kanban_breakdown)
+        app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/approve", self._api_kanban_approve)
         app.router.add_get("/api/kanban/audit", self._api_kanban_audit)
         # PreCompact audit
         app.router.add_get("/api/precompact/audit", self._api_precompact_audit)

@@ -1084,40 +1084,173 @@ class DelegationManager:
             try:
                 kanban_card_id = row.get("kanban_card_id") or ""
                 if kanban_card_id:
-                    from .kanban import KanbanManager, _load_boards
+                    from .kanban import KanbanManager, _load_boards, _save_boards
                     km = KanbanManager(self.node_name)
                     boards = _load_boards()
                     for board in boards:
                         for c in board.get("cards", []):
                             if c["id"] == kanban_card_id:
+                                result_text = row.get("result", "")[:500] if row.get("result") else ""
                                 if row["status"] == STATUS_COMPLETED:
-                                    target_col = "review" if "review" in board.get("columns", []) else "done"
+                                    # ── Auto-review analysis ──
+                                    analysis = self._analyze_review(result_text, c.get("title", ""))
+                                    target_col = analysis["target_col"]
+                                    
+                                    # Save result + analysis on card
+                                    c["delegation_result"] = result_text
+                                    c["delegation_status"] = row["status"]
+                                    c["result_file"] = row.get("result_file", "") if row.get("result_file") else ""
+                                    c["completed_at"] = str(row.get("completed_at", ""))[:30]
+                                    c["updated_at"] = time.time()
+                                    c["review_analysis"] = analysis
+                                    
+                                    if analysis.get("needs_approval"):
+                                        # Stay in review, wait for human approval
+                                        c["approval_required"] = True
+                                        log.info(f"Review: card '{c.get('title','')}' needs approval: {analysis.get('reason','')}")
+                                    elif analysis.get("subtasks"):
+                                        # Create new Kanban cards for subtasks
+                                        for sub in analysis["subtasks"]:
+                                            sub_card = {
+                                                "id": f"card-{int(time.time()*1000)}-{len(board.get('cards',[]))}",
+                                                "title": sub["title"][:80],
+                                                "column": "todo",
+                                                "priority": sub.get("priority", c.get("priority", "medium")),
+                                                "assigned_to": c.get("assigned_to", ""),
+                                                "created_at": time.time(),
+                                                "updated_at": time.time(),
+                                                "description": sub.get("description", ""),
+                                                "parent_card_id": kanban_card_id,
+                                            }
+                                            board.setdefault("cards", []).append(sub_card)
+                                            log.info(f"Review: new subtask card '{sub_card['title']}' from '{c.get('title','')}'")
+                                        target_col = "done"
                                 else:
                                     target_col = "todo"
-                                # Save result + files on the card
-                                c["delegation_result"] = row.get("result", "")[:500] if row.get("result") else ""
-                                c["delegation_status"] = row["status"]
-                                c["result_file"] = row.get("result_file", "") if row.get("result_file") else ""
-                                c["completed_at"] = str(row.get("completed_at", ""))[:30]
-                                c["updated_at"] = time.time()
+                                    c["delegation_status"] = row["status"]
+                                    c["delegation_result"] = result_text
+                                    c["updated_at"] = time.time()
+                                
                                 km.move_card(board["id"], kanban_card_id, target_col)
-                                # Re-save with result data (move_card may reload)
+                                # Re-save with result + analysis data
                                 boards2 = _load_boards()
                                 for b2 in boards2:
                                     for c2 in b2.get("cards", []):
                                         if c2["id"] == kanban_card_id:
-                                            c2["delegation_result"] = c["delegation_result"]
-                                            c2["delegation_status"] = c["delegation_status"]
-                                            c2["result_file"] = c["result_file"]
-                                            c2["completed_at"] = c["completed_at"]
-                                            c2["updated_at"] = c["updated_at"]
+                                            c2["delegation_result"] = c.get("delegation_result", "")
+                                            c2["delegation_status"] = c.get("delegation_status", "")
+                                            c2["result_file"] = c.get("result_file", "")
+                                            c2["completed_at"] = c.get("completed_at", "")
+                                            c2["updated_at"] = c.get("updated_at", time.time())
+                                            if c.get("review_analysis"):
+                                                c2["review_analysis"] = c["review_analysis"]
+                                            if c.get("approval_required"):
+                                                c2["approval_required"] = True
                                             break
-                                from .kanban import _save_boards
+                                    # Also save subtask cards if any
+                                    if analysis.get("subtasks") if row["status"] == STATUS_COMPLETED else False:
+                                        for sub in analysis["subtasks"]:
+                                            sub_card = {
+                                                "id": f"card-{int(time.time()*1000)}-{len(b2.get('cards',[]))}",
+                                                "title": sub["title"][:80],
+                                                "column": "todo",
+                                                "priority": sub.get("priority", "medium"),
+                                                "assigned_to": c.get("assigned_to", ""),
+                                                "created_at": time.time(),
+                                                "updated_at": time.time(),
+                                                "description": sub.get("description", ""),
+                                                "parent_card_id": kanban_card_id,
+                                            }
+                                            b2.setdefault("cards", []).append(sub_card)
                                 _save_boards(boards2)
-                                log.info(f"Kanban auto-move: card '{c.get('title','')}' → {target_col} ({row['status']}) result={'yes' if c['delegation_result'] else 'no'}")
+                                log.info(f"Kanban auto-move: card '{c.get('title','')}' → {target_col} ({row['status']}) result={'yes' if c.get('delegation_result') else 'no'} approval={c.get('approval_required',False)}")
                                 break
             except Exception as e:
                 log.debug(f"Kanban auto-move skipped: {e}")
+
+    def _analyze_review(self, result_text: str, card_title: str) -> dict:
+        """Analyze a delegation result to determine review action.
+        
+        Returns:
+            {
+                "target_col": "review" | "done" | "todo",
+                "needs_approval": bool,
+                "subtasks": [{"title": str, "description": str, "priority": str}],
+                "reason": str,
+                "summary": str,
+            }
+        """
+        result_lower = result_text.lower() if result_text else ""
+        
+        # Default: clean completion → done
+        analysis = {
+            "target_col": "done",
+            "needs_approval": False,
+            "subtasks": [],
+            "reason": "",
+            "summary": result_text[:200] if result_text else "No result text",
+        }
+        
+        if not result_text:
+            analysis["target_col"] = "review"
+            analysis["needs_approval"] = True
+            analysis["reason"] = "No result text — needs human review"
+            return analysis
+        
+        # ── Rule: approval needed keywords ──
+        approval_keywords = [
+            "needs approval", "requires approval", "pending approval",
+            "needs review", "requires review", "awaiting decision",
+            "needs human", "requires human", "needs decision",
+            "jóváhagyás", "döntés szükséges", "emberi döntés",
+            "needs your decision", "requires your approval",
+        ]
+        for kw in approval_keywords:
+            if kw in result_lower:
+                analysis["target_col"] = "review"
+                analysis["needs_approval"] = True
+                analysis["reason"] = f"Keyword '{kw}' found in result"
+                return analysis
+        
+        # ── Rule: high-priority / security / production changes need approval ──
+        high_risk_keywords = [
+            "production", "prod deploy", "security", "credential",
+            "password", "api key", "secret", "delete data", "drop table",
+            "éles rendszer", "biztonsági", "jelszó", "titkos",
+        ]
+        for kw in high_risk_keywords:
+            if kw in result_lower:
+                analysis["target_col"] = "review"
+                analysis["needs_approval"] = True
+                analysis["reason"] = f"High-risk keyword '{kw}' — needs approval"
+                return analysis
+        
+        # ── Rule: subtask detection ──
+        # Look for TODO/FIXME/next step patterns
+        import re
+        todo_patterns = [
+            r"(?:TODO|FIXME|NEXT|NEXT STEP|KÖVETKEZŐ)[\s:]+(.+)",
+            r"(?:follow.up|follow-up|további feladat)[\s:]+(.+)",
+            r"(?:remaining|outstanding|hátralévő)[\s:]+(.+)",
+        ]
+        subtasks = []
+        for pattern in todo_patterns:
+            matches = re.findall(pattern, result_text, re.IGNORECASE)
+            for m in matches[:3]:  # Max 3 subtasks
+                title = m.strip()[:80]
+                if title and len(title) > 5:
+                    subtasks.append({
+                        "title": title,
+                        "description": f"Auto-detected subtask from '{card_title}'",
+                        "priority": "medium",
+                    })
+        
+        if subtasks:
+            analysis["subtasks"] = subtasks
+            analysis["target_col"] = "done"  # Parent done, subtasks in todo
+            analysis["reason"] = f"{len(subtasks)} subtask(s) detected"
+        
+        return analysis
 
     # ── Query helpers ──
 

@@ -1852,6 +1852,37 @@ class DashboardAdminMixin:
         created = await mgr.auto_breakdown(board_id, card_id, subtasks)
         return web.json_response({"created": created})
 
+    async def _api_kanban_approve(self, request):
+        """POST /api/kanban/{board_id}/cards/{card_id}/approve — Approve a review card → done."""
+        from aiohttp import web
+        import os as _os, json as _json, time as _time
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        board_id = request.match_info.get("board_id", "")
+        card_id = request.match_info.get("card_id", "")
+        kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+        try:
+            with open(kanban_path) as f:
+                boards = _json.load(f)
+            for board in boards:
+                if board.get("id") != board_id:
+                    continue
+                for card in board.get("cards", []):
+                    if card["id"] == card_id:
+                        card["column"] = "done"
+                        card["approval_required"] = False
+                        card["approved_by"] = user.username if hasattr(user, 'username') else "unknown"
+                        card["approved_at"] = _time.time()
+                        card["updated_at"] = _time.time()
+                        with open(kanban_path, 'w') as f:
+                            _json.dump(boards, f, indent=2)
+                        log.info(f"Kanban approve: card '{card.get('title','')}' approved by {card['approved_by']}")
+                        return web.json_response({"status": "approved", "card_id": card_id})
+            return web.json_response({"error": "Card not found"}, status=404)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _api_kanban_audit(self, request):
         """GET /api/kanban/audit — Audit stale cards across all boards."""
         from aiohttp import web
