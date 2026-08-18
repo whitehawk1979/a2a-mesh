@@ -8,6 +8,21 @@ log = logging.getLogger("a2a_mesh.dashboard.delegations")
 
 class DashboardDelegationsMixin:
     # ── Delegation API endpoints ──
+    
+    def _get_pg_pool(self):
+        """Get PG pool from node, with fallback to delegation.pg_pool."""
+        if self.node:
+            # Try node._pg_pool first (always fresh after reconnect)
+            pool = getattr(self.node, '_pg_pool', None)
+            if pool and pool.is_connected():
+                # Sync to delegation so delegation methods work too
+                if self.node.delegation and not self.node.delegation.pg_pool:
+                    self.node.delegation.pg_pool = pool
+                return pool
+            # Fallback to delegation.pg_pool
+            if self.node.delegation and self.node.delegation.pg_pool:
+                return self.node.delegation.pg_pool
+        return None
 
     async def _api_delegations_list(self, request):
         """List delegations. GET /api/delegations?status=pending&agent=nova&task_type=monitoring"""
