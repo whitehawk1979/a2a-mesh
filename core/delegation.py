@@ -505,6 +505,7 @@ class DelegationManager:
                 await self._poll_pending()
                 await self._poll_available()
                 await self._check_results()
+                await self._check_dependencies()
                 await self._cleanup_old_tasks()
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
@@ -1380,6 +1381,51 @@ class DelegationManager:
                                 break
             except Exception as e:
                 log.debug(f"Kanban auto-move skipped: {e}")
+
+    async def _check_dependencies(self):
+        """Activate pending tasks whose parent (depends_on) has completed.
+        Runs every poll cycle — checks all pending tasks with [DEPENDS_ON] notes."""
+        try:
+            # Find pending tasks with dependency notes
+            pending = await self.pg_pool.fetch(
+                """SELECT task_id, subject, notes FROM shared_delegations
+                   WHERE from_agent = $1 AND status = $2
+                   AND notes::text LIKE '[DEPENDS_ON]%%'""",
+                self.node_name, STATUS_PENDING,
+            )
+            for row in pending:
+                task_id = row["task_id"]
+                notes = row.get("notes", [])
+                if not notes:
+                    continue
+                # Find the depends_on task_id in notes
+                for note_entry in (notes if isinstance(notes, list) else []):
+                    note_text = note_entry.get("note", "") if isinstance(note_entry, dict) else str(note_entry)
+                    if "[DEPENDS_ON]" in note_text:
+                        parent_id = note_text.replace("[DEPENDS_ON]", "").strip()
+                        # Check if parent is completed
+                        parent_status = await self.pg_pool.fetchval(
+                            "SELECT status FROM shared_delegations WHERE task_id = $1",
+                            parent_id,
+                        )
+                        if parent_status == STATUS_COMPLETED:
+                            await self.pg_pool.execute(
+                                "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                                STATUS_AVAILABLE, task_id,
+                            )
+                            log.info(f"🔗 DEPENDENCY: {task_id[:8]} '{row['subject'][:30]}' activated — parent {parent_id[:8]} completed")
+                            await self.add_note(task_id, f"[ACTIVATED] Parent {parent_id[:8]} completed — now available", "system")
+                        elif parent_status in (STATUS_CANCELLED, STATUS_FAILED, STATUS_EXPIRED):
+                            # Parent failed — activate anyway so it can be reassigned or manually handled
+                            await self.pg_pool.execute(
+                                "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                                STATUS_AVAILABLE, task_id,
+                            )
+                            log.warning(f"🔗 DEPENDENCY: {task_id[:8]} activated — parent {parent_id[:8]} {parent_status} (cascading)")
+                            await self.add_note(task_id, f"[CASCADE] Parent {parent_id[:8]} {parent_status} — activated for manual handling", "system")
+                        break
+        except Exception as e:
+            log.debug(f"Dependency check failed: {e}")
 
     def _analyze_review(self, result_text: str, card_title: str) -> dict:
         """Analyze a delegation result to determine review action.

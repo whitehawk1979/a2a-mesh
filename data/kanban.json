@@ -455,9 +455,92 @@
         "created_at": 1787073234.7318661,
         "updated_at": 1787073234.7318668,
         "created_by": "unknown"
+      },
+      {
+        "id": "card-1787073526673-33",
+        "title": "Lánc A: Rendszer állapot lekérdezés",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass: uptime && free -h && df -h / \\u00e9s add vissza JSON-ben\", \"context\": {}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787073526.673053,
+        "updated_at": 1787073526.673054,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787073526738-34",
+        "title": "Lánc A: Rendszer állapot lekérdezés",
+        "column": "done",
+        "priority": 7,
+        "assigned_to": "",
+        "created_at": 1787073526.7389061,
+        "updated_at": 1787073732.525153,
+        "delegation_task_id": "d21d74d5-2980-4257-9e29-bb2bb6a2e72c",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass: uptime && free -h && df -h / \\u00e9s add vissza JSON-ben\", \"context\": {}}",
+        "task_type": "generic",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-18T17:18:[PHONE REDACTED]+00:00",
+        "delegation_status": "completed",
+        "result_file": "5224f6dc-96ec-44af-a0cf-54124df4d4bc",
+        "completed_at": "2026-08-18 17:18:52.436042+00:",
+        "review_analysis": {
+          "target_col": "done",
+          "needs_approval": false,
+          "subtasks": [],
+          "reason": "",
+          "summary": "[morzsa] System analysis completed at 2026-08-18T17:18:[PHONE REDACTED]+00:00"
+        }
+      },
+      {
+        "id": "card-1787073527119-35",
+        "title": "Lánc B: Eredmény feldolgozása",
+        "description": "{\"type\": \"generic\", \"description\": \"Dolgozd fel a Task A eredm\\u00e9ny\\u00e9t: k\\u00e9sz\\u00edts egy \\u00f6sszefoglal\\u00f3t a rendszer \\u00e1llapotr\\u00f3l\", \"context\": {}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787073527.119523,
+        "updated_at": 1787073527.119523,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787073527270-36",
+        "title": "Lánc B: Eredmény feldolgozása",
+        "column": "in_progress",
+        "priority": 7,
+        "assigned_to": "",
+        "created_at": 1787073527.270894,
+        "updated_at": 1787073527.270895,
+        "delegation_task_id": "9415dde8-a796-4fa2-9888-41fb95a1161d",
+        "description": "{\"type\": \"generic\", \"description\": \"Dolgozd fel a Task A eredm\\u00e9ny\\u00e9t: k\\u00e9sz\\u00edts egy \\u00f6sszefoglal\\u00f3t a rendszer \\u00e1llapotr\\u00f3l\", \"context\": {}}",
+        "task_type": "generic"
+      },
+      {
+        "id": "card-1787073527669-37",
+        "title": "Lánc C: Jelentés generálása",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy v\\u00e9gleges jelent\\u00e9st a rendszer-diagnosztik\\u00e1r\\u00f3l\", \"context\": {}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787073527.669014,
+        "updated_at": 1787073527.669014,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787073527810-38",
+        "title": "Lánc C: Jelentés generálása",
+        "column": "in_progress",
+        "priority": 7,
+        "assigned_to": "",
+        "created_at": 1787073527.8104398,
+        "updated_at": 1787073527.8104398,
+        "delegation_task_id": "9a45128d-9aa6-475b-82ca-0a1cbd448e05",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy v\\u00e9gleges jelent\\u00e9st a rendszer-diagnosztik\\u00e1r\\u00f3l\", \"context\": {}}",
+        "task_type": "generic"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787073234.7318752
+    "updated_at": 1787073732.526172
   }
 ]
