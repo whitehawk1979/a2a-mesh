@@ -432,6 +432,7 @@ class DelegationManager:
                             "task_id": task_id,
                             "stuck_agent": assigned,
                             "subject": subject,
+                            "trace_id": f"trace-{assigned}-{task_id[:8]}",
                         },
                         priority=8,
                     )
@@ -751,10 +752,12 @@ class DelegationManager:
         
         Marveen-inspired: never let a handoff fail silently.
         Rate-limited per agent to avoid alert spam (1 alert per 60s per agent).
+        Propagates trace_id for distributed tracing.
         """
         task_id = str(task.get("task_id", ""))
         from_agent = task.get("from_agent", "")
         subject = task.get("subject", "?")
+        trace_id = f"trace-{self.node_name}-{task_id[:8]}"
         
         if not from_agent or from_agent == self.node_name:
             return  # Don't notify self
@@ -788,6 +791,7 @@ class DelegationManager:
                     "failed_agent": self.node_name,
                     "subject": subject,
                     "error": error[:500],
+                    "trace_id": trace_id,
                 },
                 priority=9,
             )
