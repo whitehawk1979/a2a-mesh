@@ -16,6 +16,14 @@ log = logging.getLogger("marveen_db")
 _pg_pool = None
 
 
+def _fix_dt(d: dict) -> dict:
+    """Convert datetime objects to ISO strings for JSON serialization."""
+    for k, v in d.items():
+        if hasattr(v, 'isoformat'):
+            d[k] = v.isoformat()
+    return d
+
+
 def set_pg_pool(pool):
     global _pg_pool
     _pg_pool = pool
@@ -49,7 +57,7 @@ async def get_kanban_comments(card_id: int, limit: int = 50) -> List[Dict]:
             "SELECT id, author, comment, created_at FROM kanban_comments WHERE card_id = $1 ORDER BY created_at ASC LIMIT $2",
             card_id, limit
         )
-        return [dict(r) for r in rows]
+        return [_fix_dt(dict(r)) for r in rows]
     except Exception as e:
         log.warning(f"get_kanban_comments failed: {e}")
         return []
@@ -84,7 +92,7 @@ async def get_card_events(card_id: int, limit: int = 50) -> List[Dict]:
             "FROM kanban_card_events WHERE card_id = $1 ORDER BY created_at DESC LIMIT $2",
             card_id, limit
         )
-        return [dict(r) for r in rows]
+        return [_fix_dt(dict(r)) for r in rows]
     except Exception as e:
         log.warning(f"get_card_events failed: {e}")
         return []
@@ -190,7 +198,16 @@ async def get_task_runs(agent: str = None, limit: int = 50) -> List[Dict]:
                 "ORDER BY started_at DESC LIMIT $1",
                 limit
             )
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            d = dict(r)
+            # Ensure JSON-serializable
+            if d.get('started_at'):
+                d['started_at'] = str(d['started_at'])
+            if d.get('completed_at'):
+                d['completed_at'] = str(d['completed_at'])
+            result.append(_fix_dt(d))
+        return result
     except Exception as e:
         log.warning(f"get_task_runs failed: {e}")
         return []
@@ -225,7 +242,7 @@ async def get_conversation_log(agent: str, limit: int = 50) -> List[Dict]:
             "FROM conversation_log WHERE agent = $1 ORDER BY created_at DESC LIMIT $2",
             agent, limit
         )
-        return [dict(r) for r in rows]
+        return [_fix_dt(dict(r)) for r in rows]
     except Exception as e:
         log.warning(f"get_conversation_log failed: {e}")
         return []
@@ -277,7 +294,7 @@ async def get_daily_logs(agent: str = None, days: int = 7) -> List[Dict]:
                 "SELECT * FROM daily_logs WHERE date >= NOW() - INTERVAL '$1 days' ORDER BY date DESC, agent",
                 str(days)
             )
-        return [dict(r) for r in rows]
+        return [_fix_dt(dict(r)) for r in rows]
     except Exception as e:
         log.warning(f"get_daily_logs failed: {e}")
         return []
@@ -318,7 +335,7 @@ async def get_pending_background_tasks(agent: str = None, limit: int = 50) -> Li
                 "WHERE status = 'pending' ORDER BY created_at ASC LIMIT $1",
                 limit
             )
-        return [dict(r) for r in rows]
+        return [_fix_dt(dict(r)) for r in rows]
     except Exception as e:
         log.warning(f"get_pending_background_tasks failed: {e}")
         return []
