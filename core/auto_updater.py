@@ -538,7 +538,7 @@ class AutoUpdater:
                 if node_name == "morzsa":
                     service = "a2a-mesh"
                 elif node_name == "runa":
-                    service = "a2a-mesh-runa"
+                    service = "a2a-mesh"
                 else:
                     service = "a2a-mesh"
 
