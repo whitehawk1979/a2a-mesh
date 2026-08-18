@@ -1,137 +1,206 @@
 """
-Process Lock — exclusive lock on the mesh node's TCP port.
+Process-Lock Takeover — adapted from Marveen's process-lock.ts.
 
-Inspired by Marveen's process-lock:
-  - On startup, find zombie processes holding the port
-  - SIGTERM them, wait grace period, SIGKILL survivors
-  - Prevents parallel instances with conflicting state
+Marveen eredeti: port-lock takeover — ha a dashboard restartol, megöli a zombie
+elődöt ami még tartja a portot. SIGTERM → grace → SIGKILL.
 
-For A2A Mesh:
-  - Lock the dashboard port (8650) on startup
-  - Kill stale node processes
-  - Platform-aware (macOS launchd vs Linux systemd)
+A2A Mesh adaptáció:
+  - node.py indításakor ellenőrzi hogy a port (8650) foglalt-e
+  - Ha igen, megkeresi a zombie folyamatot (same UID, same port)
+  - SIGTERM → grace period (5s) → SIGKILL ha még él
+  - Így biztos hogy csak egy instance fut egyszerre
+  - Bármennyi node-ra működik (mindegyik a saját portját védi)
+
+Nem tmux-specifikus — tiszta process management.
 """
 
-import os
-import sys
-import time
-import socket
+import asyncio
 import logging
-import subprocess
+import os
+import signal
+import time
+from typing import List, Optional, Tuple
 
 log = logging.getLogger("process_lock")
 
-DEFAULT_PORT = 8650
-GRACE_PERIOD = 3  # seconds before SIGKILL
 
+async def acquire_port_lock(port: int, grace_s: float = 5.0) -> bool:
+    """Ensure exclusive ownership of a TCP port.
+    
+    If another process holds the port, attempt graceful takeover:
+    1. Find the process (same UID, holding the port)
+    2. SIGTERM it
+    3. Wait grace_s seconds
+    4. SIGKILL if still alive
+    5. Verify port is free
+    
+    Returns True if port is now ours, False if we couldn't acquire it.
+    """
+    # Check if port is free
+    holders = _find_port_holders(port)
+    if not holders:
+        return True  # Port is free
 
-def acquire_port_lock(port=DEFAULT_PORT):
-    """Try to bind to the port. If it's already in use, find and kill the old process.
-    Returns True if port is now available, False otherwise."""
-    # First try to bind
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("0.0.0.0", port))
-        sock.close()
-        log.info(f"Process lock: port {port} is free")
-        return True
-    except OSError:
-        log.warning(f"Process lock: port {port} is in use, attempting cleanup")
-    
-    # Find processes holding the port
-    pids = _find_pids_on_port(port)
-    if not pids:
-        log.error(f"Process lock: cannot find process on port {port}, but it's in use")
-        return False
-    
-    # SIGTERM
-    for pid in pids:
-        try:
-            os.kill(pid, 15)  # SIGTERM
-            log.info(f"Process lock: SIGTERM sent to PID {pid}")
-        except ProcessLookupError:
-            pass
-        except PermissionError:
-            log.error(f"Process lock: no permission to kill PID {pid}")
-            return False
-    
-    # Wait grace period
-    time.sleep(GRACE_PERIOD)
-    
-    # SIGKILL survivors
-    for pid in pids:
-        try:
-            os.kill(pid, 9)  # SIGKILL
-            log.warning(f"Process lock: SIGKILL sent to PID {pid}")
-        except ProcessLookupError:
-            pass  # Already dead — good
-    
-    time.sleep(1)
-    
-    # Try to bind again
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("0.0.0.0", port))
-        sock.close()
-        log.info(f"Process lock: port {port} acquired after cleanup")
-        return True
-    except OSError:
-        log.error(f"Process lock: port {port} still in use after cleanup")
-        return False
+    log.warning(f"Port {port} is held by PIDs: {holders} — attempting takeover")
 
+    our_uid = os.getuid()
+    our_pid = os.getpid()
 
-def _find_pids_on_port(port):
-    """Find PIDs of processes listening on the given port."""
-    pids = []
-    try:
-        if sys.platform == "darwin":
-            # macOS: lsof
-            result = subprocess.run(
-                ["lsof", "-ti", f":{port}"],
-                capture_output=True, text=True, timeout=5
-            )
-            pids = [int(p) for p in result.stdout.strip().split("\n") if p.strip().isdigit()]
+    # Filter to same-UID processes (don't kill other users' processes)
+    target_pids = []
+    for pid in holders:
+        if pid == our_pid:
+            continue  # Don't kill ourselves
+        uid = _get_process_uid(pid)
+        if uid == our_uid:
+            target_pids.append(pid)
         else:
-            # Linux: ss or fuser
+            log.warning(f"Port {port} also held by PID {pid} (UID {uid}) — not ours, skipping")
+
+    if not target_pids:
+        log.error(f"Port {port} held by other users' processes — cannot acquire")
+        return False
+
+    # Phase 1: SIGTERM
+    log.info(f"SIGTERM → PIDs {target_pids}")
+    for pid in target_pids:
+        _signal_process(pid, signal.SIGTERM)
+
+    # Wait grace period
+    await asyncio.sleep(grace_s)
+
+    # Check which survived
+    survivors = [pid for pid in target_pids if _is_process_alive(pid)]
+    if survivors:
+        # Phase 2: SIGKILL
+        log.warning(f"SIGKILL → survivors PIDs {survivors}")
+        for pid in survivors:
+            _signal_process(pid, signal.SIGKILL)
+
+        # Brief wait for kernel cleanup
+        await asyncio.sleep(1.0)
+
+    # Verify port is free
+    remaining = _find_port_holders(port)
+    remaining_ours = [p for p in remaining if p != our_pid and _get_process_uid(p) == our_uid]
+    if remaining_ours:
+        log.error(f"Port {port} still held after takeover: {remaining_ours}")
+        return False
+
+    log.info(f"Port {port} acquired successfully")
+    return True
+
+
+def _find_port_holders(port: int) -> List[int]:
+    """Find PIDs holding a TCP port."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}", "-sTCP:LISTEN"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return [int(p.strip()) for p in result.stdout.strip().split("\n") if p.strip().isdigit()]
+    except FileNotFoundError:
+        # lsof not available — try ss (Linux)
+        try:
             result = subprocess.run(
                 ["ss", "-tlnp", f"sport = :{port}"],
                 capture_output=True, text=True, timeout=5
             )
-            # Parse PID from output
-            import re
-            pids = [int(m) for m in re.findall(r'pid=(\d+)', result.stdout)]
-            if not pids:
-                result = subprocess.run(
-                    ["fuser", f"{port}/tcp"],
-                    capture_output=True, text=True, timeout=5
-                )
-                pids = [int(p) for p in result.stdout.strip().split() if p.strip().isdigit()]
+            pids = []
+            for line in result.stdout.split("\n"):
+                if "pid=" in line:
+                    # Extract pid=N
+                    import re
+                    match = re.search(r'pid=(\d+)', line)
+                    if match:
+                        pids.append(int(match.group(1)))
+            return pids
+        except FileNotFoundError:
+            log.warning("Neither lsof nor ss available — cannot find port holders")
+            return []
     except Exception as e:
-        log.debug(f"Process lock: failed to find PIDs: {e}")
-    
-    # Don't kill ourselves
-    my_pid = os.getpid()
-    pids = [p for p in pids if p != my_pid]
-    return pids
+        log.warning(f"Port holder detection failed: {e}")
+        return []
 
 
-def get_lock_status(port=DEFAULT_PORT):
-    """Get current lock status for dashboard display."""
+def _get_process_uid(pid: int) -> Optional[int]:
+    """Get the UID of a process."""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        result = sock.connect_ex(("127.0.0.1", port))
-        sock.close()
-        in_use = result == 0
-        pids = _find_pids_on_port(port) if in_use else []
-        return {
-            "port": port,
-            "in_use": in_use,
-            "pids": pids,
-            "our_pid": os.getpid(),
-            "platform": sys.platform,
-        }
+        return os.stat(f"/proc/{pid}")[4]  # st_uid
+    except (OSError, IndexError):
+        pass
+    # macOS / fallback: ps
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "uid=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=3
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return int(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
+def _is_process_alive(pid: int) -> bool:
+    """Check if a process is still alive."""
+    try:
+        os.kill(pid, 0)  # Signal 0 = check existence
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # Exists but we can't signal it
+
+
+def _signal_process(pid: int, sig: int):
+    """Send a signal to a process, logging errors."""
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        log.debug(f"PID {pid} already gone")
+    except PermissionError:
+        log.warning(f"Cannot signal PID {pid} — permission denied")
     except Exception as e:
-        return {"port": port, "error": str(e), "platform": sys.platform}
+        log.warning(f"Signal {sig} to PID {pid} failed: {e}")
+
+
+# ── Singleton lock check ─────────────────────────────────────
+
+_lock_acquired = False
+_lock_port: Optional[int] = None
+
+
+async def ensure_single_instance(port: int, grace_s: float = 5.0) -> bool:
+    """Ensure only one instance of this process is running on the given port.
+    
+    Call this at startup, before binding the HTTP server.
+    Returns True if we successfully acquired the port.
+    """
+    global _lock_acquired, _lock_port
+    
+    if _lock_acquired and _lock_port == port:
+        return True
+    
+    success = await acquire_port_lock(port, grace_s)
+    if success:
+        _lock_acquired = True
+        _lock_port = port
+        log.info(f"Singleton lock acquired on port {port}")
+    else:
+        log.error(f"Failed to acquire singleton lock on port {port}")
+    
+    return success
+
+
+def get_lock_status() -> dict:
+    """Get lock status for dashboard."""
+    return {
+        "acquired": _lock_acquired,
+        "port": _lock_port,
+        "pid": os.getpid(),
+        "uid": os.getuid(),
+    }

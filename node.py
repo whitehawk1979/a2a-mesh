@@ -612,6 +612,20 @@ class MeshNode:
         log.info(f"Starting mesh node '{self.node_name}' (role={self.role.value})")
         self._start_time = time.time()
 
+        # ── Process Lock Takeover (Marveen-inspired) ──
+        # Ensure only one instance runs per port — kill zombie predecessors
+        try:
+            from .core.process_lock import ensure_single_instance
+            port = getattr(self.config, 'api_port', 8650)
+            lock_ok = await ensure_single_instance(port, grace_s=3.0)
+            if not lock_ok:
+                log.error(f"Port {port} is held by another process — takeover failed")
+                return False
+        except ImportError:
+            pass
+        except Exception as e:
+            log.warning(f"Process lock check failed (non-fatal): {e}")
+
         # Apply resource limits early (memory cap, nice, etc.)
         self.apply_resource_limits()
 
@@ -4143,6 +4157,38 @@ echo "Status: ok"
                             pass
                         except Exception as e:
                             log.debug(f"Watchdog loop error: {e}")
+
+                        # ── Desired State Reconciler (Marveen-inspired) ──
+                        try:
+                            from .core.desired_state import (
+                                reconcile_desired_state,
+                                ensure_initialized,
+                                set_pg_pool as ds_set_pg_pool,
+                            )
+                            ds_set_pg_pool(self._pg_pool)
+                            await ensure_initialized()
+                            # Build known_nodes from registry
+                            known = {}
+                            for name, info in self._registry._nodes.items():
+                                known[name] = {
+                                    "last_heartbeat": info.get("last_heartbeat", 0),
+                                    "status": info.get("status", "unknown"),
+                                    "address": info.get("address", ""),
+                                }
+                            # Add self
+                            known[self.node_name] = {
+                                "last_heartbeat": time.time(),
+                                "status": "online",
+                            }
+                            reconcile_result = await reconcile_desired_state(known)
+                            if reconcile_result.restarted:
+                                log.warning(f"Desired state restarted: {reconcile_result.restarted}")
+                            if reconcile_result.failed:
+                                log.error(f"Desired state failed: {reconcile_result.failed}")
+                        except ImportError:
+                            pass
+                        except Exception as e:
+                            log.debug(f"Desired state reconcile error: {e}")
 
             except asyncio.CancelledError:
                 break

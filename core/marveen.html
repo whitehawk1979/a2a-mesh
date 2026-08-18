@@ -555,6 +555,28 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
+  <!-- 32. Desired State -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🎯</span><span class="title">Desired State</span>
+      <span class="status status-ok" id="dstateStatus">✓</span>
+    </div>
+    <div class="card-body" id="dstateBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 33. Process Lock -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔐</span><span class="title">Process Lock</span>
+      <span class="status status-ok" id="plockStatus">✓</span>
+    </div>
+    <div class="card-body" id="plockBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
   <!-- 32. Federation -->
   <div class="card">
     <div class="card-header">
@@ -638,6 +660,8 @@ function loadAll() {
   loadWatchdog();
   loadGovernance();
   loadDailySummary();
+  loadDesiredState();
+  loadProcessLock();
   loadFederation();
   loadModelSuggest();
   loadInboxNudge();
@@ -999,6 +1023,43 @@ function generateDailySummary() {
       loadDailySummary();
     })
     .catch(function(e) { alert("Error: " + e); });
+}
+
+function loadDesiredState() {
+  api("/api/desired-state").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("dstateBody");
+    var st = document.getElementById("dstateStatus");
+    var nodes = d.desired_nodes || {};
+    var enabled = d.enabled_count || 0;
+    var total = d.total_count || 0;
+    st.className = "status status-ok"; st.textContent = enabled + "/" + total;
+    var html = "";
+    Object.keys(nodes).forEach(function(name) {
+      var n = nodes[name];
+      var cls = n.enabled ? "green" : "red";
+      var icon = n.enabled ? "✅" : "⛔";
+      var restart = n.has_restart ? "🔄" : "—";
+      html += '<div class="stat-row"><span class="label">' + icon + ' ' + name + '</span><span class="value ' + cls + '">' + restart + '</span></div>';
+    });
+    body.innerHTML = html || '<div class="empty">Nincs node</div>';
+  });
+}
+
+function loadProcessLock() {
+  api("/api/process-lock").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("plockBody");
+    var st = document.getElementById("plockStatus");
+    if (d.acquired) {
+      st.className = "status status-ok"; st.textContent = "✓ " + d.port;
+    } else {
+      st.className = "status status-warn"; st.textContent = "⚠";
+    }
+    body.innerHTML = '<div class="stat-row"><span class="label">Port</span><span class="value">' + d.port + '</span></div>' +
+      '<div class="stat-row"><span class="label">PID</span><span class="value">' + d.pid + '</span></div>' +
+      '<div class="stat-row"><span class="label">Status</span><span class="value">' + (d.acquired ? 'Locked' : 'Unlocked') + '</span></div>';
+  });
 }
 
 function loadFederation() {

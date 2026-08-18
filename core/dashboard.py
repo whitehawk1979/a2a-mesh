@@ -315,6 +315,12 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Governance
         app.router.add_get("/api/governance/rules", self._api_governance_rules)
         app.router.add_get("/api/governance/audit", self._api_governance_audit)
+        # Desired State
+        app.router.add_get("/api/desired-state", self._api_desired_state)
+        app.router.add_post("/api/desired-state/add", self._api_desired_state_add)
+        app.router.add_post("/api/desired-state/remove", self._api_desired_state_remove)
+        # Process Lock
+        app.router.add_get("/api/process-lock", self._api_process_lock)
         # Daily Summary
         app.router.add_post("/api/daily-summary/generate", self._api_generate_daily_summary)
         app.router.add_get("/api/task-runs", self._api_task_runs)

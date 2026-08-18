@@ -2259,6 +2259,49 @@ class DashboardAdminMixin:
         limit = int(request.query.get("limit", "100"))
         return web.json_response({"audit_log": get_gates().get_audit_log(limit)})
 
+    async def _api_desired_state(self, request):
+        """GET /api/desired-state — Desired state reconciler status."""
+        from aiohttp import web
+        from .desired_state import get_status
+        return web.json_response(get_status())
+
+    async def _api_desired_state_add(self, request):
+        """POST /api/desired-state/add — Add node to desired state."""
+        from aiohttp import web
+        from .desired_state import add_desired_node
+        try:
+            data = await request.json()
+            name = data.get("name", "")
+            ssh_target = data.get("ssh_target", "")
+            ssh_key = data.get("ssh_key", "~/.ssh/id_ed25519_openclaw")
+            restart_cmd = data.get("restart_cmd", "")
+            if not name:
+                return web.json_response({"error": "name required"}, status=400)
+            add_desired_node(name, ssh_target, ssh_key, restart_cmd)
+            return web.json_response({"ok": True, "node": name})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_desired_state_remove(self, request):
+        """POST /api/desired-state/remove — Remove node from desired state."""
+        from aiohttp import web
+        from .desired_state import remove_desired_node
+        try:
+            data = await request.json()
+            name = data.get("name", "")
+            if not name:
+                return web.json_response({"error": "name required"}, status=400)
+            remove_desired_node(name)
+            return web.json_response({"ok": True, "node": name, "disabled": True})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_process_lock(self, request):
+        """GET /api/process-lock — Process lock status."""
+        from aiohttp import web
+        from .process_lock import get_lock_status
+        return web.json_response(get_lock_status())
+
     async def _api_generate_daily_summary(self, request):
         """POST /api/daily-summary/generate — Generate daily summary from task_runs."""
         from aiohttp import web
