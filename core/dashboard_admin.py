@@ -2183,6 +2183,40 @@ class DashboardAdminMixin:
         from .sanitize import get_sanitize_status
         return web.json_response(get_sanitize_status())
 
+    async def _api_fleet_status(self, request):
+        """GET /api/fleet/status — fleet transfer status."""
+        from aiohttp import web
+        from .fleet_transfer import get_fleet_status
+        return web.json_response(get_fleet_status())
+
+    async def _api_fleet_export(self, request):
+        """GET /api/fleet/export — export fleet snapshot."""
+        from aiohttp import web
+        import os
+        from .fleet_transfer import export_fleet, save_export
+        include_vault = request.query.get("vault", "false").lower() == "true"
+        snapshot = export_fleet(include_vault=include_vault)
+        password = request.query.get("password")
+        filepath = save_export(snapshot, password=password)
+        return web.json_response({
+            "exported": True,
+            "file": filepath,
+            "size": os.path.getsize(filepath),
+            "encrypted": bool(password),
+        })
+
+    async def _api_fleet_import(self, request):
+        """POST /api/fleet/import — import fleet snapshot."""
+        from aiohttp import web
+        from .fleet_transfer import import_fleet
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        dry_run = data.get("dry_run", False)
+        results = import_fleet(data.get("snapshot", data), dry_run=dry_run)
+        return web.json_response(results)
+
     async def _api_plugins(self, request):
         """GET /api/plugins — List all loaded plugins and their status."""
         from aiohttp import web

@@ -304,6 +304,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/auth-status", self._api_auth_status)
         # Sanitize
         app.router.add_get("/api/sanitize", self._api_sanitize)
+        # Fleet Transfer
+        app.router.add_get("/api/fleet/status", self._api_fleet_status)
+        app.router.add_get("/api/fleet/export", self._api_fleet_export)
+        app.router.add_post("/api/fleet/import", self._api_fleet_import)
         # Plugin API
         app.router.add_get("/api/plugins", self._api_plugins)
         app.router.add_get("/api/plugins/{plugin_name}", self._api_plugin_detail)
