@@ -967,8 +967,8 @@ class DashboardDelegationsMixin:
             new_task_id = str(uuid.uuid4())
             await pool.execute(
                 """INSERT INTO shared_delegations
-                   (task_id, from_agent, to_agent, subject, description, status, priority, task_type, created_at, expires_at)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW() + INTERVAL '1 hour')""",
+                   (task_id, from_agent, to_agent, subject, description, status, priority, created_at, expires_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW() + INTERVAL '1 hour')""",
                 new_task_id,
                 row.get("from_agent", "nova"),
                 row.get("to_agent", "any"),
@@ -976,7 +976,6 @@ class DashboardDelegationsMixin:
                 row.get("description", ""),
                 "available",
                 row.get("priority", 5),
-                row.get("task_type", "generic"),
             )
             log.info(f"Redispatched {task_id} -> {new_task_id}")
             return web.json_response({"old_task_id": task_id, "new_task_id": new_task_id, "status": "available"})
