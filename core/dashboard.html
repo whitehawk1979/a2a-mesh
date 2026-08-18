@@ -1333,8 +1333,7 @@ function switchMobileTab(tab) {
     m.style.display = 'flex';
     document.getElementById('labFrame').src = '/lab?t=' + Date.now();
   } else if (tab === "kanban") {
-    // Kanban: show inline Kanban board (no iframe — more reliable on mobile)
-    loadInlineKanban();
+    showDelegations();
   } else if (tab === "marveen") {
     // Marveen: show in modal iframe (unified UI)
     var m = document.getElementById('marveenModal');
