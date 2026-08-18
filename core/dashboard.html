@@ -2719,7 +2719,7 @@ function renderKanbanCard(card, delegation) {
   actions += '</div>';
   
   var badge = isDelegation ? '<span style="font-size:12px">🔗</span>' : '<span style="font-size:12px">📋</span>';
-  var clickAction = isDelegation ? "showTaskDetail(\'' + delegation.task_id + '\')" : "showKanbanCardDetail(\'' + card.id + '\')";
+  var clickAction = isDelegation ? "showTaskDetail('" + delegation.task_id + "')" : "showKanbanCardDetail('" + card.id + "')";
   
   return '<div class="kanban-card" style="cursor:pointer" onclick="' + clickAction + '">' +
     '<div class="card-subject"><span>' + escHtml(card.title || (delegation ? delegation.subject : "?")) + '</span>' + badge + '<span class="priority-badge ' + prioClass + '">' + prioLabel + '</span></div>' +
