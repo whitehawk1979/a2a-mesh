@@ -140,9 +140,45 @@
         "created_at": 1786980036.9531121,
         "updated_at": 1786980036.9531121,
         "created_by": "unknown"
+      },
+      {
+        "id": "card-1786988905767-11",
+        "title": "Delegáció teszt: Marveen integráció",
+        "description": "",
+        "column": "in_progress",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1786988905.767309,
+        "updated_at": 1786988905.7673101,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787000698129-12",
+        "title": "Delegáció: c8498522",
+        "description": "",
+        "column": "in_progress",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787000698.12922,
+        "updated_at": 1787000698.1292212,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787000698428-13",
+        "title": "Delegáció: 6574d592",
+        "description": "",
+        "column": "in_progress",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787000698.4280472,
+        "updated_at": 1787000698.4280472,
+        "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1786980036.953115
+    "updated_at": 1787000698.428051
   }
 ]

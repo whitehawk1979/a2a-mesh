@@ -77,6 +77,18 @@ class DelegationManager:
         self._circuit_breakers: Dict[str, Dict] = {}
         self._circuit_breaker_threshold = 3   # consecutive failures before opening
         self._circuit_breaker_cooldown = 60.0  # seconds to wait before retrying
+        # ── Marveen-inspired: delegation retry + handoff failure tracking ──
+        # Per-task consecutive execution failure counter (transient errors only)
+        self._task_failures: Dict[str, int] = {}  # task_id → fail count
+        self._max_task_retries = 3  # Max retries before marking task as permanently failed
+        # Per-agent handoff failure notification cooldown (avoid alert spam)
+        self._handoff_alert_cooldown: Dict[str, float] = {}  # agent → last alert time
+        # ── Per-tick message budget (Marveen-inspired) ──
+        # Prevents a large backlog from monopolizing a single poll tick.
+        self._max_poll_per_tick = 25  # Max tasks to poll per tick
+        self._max_notify_per_tick = 5  # Max P2P notifications per tick
+        # ── Stuck delegation tracking ──
+        self._alerted_stuck: set = set()  # task_ids already alerted (avoid repeat)
 
     async def start(self):
         """Start polling for delegated tasks."""
@@ -379,7 +391,56 @@ class DelegationManager:
         Available tasks are auto-renewed if no peer has free capacity to claim them.
         This is the core of resource sharing: tasks wait until an agent with capacity
         becomes available, rather than expiring and losing the work request.
+        
+        Also detects stuck delegations (accepted but no progress for >10min)
+        and alerts the leader node — inspired by Marveen's stuck-session detection.
         """
+        # ── Stuck Delegation Detection (Marveen-inspired) ──
+        # A task accepted but stuck in accepted/running for >10min with no progress
+        # update → alert the leader (from_agent) so the work isn't silently lost.
+        try:
+            stuck_rows = await self.pg_pool.fetch(
+                """SELECT task_id, from_agent, to_agent, assigned_agent, subject, 
+                          status, progress, accepted_at, updated_at
+                   FROM shared_delegations
+                   WHERE status IN ($1, $2)
+                   AND accepted_at IS NOT NULL
+                   AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '10 minutes')
+                   AND accepted_at < NOW() - INTERVAL '10 minutes'
+                   LIMIT 10""",
+                STATUS_ACCEPTED, STATUS_RUNNING,
+            )
+            for row in stuck_rows:
+                task = dict(row)
+                task_id = task.get("task_id", "")
+                from_agent = task.get("from_agent", "")
+                assigned = task.get("assigned_agent", "?")
+                subject = task.get("subject", "?")
+                # Alert the leader (from_agent) about the stuck task
+                log.warning(f"⏰ STUCK DELEGATION: {task_id} '{subject}' stuck on {assigned} for >10min (from {from_agent})")
+                # Write alert as a note on the task
+                await self.add_note(task_id, f"[STUCK ALERT] Task stuck on {assigned} for >10min — leader notified", "system")
+                # Notify via P2P message if router available
+                try:
+                    from .message import A2AMessage
+                    msg = A2AMessage.create(
+                        sender="system",
+                        recipient=from_agent,
+                        msg_type="delegation_alert",
+                        payload={
+                            "text": f"[STUCK] Delegation '{subject}' (task_id={task_id}) has been stuck on {assigned} for >10 minutes. Check the agent or reassign.",
+                            "task_id": task_id,
+                            "stuck_agent": assigned,
+                            "subject": subject,
+                        },
+                        priority=8,
+                    )
+                    if hasattr(self, 'router') and self.router:
+                        await self.router.send(msg)
+                except Exception as e:
+                    log.debug(f"Stuck alert P2P send failed: {e}")
+        except Exception as e:
+            log.debug(f"Stuck delegation check failed: {e}")
         # Check if any peer has been active recently AND has capacity
         # Heuristic: if peers completed tasks recently, they're alive and processing
         try:
@@ -513,12 +574,16 @@ class DelegationManager:
             log.warning(f"Failed to update skill stats: {e}")
 
     async def _poll_pending(self):
-        """Poll for pending tasks specifically assigned to this node."""
+        """Poll for pending tasks specifically assigned to this node.
+        
+        Marveen-inspired per-tick budget: max _max_poll_per_tick tasks per poll
+        to prevent a large backlog from monopolizing a single tick.
+        """
         rows = await self.pg_pool.fetch(
             """SELECT * FROM shared_delegations 
                WHERE to_agent = $1 AND status = $2 
-               ORDER BY priority DESC, created_at ASC LIMIT 5""",
-            self.node_name, STATUS_PENDING,
+               ORDER BY priority DESC, created_at ASC LIMIT $3""",
+            self.node_name, STATUS_PENDING, self._max_poll_per_tick,
         )
 
         for task in rows:
@@ -650,9 +715,86 @@ class DelegationManager:
         """Execute a delegated task using registered handlers.
         
         Uses a semaphore to limit concurrent task execution to MAX_CONCURRENT_TASKS.
+        Implements Marveen-inspired retry logic: transient failures are retried
+        up to _max_task_retries times before the task is permanently failed.
         """
         async with self._task_semaphore:
-            await self._execute_task_inner(task)
+            task_id = str(task.get("task_id", ""))
+            for attempt in range(1, self._max_task_retries + 1):
+                try:
+                    await self._execute_task_inner(task)
+                    # Success — reset failure counter
+                    self._task_failures.pop(task_id, None)
+                    return
+                except Exception as e:
+                    fail_count = self._task_failures.get(task_id, 0) + 1
+                    self._task_failures[task_id] = fail_count
+                    if fail_count < self._max_task_retries:
+                        log.warning(f"Task {task_id} attempt {attempt}/{self._max_task_retries} failed: {e} — retrying")
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                        continue
+                    # Final failure — mark task as failed + notify leader
+                    log.error(f"Task {task_id} FAILED after {fail_count} attempts: {e}")
+                    try:
+                        await self.pg_pool.execute(
+                            "UPDATE shared_delegations SET status = $1, result = $2, completed_at = NOW() WHERE task_id = $3",
+                            STATUS_FAILED, _safe_ascii(f"Failed after {fail_count} attempts: {str(e)[:500]}"), task_id,
+                        )
+                    except Exception:
+                        pass
+                    # ── Handoff Failure Notification (Marveen-inspired) ──
+                    # Never let a task fail silently — alert the leader
+                    await self._notify_handoff_failure(task, str(e))
+
+    async def _notify_handoff_failure(self, task: Dict, error: str):
+        """Notify the leader (from_agent) that a delegated task failed permanently.
+        
+        Marveen-inspired: never let a handoff fail silently.
+        Rate-limited per agent to avoid alert spam (1 alert per 60s per agent).
+        """
+        task_id = str(task.get("task_id", ""))
+        from_agent = task.get("from_agent", "")
+        subject = task.get("subject", "?")
+        
+        if not from_agent or from_agent == self.node_name:
+            return  # Don't notify self
+        
+        # Rate limit: 1 alert per 60s per agent
+        now = time.time()
+        last_alert = self._handoff_alert_cooldown.get(from_agent, 0)
+        if now - last_alert < 60.0:
+            log.debug(f"Handoff failure alert for {from_agent} rate-limited (last {now - last_alert:.0f}s ago)")
+            return
+        self._handoff_alert_cooldown[from_agent] = now
+        
+        log.warning(f"🚨 HANDOFF FAILURE: task {task_id} '{subject}' from {from_agent} failed on {self.node_name}: {error[:200]}")
+        
+        # Write alert note on the task
+        try:
+            await self.add_note(task_id, f"[HANDOFF FAILURE] Task failed on {self.node_name}: {error[:300]}", "system")
+        except Exception:
+            pass
+        
+        # Send P2P alert to the leader
+        try:
+            from .message import A2AMessage
+            msg = A2AMessage.create(
+                sender="system",
+                recipient=from_agent,
+                msg_type="delegation_alert",
+                payload={
+                    "text": f"[HANDOFF FAILURE] Delegation '{subject}' (task_id={task_id}) failed permanently on {self.node_name} after {self._max_task_retries} retries: {error[:200]}. Consider reassigning or handling locally.",
+                    "task_id": task_id,
+                    "failed_agent": self.node_name,
+                    "subject": subject,
+                    "error": error[:500],
+                },
+                priority=9,
+            )
+            if hasattr(self, 'router') and self.router:
+                await self.router.send(msg)
+        except Exception as e:
+            log.debug(f"Handoff failure P2P alert failed: {e}")
 
     async def _execute_task_inner(self, task: Dict):
         """Inner implementation of task execution (called under semaphore)."""
