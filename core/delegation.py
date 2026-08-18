@@ -1781,6 +1781,48 @@ class DelegationManager:
             if not reviewer:
                 reviewer = from_agent
             
+            # If reviewer is the same as delegator, do local review (no self-delegation)
+            if reviewer == from_agent:
+                analysis = self._analyze_review(result_text, original_subject[:60])
+                verdict = "accept"
+                reason = analysis.get("reason", "Auto-approved")
+                if analysis.get("needs_approval"):
+                    verdict = "reject"
+                    reason = analysis.get("reason", "Needs human review")
+                
+                log.info(f"🔍 Local review (self): task={str(original_task_id)[:8]} verdict={verdict} reason={reason[:60]}")
+                
+                if kanban_card_id:
+                    try:
+                        from .kanban import _load_boards, _save_boards
+                        boards = _load_boards()
+                        for board in boards:
+                            for c in board.get("cards", []):
+                                if c["id"] == kanban_card_id:
+                                    c["review_status"] = verdict
+                                    c["review_reason"] = reason[:300]
+                                    c["reviewed_at"] = time.time()
+                                    c["updated_at"] = time.time()
+                                    if verdict == "accept":
+                                        c["column"] = "done"
+                                    else:
+                                        c["column"] = "todo"
+                                        c["review_status"] = "rejected"
+                                    break
+                        _save_boards(boards)
+                    except Exception as ke:
+                        log.warning(f"Local review Kanban update failed: {ke}")
+                
+                if verdict == "accept":
+                    await self.add_note(str(original_task_id), f"[REVIEW_ACCEPTED] {reason[:200]}", "system")
+                else:
+                    await self.add_note(str(original_task_id), f"[REVIEW_REJECTED] {reason[:200]}", "system")
+                    await self.pg_pool.execute(
+                        "UPDATE shared_delegations SET status = $1 WHERE task_id = $2",
+                        STATUS_AVAILABLE, original_task_id,
+                    )
+                return
+            
             review_subject = f"[REVIEW] {original_subject[:60]}"
             review_desc = (
                 f"You are reviewing a task result from agent '{assigned_agent}'.\n\n"

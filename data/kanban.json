@@ -698,13 +698,37 @@
         "priority": 5,
         "assigned_to": "",
         "created_at": 1787090416.582579,
-        "updated_at": 1787090638.213629,
+        "updated_at": 1787090718.475764,
         "delegation_task_id": "5be30a87-b399-46bd-9b44-b8285207018f",
         "description": "Írj egy 4 soros verset a szélről.",
+        "task_type": "code_generation"
+      },
+      {
+        "id": "card-1787090718464-49",
+        "title": "Review test 5: írj egy rövid verset a tengerről",
+        "description": "Írj egy 4 soros verset a tengerről.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787090718.4643462,
+        "updated_at": 1787090718.4643462,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787090718742-50",
+        "title": "Review test 5: írj egy rövid verset a tengerről",
+        "column": "review",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787090718.742094,
+        "updated_at": 1787090843.6250198,
+        "delegation_task_id": "221669ea-71ed-4c5f-b845-f3d35b2f91d2",
+        "description": "Írj egy 4 soros verset a tengerről.",
         "task_type": "code_generation"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787090638.213631
+    "updated_at": 1787090843.625021
   }
 ]
