@@ -112,6 +112,8 @@ class DashboardDelegationsMixin:
                 fan_out=int(data.get("fan_out", "0")),
                 max_retries=int(data.get("max_retries", "2")),
                 eligible_agents=data.get("eligible_agents"),
+                distribute_mode=bool(data.get("distribute_mode", False)),
+                depends_on=data.get("depends_on"),
             )
             
             # fan_out returns list of task_ids

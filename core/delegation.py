@@ -131,6 +131,8 @@ class DelegationManager:
         fan_out: int = 0,
         max_retries: int = 2,
         eligible_agents: Optional[List[str]] = None,
+        distribute_mode: bool = False,
+        depends_on: Optional[str] = None,
     ) -> Union[str, List[str]]:
         """Delegate a task to another agent or make it available for any agent.
         
@@ -147,6 +149,12 @@ class DelegationManager:
                      first to complete wins, others are cancelled. No duplicate work.
             eligible_agents: Optional list of agent names that can claim this task
                             (only used when available=True)
+            distribute_mode: If True with fan_out, each child goes to a DIFFERENT agent
+                            (round-robin). All children must complete — no race/cancel.
+                            Use for parallel task breakdown where every piece matters.
+            depends_on: task_id of a parent task. This task stays PENDING until the
+                        parent completes, then auto-activates to AVAILABLE.
+                        Enables dependency chains: A → B → C.
         """
         # ── Input validation ──
         if not subject or not subject.strip():
@@ -248,17 +256,42 @@ class DelegationManager:
         except Exception as kb_err:
             log.debug(f"Kanban auto-card error: {kb_err}")
 
-        # ── Fan-out: create identical tasks for N agents ──
+        # ── Fan-out / Distribute: create N tasks ──
         if fan_out > 0:
             task_ids = [task_id]
+            # DISTRIBUTE mode: each child gets a unique subject suffix + no race cancellation
+            mode_label = "DISTRIBUTE" if distribute_mode else "RACE"
+            
+            # In distribute mode, try to assign to different agents round-robin
+            known_agents = []
+            if distribute_mode:
+                try:
+                    known_agents = [r['node_name'] for r in await self.pg_pool.fetch(
+                        "SELECT DISTINCT node_name FROM mesh_registry WHERE status = 'online' AND node_name != $1",
+                        self.node_name,
+                    )] if hasattr(self, 'pg_pool') else []
+                except Exception:
+                    known_agents = []
+            
             for i in range(1, fan_out):
                 fan_id = str(uuid.uuid4())
+                # In distribute mode, give each child a unique subject
+                child_subject = f"[{i+1}/{fan_out}] {subject}" if distribute_mode else subject
+                # In distribute mode, try targeting different agents
+                child_to = actual_to
+                if distribute_mode and known_agents and i-1 < len(known_agents):
+                    child_to = known_agents[i-1]
+                
+                child_status = status
+                child_expires = expires_at
+                child_desc = desc_json
+                
                 await self.pg_pool.execute(
                     """INSERT INTO shared_delegations 
                        (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries)
                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
-                    fan_id, self.node_name, actual_to, subject, desc_json,
-                    status, priority, expires_at, None, max_retries,
+                    fan_id, self.node_name, child_to, child_subject, child_desc,
+                    child_status, priority, child_expires, None, max_retries,
                 )
                 task_ids.append(fan_id)
                 # Auto-create Kanban card for fan-out child
@@ -267,17 +300,19 @@ class DelegationManager:
                     km2 = KanbanManager(self.node_name)
                     boards2 = _load_boards()
                     if boards2:
+                        card_title = f"Distribute: [{i+1}/{fan_out}] {subject}"[:80] if distribute_mode else f"Fanout: {subject}"[:80]
                         child_card = km2.add_card(
-                            boards2[0]["id"], f"Fanout: {subject}"[:80], column="todo",
+                            boards2[0]["id"], card_title, column="todo",
                             description=description if isinstance(description, str) else str(description),
                             priority="high" if priority >= 7 else "medium",
-                            assigned_to="",
+                            assigned_to=child_to if child_to != "any" else "",
                         )
                         if child_card:
                             child_card["delegation_task_id"] = fan_id
-                            child_card["delegation_status"] = status
+                            child_card["delegation_status"] = child_status
                             child_card["from_agent"] = self.node_name
-                            child_card["to_agent"] = "any"
+                            child_card["to_agent"] = child_to
+                            child_card["distribute_mode"] = distribute_mode
                             _save_boards(boards2)
                             await self.pg_pool.execute(
                                 "UPDATE shared_delegations SET kanban_card_id = $1 WHERE task_id = $2",
@@ -285,8 +320,40 @@ class DelegationManager:
                             )
                 except Exception as fc_err:
                     log.debug(f"Fan-out Kanban card error: {fc_err}")
-            log.info(f"Fan-out: created {len(task_ids)} tasks for '{subject}' (P{priority})")
+            log.info(f"{mode_label}: created {len(task_ids)} tasks for '{subject}' (P{priority})")
+            
+            # Mark parent task with distribute_mode flag in notes
+            if distribute_mode:
+                await self.add_note(task_id, f"[DISTRIBUTE] Parent task — {fan_out} children must all complete", "system")
+            
             return task_ids
+        
+        # ── Dependency chain: task stays pending until parent completes ──
+        if depends_on:
+            try:
+                # Check parent status
+                parent_status = await self.pg_pool.fetchval(
+                    "SELECT status FROM shared_delegations WHERE task_id = $1",
+                    depends_on,
+                )
+                if parent_status == STATUS_COMPLETED:
+                    # Parent already done — activate immediately
+                    await self.pg_pool.execute(
+                        "UPDATE shared_delegations SET status = $1 WHERE task_id = $2",
+                        STATUS_AVAILABLE, task_id,
+                    )
+                    log.info(f"Dependency: parent {depends_on[:8]} already completed — activating {task_id[:8]}")
+                else:
+                    # Parent not done — stay pending
+                    await self.pg_pool.execute(
+                        "UPDATE shared_delegations SET status = $1 WHERE task_id = $2",
+                        STATUS_PENDING, task_id,
+                    )
+                    # Store depends_on in notes
+                    await self.add_note(task_id, f"[DEPENDS_ON] {depends_on}", "system")
+                    log.info(f"Dependency: {task_id[:8]} waiting for parent {depends_on[:8]} to complete")
+            except Exception as dep_err:
+                log.warning(f"Dependency setup failed: {dep_err}")
 
         # Notify via A2A message + PG NOTIFY
         try:
@@ -481,10 +548,50 @@ class DelegationManager:
                 from_agent = task.get("from_agent", "")
                 assigned = task.get("assigned_agent", "?")
                 subject = task.get("subject", "?")
-                # Alert the leader (from_agent) about the stuck task
                 log.warning(f"⏰ STUCK DELEGATION: {task_id} '{subject}' stuck on {assigned} for >10min (from {from_agent})")
-                # Write alert as a note on the task
-                await self.add_note(task_id, f"[STUCK ALERT] Task stuck on {assigned} for >10min — leader notified", "system")
+                await self.add_note(task_id, f"[STUCK ALERT] Task stuck on {assigned} for >10min — auto-reassigning", "system")
+                
+                # ── AUTO-REASSIGN ──
+                # Reset task to available so another agent can claim it
+                try:
+                    current_retry = await self.pg_pool.fetchval(
+                        "SELECT retry_count FROM shared_delegations WHERE task_id = $1",
+                        task_id,
+                    )
+                    max_retries = await self.pg_pool.fetchval(
+                        "SELECT max_retries FROM shared_delegations WHERE task_id = $1",
+                        task_id,
+                    )
+                    current_retry = current_retry or 0
+                    max_retries = max_retries or 2
+                    
+                    if current_retry < max_retries:
+                        # Reassign: reset to available, increment retry, clear assigned_agent
+                        await self.pg_pool.execute(
+                            """UPDATE shared_delegations 
+                               SET status = $1, assigned_agent = NULL, accepted_at = NULL,
+                                   updated_at = NOW(), expires_at = NOW() + INTERVAL '120 minutes',
+                                   retry_count = $2, progress = 0
+                               WHERE task_id = $3""",
+                            STATUS_AVAILABLE, current_retry + 1, task_id,
+                        )
+                        log.info(f"🔄 AUTO-REASSIGN: {task_id} '{subject}' reset to available (retry {current_retry+1}/{max_retries})")
+                        await self.add_note(task_id, f"[REASSIGN] Auto-reassigned (retry {current_retry+1}/{max_retries}) — was stuck on {assigned}", "system")
+                    else:
+                        # Exhausted retries — escalate priority and alert
+                        log.warning(f"⚠️ REASSIGN EXHAUSTED: {task_id} '{subject}' after {max_retries} retries — escalating to P9")
+                        await self.pg_pool.execute(
+                            """UPDATE shared_delegations 
+                               SET status = $1, assigned_agent = NULL, accepted_at = NULL,
+                                   updated_at = NOW(), expires_at = NOW() + INTERVAL '120 minutes',
+                                   priority = 9, progress = 0
+                               WHERE task_id = $2""",
+                            STATUS_AVAILABLE, task_id,
+                        )
+                        await self.add_note(task_id, f"[ESCALATE] Retries exhausted ({max_retries}) — escalated to P9, available for any agent", "system")
+                except Exception as re_err:
+                    log.error(f"Auto-reassign failed for {task_id}: {re_err}")
+                
                 # Notify via P2P message if router available
                 try:
                     from .message import A2AMessage
@@ -493,7 +600,7 @@ class DelegationManager:
                         recipient=from_agent,
                         msg_type="delegation_alert",
                         payload={
-                            "text": f"[STUCK] Delegation '{subject}' (task_id={task_id}) has been stuck on {assigned} for >10 minutes. Check the agent or reassign.",
+                            "text": f"[STUCK] Delegation '{subject}' (task_id={task_id}) stuck on {assigned} — auto-reassigned.",
                             "task_id": task_id,
                             "stuck_agent": assigned,
                             "subject": subject,
@@ -503,14 +610,6 @@ class DelegationManager:
                     )
                     if hasattr(self, 'router') and self.router:
                         await self.router.send(msg)
-                        try:
-                            from .message_router import create_message
-                            create_message("system", from_agent,
-                                f"[STUCK] {subject} on {assigned}",
-                                msg_type="delegation_alert",
-                                trace_id=f"trace-{assigned}-{task_id[:8]}")
-                        except Exception:
-                            pass
                 except Exception as e:
                     log.debug(f"Stuck alert P2P send failed: {e}")
         except Exception as e:
@@ -1082,7 +1181,9 @@ class DelegationManager:
             # Update skill marketplace stats (success_rate + latency)
             await self._update_skill_stats(task, success=True, elapsed=elapsed_ms)
 
-            # ── Fan-out: cancel sibling tasks with same subject from same sender ──
+            # ── Fan-out RACE: cancel sibling tasks with same subject from same sender ──
+            # NOTE: DISTRIBUTE mode children have unique subjects ([1/N], [2/N]...) 
+            # so they won't match this query — they complete independently.
             try:
                 subject_val = task.get("subject", "")
                 from_agent_val = task.get("from_agent", "")
@@ -1097,7 +1198,7 @@ class DelegationManager:
                         STATUS_AVAILABLE, STATUS_PENDING, task_id,
                     )
                     if cancelled and hasattr(cancelled, '__getitem__') and len(cancelled) > 0:
-                        log.info(f"Fan-out: cancelled {cancelled} sibling tasks for '{subject_val}'")
+                        log.info(f"Fan-out RACE: cancelled {cancelled} sibling tasks for '{subject_val}'")
             except Exception as e:
                 log.debug(f"Fan-out cancel check (non-critical): {e}")
 
@@ -1168,6 +1269,28 @@ class DelegationManager:
                         self._on_result_callback(dict(row))
                 except Exception as e:
                     log.debug(f"Result callback error: {e}")
+
+            # ── Dependency chain: activate children waiting on this task ──
+            if row["status"] == STATUS_COMPLETED:
+                try:
+                    task_id = row["task_id"]
+                    # Find pending tasks that depend on this one (stored in notes)
+                    children = await self.pg_pool.fetch(
+                        """SELECT task_id, subject, notes FROM shared_delegations 
+                           WHERE from_agent = $1 AND status = $2
+                           AND notes::text LIKE $3""",
+                        self.node_name, STATUS_PENDING, f'%[DEPENDS_ON] {task_id}%',
+                    )
+                    for child in children:
+                        child_id = child["task_id"]
+                        await self.pg_pool.execute(
+                            "UPDATE shared_delegations SET status = $1, updated_at = NOW() WHERE task_id = $2",
+                            STATUS_AVAILABLE, child_id,
+                        )
+                        log.info(f"🔗 DEPENDENCY: {child_id[:8]} '{child['subject'][:30]}' activated — parent {task_id[:8]} completed")
+                        await self.add_note(child_id, f"[ACTIVATED] Parent {task_id[:8]} completed — now available", "system")
+                except Exception as dep_err:
+                    log.debug(f"Dependency trigger failed: {dep_err}")
 
             # ── Auto-move Kanban card based on delegation result ──
             try:

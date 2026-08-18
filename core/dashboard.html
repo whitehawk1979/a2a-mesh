@@ -578,6 +578,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <option value="1">P1 Alacsony</option>
         </select>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
+        <input type="number" id="delFanOut" placeholder="Fan-out (0=off)" min="0" max="10" value="0" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:13px">
+        <select id="delDistributeMode" style="padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px">
+          <option value="false">🏁 Race (1 nyer)</option>
+          <option value="true">📦 Distr. (mind kell)</option>
+        </select>
+        <input type="text" id="delDependsOn" placeholder="Függ: task_id (opc.)" style="padding:8px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px">
+      </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn btn-sm" style="background:var(--success)" onclick="createDelegation()">📤 Küldés</button>
         <span id="delCreateStatus" style="font-size:13px;color:var(--text3)"></span>
@@ -3091,7 +3099,14 @@ function createDelegation() {
   statusEl.textContent = "📤 Küldés...";
   statusEl.style.color = "var(--text3)";
 
+  var fanOut = parseInt(document.getElementById('delFanOut').value) || 0;
+  var distributeMode = document.getElementById('delDistributeMode').value === 'true';
+  var dependsOn = document.getElementById('delDependsOn').value.trim();
+  
   var body = {subject: subject, description: desc, task_type: type, priority: priority};
+  if (fanOut > 0) body.fan_out = fanOut;
+  if (distributeMode && fanOut > 0) body.distribute_mode = true;
+  if (dependsOn) body.depends_on = dependsOn;
   if (available) {
     body.to_agent = "any";
     body.available = true;

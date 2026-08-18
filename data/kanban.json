@@ -443,9 +443,21 @@
         "delegation_task_id": "3795f970-968d-4763-b31b-52e1f2eecada",
         "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
         "task_type": "generic"
+      },
+      {
+        "id": "card-1787073234731-32",
+        "title": "[fwd] Komplex teszt: Rendszer-diagnosztika minden node-on",
+        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787073234.7318661,
+        "updated_at": 1787073234.7318668,
+        "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787072862.789502
+    "updated_at": 1787073234.7318752
   }
 ]
