@@ -38,6 +38,9 @@ async def acquire_port_lock(port: int, grace_s: float = 5.0) -> bool:
     """
     # Check if port is free
     holders = _find_port_holders(port)
+    # Exclude our own PID — we might already be binding the port
+    my_pid = os.getpid()
+    holders = [p for p in holders if p != my_pid]
     if not holders:
         return True  # Port is free
 
