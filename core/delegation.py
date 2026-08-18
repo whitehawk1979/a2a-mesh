@@ -1094,8 +1094,27 @@ class DelegationManager:
                                     target_col = "review" if "review" in board.get("columns", []) else "done"
                                 else:
                                     target_col = "todo"
+                                # Save result + files on the card
+                                c["delegation_result"] = row.get("result", "")[:500] if row.get("result") else ""
+                                c["delegation_status"] = row["status"]
+                                c["result_file"] = row.get("result_file", "") if row.get("result_file") else ""
+                                c["completed_at"] = str(row.get("completed_at", ""))[:30]
+                                c["updated_at"] = time.time()
                                 km.move_card(board["id"], kanban_card_id, target_col)
-                                log.info(f"Kanban auto-move: card '{c.get('title','')}' → {target_col} ({row['status']})")
+                                # Re-save with result data (move_card may reload)
+                                boards2 = _load_boards()
+                                for b2 in boards2:
+                                    for c2 in b2.get("cards", []):
+                                        if c2["id"] == kanban_card_id:
+                                            c2["delegation_result"] = c["delegation_result"]
+                                            c2["delegation_status"] = c["delegation_status"]
+                                            c2["result_file"] = c["result_file"]
+                                            c2["completed_at"] = c["completed_at"]
+                                            c2["updated_at"] = c["updated_at"]
+                                            break
+                                from .kanban import _save_boards
+                                _save_boards(boards2)
+                                log.info(f"Kanban auto-move: card '{c.get('title','')}' → {target_col} ({row['status']}) result={'yes' if c['delegation_result'] else 'no'}")
                                 break
             except Exception as e:
                 log.debug(f"Kanban auto-move skipped: {e}")

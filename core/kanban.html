@@ -179,7 +179,12 @@ function createCardEl(card, boardId) {
       '<span class="priority-' + (card.priority || "medium") + '">' + (card.priority === "high" ? "🔴" : card.priority === "low" ? "🟢" : "🟠") + ' ' + escapeHtml(card.priority || "medium") + '</span>' +
       ' <span class="' + ageClass + '">' + ageIcon + '</span>' +
       (card.assigned_to ? ' <span>👤 ' + escapeHtml(card.assigned_to) + '</span>' : '') +
-    '</div>';
+      (card.delegation_task_id ? ' <span>🔗</span>' : '') +
+    '</div>' +
+    (card.delegation_status === 'completed' ? '<div style="font-size:11px;color:#4caf50;margin-top:4px">✅ completed</div>' : '') +
+    (card.delegation_status === 'failed' ? '<div style="font-size:11px;color:#f44336;margin-top:4px">❌ failed</div>' : '') +
+    (card.delegation_result ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;padding:4px;background:var(--surface2);border-radius:4px;max-height:60px;overflow:hidden">📋 ' + escapeHtml(card.delegation_result.substring(0,120)) + '</div>' : '') +
+    (card.result_file ? '<div style="font-size:11px;color:var(--primary);margin-top:2px">📎 <a href="' + escapeHtml(card.result_file) + '" target="_blank" style="color:var(--primary)">result file</a></div>' : '');
   el.addEventListener("dragstart", function(e) { e.dataTransfer.setData("cardId", card.id); el.classList.add("dragging"); });
   el.addEventListener("dragend", function() { el.classList.remove("dragging"); });
   el.addEventListener("click", function() { editCard(boardId, card.id); });

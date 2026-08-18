@@ -104,6 +104,35 @@ class DashboardDelegationsMixin:
             task_ids = task_id if is_fan_out else [task_id]
             status = "available" if available else "pending"
             
+            # ── Auto-create Kanban card for each delegation ──
+            try:
+                import time as _time, os as _os, json as _json
+                kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+                if _os.path.exists(kanban_path):
+                    with open(kanban_path) as kf:
+                        kanban_boards = _json.load(kf)
+                    if kanban_boards:
+                        board = kanban_boards[0]
+                        for tid in task_ids:
+                            card = {
+                                "id": f"card-{int(_time.time()*1000)}-{len(board.get('cards',[]))}",
+                                "title": subject[:80],
+                                "column": "in_progress",
+                                "priority": int(data.get("priority", "5")),
+                                "assigned_to": to_agent if to_agent != "any" else "",
+                                "created_at": _time.time(),
+                                "updated_at": _time.time(),
+                                "delegation_task_id": str(tid),
+                                "description": data.get("description", ""),
+                                "task_type": data.get("task_type", "generic"),
+                            }
+                            board.setdefault("cards", []).append(card)
+                            log.info(f"Auto Kanban card: {card['id']} → delegation {str(tid)[:12]} ({subject[:40]})")
+                        with open(kanban_path, 'w') as kf:
+                            _json.dump(kanban_boards, kf, indent=2)
+            except Exception as ke:
+                log.warning(f"Auto Kanban card creation failed: {ke}")
+            
             if is_fan_out:
                 return web.json_response({
                     "task_ids": task_ids,
