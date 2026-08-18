@@ -615,7 +615,7 @@
         "priority": 7,
         "assigned_to": "",
         "created_at": 1787076174.1662002,
-        "updated_at": 1787080674.9419048,
+        "updated_at": 1787080953.6497521,
         "delegation_task_id": "6acf5d13-2f07-4a3d-892e-fadf4d4f1c8a",
         "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy r\\u00f6vid \\u00f6sszefoglal\\u00f3t a h\\u00e1l\\u00f3zat scan eredm\\u00e9ny\\u00e9r\\u0151l\", \"context\": {}}",
         "task_type": "generic",
@@ -633,6 +633,6 @@
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787080674.943577
+    "updated_at": 1787080953.6508749
   }
 ]
