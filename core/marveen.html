@@ -1306,16 +1306,24 @@ function fleetExportEnc() {
 function doBreakdown() {
   var title = document.getElementById("breakdownInput").value;
   if (!title) return;
-  document.getElementById("breakdownResult").innerHTML = '<div class="loading">Feldolgozás...</div>';
+  document.getElementById("breakdownResult").innerHTML = '<div class="loading">Feldolgozás + delegálás...</div>';
+  var token = localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || '';
   fetch("/api/llm-breakdown", {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({title: title, description: ""})
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    body: JSON.stringify({title: title, description: "", auto_delegate: true})
   }).then(function(r) { return r.json(); }).then(function(d) {
     var subtasks = d.subtasks || [];
-    var html = subtasks.map(function(s, i) {
+    var cards = d.cards || [];
+    var delegations = d.delegations || [];
+    var html = '<div style="margin-bottom:8px;font-size:11px;color:var(--green)">✅ ' + subtasks.length + ' subtask | ' + cards.length + ' Kanban | ' + delegations.length + ' delegáció</div>';
+    html += subtasks.map(function(s, i) {
       var pColor = s.priority === "high" ? "red" : s.priority === "normal" ? "blue" : "text3";
-      return '<div style="padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--' + pColor + ')">[' + (s.priority || "normal") + ']</span> ' + (i+1) + '. ' + s.title + '</div>';
+      var card = cards[i] || {};
+      var del = delegations[i] || {};
+      var badge = card.id ? ' 📋' : '';
+      badge += del.task_id ? ' 🔗' : '';
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--' + pColor + ')">[' + (s.priority || "normal") + ']</span> ' + (i+1) + '. ' + s.title + badge + '</div>';
     }).join("");
     document.getElementById("breakdownResult").innerHTML = html || '<div class="empty">Nincs eredmény</div>';
   }).catch(function() {

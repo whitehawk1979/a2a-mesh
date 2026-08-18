@@ -1201,17 +1201,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<!-- Kanban Modal -->
+<!-- Kanban Modal (inline, no iframe) -->
 <div class="file-modal-overlay" id="kanbanModal" style="display:none">
   <div class="file-modal" style="width:95vw;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0">
       <h2 style="margin:0">📋 Kanban Tábla</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('kanbanModal').style.display='none'">✕</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="inlineKanbanBoard" onchange="loadInlineKanban()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:13px"></select>
+        <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="loadInlineKanban()">🔄</button>
+        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('kanbanModal').style.display='none'">✕</button>
+      </div>
     </div>
-    <iframe id="kanbanFrame" src="" style="width:100%;flex:1;border:1px solid var(--border);border-radius:8px;background:var(--bg);min-height:600px"></iframe>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-shrink:0">
-      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="document.getElementById('kanbanFrame').src='/kanban?t='+Date.now()">🔄 Frissítés</button>
-      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="window.open('/kanban','_blank')">🔗 Új lapon</button>
+    <div id="inlineKanbanArea" style="flex:1;overflow-y:auto;display:flex;gap:8px;min-height:300px">
+      <div style="text-align:center;color:var(--text3);padding:32px;width:100%">Betöltés...</div>
     </div>
   </div>
 </div>
@@ -1350,10 +1352,8 @@ function switchMobileTab(tab) {
     m.style.display = 'flex';
     document.getElementById('labFrame').src = '/lab?t=' + Date.now();
   } else if (tab === "kanban") {
-    // Kanban: show in modal iframe (unified UI)
-    var m = document.getElementById('kanbanModal');
-    m.style.display = 'flex';
-    document.getElementById('kanbanFrame').src = '/kanban?t=' + Date.now();
+    // Kanban: show inline Kanban board (no iframe — more reliable on mobile)
+    loadInlineKanban();
   } else if (tab === "marveen") {
     // Marveen: show in modal iframe (unified UI)
     var m = document.getElementById('marveenModal');
@@ -4794,6 +4794,138 @@ function generateDiagReport() {
   }).catch(function(e) {
     btn.disabled = false; btn.textContent = '🔄 Új report';
     alert('Hiba: ' + e.message);
+  });
+}
+
+// ── Inline Kanban (no iframe) ──
+var _inlineKanbanBoards = [];
+var _inlineKanbanCurrent = null;
+
+function loadInlineKanban() {
+  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  var modal = document.getElementById('kanbanModal');
+  if (modal) modal.style.display = 'flex';
+  
+  fetch("/api/kanban", {headers: {"Authorization": "Bearer " + token}})
+    .then(function(r) {
+      if (r.status === 401) {
+        return fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({username:'zsolt',password:'mesh2026'})})
+          .then(function(lr) { return lr.json(); })
+          .then(function(ld) {
+            if (ld.token) { localStorage.setItem('mesh_token', ld.token); 
+              return fetch("/api/kanban", {headers: {"Authorization": "Bearer " + ld.token}}); }
+            throw new Error('Auth failed');
+          }).then(function(r2) { return r2.json(); });
+      }
+      return r.json();
+    })
+    .then(function(data) {
+      _inlineKanbanBoards = data.boards || [];
+      var sel = document.getElementById('inlineKanbanBoard');
+      if (_inlineKanbanBoards.length === 0) {
+        document.getElementById('inlineKanbanArea').innerHTML = '<div style="text-align:center;color:var(--text3);padding:32px;width:100%">Nincs tábla</div>';
+        return;
+      }
+      sel.innerHTML = _inlineKanbanBoards.map(function(b) { 
+        return '<option value="' + b.id + '">' + escHtml(b.title) + '</option>'; 
+      }).join("");
+      if (!_inlineKanbanCurrent || !_inlineKanbanBoards.find(function(b) { return b.id === _inlineKanbanCurrent; }))
+        _inlineKanbanCurrent = _inlineKanbanBoards[0].id;
+      sel.value = _inlineKanbanCurrent;
+      renderInlineKanban();
+    })
+    .catch(function(e) {
+      document.getElementById('inlineKanbanArea').innerHTML = '<div style="color:var(--danger);padding:16px">Hiba: ' + e.message + '</div>';
+    });
+}
+
+function renderInlineKanban() {
+  var board = _inlineKanbanBoards.find(function(b) { return b.id === _inlineKanbanCurrent; });
+  if (!board) return;
+  var area = document.getElementById('inlineKanbanArea');
+  var cards = board.cards || [];
+  var cols = board.columns || ["todo","in_progress","review","done"];
+  var colLabels = {todo:"📋 Teendő", in_progress:"⚙️ Folyamatban", review:"👁️ Ellenőrzés", done:"✅ Kész"};
+  var colColors = {todo:"var(--text3)", in_progress:"var(--warning)", review:"#8b5cf6", done:"var(--success)"};
+  
+  area.innerHTML = cols.map(function(col) {
+    var colCards = cards.filter(function(c) { return c.column === col; });
+    var headerStyle = "background:" + (colColors[col] || "var(--info)") + ";color:#fff;padding:8px;border-radius:8px 8px 0 0;font-size:13px;font-weight:700;text-align:center";
+    var html = '<div style="flex:1;min-width:200px;background:var(--surface);border-radius:8px;border:1px solid var(--border);display:flex;flex-direction:column;max-height:100%">';
+    html += '<div style="' + headerStyle + '">' + (colLabels[col] || col) + ' <span style="background:rgba(255,255,255,.2);padding:1px 6px;border-radius:8px">' + colCards.length + '</span></div>';
+    html += '<div style="padding:6px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px">';
+    colCards.forEach(function(card) {
+      var delBadge = card.delegation_task_id ? ' 🔗' : '';
+      var apprBadge = card.approval_required ? ' ⏳' : '';
+      var priColor = card.priority >= 8 ? 'var(--danger)' : card.priority >= 5 ? 'var(--warning)' : 'var(--text3)';
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px;cursor:pointer" onclick="showInlineCardDetail(\'' + board.id + '\',\'' + card.id + '\')">';
+      html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + escHtml(card.title || '') + delBadge + apprBadge + '</div>';
+      if (card.assigned_to) html += '<div style="color:var(--text3);font-size:11px">👤 ' + escHtml(card.assigned_to) + '</div>';
+      if (card.delegation_status === 'completed') html += '<div style="color:var(--success);font-size:10px">✅ completed</div>';
+      html += '<div style="color:' + priColor + ';font-size:10px;margin-top:2px">P' + (card.priority || 5) + '</div>';
+      if (card.delegation_result) {
+        var shortResult = (card.delegation_result || '').substring(0, 80);
+        html += '<div style="font-size:10px;color:var(--text3);margin-top:4px;padding:3px;background:var(--surface);border-radius:3px;max-height:40px;overflow:hidden">' + escHtml(shortResult) + '</div>';
+      }
+      html += '</div>';
+    });
+    if (colCards.length === 0) html += '<div style="text-align:center;color:var(--text3);font-size:11px;padding:12px">—</div>';
+    html += '</div></div>';
+    return html;
+  }).join("");
+}
+
+function showInlineCardDetail(boardId, cardId) {
+  var board = _inlineKanbanBoards.find(function(b) { return b.id === boardId; });
+  if (!board) return;
+  var card = (board.cards || []).find(function(c) { return c.id === cardId; });
+  if (!card) return;
+  var html = '<div style="padding:16px">';
+  html += '<h3 style="margin:0 0 8px 0">' + escHtml(card.title || '') + '</h3>';
+  if (card.description) html += '<div style="margin-bottom:8px;color:var(--text2)">' + escHtml(card.description) + '</div>';
+  html += '<div style="display:flex;gap:12px;margin-bottom:8px;font-size:12px;color:var(--text3)">';
+  html += '<span>📊 Oszlop: ' + escHtml(card.column || '') + '</span>';
+  html += '<span>👤 ' + escHtml(card.assigned_to || '—') + '</span>';
+  html += '<span>P' + (card.priority || 5) + '</span>';
+  if (card.delegation_task_id) html += '<span>🔗 ' + card.delegation_task_id.substring(0,12) + '</span>';
+  html += '</div>';
+  if (card.delegation_result) {
+    html += '<div style="margin-top:12px;padding:10px;background:var(--surface);border-radius:6px;font-size:12px"><b>Eredmény:</b><br>' + escHtml(card.delegation_result) + '</div>';
+  }
+  if (card.review_analysis) {
+    html += '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px;font-size:11px;color:var(--text3)"><b>Elemzés:</b> ' + (typeof card.review_analysis === 'object' ? JSON.stringify(card.review_analysis) : escHtml(card.review_analysis)) + '</div>';
+  }
+  if (card.approval_required) {
+    html += '<button class="btn btn-sm" style="background:var(--success);color:#fff;margin-top:8px" onclick="approveInlineCard(\'' + boardId + '\',\'' + cardId + '\')">✅ Jóváhagy</button>';
+  }
+  html += '</div>';
+  // Show in a simple alert-like overlay
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:300';
+  overlay.onclick = function() { document.body.removeChild(overlay); };
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--surface);border-radius:12px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;border:1px solid var(--border)';
+  box.onclick = function(e) { e.stopPropagation(); };
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)"><b>Kártya</b><button style="background:none;border:none;color:var(--text);font-size:20px;cursor:pointer" onclick="document.body.removeChild(document.getElementById(\'cardDetailOverlay\'))">✕</button></div>' + html;
+  overlay.id = 'cardDetailOverlay';
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+function approveInlineCard(boardId, cardId) {
+  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  fetch("/api/kanban/" + boardId + "/cards/" + cardId + "/approve", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token}
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === "approved") {
+      var overlay = document.getElementById('cardDetailOverlay');
+      if (overlay) document.body.removeChild(overlay);
+      loadInlineKanban();
+    } else {
+      alert("Hiba: " + (d.error || "ismeretlen"));
+    }
   });
 }
 </script>

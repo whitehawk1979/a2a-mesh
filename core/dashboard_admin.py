@@ -2037,12 +2037,27 @@ class DashboardAdminMixin:
         return web.json_response({"checks": results})
 
     async def _api_llm_breakdown(self, request):
-        """POST /api/llm-breakdown — Break down a task into subtasks."""
+        """POST /api/llm-breakdown — Break down a task into subtasks.
+        If auto_delegate=true, also creates Kanban cards + delegations."""
         from aiohttp import web
-        from .llm_breakdown import llm_breakdown
+        from .llm_breakdown import llm_breakdown, breakdown_and_delegate
         data = await request.json()
-        subtasks = await llm_breakdown(data.get("title", ""), data.get("description", ""))
-        return web.json_response({"subtasks": subtasks})
+        title = data.get("title", "")
+        description = data.get("description", "")
+        
+        if data.get("auto_delegate"):
+            # Full pipeline: LLM → Kanban → Delegations
+            node = getattr(self, 'node', None)
+            result = await breakdown_and_delegate(
+                title, description, node=node,
+                board_id=data.get("board_id"),
+                parent_card_id=data.get("parent_card_id"),
+            )
+            return web.json_response(result)
+        else:
+            # Just breakdown, no side effects
+            subtasks = await llm_breakdown(title, description)
+            return web.json_response({"subtasks": subtasks})
 
     async def _api_worker_liveness(self, request):
         """GET /api/worker-liveness — Get worker liveness status."""
