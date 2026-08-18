@@ -1472,7 +1472,7 @@ function addMessageToDOM(msg, scroll) {
   div.id = "msg-" + (msg.id || "");
   div.innerHTML =
     '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel +
-      (isAdmin ? ' <button onclick="deleteMessage('" + (msg.id || "") + "')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
+      (isAdmin ? ' <button onclick="deleteMessage(\'' + (msg.id || "") + '\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
     '</div>' +
     '<div>' + contentHtml + '</div>' +
     '<div class="meta">' +
@@ -2007,8 +2007,8 @@ function loadPendingNodes() {
             'Szerep: ' + escapeHtml(n.role || "—") + ' · IP: ' + escapeHtml(n.host || "?") + ':' + (n.p2p_port || "?") +
           '</div>' +
           '<div style="margin-top:8px;display:flex;gap:6px;">' +
-            '<button class="btn btn-sm" style="background:var(--success)" onclick="approveNode('" + escapeHtml(n.node_name) + "')">✅ Jóváhagy</button>' +
-            '<button class="btn btn-sm btn-danger" onclick="rejectNode('" + escapeHtml(n.node_name) + "')">❌ Elutasít</button>' +
+            '<button class="btn btn-sm" style="background:var(--success)" onclick="approveNode(\'' + escapeHtml(n.node_name) + '\')">✅ Jóváhagy</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="rejectNode(\'' + escapeHtml(n.node_name) + '\')">❌ Elutasít</button>' +
           '</div></div>';
       }).join('');
     }).catch(function() {});
@@ -2079,7 +2079,7 @@ function loadAllNodes() {
             '<div class="node-meta">' +
               '<span style="color:var(--text3)">(' + escapeHtml(n.role || "—") + ')</span>' +
               '<span class="node-transports">' + transportHtml + '</span>' +
-              '<button class="node-detail-toggle" onclick="toggleNodeDetail('" + detailId + '\', this)">Részletek</button>' +
+              '<button class="node-detail-toggle" onclick="toggleNodeDetail(\'' + detailId + '\', this)">Részletek</button>' +
             '</div>' +
           '</div>' +
           '<div class="node-detail-content" id="' + detailId + '">' +
@@ -2185,7 +2185,7 @@ function loadQuickLinks() {
         var label = name.charAt(0).toUpperCase() + name.slice(1) + " Dashboard";
         var icon = isSelf ? "🏠" : "📊";
 
-        html += '<div class="channel-item" onclick="window.open('" + dashUrl + '\',\'_blank\')">';
+        html += '<div class="channel-item" onclick="window.open(\'' + dashUrl + '\',\'_blank\')">';
         html += '<span class="icon">' + icon + '</span> ' + label;
         html += '</div>';
       });
@@ -2475,7 +2475,7 @@ function loadRegistryAgents() {
             '<div style="display:flex;align-items:center;gap:8px">' +
               '<div style="background:var(--border);border-radius:4px;width:80px;height:8px;overflow:hidden"><div style="background:' + scoreColor + ';height:100%;width:' + scorePct + '%;border-radius:4px"></div></div>' +
               '<span style="font-size:12px;color:' + scoreColor + '">' + scorePct + '%</span>' +
-              '<button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="deregisterAgent('" + escapeHtml(a.name) + "')">✕</button>' +
+              '<button class="btn btn-sm" style="font-size:11px;padding:2px 8px" onclick="deregisterAgent(\'' + escapeHtml(a.name) + '\')">✕</button>' +
             '</div>' +
           '</div>' +
           (a.description ? '<div style="font-size:12px;color:var(--text3);margin-top:4px">' + escapeHtml(a.description) + '</div>' : '') +
@@ -2700,26 +2700,26 @@ function renderKanbanCard(card, delegation) {
   var actions = '<div class="card-actions">';
   if (delegation) {
     if (delegation.status === "available") {
-      actions += '<button style="background:var(--success);color:#fff" onclick="claimDelegation('" + delegation.task_id + "')">✋ Vállalom</button>';
+      actions += '<button style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + delegation.task_id + '\')">✋ Vállalom</button>';
     }
     if (delegation.status === "pending" || delegation.status === "accepted") {
-      actions += '<button style="background:var(--danger);color:#fff" onclick="cancelDelegation('" + delegation.task_id + "')">🚫</button>';
+      actions += '<button style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + delegation.task_id + '\')">🚫</button>';
     }
     if (delegation.status === "accepted" || delegation.status === "running") {
-      actions += '<button style="background:var(--info);color:#fff" onclick="reassignDelegation('" + delegation.task_id + "')">🔄</button>';
-      actions += '<button style="background:var(--text3);color:#fff" onclick="addDelegationNote('" + delegation.task_id + "')">📝</button>';
+      actions += '<button style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + delegation.task_id + '\')">🔄</button>';
+      actions += '<button style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + delegation.task_id + '\')">📝</button>';
     }
     if (delegation.status === "running") {
-      actions += '<button style="background:var(--warning);color:#000" onclick="updateDelegationProgress('" + delegation.task_id + "')">📊</button>';
+      actions += '<button style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + delegation.task_id + '\')">📊</button>';
     }
     if (delegation.status === "completed" && delegation.result_files && delegation.result_files.length > 0) {
-       actions += '<button style="background:var(--primary);color:#fff" onclick="showTaskDetail('" + delegation.task_id + "')">⬇️ Letöltés</button>';
+       actions += '<button style="background:var(--primary);color:#fff" onclick="showTaskDetail(\'' + delegation.task_id + '\')">⬇️ Letöltés</button>';
     }
   }
   actions += '</div>';
   
   var badge = isDelegation ? '<span style="font-size:12px">🔗</span>' : '<span style="font-size:12px">📋</span>';
-  var clickAction = isDelegation ? "showTaskDetail('" + delegation.task_id + "')" : "showKanbanCardDetail('" + card.id + "')";
+  var clickAction = isDelegation ? "showTaskDetail(\'' + delegation.task_id + '\')" : "showKanbanCardDetail(\'' + card.id + '\')";
   
   return '<div class="kanban-card" style="cursor:pointer" onclick="' + clickAction + '">' +
     '<div class="card-subject"><span>' + escHtml(card.title || (delegation ? delegation.subject : "?")) + '</span>' + badge + '<span class="priority-badge ' + prioClass + '">' + prioLabel + '</span></div>' +
@@ -2986,14 +2986,14 @@ function showTaskDetail(taskId) {
 
       // Actions
       var actionsHtml = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">';
-      if (d.status === "available") actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="claimDelegation('" + d.task_id + "');showTaskDetail('" + d.task_id + "')">✋ Vállalom</button>';
-      if (d.status === "pending" || d.status === "accepted") actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="cancelDelegation('" + d.task_id + "');showTaskDetail('" + d.task_id + "')">🚫 Mégsem</button>';
+      if (d.status === "available") actionsHtml += '<button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="claimDelegation(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">✋ Vállalom</button>';
+      if (d.status === "pending" || d.status === "accepted") actionsHtml += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="cancelDelegation(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">🚫 Mégsem</button>';
       if (d.status === "accepted" || d.status === "running") {
-        actionsHtml += '<button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="reassignDelegation('" + d.task_id + "');showTaskDetail('" + d.task_id + "')">🔄 Átcélzó</button>';
-        actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote('" + d.task_id + "');showTaskDetail('" + d.task_id + "')">📝 Jegyzet</button>';
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="reassignDelegation(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">🔄 Átcélzó</button>';
+        actionsHtml += '<button class="btn btn-sm" style="background:var(--text3);color:#fff" onclick="addDelegationNote(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">📝 Jegyzet</button>';
       }
-      if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress('" + d.task_id + "');showTaskDetail('" + d.task_id + "')">📊 Haladás</button>';
-      actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="showTaskDetail('" + d.task_id + "')">🔄 Frissítés</button>';
+      if (d.status === "running") actionsHtml += '<button class="btn btn-sm" style="background:var(--warning);color:#000" onclick="updateDelegationProgress(\'' + d.task_id + '\');showTaskDetail(\'' + d.task_id + '\')">📊 Haladás</button>';
+      actionsHtml += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="showTaskDetail(\'' + d.task_id + '\')">🔄 Frissítés</button>';
       actionsHtml += '</div>';
 
       document.getElementById('taskDetailContent').innerHTML = metaHtml + descHtml + progressHtml + timelineHtml + resultHtml + fileHtml + actionsHtml;
@@ -3752,8 +3752,8 @@ function loadUsers() {
         var lastLogin = u.last_login ? new Date(u.last_login * 1000).toLocaleString("hu-HU") : "Soha";
         var actions = "";
         if (!isSelf) {
-          actions += '<button class="btn btn-sm" style="background:var(--warning);margin-right:4px" onclick="showChangePassword('" + escapeHtml(u.username) + "')">🔑</button>';
-          actions += '<button class="btn btn-sm" style="background:var(--danger)" onclick="deleteUser('" + escapeHtml(u.username) + "')">🗑️</button>';
+          actions += '<button class="btn btn-sm" style="background:var(--warning);margin-right:4px" onclick="showChangePassword(\'' + escapeHtml(u.username) + '\')">🔑</button>';
+          actions += '<button class="btn btn-sm" style="background:var(--danger)" onclick="deleteUser(\'' + escapeHtml(u.username) + '\')">🗑️</button>';
         } else {
           actions = '<span style="font-size:11px;color:var(--text3)">Jelenlegi</span>';
         }
@@ -3993,9 +3993,9 @@ function renderSkills(skills) {
           (tags ? '<div style="margin-top:4px">' + tags + '</div>' : '') +
         '</div>' +
         '<div style="display:flex;flex-direction:column;gap:4px;margin-left:8px">' +
-          '<button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="delegateToSkill('" + s.skill_id + "')">Delegate</button>' +
-          '<button class="btn btn-sm" style="background:var(--yellow);color:#000;font-size:11px" onclick="rateSkill('" + s.skill_id + "')">Rate</button>' +
-          '<button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px" onclick="deleteSkill('" + s.skill_id + "')">Delete</button>' +
+          '<button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="delegateToSkill(\'' + s.skill_id + '\')">Delegate</button>' +
+          '<button class="btn btn-sm" style="background:var(--yellow);color:#000;font-size:11px" onclick="rateSkill(\'' + s.skill_id + '\')">Rate</button>' +
+          '<button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px" onclick="deleteSkill(\'' + s.skill_id + '\')">Delete</button>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -4094,8 +4094,8 @@ function loadWorkflows() {
       if (active) html += ' <span style="font-size:10px;color:var(--primary)">● aktív</span>';
       html += '</div>';
       html += '<div style="display:flex;gap:4px">';
-      html += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="checkWorkflowStatus('" + w.id + "')">📊 Részletek</button>';
-      if (!active) html += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="deleteWorkflow('" + w.id + "')">🗑️ Törlés</button>';
+      html += '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="checkWorkflowStatus(\'' + w.id + '\')">📊 Részletek</button>';
+      if (!active) html += '<button class="btn btn-sm" style="background:var(--danger);color:#fff" onclick="deleteWorkflow(\'' + w.id + '\')">🗑️ Törlés</button>';
       html += '</div></div>';
       // Progress bar
       html += '<div style="margin-top:6px"><div style="font-size:11px;color:var(--text3);margin-bottom:3px">' + completedTasks + '/' + totalTasks + ' task · ' + (w.consensus || '?') + ' · ' + time + '</div>';
@@ -4396,15 +4396,15 @@ function loadAlertRules() {
       var sevColor = r.severity === 'critical' ? 'var(--red)' : r.severity === 'warning' ? 'var(--yellow)' : 'var(--primary)';
       var stateColor = r.state === 'firing' ? 'var(--red)' : r.state === 'resolved' ? 'var(--green)' : 'var(--text3)';
       var enabledBtn = r.enabled
-        ? '<button class="btn btn-sm" style="background:var(--green);color:#fff;font-size:11px" onclick="toggleAlertRule('" + r.id + "')">ON</button>'
-        : '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text3);font-size:11px" onclick="toggleAlertRule('" + r.id + "')">OFF</button>';
+        ? '<button class="btn btn-sm" style="background:var(--green);color:#fff;font-size:11px" onclick="toggleAlertRule(\'' + r.id + '\')">ON</button>'
+        : '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text3);font-size:11px" onclick="toggleAlertRule(\'' + r.id + '\')">OFF</button>';
       return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + sevColor + ';border-radius:8px;padding:12px;margin-bottom:8px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center">' +
           '<div><span style="font-weight:600;font-size:13px">' + escHtml(r.name) + '</span>' +
           ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + sevColor + ';color:#fff">' + r.severity + '</span>' +
           ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:' + stateColor + ';color:#fff">' + r.state + '</span></div>' +
           '<div style="display:flex;gap:4px">' + enabledBtn +
-          ' <button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px" onclick="deleteAlertRule('" + r.id + "')">Törlés</button></div>' +
+          ' <button class="btn btn-sm" style="background:var(--red);color:#fff;font-size:11px" onclick="deleteAlertRule(\'' + r.id + '\')">Törlés</button></div>' +
         '</div>' +
         '<div style="font-size:12px;color:var(--text3);margin-top:4px">' + escHtml(r.metric) + ' ' + escHtml(r.operator) + ' ' + r.threshold + ' · cooldown: ' + r.cooldown + 's · fires: ' + r.fire_count + '</div>' +
       '</div>';
@@ -4873,7 +4873,7 @@ function renderInlineKanban() {
       var delBadge = card.delegation_task_id ? ' 🔗' : '';
       var apprBadge = card.approval_required ? ' ⏳' : '';
       var priColor = card.priority >= 8 ? 'var(--danger)' : card.priority >= 5 ? 'var(--warning)' : 'var(--text3)';
-      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px;cursor:pointer" onclick="showInlineCardDetail('" + board.id + '\','" + card.id + "')">';
+      html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:12px;cursor:pointer" onclick="showInlineCardDetail(\'' + board.id + '\',\'' + card.id + '\')">';
       html += '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + escHtml(card.title || '') + delBadge + apprBadge + '</div>';
       if (card.assigned_to) html += '<div style="color:var(--text3);font-size:11px">👤 ' + escHtml(card.assigned_to) + '</div>';
       if (card.delegation_status === 'completed') html += '<div style="color:var(--success);font-size:10px">✅ completed</div>';
@@ -4911,7 +4911,7 @@ function showInlineCardDetail(boardId, cardId) {
     html += '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px;font-size:11px;color:var(--text3)"><b>Elemzés:</b> ' + (typeof card.review_analysis === 'object' ? JSON.stringify(card.review_analysis) : escHtml(card.review_analysis)) + '</div>';
   }
   if (card.approval_required) {
-    html += '<button class="btn btn-sm" style="background:var(--success);color:#fff;margin-top:8px" onclick="approveInlineCard('" + boardId + '\','" + cardId + "')">✅ Jóváhagy</button>';
+    html += '<button class="btn btn-sm" style="background:var(--success);color:#fff;margin-top:8px" onclick="approveInlineCard(\'' + boardId + '\',\'' + cardId + '\')">✅ Jóváhagy</button>';
   }
   html += '</div>';
   // Show in a simple alert-like overlay
@@ -4964,7 +4964,7 @@ function showKanbanCardDetail(cardId) {
       modal.style.display = 'flex';
       modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
       
-      var approveBtn = card.approval_required ? '<button class="btn btn-sm" style="background:var(--success)" onclick="approveKanbanCard('" + card.id + "')">✅ Jóváhagyás</button>' : '';
+      var approveBtn = card.approval_required ? '<button class="btn btn-sm" style="background:var(--success)" onclick="approveKanbanCard(\'' + card.id + '\')">✅ Jóváhagyás</button>' : '';
       
       // Delegation result section
       var resultHtml = '';
