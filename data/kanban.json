@@ -188,9 +188,22 @@
         "created_at": 1787032799.581865,
         "updated_at": 1787033114.628803,
         "created_by": "unknown"
+      },
+      {
+        "id": "card-1787033258489-15",
+        "title": "Kanban auto-sync test",
+        "description": "Testing delegation auto-move",
+        "column": "review",
+        "priority": "high",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787033258.489259,
+        "updated_at": 1787033322.369694,
+        "created_by": "unknown",
+        "delegation_task_id": "44807a85-c804-4a07-b52c-357f8acd66b5"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787033114.6288052
+    "updated_at": 1787033322.369695
   }
 ]

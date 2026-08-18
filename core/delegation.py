@@ -670,8 +670,23 @@ class DelegationManager:
                 pass
             
             if from_agent == self.node_name and task_type_poll != "local_maintenance":
-                log.debug(f"Skipping own task {task_id}")
-                continue
+                # ── Local Fallback: if task is available for >5min and no peers
+                # are online to claim it, execute locally as fallback. ──
+                created_age = time.time() - (task_dict.get("created_at").timestamp() if hasattr(task_dict.get("created_at"), 'timestamp') else 0)
+                if created_age > 300:  # 5 minutes
+                    # Check if any peers are connected
+                    peer_count = 0
+                    if hasattr(self, '_registry') and hasattr(self._registry, '_nodes'):
+                        peer_count = len([n for n in self._registry._nodes.values() if n.get("status") == "online" and n.get("name", "").lower() != self.node_name])
+                    if peer_count == 0:
+                        log.info(f"📦 Local fallback: claiming own task {task_id} (no peers online, {created_age:.0f}s old)")
+                        # Fall through to claim logic below
+                    else:
+                        log.debug(f"Skipping own task {task_id} ({peer_count} peers online)")
+                        continue
+                else:
+                    log.debug(f"Skipping own task {task_id} (only {created_age:.0f}s old)")
+                    continue
             
             # local_maintenance: only the target node should claim it
             if task_type_poll == "local_maintenance" and from_agent != self.node_name:

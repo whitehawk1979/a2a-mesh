@@ -1182,6 +1182,51 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
+<!-- Marveen Engine Modal -->
+<div class="file-modal-overlay" id="marveenModal" style="display:none">
+  <div class="file-modal" style="width:95vw;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0">
+      <h2 style="margin:0">🔧 Marveen Engine</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('marveenModal').style.display='none'">✕</button>
+    </div>
+    <iframe id="marveenFrame" src="" style="width:100%;flex:1;border:1px solid var(--border);border-radius:8px;background:var(--bg);min-height:600px"></iframe>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="document.getElementById('marveenFrame').src='/marveen?t='+Date.now()">🔄 Frissítés</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="window.open('/marveen','_blank')">🔗 Új lapon</button>
+    </div>
+  </div>
+</div>
+
+<!-- Kanban Modal -->
+<div class="file-modal-overlay" id="kanbanModal" style="display:none">
+  <div class="file-modal" style="width:95vw;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0">
+      <h2 style="margin:0">📋 Kanban Tábla</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('kanbanModal').style.display='none'">✕</button>
+    </div>
+    <iframe id="kanbanFrame" src="" style="width:100%;flex:1;border:1px solid var(--border);border-radius:8px;background:var(--bg);min-height:600px"></iframe>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="document.getElementById('kanbanFrame').src='/kanban?t='+Date.now()">🔄 Frissítés</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="window.open('/kanban','_blank')">🔗 Új lapon</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lab Modal -->
+<div class="file-modal-overlay" id="labModal" style="display:none">
+  <div class="file-modal" style="width:95vw;max-width:1200px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-shrink:0">
+      <h2 style="margin:0">🧪 Lab — Belső Eszközök</h2>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('labModal').style.display='none'">✕</button>
+    </div>
+    <iframe id="labFrame" src="" style="width:100%;flex:1;border:1px solid var(--border);border-radius:8px;background:var(--bg);min-height:600px"></iframe>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-shrink:0">
+      <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="document.getElementById('labFrame').src='/lab?t='+Date.now()">🔄 Frissítés</button>
+      <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="window.open('/lab','_blank')">🔗 Új lapon</button>
+    </div>
+  </div>
+</div>
+
 <div class="file-modal-overlay" id="diagnosticsModal" style="display:none">
   <div class="file-modal" style="width:800px;max-height:90vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -1296,14 +1341,20 @@ function switchMobileTab(tab) {
       if (ns) ns.scrollIntoView({behavior: "smooth", block: "start"});
     }, 350);
   } else if (tab === "lab") {
-    // Open Lab project showcase in new tab
-    window.open(location.protocol + "//" + location.host + "/lab", "_blank");
+    // Lab: show in modal iframe (unified UI)
+    var m = document.getElementById('labModal');
+    m.style.display = 'flex';
+    document.getElementById('labFrame').src = '/lab?t=' + Date.now();
   } else if (tab === "kanban") {
-    // Open Kanban task management in new tab
-    window.open(location.protocol + "//" + location.host + "/kanban", "_blank");
+    // Kanban: show in modal iframe (unified UI)
+    var m = document.getElementById('kanbanModal');
+    m.style.display = 'flex';
+    document.getElementById('kanbanFrame').src = '/kanban?t=' + Date.now();
   } else if (tab === "marveen") {
-    // Open Marveen Engine visual dashboard in new tab
-    window.open(location.protocol + "//" + location.host + "/marveen", "_blank");
+    // Marveen: show in modal iframe (unified UI)
+    var m = document.getElementById('marveenModal');
+    m.style.display = 'flex';
+    document.getElementById('marveenFrame').src = '/marveen?t=' + Date.now();
   }
 }
 
