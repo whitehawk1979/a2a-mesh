@@ -487,7 +487,13 @@ class DelegationManager:
                 # Guard: if pg_pool is None or not connected, skip polling
                 # (health monitor will attempt reconnect every 30s)
                 if self.pg_pool is None or not self.pg_pool.is_connected():
-                    log.debug("Delegation poll skipped: pg_pool not connected")
+                    log.debug("Delegation poll skipped: pg_pool not connected — attempting reconnect")
+                    if self.pg_pool is not None:
+                        try:
+                            if await self.pg_pool.connect():
+                                log.info("Delegation: PG pool reconnected successfully")
+                        except Exception as re_err:
+                            log.warning(f"Delegation: PG reconnect failed: {re_err}")
                     await asyncio.sleep(self._poll_interval)
                     continue
 
@@ -512,6 +518,23 @@ class DelegationManager:
                 break
             except Exception as e:
                 log.error(f"Delegation poll error: {e}")
+                # If it's a connection error, try to reconnect the pool
+                err_str = str(e).lower()
+                if any(k in err_str for k in ('connection', 'timeout', 'closed', 'reset', 'refused', 'eof')):
+                    log.warning("Delegation poll: connection error detected — attempting PG pool reconnect")
+                    try:
+                        if self.pg_pool is not None:
+                            # Force reconnect: close stale pool and create new
+                            if self.pg_pool._pool and not self.pg_pool._pool._closed:
+                                try:
+                                    await self.pg_pool._pool.close()
+                                except Exception:
+                                    pass
+                            self.pg_pool._pool = None
+                            if await self.pg_pool.connect():
+                                log.info("Delegation: PG pool reconnected after error")
+                    except Exception as re_err:
+                        log.error(f"Delegation: reconnect failed: {re_err}")
                 # Exponential backoff: double the poll interval, max 60s
                 backoff = min(self._poll_interval * 2, 60.0)
                 log.warning(f"Backing off delegation poll to {backoff:.1f}s after error")

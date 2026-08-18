@@ -73,9 +73,25 @@ class AsyncDBPool:
         await conn.execute("SET client_encoding TO 'UTF8'")
 
     async def connect(self) -> bool:
-        """Create the connection pool. Returns True on success."""
+        """Create the connection pool. Returns True on success.
+        
+        If pool exists but connections are stale (PG restarted), 
+        closes old pool and creates a fresh one.
+        """
         if self._pool and not self._pool._closed:
-            return True
+            # Pool object exists — verify connections are actually alive
+            try:
+                async with self._pool.acquire() as conn:
+                    await conn.fetchval("SELECT 1")
+                return True  # Pool is healthy
+            except Exception as e:
+                log.warning(f"AsyncDB: pool exists but connections stale ({e}) — recreating pool")
+                try:
+                    await self._pool.close()
+                except Exception:
+                    pass
+                self._pool = None
+                # Fall through to create new pool
 
         if not self._dsn:
             log.warning("AsyncDB: no DSN configured, cannot connect")
@@ -106,8 +122,19 @@ class AsyncDBPool:
         self._pool = None
 
     def is_connected(self) -> bool:
-        """Check if pool is available."""
+        """Check if pool is available (sync check — for async health check use connect())."""
         return self._pool is not None and not self._pool._closed
+        
+    async def is_connected_async(self) -> bool:
+        """Async health check — verifies pool can actually execute a query."""
+        if not self._pool or self._pool._closed:
+            return False
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            return True
+        except Exception:
+            return False
 
     async def execute(self, query: str, *args) -> str:
         """Execute a statement (INSERT, UPDATE, DELETE) with parameterized args.
