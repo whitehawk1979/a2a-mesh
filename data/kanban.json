@@ -275,7 +275,7 @@
         "priority": 7,
         "assigned_to": "morzsa",
         "created_at": 1787048989.7390459,
-        "updated_at": 1787049135.520139,
+        "updated_at": 1787049289.833052,
         "delegation_task_id": "49a53bff-18da-4449-a975-cd61294bc557",
         "description": "This is a test task to verify auto-claim works",
         "task_type": "generic",
@@ -293,6 +293,6 @@
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787049135.521009
+    "updated_at": 1787049289.833777
   }
 ]
