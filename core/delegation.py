@@ -382,6 +382,7 @@ class DelegationManager:
                 await self._poll_pending()
                 await self._poll_available()
                 await self._check_results()
+                await self._cleanup_old_tasks()
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
@@ -531,6 +532,37 @@ class DelegationManager:
         for task_id in stale:
             self._active_tasks.pop(task_id, None)
             log.info(f"🧹 Cleaned stale active task: {task_id}")
+
+    async def _cleanup_old_tasks(self, retention_days: int = 7):
+        """Auto-cleanup completed/failed/cancelled/expired tasks older than retention_days.
+        Also removes associated files from shared_files table.
+        Runs on every poll cycle but only logs when it actually deletes something."""
+        if not self.pg_pool or not self.pg_pool.is_connected():
+            return
+        try:
+            # Delete old files first (references via result_file column)
+            deleted_files = await self.pg_pool.fetchval(
+                """DELETE FROM shared_files
+                   WHERE created_at < NOW() - ($1 || ' days')::INTERVAL
+                   AND status = 'ready'
+                   RETURNING id""",
+                str(retention_days),
+            )
+            # Delete old completed/failed/cancelled/expired delegations
+            deleted_tasks = await self.pg_pool.fetchval(
+                """DELETE FROM shared_delegations
+                   WHERE status IN ($1, $2, $3, $4)
+                   AND completed_at IS NOT NULL
+                   AND completed_at < NOW() - ($5 || ' days')::INTERVAL
+                   RETURNING task_id""",
+                STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED, STATUS_EXPIRED,
+                str(retention_days),
+            )
+            if deleted_tasks and deleted_tasks > 0:
+                log.info(f"🧹 Auto-cleanup: removed {deleted_tasks} old tasks + {deleted_files or 0} files (>{retention_days}d retention)")
+        except Exception as e:
+            log.debug(f"Cleanup old tasks error: {e}")
+
 
     async def _update_skill_stats(self, task: Dict, success: bool, elapsed: float):
         """Update skill marketplace success_rate + avg_latency_ms after delegation completes.
