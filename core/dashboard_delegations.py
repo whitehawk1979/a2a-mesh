@@ -937,9 +937,6 @@ class DashboardDelegationsMixin:
             await pool.execute(
                 "DELETE FROM shared_delegations WHERE task_id = $1", task_id
             )
-            await pool.execute(
-                "DELETE FROM delegation_results WHERE task_id = $1", task_id
-            )
             log.info(f"Deleted delegation {task_id}")
             return web.json_response({"task_id": task_id, "deleted": True})
         except Exception as e:
