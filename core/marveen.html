@@ -522,7 +522,40 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
-  <!-- 29. Federation -->
+  <!-- 29. Watchdog (Marveen Channel Monitor) -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🛡️</span><span class="title">Watchdog</span>
+      <span class="status status-ok" id="wdStatus">✓</span>
+    </div>
+    <div class="card-body" id="wdBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 30. Governance Gates -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔒</span><span class="title">Governance</span>
+      <span class="status status-ok" id="govStatus">✓</span>
+    </div>
+    <div class="card-body" id="govBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 31. Daily Summary -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📅</span><span class="title">Daily Summary</span>
+      <span class="status status-ok" id="dsStatus">✓</span>
+    </div>
+    <div class="card-body" id="dsBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 32. Federation -->
   <div class="card">
     <div class="card-header">
       <span class="icon">🌐</span><span class="title">Federation</span>
@@ -602,6 +635,9 @@ function loadAll() {
   loadLoginThrottle();
   loadCSRF();
   loadChannelHealth();
+  loadWatchdog();
+  loadGovernance();
+  loadDailySummary();
   loadFederation();
   loadModelSuggest();
   loadInboxNudge();
@@ -885,6 +921,84 @@ function loadChannelHealth() {
     });
     body.innerHTML = html || '<div class="empty">Nincs adat</div>';
   });
+}
+
+function loadWatchdog() {
+  api("/api/watchdog/status").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("wdBody");
+    var st = document.getElementById("wdStatus");
+    var nodes = d.monitored_nodes || [];
+    var th = d.thresholds || {};
+    var pol = d.policy || {};
+    if (nodes.length === 0) {
+      st.className = "status status-ok"; st.textContent = "✓";
+    } else {
+      st.className = "status status-warn"; st.textContent = "⚠ " + nodes.length;
+    }
+    var html = '<div class="stat-row"><span class="label">Stuck</span><span class="value">' + th.stuck_s + 's</span></div>' +
+               '<div class="stat-row"><span class="label">Frozen</span><span class="value">' + th.frozen_s + 's</span></div>' +
+               '<div class="stat-row"><span class="label">Dead</span><span class="value">' + th.dead_s + 's</span></div>' +
+               '<div class="stat-row"><span class="label">Max restart</span><span class="value">' + pol.max_restart_attempts + '</span></div>' +
+               '<div class="stat-row"><span class="label">Down confirm</span><span class="value">' + pol.down_confirm_s + 's</span></div>';
+    nodes.forEach(function(n) {
+      html += '<div class="stat-row"><span class="label">' + n.node + '</span><span class="value">' + n.last_action + '</span></div>';
+    });
+    body.innerHTML = html;
+  });
+}
+
+function loadGovernance() {
+  api("/api/governance/rules").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("govBody");
+    var st = document.getElementById("govStatus");
+    var rules = d.rules || [];
+    var blockCount = rules.filter(function(r) { return r.action === "block"; }).length;
+    var redactCount = rules.filter(function(r) { return r.action === "redact"; }).length;
+    st.className = "status status-ok"; st.textContent = "✓ " + rules.length;
+    var html = '<div class="stat-row"><span class="label">Redact rules</span><span class="value">' + redactCount + '</span></div>' +
+               '<div class="stat-row"><span class="label">Block rules</span><span class="value">' + blockCount + '</span></div>';
+    rules.forEach(function(r) {
+      if (r.enabled) {
+        var icon = r.action === "block" ? "🚫" : "🔒";
+        html += '<div class="stat-row"><span class="label">' + icon + ' ' + r.name + '</span><span class="value">' + r.action + '</span></div>';
+      }
+    });
+    body.innerHTML = html;
+  });
+}
+
+function loadDailySummary() {
+  api("/api/daily-logs?days=7").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("dsBody");
+    var st = document.getElementById("dsStatus");
+    var logs = d.logs || [];
+    if (logs.length === 0) {
+      st.className = "status"; st.textContent = "—";
+      body.innerHTML = '<div class="empty">Még nincs daily summary. Kattints a Generate gombra.</div>' +
+        '<button class="refresh-btn" onclick="generateDailySummary()" style="margin-top:8px">📊 Generate</button>';
+    } else {
+      st.className = "status status-ok"; st.textContent = "✓ " + logs.length;
+      var html = "";
+      logs.forEach(function(l) {
+        html += '<div class="stat-row"><span class="label">' + l.agent + '</span><span class="value" style="font-size:10px">' + (l.summary || "").substring(0, 60) + '</span></div>';
+      });
+      html += '<button class="refresh-btn" onclick="generateDailySummary()" style="margin-top:8px">📊 Generate Now</button>';
+      body.innerHTML = html;
+    }
+  });
+}
+
+function generateDailySummary() {
+  fetch("/api/daily-summary/generate", { method: "POST" })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      alert(d.summary || d.error || "Done");
+      loadDailySummary();
+    })
+    .catch(function(e) { alert("Error: " + e); });
 }
 
 function loadFederation() {
