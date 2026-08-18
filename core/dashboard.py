@@ -213,6 +213,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Kanban API
         app.router.add_get("/api/kanban", self._api_kanban_boards)
         app.router.add_post("/api/kanban", self._api_kanban_create_board)
+        app.router.add_get("/api/kanban/cards/{card_id}", self._api_kanban_get_card_by_id)
+        app.router.add_post("/api/kanban/cards/{card_id}/approve", self._api_kanban_approve_by_card_id)
         app.router.add_delete("/api/kanban/{board_id}", self._api_kanban_delete_board)
         app.router.add_get("/api/kanban/{board_id}", self._api_kanban_get_board)
         app.router.add_post("/api/kanban/{board_id}/cards", self._api_kanban_add_card)
@@ -221,8 +223,6 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/breakdown", self._api_kanban_breakdown)
         app.router.add_post("/api/kanban/{board_id}/cards/{card_id}/approve", self._api_kanban_approve)
         app.router.add_get("/api/kanban/audit", self._api_kanban_audit)
-        app.router.add_get("/api/kanban/cards/{card_id}", self._api_kanban_get_card_by_id)
-        app.router.add_post("/api/kanban/cards/{card_id}/approve", self._api_kanban_approve_by_card_id)
         # PreCompact audit
         app.router.add_get("/api/precompact/audit", self._api_precompact_audit)
         # Dream Engine
