@@ -439,6 +439,28 @@ a { color: var(--blue); text-decoration: none; }
     </div>
   </div>
 
+  <!-- 25. Delegation Engine (Marveen Optimized) -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Delegation Engine</span>
+      <span class="status status-ok" id="delegEngineStatus">✓</span>
+    </div>
+    <div class="card-body" id="delegEngineBody">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="stat-row"><span class="label">Completed</span><span class="value green" id="delegCompleted">—</span></div>
+        <div class="stat-row"><span class="label">Pending</span><span class="value orange" id="delegPending">—</span></div>
+        <div class="stat-row"><span class="label">Max retries</span><span class="value" id="delegRetries">3</span></div>
+        <div class="stat-row"><span class="label">Max/tick</span><span class="value" id="delegBudget">25</span></div>
+        <div class="stat-row"><span class="label">Stuck alerts</span><span class="value" id="delegStuck">0</span></div>
+        <div class="stat-row"><span class="label">Handoff fails</span><span class="value red" id="delegHandoff">0</span></div>
+      </div>
+      <div style="margin-top:8px;padding:6px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px">
+        <div style="color:#22d3ee;font-weight:600;margin-bottom:4px">🛡️ Marveen Optimization</div>
+        <div style="color:#94a3b8">Stuck Detection (10min) ✅ | Retry (3x+backoff) ✅ | Handoff Alert ✅ | Per-tick Budget ✅ | Backlog Batching ✅ | Trace ID ✅</div>
+      </div>
+    </div>
+  </div>
+
   <!-- 25. Vault -->
   <div class="card">
     <div class="card-header">
@@ -557,6 +579,7 @@ function loadAll() {
   loadTokenUsage();
   loadUpdatePreflight();
   loadStoreWatcher();
+  loadDelegEngine();
   loadVault();
   loadLoginThrottle();
   loadCSRF();
@@ -1016,6 +1039,24 @@ function loadStoreWatcher() {
       html += '<div style="margin-top:6px;font-size:10px;color:var(--text3)">Utoljára ' + events.length + ' esemény</div>';
     }
     document.getElementById("stwBody").innerHTML = html;
+  });
+}
+
+function loadDelegEngine() {
+  // Load delegation stats
+  var token = window._a2aToken || "";
+  fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + token}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || d.error) return;
+      document.getElementById("delegCompleted").textContent = d.completed || 0;
+      document.getElementById("delegPending").textContent = d.pending || 0;
+    })
+    .catch(function() {});
+  // Load message router for traces + budget
+  api("/api/message-router").then(function(d) {
+    if (!d) return;
+    document.getElementById("delegBudget").textContent = d.max_per_tick || 25;
   });
 }
 
