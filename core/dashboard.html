@@ -2601,7 +2601,7 @@ var _knownAgents = [];
 function populateDelegationTargets() {
   var sel = document.getElementById('delTarget');
   while (sel.options.length > 1) sel.remove(1);
-  fetch("/api/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+  fetch("/api/agents", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var agents = data.agents || data || [];
@@ -2732,7 +2732,7 @@ function loadDelegations() {
   if (ft && ft.value) filters += "&task_type=" + encodeURIComponent(ft.value);
   if (fa && fa.value.trim()) filters += "&agent=" + encodeURIComponent(fa.value.trim());
   var url = "/api/delegations?limit=50" + filters;
-  fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+  fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var delegations = data.delegations || [];
@@ -2777,7 +2777,7 @@ function loadDelegations() {
 }
 
 function loadDelegationStats() {
-  fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+  fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var el = document.getElementById("delStats");
@@ -2798,7 +2798,7 @@ function showTaskDetail(taskId) {
   document.getElementById('taskDetailModal').style.display = 'flex';
   document.getElementById('taskDetailTitle').textContent = '📋 Betöltés...';
   document.getElementById('taskDetailContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Betöltés...</div>';
-  fetch("/api/delegations/" + taskId, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}})
+  fetch("/api/delegations/" + taskId, {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}})
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) { document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ ' + escHtml(d.error) + '</div>'; return; }
@@ -2845,7 +2845,7 @@ function showTaskDetail(taskId) {
       // File download — fetch files list dynamically
       var fileHtml = "";
       if (d.result_file || d.status === "completed") {
-        var token = localStorage.getItem("a2a_token") || "";
+        var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
         var filesUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
         fileHtml = '<div style="margin-bottom:12px" id="taskFiles"><h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Betöltés...</div></div>';
         // Fetch files after modal renders
@@ -2962,7 +2962,7 @@ function claimDelegation(taskId) {
   if (!confirm("Vállalod ezt a feladatot?")) return;
   fetch("/api/delegations/" + taskId + "/claim", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")}
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}
   })
   .then(function(r) { return r.json(); })
   .then(function(data) {
@@ -2975,7 +2975,7 @@ function reassignDelegation(taskId) {
   if (!agent) return;
   fetch("/api/delegations/" + taskId + "/reassign", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
     body: JSON.stringify({agent: agent})
   })
   .then(function(r) { return r.json(); })
@@ -2989,7 +2989,7 @@ function addDelegationNote(taskId) {
   if (!note) return;
   fetch("/api/delegations/" + taskId + "/note", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
     body: JSON.stringify({note: note})
   })
   .then(function(r) { return r.json(); })
@@ -3004,7 +3004,7 @@ function updateDelegationProgress(taskId) {
   var note = prompt("Opcionális jegyzet:");
   fetch("/api/delegations/" + taskId + "/progress", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
     body: JSON.stringify({progress: parseInt(pct), note: note || undefined})
   })
   .then(function(r) { return r.json(); })
@@ -3054,7 +3054,7 @@ function createDelegation() {
 
   fetch("/api/delegations", {
     method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || "")},
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
     body: JSON.stringify(body)
   })
   .then(function(r) { return r.json(); })
