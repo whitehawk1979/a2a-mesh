@@ -2333,7 +2333,7 @@ class DashboardAdminMixin:
         """POST /api/daily-summary/generate — Generate daily summary from task_runs."""
         from aiohttp import web
         from .marveen_db import generate_daily_summary
-        pool = getattr(self.node, "_pg_pool", None)
+        pool = getattr(self.node, '_pg_pool', None) or getattr(self, '_pg_pool', None)
         if not pool:
             return web.json_response({"error": "PG pool not available"}, status=503)
         result = await generate_daily_summary(pool)
@@ -3009,7 +3009,10 @@ class DashboardAdminMixin:
 
         # 1. Check delegations
         try:
-            rows = await self.pg_pool.fetch(
+            pool = getattr(self.node, '_pg_pool', None) or getattr(self, '_pg_pool', None)
+            if not pool:
+                return web.json_response({"error": "PG pool not available"}, status=503)
+            rows = await pool.fetch(
                 """SELECT task_id, subject, status, to_agent, from_agent,
                           created_at, updated_at, kanban_card_id, priority
                    FROM shared_delegations
