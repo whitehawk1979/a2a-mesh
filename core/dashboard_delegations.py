@@ -113,6 +113,7 @@ class DashboardDelegationsMixin:
                         kanban_boards = _json.load(kf)
                     if kanban_boards:
                         board = kanban_boards[0]
+                        card_ids = []
                         for tid in task_ids:
                             card = {
                                 "id": f"card-{int(_time.time()*1000)}-{len(board.get('cards',[]))}",
@@ -127,9 +128,22 @@ class DashboardDelegationsMixin:
                                 "task_type": data.get("task_type", "generic"),
                             }
                             board.setdefault("cards", []).append(card)
+                            card_ids.append(card["id"])
                             log.info(f"Auto Kanban card: {card['id']} → delegation {str(tid)[:12]} ({subject[:40]})")
                         with open(kanban_path, 'w') as kf:
                             _json.dump(kanban_boards, kf, indent=2)
+                        # ── Write kanban_card_id back to PG ──
+                        try:
+                            pool = getattr(self.node, '_pg_pool', None)
+                            if pool:
+                                for tid, cid in zip(task_ids, card_ids):
+                                    await pool.execute(
+                                        "UPDATE shared_delegations SET kanban_card_id = $1 WHERE task_id = $2",
+                                        cid, str(tid)
+                                    )
+                                log.info(f"Updated kanban_card_id for {len(task_ids)} delegation(s)")
+                        except Exception as pe:
+                            log.warning(f"Failed to update kanban_card_id in PG: {pe}")
             except Exception as ke:
                 log.warning(f"Auto Kanban card creation failed: {ke}")
             

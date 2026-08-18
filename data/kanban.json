@@ -293,6 +293,18 @@
         "updated_at": 1787038488.391039,
         "created_by": "unknown",
         "delegation_task_id": "7d7ad5fa-9bd6-4a58-ac03-d882a0125c1c"
+      },
+      {
+        "id": "card-1787039078687-23",
+        "title": "TEST: Review approval workflow",
+        "column": "in_progress",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787039078.6880069,
+        "updated_at": 1787039078.6880078,
+        "delegation_task_id": "fa35a0db-8af1-447c-a10d-66366fa35e69",
+        "description": "This task needs approval before proceeding",
+        "task_type": "generic"
       }
     ],
     "created_at": 1786966798.705906,
