@@ -207,88 +207,95 @@
         "id": "card-1787036290353-16",
         "title": "Desired State: SSH auto-restart",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "high",
         "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787036290.353693,
-        "updated_at": 1787036290.353693,
-        "created_by": "unknown"
+        "updated_at": 1787037189.7629619,
+        "created_by": "unknown",
+        "delegation_task_id": "7bc76cfb-e05d-4bca-9e70-ccb3361e3e8c"
       },
       {
         "id": "card-1787036290662-17",
         "title": "Process-Lock: cross-platform teszt",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "medium",
         "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787036290.6621618,
-        "updated_at": 1787036290.6621618,
-        "created_by": "unknown"
+        "updated_at": 1787037189.521487,
+        "created_by": "unknown",
+        "delegation_task_id": "aabe87d5-2a4a-4fd5-91f8-51c8a445ad35"
       },
       {
         "id": "card-1787036290938-18",
         "title": "Marveen UI: theme toggle + mobil",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "medium",
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787036290.9380858,
-        "updated_at": 1787036290.9380858,
-        "created_by": "unknown"
+        "updated_at": 1787037189.2826262,
+        "created_by": "unknown",
+        "delegation_task_id": "62a0c23d-843a-49d1-88ce-bf97478f92ec"
       },
       {
         "id": "card-1787036291183-19",
         "title": "Governance: PII bővítés + audit vizual",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "high",
         "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787036291.183543,
-        "updated_at": 1787036291.183543,
-        "created_by": "unknown"
+        "updated_at": 1787037189.033649,
+        "created_by": "unknown",
+        "delegation_task_id": "ef15298e-7bf9-46ee-92c9-f21f7cb3576a"
       },
       {
         "id": "card-1787036291435-20",
         "title": "Kanban: sprint analytics + burndown",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "medium",
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787036291.4352698,
-        "updated_at": 1787036291.4352698,
-        "created_by": "unknown"
+        "updated_at": 1787037188.774271,
+        "created_by": "unknown",
+        "delegation_task_id": "ce55e3ef-4603-4225-92c7-9599029faa35"
       },
       {
         "id": "card-1787036291694-21",
         "title": "Mesh: progress callback + streaming",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "medium",
         "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787036291.694199,
-        "updated_at": 1787036291.694199,
-        "created_by": "unknown"
+        "updated_at": 1787037188.506882,
+        "created_by": "unknown",
+        "delegation_task_id": "bf45a82b-4a87-400a-98ee-7e097183e921"
       },
       {
         "id": "card-1787036291947-22",
         "title": "Dashboard: tab navigation + breadcrumb",
         "description": "Delegált fejlesztési feladat",
-        "column": "todo",
+        "column": "review",
         "priority": "low",
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787036291.947223,
-        "updated_at": 1787036291.947223,
-        "created_by": "unknown"
+        "updated_at": 1787037188.244312,
+        "created_by": "unknown",
+        "delegation_task_id": "7d7ad5fa-9bd6-4a58-ac03-d882a0125c1c"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787036291.947228
+    "updated_at": 1787037189.762963
   }
 ]

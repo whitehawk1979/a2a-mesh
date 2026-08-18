@@ -1148,6 +1148,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <div style="display:flex;gap:8px;margin-bottom:8px;flex-shrink:0">
       <button class="btn btn-sm" id="alertTabProm" style="background:var(--primary);color:#fff" onclick="switchAlertTab('prom')">Prometheus</button>
       <button class="btn btn-sm" id="alertTabRules" style="background:var(--surface2);color:var(--text)" onclick="switchAlertTab('rules')">Custom Rules</button>
+      <button class="btn btn-sm" id="alertTabMesh" style="background:var(--surface2);color:var(--text)" onclick="switchAlertTab('mesh')">🔗 Mesh Activity</button>
       <span id="alertCount" style="font-size:12px;color:var(--text3);padding:6px 0;margin-left:auto"></span>
     </div>
     <div id="alertsList" style="flex:1;overflow-y:auto;padding:4px 0;min-height:200px"></div>
@@ -1163,6 +1164,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <button class="btn btn-sm" style="background:var(--green);color:#fff" onclick="addAlertRule()">Hozzáad</button>
       </div>
       <div id="alertRulesList"></div>
+    </div>
+    <div id="alertMeshPanel" style="display:none;flex:1;overflow-y:auto;padding:4px 0;min-height:200px">
+      <div id="alertMeshList"></div>
     </div>
   </div>
 </div>
@@ -4274,19 +4278,64 @@ function loadAlerts() {
 function switchAlertTab(tab) {
   var prom = document.getElementById('alertsList');
   var rules = document.getElementById('alertRulesPanel');
+  var mesh = document.getElementById('alertMeshPanel');
   var btnProm = document.getElementById('alertTabProm');
   var btnRules = document.getElementById('alertTabRules');
+  var btnMesh = document.getElementById('alertTabMesh');
   if (tab === 'prom') {
-    prom.style.display = ''; rules.style.display = 'none';
+    prom.style.display = ''; rules.style.display = 'none'; mesh.style.display = 'none';
     btnProm.style.background = 'var(--primary)'; btnProm.style.color = '#fff';
     btnRules.style.background = 'var(--surface2)'; btnRules.style.color = 'var(--text)';
+    btnMesh.style.background = 'var(--surface2)'; btnMesh.style.color = 'var(--text)';
     loadAlerts();
-  } else {
-    prom.style.display = 'none'; rules.style.display = '';
+  } else if (tab === 'rules') {
+    prom.style.display = 'none'; rules.style.display = ''; mesh.style.display = 'none';
     btnProm.style.background = 'var(--surface2)'; btnProm.style.color = 'var(--text)';
     btnRules.style.background = 'var(--primary)'; btnRules.style.color = '#fff';
+    btnMesh.style.background = 'var(--surface2)'; btnMesh.style.color = 'var(--text)';
     loadAlertRules();
+  } else if (tab === 'mesh') {
+    prom.style.display = 'none'; rules.style.display = 'none'; mesh.style.display = '';
+    btnProm.style.background = 'var(--surface2)'; btnProm.style.color = 'var(--text)';
+    btnRules.style.background = 'var(--surface2)'; btnRules.style.color = 'var(--text)';
+    btnMesh.style.background = 'var(--primary)'; btnMesh.style.color = '#fff';
+    loadMeshAlerts();
   }
+}
+
+function loadMeshAlerts() {
+  _skillsApiCall('/api/alerts/delegation').then(function(d) {
+    var c = document.getElementById('alertMeshList');
+    var alerts = d.alerts || [];
+    var sevBadges = '';
+    if (d.critical > 0) sevBadges += '<span style="background:var(--red);color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin-right:4px">' + d.critical + ' critical</span>';
+    if (d.warning > 0) sevBadges += '<span style="background:var(--yellow);color:#000;font-size:11px;padding:2px 8px;border-radius:10px;margin-right:4px">' + d.warning + ' warning</span>';
+    if (d.info > 0) sevBadges += '<span style="background:var(--primary);color:#fff;font-size:11px;padding:2px 8px;border-radius:10px">' + d.info + ' info</span>';
+    document.getElementById('alertCount').textContent = d.total + ' alert';
+    if (!alerts.length) {
+      c.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">✅ Nincsenek mesh alertek — minden rendben</div>';
+      return;
+    }
+    var icons = {critical: '🔴', warning: '🟡', info: '🔵'};
+    var colors = {critical: 'var(--red)', warning: 'var(--yellow)', info: 'var(--primary)'};
+    var sourceIcons = {delegation: '📤', kanban: '📋', system: '⚙️'};
+    c.innerHTML = sevBadges + '<div style="margin-top:8px"></div>' + alerts.map(function(a) {
+      var sev = a.severity || 'info';
+      var src = a.source || 'system';
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-left:3px solid ' + colors[sev] + ';border-radius:8px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:start">' +
+          '<div><span style="font-weight:600;font-size:14px">' + (icons[sev]||'⚪') + ' ' + escHtml(a.title||'') + '</span>' +
+          ' <span style="font-size:10px;padding:1px 6px;border-radius:8px;background:var(--surface2);color:var(--text3)">' + (sourceIcons[src]||'') + ' ' + src + '</span></div>' +
+          '<span style="font-size:11px;color:var(--text3)">' + escHtml(a.age||'') + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--text2);margin-top:4px">' + escHtml(a.message||'') + '</div>' +
+        (a.task_id ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">task: ' + a.task_id.substring(0,12) + '</div>' : '') +
+        (a.card_id ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">card: ' + a.card_id.substring(a.card_id.length-4) + '</div>' : '') +
+      '</div>';
+    }).join('');
+  }).catch(function(e) {
+    document.getElementById('alertMeshList').innerHTML = '<div style="text-align:center;padding:24px;color:var(--danger)">Hiba: ' + escHtml(String(e)) + '</div>';
+  });
 }
 
 function loadAlertRules() {

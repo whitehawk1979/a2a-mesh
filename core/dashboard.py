@@ -403,6 +403,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/config/sync", self._api_config_sync)
         # Alert rules
         app.router.add_get("/api/alerts", self._api_alerts_status)
+        app.router.add_get("/api/alerts/delegation", self._api_alerts_delegation)
         # P2P status endpoint
         app.router.add_get("/api/p2p/status", self._api_p2p_status)
         # Memory sync status endpoint

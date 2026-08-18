@@ -11,6 +11,18 @@ from .workflow import WorkflowCoordinator, WorkflowTask, ConsensusMode
 log = logging.getLogger("a2a_mesh.dashboard.admin")
 
 
+def _fmt_age(seconds: float) -> str:
+    """Format age in seconds to human-readable string."""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        return f"{int(seconds / 60)}m"
+    elif seconds < 86400:
+        return f"{int(seconds / 3600)}h"
+    else:
+        return f"{int(seconds / 86400)}d"
+
+
 class DashboardAdminMixin:
     """Admin API endpoints for the A2A Mesh Dashboard."""
 
@@ -2976,3 +2988,141 @@ class DashboardAdminMixin:
             return web.json_response({"error": "Rule not found"}, status=404)
         rules[rule_id].enabled = not rules[rule_id].enabled
         return web.json_response({"status": "ok", "rule": rules[rule_id].to_dict()})
+
+    async def _api_alerts_delegation(self, request):
+        """GET /api/alerts/delegation — Delegation + Kanban based alerts.
+
+        Generates alerts from delegation status and Kanban card state:
+        - failed delegations → critical
+        - stuck in_progress >30min → warning
+        - stale review >7days → info
+        - available tasks >5min no claim → warning
+        """
+        from aiohttp import web
+        import time as _time
+        user, err = self._require_auth(request)
+        if err:
+            return err
+
+        alerts = []
+        now = _time.time()
+
+        # 1. Check delegations
+        try:
+            rows = await self.pg_pool.fetch(
+                """SELECT task_id, subject, status, to_agent, from_agent,
+                          created_at, updated_at, kanban_card_id, priority
+                   FROM shared_delegations
+                   WHERE status IN ('failed', 'available', 'pending', 'running')
+                   ORDER BY created_at DESC LIMIT 50"""
+            )
+            for row in rows:
+                age = now - row["created_at"]
+                r = dict(row)
+                r["age_seconds"] = int(age)
+                r["age_human"] = _fmt_age(age)
+
+                if row["status"] == "failed":
+                    alerts.append({
+                        "severity": "critical",
+                        "source": "delegation",
+                        "task_id": row["task_id"],
+                        "title": f"Delegáció FAILED: {row['subject'][:50]}",
+                        "message": f"{row['from_agent']} → {row['to_agent']}, {r['age_human']}, kanban={row['kanban_card_id'] or 'N/A'}",
+                        "age": r["age_human"],
+                    })
+                elif row["status"] == "running" and age > 600:
+                    alerts.append({
+                        "severity": "warning",
+                        "source": "delegation",
+                        "task_id": row["task_id"],
+                        "title": f"Delegáció beragadva: {row['subject'][:50]}",
+                        "message": f"Running {r['age_human']}, {row['from_agent']} → {row['to_agent']}",
+                        "age": r["age_human"],
+                    })
+                elif row["status"] == "available" and age > 300:
+                    alerts.append({
+                        "severity": "warning",
+                        "source": "delegation",
+                        "task_id": row["task_id"],
+                        "title": f"Available task nem claimelt: {row['subject'][:50]}",
+                        "message": f"Available {r['age_human']}, no peer claimed it yet",
+                        "age": r["age_human"],
+                    })
+                elif row["status"] == "pending" and age > 1800:
+                    alerts.append({
+                        "severity": "warning",
+                        "source": "delegation",
+                        "task_id": row["task_id"],
+                        "title": f"Pending delegáció: {row['subject'][:50]}",
+                        "message": f"Pending {r['age_human']}, {row['from_agent']} → {row['to_agent']}",
+                        "age": r["age_human"],
+                    })
+        except Exception as e:
+            alerts.append({
+                "severity": "critical",
+                "source": "system",
+                "title": "Delegation alert query error",
+                "message": str(e)[:200],
+            })
+
+        # 2. Check Kanban cards
+        try:
+            import json as _json, os as _os
+            kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+            if _os.path.exists(kanban_path):
+                with open(kanban_path) as f:
+                    boards = _json.load(f)
+                for board in boards:
+                    for card in board.get("cards", []):
+                        col = card.get("column", "todo")
+                        updated = card.get("updated_at", 0)
+                        card_age = now - updated if updated else 0
+                        dtid = card.get("delegation_task_id", "")
+
+                        if col == "in_progress" and card_age > 1800:
+                            alerts.append({
+                                "severity": "warning",
+                                "source": "kanban",
+                                "card_id": card["id"],
+                                "title": f"Kanban beragadva: {card['title'][:50]}",
+                                "message": f"in_progress {_fmt_age(card_age)}, assigned={card.get('assigned_to','')}, deleg={dtid[:12] or 'N/A'}",
+                                "age": _fmt_age(card_age),
+                            })
+                        elif col == "review" and card_age > 604800:
+                            alerts.append({
+                                "severity": "info",
+                                "source": "kanban",
+                                "card_id": card["id"],
+                                "title": f"Review túl régi: {card['title'][:50]}",
+                                "message": f"review {_fmt_age(card_age)}, deleg={dtid[:12] or 'N/A'}",
+                                "age": _fmt_age(card_age),
+                            })
+                        elif col == "in_progress" and not dtid:
+                            alerts.append({
+                                "severity": "info",
+                                "source": "kanban",
+                                "card_id": card["id"],
+                                "title": f"Kanban nincs delegálva: {card['title'][:50]}",
+                                "message": f"in_progress but no delegation_task_id",
+                                "age": _fmt_age(card_age),
+                            })
+        except Exception as e:
+            alerts.append({
+                "severity": "warning",
+                "source": "system",
+                "title": "Kanban alert query error",
+                "message": str(e)[:200],
+            })
+
+        # Sort by severity (critical first)
+        sev_order = {"critical": 0, "warning": 1, "info": 2}
+        alerts.sort(key=lambda a: sev_order.get(a["severity"], 3))
+
+        return web.json_response({
+            "total": len(alerts),
+            "critical": sum(1 for a in alerts if a["severity"] == "critical"),
+            "warning": sum(1 for a in alerts if a["severity"] == "warning"),
+            "info": sum(1 for a in alerts if a["severity"] == "info"),
+            "alerts": alerts,
+        })
