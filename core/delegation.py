@@ -1390,7 +1390,7 @@ class DelegationManager:
             pending = await self.pg_pool.fetch(
                 """SELECT task_id, subject, notes FROM shared_delegations
                    WHERE from_agent = $1 AND status = $2
-                   AND notes::text LIKE '[DEPENDS_ON]%%'""",
+                   AND notes::text LIKE '%%[DEPENDS_ON]%%'""",
                 self.node_name, STATUS_PENDING,
             )
             for row in pending:
