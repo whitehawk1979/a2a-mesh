@@ -381,10 +381,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 
   <!-- Marveen Content Panel (hidden by default, shown when Marveen menu items are clicked) -->
-  <div id="marveenContent" style="display:none;flex:1;flex-direction:column;overflow:auto;padding:20px;background:var(--bg);">
-    <div style="text-align:center;padding:40px;color:var(--text3)">Válassz egy menüpontot a sidebarból</div>
-  </div>
-
+  
   <!-- Chat area -->
   <div class="chat-area">
     <div class="chat-header">
@@ -715,6 +712,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .priority-badge{font-size:10px;padding:1px 5px;border-radius:4px;font-weight:700}
 .priority-10{background:var(--danger);color:#fff}.priority-7{background:var(--warning);color:#000}.priority-5{background:var(--text3);color:#fff}.priority-1{background:var(--success);color:#fff}
 @media(max-width:768px){#kanbanBoard{grid-template-columns:1fr;max-height:none}.kanban-col{max-height:40vh}}
+
+/* ── Marveen Modal ── */
+.marveen-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:20px;box-sizing:border-box}
+.marveen-modal{background:var(--bg);border-radius:12px;width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.3);overflow:hidden}
+.marveen-modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0}
+.marveen-modal-header h2{margin:0;font-size:18px;color:var(--text)}
+.marveen-modal-close{background:none;border:none;font-size:22px;color:var(--text3);cursor:pointer;padding:4px 8px;border-radius:6px;transition:background .2s}
+.marveen-modal-close:hover{background:var(--surface);color:var(--text)}
+.marveen-modal-body{padding:20px;overflow:auto;flex:1}
+@media(max-width:768px){
+  .marveen-modal-overlay{padding:0}
+  .marveen-modal{max-width:100%;max-height:100vh;border-radius:0}
+  .marveen-modal-header{padding:12px 16px}
+  .marveen-modal-body{padding:16px}
+}
 </style>
 
 <!-- Task Detail Modal -->
@@ -2690,16 +2702,23 @@ document.getElementById("authPassword").addEventListener("keydown", function(e) 
 document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
 
 function loadMarveenPage(page) {
-  var contentArea = document.getElementById('marveenContent');
-  var messagesArea = document.getElementById('messages');
-
-  if (!contentArea) return;
-
-  // Hide chat, show marveen content
-  messagesArea.style.display = 'none';
-  if (document.querySelector('.input-area')) document.querySelector('.input-area').style.display = 'none';
-  contentArea.style.display = 'block';
-  contentArea.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Betöltés...</div>';
+  var titleMap = {
+    'kanban': '📋 Kanban Táblák',
+    'approvals': '✅ Jóváhagyások',
+    'activity': '📈 Aktivitás',
+    'bgTasks': '🔄 Háttér Feladatok',
+    'memories': '🧠 Memória',
+    'naplo': '📝 Napló',
+    'research': '💡 Ötletláda',
+    'costs': '💰 Költségek',
+    'tokenUsage': '🔢 Token Monitor',
+    'updates': '⬆️ Frissítések',
+    'vault': '🔐 Vault',
+    'connectors': '🔌 MCP Konnektorok',
+    'federation': '🌐 Föderáció',
+    'migrate': '📦 Költöztetés',
+    'docs': '📚 Dokumentáció'
+  };
 
   var apiMap = {
     'kanban': '/api/kanban',
@@ -2719,64 +2738,58 @@ function loadMarveenPage(page) {
     'docs': '/api/docs'
   };
 
-  var titleMap = {
-    'kanban': '📋 Kanban Táblák',
-    'approvals': '✅ Jóváhagyások',
-    'activity': '📈 Aktivitás',
-    'bgTasks': '🔄 Háttér Feladatok',
-    'memories': '🧠 Memória',
-    'naplo': '📝 Napló',
-    'research': '💡 Ötletláda',
-    'costs': '💰 Költségek',
-    'tokenUsage': '🔢 Token Monitor',
-    'updates': '⬆️ Frissítések',
-    'vault': '🔐 Vault',
-    'connectors': '🔌 MCP Konnektorok',
-    'federation': '🌐 Föderáció',
-    'migrate': '📦 Költöztetés',
-    'docs': '📚 Dokumentáció'
-  };
-
-  var apiPath = apiMap[page];
   var title = titleMap[page] || page;
+  var apiPath = apiMap[page];
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+
+  // Create or show modal
+  var modal = document.getElementById('marveenModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'marveenModal';
+    modal.className = 'marveen-modal-overlay';
+    modal.innerHTML = '<div class="marveen-modal">' +
+      '<div class="marveen-modal-header">' +
+        '<h2 id="marveenModalTitle"></h2>' +
+        '<button class="marveen-modal-close" onclick="closeMarveenModal()" title="Bezárás (Esc)">✕</button>' +
+      '</div>' +
+      '<div class="marveen-modal-body" id="marveenModalBody"></div>' +
+    '</div>';
+    document.body.appendChild(modal);
+    // Close on backdrop click
+    modal.addEventListener('click', function(e) { if (e.target === modal) closeMarveenModal(); });
+    // Close on Esc
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeMarveenModal(); });
+  }
+
+  document.getElementById('marveenModalTitle').innerHTML = title;
+  var body = document.getElementById('marveenModalBody');
+  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Betöltés...</div>';
+  modal.style.display = 'flex';
 
   if (apiPath) {
     fetch(apiPath, { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(data => {
-        var html = '<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">';
-        html += '<h2 style="margin:0">' + title + '</h2>';
-        html += '<button onclick="backToChat()" style="margin-left:auto;padding:6px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">← Vissza a Chat-re</button>';
-        html += '</div>';
-
-        // Render data as formatted JSON in a scrollable container
-        html += '<div style="background:var(--surface);padding:15px;border-radius:8px;overflow:auto;max-height:calc(100vh - 200px);color:var(--text2);font-size:13px;font-family:monospace;line-height:1.5;border:1px solid var(--border)">';
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(data) {
+        var html = '<div style="background:var(--surface);padding:15px;border-radius:8px;overflow:auto;color:var(--text2);font-size:13px;font-family:monospace;line-height:1.5;border:1px solid var(--border);max-height:calc(100vh - 200px)">';
         html += JSON.stringify(data, null, 2);
         html += '</div>';
-        contentArea.innerHTML = html;
+        body.innerHTML = html;
       })
-      .catch(e => {
-        contentArea.innerHTML = '<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">' +
-          '<h2 style="margin:0">' + title + '</h2>' +
-          '<button onclick="backToChat()" style="margin-left:auto;padding:6px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">← Vissza a Chat-re</button></div>' +
-          '<div style="color:var(--danger);text-align:center;padding:40px;">Hiba: ' + e.message + '</div>';
+      .catch(function(e) {
+        body.innerHTML = '<div style="color:var(--danger);text-align:center;padding:40px;">Hiba: ' + e.message + '</div>';
       });
   } else {
-    contentArea.innerHTML = '<div style="text-align:center;padding:60px;">' +
+    body.innerHTML = '<div style="text-align:center;padding:60px;">' +
       '<div style="font-size:48px;margin-bottom:20px;">⏳</div>' +
-      '<h2 style="margin-bottom:10px;">' + title + '</h2>' +
       '<p style="color:var(--text3);font-size:16px;max-width:500px;margin:0 auto;">Ez a funkció fejlesztés alatt áll.</p>' +
       '</div>';
   }
 }
 
-function backToChat() {
-  var contentArea = document.getElementById('marveenContent');
-  var messagesArea = document.getElementById('messages');
-  if (contentArea) contentArea.style.display = 'none';
-  if (messagesArea) messagesArea.style.display = '';
-  if (document.querySelector('.input-area')) document.querySelector('.input-area').style.display = '';
+function closeMarveenModal() {
+  var modal = document.getElementById('marveenModal');
+  if (modal) modal.style.display = 'none';
 }
 
 // ─── Settings Functions ──────────────────────────────────
