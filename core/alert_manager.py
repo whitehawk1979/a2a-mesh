@@ -54,7 +54,8 @@ class AlertRule:
     severity: AlertSeverity = AlertSeverity.WARNING
     cooldown: float = 300.0             # Seconds between repeated alerts
     enabled: bool = True
-    autonomy_level: int = 1             # 1=notify, 2=suggest, 3=auto-act
+    autonomy_level: Optional[int] = None             # 1=notify, 2=suggest, 3=auto-act (Optional override)
+    category: str = "general"                         # Category for autonomy overrides
     auto_action: str = ""               # Action to take at level 3 (e.g., "reconnect_p2p")
     # Internal state
     state: AlertState = AlertState.OK
