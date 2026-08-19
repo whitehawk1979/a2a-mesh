@@ -153,6 +153,7 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
   </select>
   <button class="add-btn" onclick="checkHealth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔄 Health</button>
   <button class="add-btn" onclick="discoverServices()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔍 Szkennel</button>
+  <button class="add-btn" onclick="showOnboardWizard()" style="background:var(--purple,var(--blue));color:#fff">🚀 Node Onboarding</button>
 </div>
 
 <div class="stats" id="filterChips">
@@ -167,6 +168,37 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 </div>
 
 <div class="grid" id="projectGrid"></div>
+
+<!-- Node Onboarding Modal -->
+<div class="modal-overlay" id="onboardModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:90vw;max-width:600px;max-height:90vh;overflow-y:auto;padding:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0;font-size:18px">🚀 Node Onboarding Wizard</h2>
+      <button onclick="closeOnboard()" style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer">✕</button>
+    </div>
+    
+    <div style="margin-bottom:16px">
+      <p style="color:var(--text3);font-size:13px;margin-bottom:16px">
+        Új node automatikus csatlakoztatása a mesh-hez. Az SSH kulcs csere, mesh felhasználó, auth token és peer discovery automatikusan megtörténik.
+      </p>
+      
+      <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Node név *</label>
+      <input type="text" id="onboardName" placeholder="pl. tor, dad-pc, lennie" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:12px;box-sizing:border-box">
+      
+      <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">SSH publikus kulcs (opcionális)</label>
+      <textarea id="onboardKey" placeholder="ssh-ed25519 AAAA... user@host" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;margin-bottom:12px;box-sizing:border-box;min-height:60px;font-family:monospace"></textarea>
+      
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:16px">
+        <input type="checkbox" id="onboardTailscale" checked>
+        Tailscale IP-k használata (VPN/csatorna kapcsolat esetén)
+      </label>
+      
+      <button id="onboardBtn" class="add-btn" onclick="runOnboard()" style="width:100%;padding:12px;font-size:15px;justify-content:center">🚀 Onboard indítása</button>
+    </div>
+    
+    <div id="onboardResult"></div>
+  </div>
+</div>
 
 <div class="empty" id="emptyState" style="display:none">
   <h3>🔬 Még nincsenek projektek</h3>
@@ -522,6 +554,121 @@ function escapeHtml(text) {
   var div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+// ─── Node Onboarding Wizard ─────────────────────────────────
+function showOnboardWizard() {
+  var modal = document.getElementById('onboardModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+}
+
+function closeOnboard() {
+  document.getElementById('onboardModal').style.display = 'none';
+}
+
+function runOnboard() {
+  var nodeName = document.getElementById('onboardName').value.trim();
+  var sshKey = document.getElementById('onboardKey').value.trim();
+  var useTS = document.getElementById('onboardTailscale').checked;
+  
+  if (!nodeName) { alert('Node név kötelező!'); return; }
+  
+  var btn = document.getElementById('onboardBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Onboarding folyamatban...';
+  
+  var resultDiv = document.getElementById('onboardResult');
+  resultDiv.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">⏳ Folyamatban...</div>';
+  
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || authToken || '';
+  fetch('/api/onboard', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ node_name: nodeName, ssh_pubkey: sshKey, use_tailscale: useTS })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    btn.disabled = false;
+    btn.textContent = '🚀 Onboard indítása';
+    
+    if (d.error) {
+      resultDiv.innerHTML = '<div style="color:var(--red);padding:12px">❌ Hiba: ' + escapeHtml(d.error) + '</div>';
+      return;
+    }
+    
+    var html = '<div style="padding:12px">';
+    html += '<div style="font-size:16px;font-weight:600;margin-bottom:12px">';
+    html += d.success ? '✅ Onboarding sikeres!' : '⚠️ Onboarding befejezve (hibák voltak)';
+    html += '</div>';
+    
+    // Steps
+    if (d.steps && d.steps.length) {
+      html += '<div style="margin-bottom:12px"><b>Lépések:</b></div>';
+      d.steps.forEach(function(s) {
+        var icon = s.status === 'ok' ? '✅' : s.status === 'warn' ? '⚠️' : '❌';
+        var color = s.status === 'ok' ? 'var(--green)' : s.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
+        html += '<div style="display:flex;gap:8px;padding:4px 0;font-size:13px">';
+        html += '<span>' + icon + '</span>';
+        html += '<span style="color:' + color + '">' + escapeHtml(s.step) + '</span>';
+        html += '<span style="color:var(--text3);flex:1">' + escapeHtml(s.detail || '') + '</span>';
+        html += '</div>';
+      });
+    }
+    
+    // Credentials
+    if (d.mesh_user) {
+      html += '<div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px">';
+      html += '<b>🔐 Mesh hitelesítő adatok:</b><br>';
+      html += 'User: <code>' + escapeHtml(d.mesh_user.username) + '</code><br>';
+      html += 'Pass: <code>' + escapeHtml(d.mesh_user.password) + '</code><br>';
+      html += 'Token: <code>' + escapeHtml(d.auth_token || '—') + '</code>';
+      html += '</div>';
+    }
+    
+    // Peer info
+    if (d.peer_info && d.peer_info.length) {
+      html += '<div style="margin-top:12px"><b>📡 Peer node-ok:</b></div>';
+      d.peer_info.forEach(function(p) {
+        html += '<div style="font-size:13px;padding:2px 0">• ' + escapeHtml(p.name) + ' @ ' + escapeHtml(p.host) + ':' + p.p2p_port + '</div>';
+      });
+    }
+    
+    // Tailscale IPs
+    if (d.tailscale_ips) {
+      html += '<div style="margin-top:12px"><b>🔵 Tailscale IP-k:</b></div>';
+      Object.keys(d.tailscale_ips).forEach(function(name) {
+        html += '<div style="font-size:13px;padding:2px 0">• ' + escapeHtml(name) + ': <code>' + escapeHtml(d.tailscale_ips[name]) + '</code></div>';
+      });
+    }
+    
+    // SSH targets
+    if (d.ssh_targets && d.ssh_targets.length) {
+      html += '<div style="margin-top:12px"><b>🔑 SSH kulcs csere:</b></div>';
+      d.ssh_targets.forEach(function(t) {
+        var icon = t.status === 'ok' ? '✅' : '❌';
+        html += '<div style="font-size:13px;padding:2px 0">' + icon + ' ' + escapeHtml(t.name || t.host) + ' — ' + escapeHtml(t.status) + '</div>';
+      });
+    }
+    
+    // Peer keys (for the new node to add)
+    if (d.peer_keys && d.peer_keys.length) {
+      html += '<div style="margin-top:12px"><b>📥 Peer SSH kulcsok (add hozzá a new node authorized_keys-éhez):</b></div>';
+      d.peer_keys.forEach(function(pk) {
+        html += '<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--border)">';
+        html += '<b>' + escapeHtml(pk.name) + '</b>: <code style="font-size:10px;word-break:break-all">' + escapeHtml(pk.key) + '</code>';
+        html += '</div>';
+      });
+    }
+    
+    html += '</div>';
+    resultDiv.innerHTML = html;
+  })
+  .catch(function(e) {
+    btn.disabled = false;
+    btn.textContent = '🚀 Onboard indítása';
+    resultDiv.innerHTML = '<div style="color:var(--red);padding:12px">❌ Hálózati hiba: ' + escapeHtml(e) + '</div>';
+  });
 }
 </script>
 </body>

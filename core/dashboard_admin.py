@@ -1550,6 +1550,49 @@ class DashboardAdminMixin:
         except FileNotFoundError:
             return web.Response(text="<h1>Skills page not found</h1>", status=404)
 
+    async def _api_onboard_node(self, request):
+        """POST /api/onboard — Full node onboarding: SSH key exchange, mesh user, auth token.
+        
+        Body: {
+            "node_name": "tor",
+            "ssh_pubkey": "ssh-ed25519 AAAA... user@host",
+            "use_tailscale": true,
+            "pg_host": "192.168.1.30"  // optional, defaults to config
+        }
+        """
+        from aiohttp import web
+        import asyncio
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON body"}, status=400)
+        
+        node_name = body.get("node_name", "").strip()
+        ssh_pubkey = body.get("ssh_pubkey", "").strip()
+        use_tailscale = body.get("use_tailscale", True)
+        pg_host = body.get("pg_host", "192.168.1.30")
+        
+        if not node_name:
+            return web.json_response({"error": "node_name is required"}, status=400)
+        
+        try:
+            from .bootstrap import onboard_node
+            result = await onboard_node(
+                node_name=node_name,
+                ssh_pubkey=ssh_pubkey,
+                pg_host=pg_host,
+                use_tailscale=use_tailscale,
+            )
+            return web.json_response(result)
+        except Exception as e:
+            import logging
+            logging.getLogger("a2a_mesh.dashboard").error(f"Onboard error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _kanban_page(self, request):
         """GET /kanban — Kanban task management page."""
         from aiohttp import web
