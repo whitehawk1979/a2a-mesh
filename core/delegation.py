@@ -219,10 +219,10 @@ class DelegationManager:
 
         await self.pg_pool.execute(
             """INSERT INTO shared_delegations 
-               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries, task_type)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
             task_id, self.node_name, actual_to, subject, desc_json,
-            status, priority, expires_at, None, max_retries,
+            status, priority, expires_at, None, max_retries, task_type or "generic",
         )
 
         log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
@@ -292,10 +292,10 @@ class DelegationManager:
                 
                 await self.pg_pool.execute(
                     """INSERT INTO shared_delegations 
-                       (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+                       (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries, task_type)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
                     fan_id, self.node_name, child_to, child_subject, child_desc,
-                    child_status, priority, child_expires, None, max_retries,
+                    child_status, priority, child_expires, None, max_retries, task_type or "generic",
                 )
                 task_ids.append(fan_id)
                 # Auto-create Kanban card for fan-out child
