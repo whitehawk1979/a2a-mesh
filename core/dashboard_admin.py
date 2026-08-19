@@ -1685,8 +1685,19 @@ class DashboardAdminMixin:
         from aiohttp import web
         import asyncio, socket, aiohttp as aiohttp_lib
 
-        # Known hosts on the LAN
-        hosts = ["192.168.1.9", "192.168.1.30", "192.168.1.35", "192.168.1.100", "192.168.1.117"]
+        # Known hosts on the LAN + Tailscale
+        hosts = [
+            "192.168.1.8",     # Nova (Mac)
+            "192.168.1.9",     # Nova alt IP
+            "192.168.1.30",    # Morzsa
+            "192.168.1.35",    # Synology NAS
+            "192.168.1.60",    # Proxmox
+            "192.168.1.100",   # Runa (Ubuntu VM)
+            "192.168.1.117",   # ESP32-C6 sensor
+            "100.75.253.52",   # Nova Tailscale
+            "100.65.232.47",   # Morzsa Tailscale
+            "100.125.223.24",  # Runa Tailscale
+        ]
         # Common service ports with labels
         ports = {
             80: "HTTP", 443: "HTTPS", 3000: "Web App", 3001: "Gitea", 32400: "Plex",
@@ -1694,6 +1705,9 @@ class DashboardAdminMixin:
             6333: "Qdrant", 8080: "Web App", 8090: "IPTV", 8091: "ESPHome MCP",
             8123: "Home Assistant", 8650: "A2A Mesh", 8888: "SearXNG",
             9090: "Prometheus", 9093: "Alertmanager", 3030: "Grafana",
+            9120: "HERMEX Dashboard", 9337: "Mesh-LLM", 3131: "Mesh-LLM Console",
+            4096: "OpenCode", 3322: "Brain Server", 11434: "Ollama",
+            8006: "Proxmox Web UI", 5432: "PostgreSQL",
         }
 
         async def check_port(host, port, label):

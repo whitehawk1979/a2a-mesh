@@ -292,30 +292,6 @@
         }
       },
       {
-        "id": "card-1787072471517-22",
-        "title": "Test: auto Kanban card creation",
-        "description": "Test task to verify auto Kanban card creation for delegations",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787072471.517353,
-        "updated_at": 1787072471.517354,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787072471733-23",
-        "title": "Fanout: Test: auto Kanban card creation",
-        "description": "Test task to verify auto Kanban card creation for delegations",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787072471.733921,
-        "updated_at": 1787072471.733922,
-        "created_by": "unknown"
-      },
-      {
         "id": "card-1787072471738-24",
         "title": "Test: auto Kanban card creation",
         "column": "done",
@@ -362,42 +338,6 @@
         }
       },
       {
-        "id": "card-1787072558140-26",
-        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787072558.1404002,
-        "updated_at": 1787072558.140401,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787072558281-27",
-        "title": "Fanout: Komplex teszt: Rendszer-diagnosztika minden node-on",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787072558.281486,
-        "updated_at": 1787072558.281486,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787072558497-28",
-        "title": "Fanout: Komplex teszt: Rendszer-diagnosztika minden node-on",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787072558.497211,
-        "updated_at": 1787072558.497211,
-        "created_by": "unknown"
-      },
-      {
         "id": "card-1787072558501-29",
         "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
         "column": "done",
@@ -419,54 +359,6 @@
           "reason": "",
           "summary": "[runa] System analysis completed at 2026-08-18T17:02:[PHONE REDACTED]+00:00"
         }
-      },
-      {
-        "id": "card-1787072558501-30",
-        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
-        "column": "in_progress",
-        "priority": 8,
-        "assigned_to": "",
-        "created_at": 1787072558.501573,
-        "updated_at": 1787072558.501573,
-        "delegation_task_id": "725897a8-6c92-4c95-8eca-449031a89726",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
-        "task_type": "generic"
-      },
-      {
-        "id": "card-1787072558501-31",
-        "title": "Komplex teszt: Rendszer-diagnosztika minden node-on",
-        "column": "in_progress",
-        "priority": 8,
-        "assigned_to": "",
-        "created_at": 1787072558.501961,
-        "updated_at": 1787072558.501961,
-        "delegation_task_id": "3795f970-968d-4763-b31b-52e1f2eecada",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
-        "task_type": "generic"
-      },
-      {
-        "id": "card-1787073234731-32",
-        "title": "[fwd] Komplex teszt: Rendszer-diagnosztika minden node-on",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass egy rendszer-diagnosztik\\u00e1t: CPU load, memory, disk usage, uptime, network connectivity. Add vissza JSON form\\u00e1tumban.\", \"context\": {\"instructions\": \"Run: uptime, free -h, df -h /, and report back as JSON\", \"expected_format\": \"json\"}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787073234.7318661,
-        "updated_at": 1787073234.7318668,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787073526673-33",
-        "title": "Lánc A: Rendszer állapot lekérdezés",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9rlek futtass: uptime && free -h && df -h / \\u00e9s add vissza JSON-ben\", \"context\": {}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787073526.673053,
-        "updated_at": 1787073526.673054,
-        "created_by": "unknown"
       },
       {
         "id": "card-1787073526738-34",
@@ -492,18 +384,6 @@
         }
       },
       {
-        "id": "card-1787073527119-35",
-        "title": "Lánc B: Eredmény feldolgozása",
-        "description": "{\"type\": \"generic\", \"description\": \"Dolgozd fel a Task A eredm\\u00e9ny\\u00e9t: k\\u00e9sz\\u00edts egy \\u00f6sszefoglal\\u00f3t a rendszer \\u00e1llapotr\\u00f3l\", \"context\": {}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787073527.119523,
-        "updated_at": 1787073527.119523,
-        "created_by": "unknown"
-      },
-      {
         "id": "card-1787073527270-36",
         "title": "Lánc B: Eredmény feldolgozása",
         "column": "done",
@@ -525,18 +405,6 @@
           "reason": "",
           "summary": "[runa] LLM (glm-5.2:cloud) generated code for 'Lanc B: Eredmeny feldolgozasa' \\u2014 13587 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n  Lanc B: Eredmeny feldolgozasa\n  Rendszerallapot osszefogl"
         }
-      },
-      {
-        "id": "card-1787073527669-37",
-        "title": "Lánc C: Jelentés generálása",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy v\\u00e9gleges jelent\\u00e9st a rendszer-diagnosztik\\u00e1r\\u00f3l\", \"context\": {}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787073527.669014,
-        "updated_at": 1787073527.669014,
-        "created_by": "unknown"
       },
       {
         "id": "card-1787073527810-38",
@@ -562,18 +430,6 @@
         }
       },
       {
-        "id": "card-1787076173315-39",
-        "title": "Auto-Chain A: Hálózat scan",
-        "description": "{\"type\": \"generic\", \"description\": \"Futtass: ping -c 1 192.168.1.1 && ping -c 1 192.168.1.30 && echo done\", \"context\": {}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787076173.3159559,
-        "updated_at": 1787076173.315957,
-        "created_by": "unknown"
-      },
-      {
         "id": "card-1787076173379-40",
         "title": "Auto-Chain A: Hálózat scan",
         "column": "done",
@@ -595,18 +451,6 @@
           "reason": "",
           "summary": "[runa] Network check completed: 6/6 OK"
         }
-      },
-      {
-        "id": "card-1787076173724-41",
-        "title": "Auto-Chain B: Eredmény összegzés",
-        "description": "{\"type\": \"generic\", \"description\": \"K\\u00e9sz\\u00edts egy r\\u00f6vid \\u00f6sszefoglal\\u00f3t a h\\u00e1l\\u00f3zat scan eredm\\u00e9ny\\u00e9r\\u0151l\", \"context\": {}}",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787076173.724513,
-        "updated_at": 1787076173.724513,
-        "created_by": "unknown"
       },
       {
         "id": "card-1787076174166-42",
@@ -632,90 +476,6 @@
         }
       },
       {
-        "id": "card-1787089854790-43",
-        "title": "Review test 2: írj egy rövid verset a holdról",
-        "description": "Írj egy 4 soros verset a holdról.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787089854.790058,
-        "updated_at": 1787089854.790058,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787089854829-44",
-        "title": "Review test 2: írj egy rövid verset a holdról",
-        "column": "review",
-        "priority": 5,
-        "assigned_to": "",
-        "created_at": 1787089854.829359,
-        "updated_at": 1787090170.615405,
-        "delegation_task_id": "21b515b1-c9f7-496a-bfe7-c68b7bf3a941",
-        "description": "Írj egy 4 soros verset a holdról.",
-        "task_type": "code_generation"
-      },
-      {
-        "id": "card-1787090148410-45",
-        "title": "Review test 3: írj egy rövid verset a csillagokról",
-        "description": "Írj egy 4 soros verset a csillagokról.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787090148.410744,
-        "updated_at": 1787090148.4107451,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787090148477-46",
-        "title": "Review test 3: írj egy rövid verset a csillagokról",
-        "column": "review",
-        "priority": 5,
-        "assigned_to": "",
-        "created_at": 1787090148.477654,
-        "updated_at": 1787090448.2865,
-        "delegation_task_id": "f414990e-1335-454a-afe7-8800128da879",
-        "description": "Írj egy 4 soros verset a csillagokról.",
-        "task_type": "code_generation"
-      },
-      {
-        "id": "card-1787090416529-47",
-        "title": "Review test 4: írj egy rövid verset a szélről",
-        "description": "Írj egy 4 soros verset a szélről.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787090416.529332,
-        "updated_at": 1787090416.5293329,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787090416582-48",
-        "title": "Review test 4: írj egy rövid verset a szélről",
-        "column": "review",
-        "priority": 5,
-        "assigned_to": "",
-        "created_at": 1787090416.582579,
-        "updated_at": 1787090718.475764,
-        "delegation_task_id": "5be30a87-b399-46bd-9b44-b8285207018f",
-        "description": "Írj egy 4 soros verset a szélről.",
-        "task_type": "code_generation"
-      },
-      {
-        "id": "card-1787090718464-49",
-        "title": "Review test 5: írj egy rövid verset a tengerről",
-        "description": "Írj egy 4 soros verset a tengerről.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787090718.4643462,
-        "updated_at": 1787090718.4643462,
-        "created_by": "unknown"
-      },
-      {
         "id": "card-1787090718742-50",
         "title": "Review test 5: írj egy rövid verset a tengerről",
         "column": "done",
@@ -731,18 +491,6 @@
         "reviewed_at": 1787091017.770526
       },
       {
-        "id": "card-1787090906962-51",
-        "title": "Review test 6: írj egy rövid verset az esőről",
-        "description": "Írj egy 4 soros verset az esőről.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787090906.9622378,
-        "updated_at": 1787090906.962239,
-        "created_by": "unknown"
-      },
-      {
         "id": "card-1787090907031-52",
         "title": "Review test 6: írj egy rövid verset az esőről",
         "column": "done",
@@ -756,52 +504,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787091017.6340759
-      },
-      {
-        "id": "card-1787116495473-53",
-        "title": "Agent history test: írj egy haikut a mesh-ről",
-        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787116495.473027,
-        "updated_at": 1787116495.473027,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787116495508-54",
-        "title": "Agent history test: írj egy haikut a mesh-ről",
-        "column": "todo",
-        "priority": 5,
-        "assigned_to": "",
-        "created_at": 1787116495.5081348,
-        "updated_at": 1787116524.179896,
-        "delegation_task_id": "24e13c73-a470-4c0f-8e5b-fb49def04ab4",
-        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
-        "task_type": "code",
-        "agent_history": [
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "8ba5ea21",
-            "timestamp": 1787116508.1560478
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Syllable pattern is [5, 7, 6], expected [5, 7, 5]",
-            "timestamp": 1787116524.180328
-          }
-        ],
-        "reviewer": "tor",
-        "review_task_id": "8ba5ea21-1299-4c56-aeab-9f4531e6502b",
-        "review_status": "rejected",
-        "review_reason": "Syllable pattern is [5, 7, 6], expected [5, 7, 5]",
-        "reviewed_at": 1787116524.179895
       },
       {
         "id": "card-1787117162795-55",
@@ -836,30 +538,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787117200.177772
-      },
-      {
-        "id": "card-1787118164020-56",
-        "title": "Agent history test 4: írj egy haikut a mesh-ről",
-        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787118164.020375,
-        "updated_at": 1787118164.0314398,
-        "created_by": "unknown",
-        "delegation_task_id": "6d18c642-cdfe-48b1-898f-08791b816034",
-        "delegation_status": "available",
-        "from_agent": "nova",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787118164.0314372
-          }
-        ]
       },
       {
         "id": "card-1787118164933-57",
@@ -964,30 +642,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787121230.638913
-      },
-      {
-        "id": "card-1787121292615-58",
-        "title": "Agent history final test",
-        "description": "Irj egy rovid haikut a mesh-rol",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787121292.615679,
-        "updated_at": 1787121292.6266618,
-        "created_by": "unknown",
-        "delegation_task_id": "9e8e437d-e246-4321-aee6-626651240b0c",
-        "delegation_status": "available",
-        "from_agent": "nova",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787121292.626657
-          }
-        ]
       },
       {
         "id": "card-1787121292781-59",
