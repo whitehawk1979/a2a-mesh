@@ -1395,13 +1395,15 @@ class DelegationManager:
                                     c["completed_at"] = str(row.get("completed_at", ""))[:30]
                                     c["updated_at"] = time.time()
                                     c["review_status"] = "pending"
+                                    # Agent history: executor entry is added by node.py callback
+                                    # to avoid duplication. Only add review delegation here.
                                     if "agent_history" not in c:
                                         c["agent_history"] = []
                                     c["agent_history"].append({
-                                        "agent": row.get("assigned_agent", "unknown"),
-                                        "role": "executor",
-                                        "action": "completed task",
-                                        "result": result_text[:500],
+                                        "agent": self.node_name,
+                                        "role": "reviewer",
+                                        "action": "review delegated",
+                                        "review_task_id": str(row.get("task_id", ""))[:8],
                                         "timestamp": time.time(),
                                     })
                                     
