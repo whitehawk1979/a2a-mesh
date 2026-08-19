@@ -526,4 +526,122 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except FileNotFoundError:
             log.warning(f"Dashboard HTML not found at {html_path}")
             return '<html><body><h1>A2A Mesh Dashboard</h1><p>HTML not found.</p></body></html>'
+    # ── Marveen menu API handlers ──────────────────────────────
 
+    async def _api_approvals(self, request):
+        """Pending node approvals + kanban card approvals."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"pending_nodes": [], "pending_cards": []}
+        try:
+            if hasattr(self, 'registry'):
+                pending = self.registry.list_pending() if hasattr(self.registry, 'list_pending') else []
+                result["pending_nodes"] = pending
+        except Exception as e:
+            result["pending_nodes_error"] = str(e)
+        try:
+            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
+                async with self.node.pg_pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        "SELECT id, board_id, title, assignee, priority, created_at "
+                        "FROM mesh.kanban_cards WHERE status = 'pending_approval' ORDER BY created_at DESC LIMIT 20"
+                    )
+                    result["pending_cards"] = [dict(r) for r in rows]
+        except Exception as e:
+            result["pending_cards_error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_activity(self, request):
+        """Recent mesh activity feed from PG."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"activities": []}
+        try:
+            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
+                async with self.node.pg_pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        "SELECT sender, recipient, msg_type, priority, created_at, status "
+                        "FROM mesh.mesh_messages ORDER BY created_at DESC LIMIT 30"
+                    )
+                    result["activities"] = [dict(r) for r in rows]
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_research(self, request):
+        """Research/ideas board."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"ideas": [], "suggestions": []}
+        try:
+            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
+                async with self.node.pg_pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        "SELECT id, node_name, category, severity, description, status, created_at "
+                        "FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT 20"
+                    )
+                    result["suggestions"] = [dict(r) for r in rows]
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_docs(self, request):
+        """Documentation viewer."""
+        from aiohttp import web
+        import os as _os
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        docs = []
+        mesh_docs_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "docs")
+        if _os.path.isdir(mesh_docs_dir):
+            for f in sorted(_os.listdir(mesh_docs_dir)):
+                if f.endswith('.md'):
+                    docs.append({"name": f, "source": "a2a-mesh", "path": f"{mesh_docs_dir}/{f}"})
+        marveen_docs_dir = _os.path.expanduser("~/marveen_repo/docs")
+        if _os.path.isdir(marveen_docs_dir):
+            for f in sorted(_os.listdir(marveen_docs_dir)):
+                if f.endswith('.md'):
+                    docs.append({"name": f, "source": "marveen", "path": f"{marveen_docs_dir}/{f}"})
+        return web.json_response({"docs": docs, "total": len(docs)})
+
+    async def _api_connectors(self, request):
+        """MCP connectors."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"connectors": [], "total": 0}
+        try:
+            if hasattr(self, 'node') and self.node and hasattr(self.node, 'plugin_loader'):
+                plugins = self.node.plugin_loader.list_plugins() if hasattr(self.node.plugin_loader, 'list_plugins') else []
+                result["connectors"] = plugins
+                result["total"] = len(plugins) if isinstance(plugins, list) else 0
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_migrate(self, request):
+        """Migration tools."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"fleet_status": {}, "capabilities": ["export", "import", "node_migration"]}
+        try:
+            if hasattr(self, 'node') and self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
+                async with self.node.pg_pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        "SELECT node_name, host, port, status, last_heartbeat "
+                        "FROM mesh.mesh_nodes ORDER BY node_name"
+                    )
+                    result["fleet_status"]["nodes"] = [dict(r) for r in rows]
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
