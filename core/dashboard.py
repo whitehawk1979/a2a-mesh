@@ -612,25 +612,35 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response({"docs": docs, "total": len(docs)})
 
     async def _api_connectors(self, request):
-        """MCP connectors — lists available MCP/plugin connectors."""
+        """MCP connectors — Registry capabilities + plugin_config PG table."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
             return err
         result = {"connectors": [], "total": 0}
         try:
-            # Try to get plugins from registry
+            # 1. From Registry
+            caps = set()
             if hasattr(self, 'registry') and self.registry:
                 agents = self.registry.list_agents() if hasattr(self.registry, 'list_agents') else []
-                # Extract unique capabilities that look like connectors
-                caps = set()
                 for a in agents:
                     if isinstance(a, dict):
                         for c in a.get('capabilities', []):
-                            if 'mcp' in c.lower() or 'plugin' in c.lower() or 'connector' in c.lower():
+                            if any(x in c.lower() for x in ['mcp', 'plugin', 'connector', 'tool']):
                                 caps.add(c)
-                result["connectors"] = list(caps)
-                result["total"] = len(caps)
+            
+            # 2. From PG plugin_config
+            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
+                async with self.node.pg_pool.acquire() as conn:
+                    try:
+                        rows = await conn.fetch("SELECT plugin_name FROM plugin_config")
+                        for r in rows:
+                            caps.add(r['plugin_name'])
+                    except:
+                        pass
+            
+            result["connectors"] = list(caps)
+            result["total"] = len(caps)
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)
