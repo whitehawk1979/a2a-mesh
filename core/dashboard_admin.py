@@ -1605,10 +1605,11 @@ class DashboardAdminMixin:
             return
         data = json.dumps(projects, ensure_ascii=False)
         for name, peer in peers.items():
-            host = getattr(peer, 'host', None) or getattr(peer, 'ip', None) or ''
-            port = getattr(peer, 'port', 8650) or 8650
+            host = getattr(peer, 'host', None) or ''
             if not host:
                 continue
+            # Dashboard port is 8650 on all nodes (not peer.p2p_port which is 8645)
+            port = 8650
             url = f"http://{host}:{port}/api/projects/sync"
             try:
                 timeout = aiohttp_lib.ClientTimeout(total=5)
