@@ -59,3 +59,6 @@ mesh.mesh_nodes
 *.bak.*
 backups/
 core/diagnostics.py.orig
+
+# Dynamic refactor backups
+*.bak_dynamic_refactor
