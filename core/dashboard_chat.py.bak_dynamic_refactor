@@ -619,13 +619,12 @@ class DashboardChatMixin:
         """
         try:
             import psycopg2
-            pg_conf = self.node.config.pg
             conn = psycopg2.connect(
-                host=pg_conf.host,
-                port=pg_conf.port,
-                dbname=pg_conf.dbname,
-                user=pg_conf.user,
-                password=pg_conf.password,
+                host="192.168.1.30",
+                port=5432,
+                dbname="agent_memory",
+                user="nova",
+                password="nova_agent_2026",
                 options="-c client_encoding=UTF8",
             )
             cur = conn.cursor()
@@ -768,7 +767,7 @@ class DashboardChatMixin:
             for h in history:
                 h_sender = h.get('sender', '?')
                 h_content = h.get('content', '')[:200]
-                if h_sender.lower() in agent_names:
+                if h_sender.lower() in agent_names or h_sender.lower() in ('nova', 'morzsa', 'runa'):
                     chat_lines.append(f"  [{h_sender} 🤖] {h_content}")
                 else:
                     chat_lines.append(f"  [{h_sender} 👤] {h_content}")
@@ -777,7 +776,7 @@ class DashboardChatMixin:
             chat_context = "(nincs előzmény)"
         
         # Determine if sender is human or agent
-        is_human = sender.lower() not in agent_names
+        is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
         sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
         
         prompt = (

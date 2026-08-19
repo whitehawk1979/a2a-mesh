@@ -130,7 +130,7 @@ class DashboardAgentsMixin:
                     h_sender = h.get('sender', '?')
                     h_content = h.get('content', '')[:200]
                     # Mark human vs agent
-                    if h_sender.lower() in agent_names:
+                    if h_sender.lower() in agent_names or h_sender in ('nova', 'morzsa', 'runa'):
                         chat_lines.append(f"  [{h_sender} 🤖] {h_content}")
                     else:
                         chat_lines.append(f"  [{h_sender} 👤] {h_content}")
@@ -146,7 +146,7 @@ class DashboardAgentsMixin:
                 content_text = content
             
             # Determine if sender is human or agent
-            is_human = sender.lower() not in agent_names
+            is_human = sender.lower() not in agent_names and sender not in ('nova', 'morzsa', 'runa')
             sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
             
             prompt = (

@@ -597,7 +597,7 @@ class DashboardDelegationsMixin:
         Body:
         {
             "file": "core/delegation.py",     # file to review (relative to repo root)
-            "nodes": [a.name for a, _ in self.registry.list_agents() if a.name != self.node.node_name],       # which nodes review (default: all peers)
+            "nodes": ["morzsa", "runa"],       # which nodes review (default: all peers)
             "focus": "bugs",                   # security|performance|bugs|style|general
             "context": "..."                   # additional context
         }
@@ -679,7 +679,7 @@ class DashboardDelegationsMixin:
         
         Body (optional):
         {
-            "nodes": [a.name for a, _ in self.registry.list_agents() if a.name != self.node.node_name],  # default: all peers
+            "nodes": ["morzsa", "runa"],  # default: all peers
             "remote": "gitea",            # default: "gitea" for Morzsa, "origin" for Runa
             "branch": "main",
             "timeout": 60
@@ -771,7 +771,7 @@ class DashboardDelegationsMixin:
             "subject": "task subject",       # required if delegate=true
             "description": "...",            # optional
             "priority": 5,                   # optional
-            "exclude": [self.node.node_name],             # exclude self
+            "exclude": ["nova"],             # optional — exclude nodes
             "count": 1,                      # optional — number of nodes to return
             "strategy": "best"               # "best" (lowest load) or "random" or "all"
         }
