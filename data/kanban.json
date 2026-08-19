@@ -756,9 +756,55 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787091017.6340759
+      },
+      {
+        "id": "card-1787116495473-53",
+        "title": "Agent history test: írj egy haikut a mesh-ről",
+        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787116495.473027,
+        "updated_at": 1787116495.473027,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1787116495508-54",
+        "title": "Agent history test: írj egy haikut a mesh-ről",
+        "column": "todo",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787116495.5081348,
+        "updated_at": 1787116524.179896,
+        "delegation_task_id": "24e13c73-a470-4c0f-8e5b-fb49def04ab4",
+        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
+        "task_type": "code",
+        "agent_history": [
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "8ba5ea21",
+            "timestamp": 1787116508.1560478
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Syllable pattern is [5, 7, 6], expected [5, 7, 5]",
+            "timestamp": 1787116524.180328
+          }
+        ],
+        "reviewer": "tor",
+        "review_task_id": "8ba5ea21-1299-4c56-aeab-9f4531e6502b",
+        "review_status": "rejected",
+        "review_reason": "Syllable pattern is [5, 7, 6], expected [5, 7, 5]",
+        "reviewed_at": 1787116524.179895
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787091017.72302
+    "updated_at": 1787116507.471179
   }
 ]

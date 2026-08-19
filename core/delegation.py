@@ -231,7 +231,7 @@ class DelegationManager:
         # ── Auto-create Kanban card for this delegation ──
         kanban_card_id = None
         try:
-            from .kanban import KanbanManager, _load_boards
+            from .kanban import KanbanManager, _load_boards, _save_boards
             km = KanbanManager(self.node_name)
             boards = _load_boards()
             if boards:
@@ -256,7 +256,7 @@ class DelegationManager:
                         "action": "created task",
                         "timestamp": time.time(),
                     }]
-                    _save_boards_local(boards)
+                    _save_boards(boards)
                     # Update PG with kanban_card_id
                     await self.pg_pool.execute(
                         "UPDATE shared_delegations SET kanban_card_id = $1 WHERE task_id = $2",
@@ -306,7 +306,7 @@ class DelegationManager:
                 task_ids.append(fan_id)
                 # Auto-create Kanban card for fan-out child
                 try:
-                    from .kanban import KanbanManager, _load_boards
+                    from .kanban import KanbanManager, _load_boards, _save_boards
                     km2 = KanbanManager(self.node_name)
                     boards2 = _load_boards()
                     if boards2:
@@ -1368,7 +1368,7 @@ class DelegationManager:
             try:
                 kanban_card_id = row.get("kanban_card_id") or ""
                 if kanban_card_id:
-                    from .kanban import KanbanManager, _load_boards, _save_boards
+                    from .kanban import KanbanManager, _load_boards, _save_boards, _save_boards
                     km = KanbanManager(self.node_name)
                     boards = _load_boards()
                     for board in boards:
