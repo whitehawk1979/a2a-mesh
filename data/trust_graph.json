@@ -1,0 +1,22 @@
+{
+  "Nova": {
+    "Morzsa": "full",
+    "Runa": "full",
+    "Tor": "full"
+  },
+  "Morzsa": {
+    "Nova": "full",
+    "Runa": "full",
+    "Tor": "full"
+  },
+  "Runa": {
+    "Nova": "full",
+    "Morzsa": "full",
+    "Tor": "full"
+  },
+  "Tor": {
+    "Nova": "full",
+    "Morzsa": "full",
+    "Runa": "full"
+  }
+}

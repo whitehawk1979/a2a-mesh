@@ -9,7 +9,7 @@ Inspired by Marveen's team-trust module:
   - Used by prompt_safety: trusted vs untrusted wrapping
 
 For A2A Mesh:
-  - 3 nodes: Nova, Morzsa, Runa
+  - 4 nodes: Nova, Morzsa, Runa, Tor
   - Full mesh = all trust all (default)
   - Supports asymmetric trust (e.g. temporary revocation)
   - Trust levels: full, limited, none
@@ -25,11 +25,12 @@ log = logging.getLogger("team_trust")
 
 TRUST_FILE = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/trust_graph.json")
 
-# Default trust graph for A2A Mesh (full mesh)
+# Default trust graph for A2A Mesh (full mesh — 4 nodes)
 DEFAULT_TRUST = {
-    "Nova": {"Morzsa": "full", "Runa": "full"},
-    "Morzsa": {"Nova": "full", "Runa": "full"},
-    "Runa": {"Nova": "full", "Morzsa": "full"},
+    "Nova": {"Morzsa": "full", "Runa": "full", "Tor": "full"},
+    "Morzsa": {"Nova": "full", "Runa": "full", "Tor": "full"},
+    "Runa": {"Nova": "full", "Morzsa": "full", "Tor": "full"},
+    "Tor": {"Nova": "full", "Morzsa": "full", "Runa": "full"},
 }
 
 TRUST_LEVELS = {"full": 3, "limited": 2, "none": 0}
