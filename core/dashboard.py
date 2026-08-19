@@ -612,17 +612,25 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response({"docs": docs, "total": len(docs)})
 
     async def _api_connectors(self, request):
-        """MCP connectors."""
+        """MCP connectors — lists available MCP/plugin connectors."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
             return err
         result = {"connectors": [], "total": 0}
         try:
-            if hasattr(self, 'node') and self.node and hasattr(self.node, 'plugin_loader'):
-                plugins = self.node.plugin_loader.list_plugins() if hasattr(self.node.plugin_loader, 'list_plugins') else []
-                result["connectors"] = plugins
-                result["total"] = len(plugins) if isinstance(plugins, list) else 0
+            # Try to get plugins from registry
+            if hasattr(self, 'registry') and self.registry:
+                agents = self.registry.list_agents() if hasattr(self.registry, 'list_agents') else []
+                # Extract unique capabilities that look like connectors
+                caps = set()
+                for a in agents:
+                    if isinstance(a, dict):
+                        for c in a.get('capabilities', []):
+                            if 'mcp' in c.lower() or 'plugin' in c.lower() or 'connector' in c.lower():
+                                caps.add(c)
+                result["connectors"] = list(caps)
+                result["total"] = len(caps)
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)
