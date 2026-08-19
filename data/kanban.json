@@ -802,9 +802,43 @@
         "review_status": "rejected",
         "review_reason": "Syllable pattern is [5, 7, 6], expected [5, 7, 5]",
         "reviewed_at": 1787116524.179895
+      },
+      {
+        "id": "card-1787117162795-55",
+        "title": "Agent history test 2: írj egy haikut a mesh-ről",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787117162.795139,
+        "updated_at": 1787117200.177773,
+        "delegation_task_id": "0feb182d-bf2e-44c5-98c6-b20331744c4a",
+        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
+        "task_type": "code",
+        "agent_history": [
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "0e2c997d",
+            "timestamp": 1787117173.578597
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787117200.178178
+          }
+        ],
+        "reviewer": "tor",
+        "review_task_id": "0e2c997d-9a50-4bb8-aa84-9461c007dfa9",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787117200.177772
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787116507.471179
+    "updated_at": 1787117173.171804
   }
 ]

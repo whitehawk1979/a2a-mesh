@@ -245,17 +245,23 @@ class DelegationManager:
                 )
                 if card:
                     kanban_card_id = card["id"]
-                    # Link card to delegation task
-                    card["delegation_task_id"] = task_id
-                    card["delegation_status"] = status
-                    card["from_agent"] = self.node_name
-                    card["to_agent"] = actual_to
-                    card["agent_history"] = [{
-                        "agent": self.node_name,
-                        "role": "delegator",
-                        "action": "created task",
-                        "timestamp": time.time(),
-                    }]
+                    # Find the card in our boards list (add_card uses its own load)
+                    boards = _load_boards()  # Reload to get the saved card
+                    for b in boards:
+                        for c in b.get("cards", []):
+                            if c["id"] == kanban_card_id:
+                                c["delegation_task_id"] = task_id
+                                c["delegation_status"] = status
+                                c["from_agent"] = self.node_name
+                                c["to_agent"] = actual_to
+                                c["agent_history"] = [{
+                                    "agent": self.node_name,
+                                    "role": "delegator",
+                                    "action": "created task",
+                                    "timestamp": time.time(),
+                                }]
+                                c["updated_at"] = time.time()
+                                break
                     _save_boards(boards)
                     # Update PG with kanban_card_id
                     await self.pg_pool.execute(
