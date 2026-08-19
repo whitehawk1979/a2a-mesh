@@ -1578,11 +1578,48 @@ class DashboardAdminMixin:
             return []
 
     def _save_projects(self, projects):
-        """Save projects to JSON file."""
-        import json
+        """Save projects to JSON file and sync to peer nodes."""
+        import json, asyncio, logging
         path = self._projects_file()
         with open(path, "w") as f:
             json.dump(projects, f, ensure_ascii=False, indent=2)
+        # Best-effort sync to peer nodes via /api/projects/sync endpoint
+        try:
+            asyncio.ensure_future(self._sync_projects_to_peers(projects))
+        except Exception:
+            pass  # Don't block save on sync failure
+
+    async def _sync_projects_to_peers(self, projects):
+        """Push projects.json to all known peer nodes."""
+        import json, aiohttp as aiohttp_lib, logging
+        log = logging.getLogger("a2a.lab")
+        # Get peers from peer_discovery
+        peers = {}
+        try:
+            node = getattr(self, 'node', None)
+            if node and hasattr(node, 'peer_discovery'):
+                peers = getattr(node.peer_discovery, '_peers', {})
+        except Exception:
+            pass
+        if not peers:
+            return
+        data = json.dumps(projects, ensure_ascii=False)
+        for name, peer in peers.items():
+            host = getattr(peer, 'host', None) or getattr(peer, 'ip', None) or ''
+            port = getattr(peer, 'port', 8650) or 8650
+            if not host:
+                continue
+            url = f"http://{host}:{port}/api/projects/sync"
+            try:
+                timeout = aiohttp_lib.ClientTimeout(total=5)
+                async with aiohttp_lib.ClientSession(timeout=timeout) as session:
+                    async with session.post(url, data=data, headers={"Content-Type": "application/json"}) as resp:
+                        if resp.status == 200:
+                            log.info(f"Projects synced to {name}")
+                        else:
+                            log.warning(f"Project sync to {name} failed: {resp.status}")
+            except Exception as e:
+                log.debug(f"Project sync to {name} skipped: {e}")
 
     async def _api_projects_list(self, request):
         """GET /api/projects — List all projects, optional ?q=search."""
@@ -1658,6 +1695,38 @@ class DashboardAdminMixin:
             return web.json_response({"error": "not found"}, status=404)
         self._save_projects(projects)
         return web.json_response({"status": "deleted", "id": pid})
+
+    async def _api_projects_sync(self, request):
+        """POST /api/projects/sync — Receive projects from a peer node. Merge by ID."""
+        from aiohttp import web
+        import json
+        try:
+            incoming = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        if not isinstance(incoming, list):
+            return web.json_response({"error": "Expected array"}, status=400)
+        local = self._load_projects()
+        local_map = {p["id"]: p for p in local}
+        added = 0
+        updated = 0
+        for p in incoming:
+            pid = p.get("id")
+            if not pid:
+                continue
+            if pid in local_map:
+                # Merge: update fields from incoming
+                local_map[pid].update(p)
+                updated += 1
+            else:
+                local.append(p)
+                local_map[pid] = p
+                added += 1
+        # Save WITHOUT triggering sync (avoid loop)
+        path = self._projects_file()
+        with open(path, "w") as f:
+            json.dump(local, f, ensure_ascii=False, indent=2)
+        return web.json_response({"status": "ok", "added": added, "updated": updated, "total": len(local)})
 
     async def _api_projects_health(self, request):
         """GET /api/projects/health — Ping all project URLs and return status."""

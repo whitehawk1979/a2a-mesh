@@ -320,5 +320,902 @@
       "qdrant"
     ],
     "status": "active"
+  },
+  {
+    "id": "auto-1787123418080-24",
+    "icon": "🔌",
+    "title": "Gitea (192.168.1.8:3001)",
+    "description": "Auto-discovered: Gitea on 192.168.1.8:3001",
+    "category": "other",
+    "url": "http://192.168.1.8:3001",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080412
+  },
+  {
+    "id": "auto-1787123418080-26",
+    "icon": "🔌",
+    "title": "Synology DSM (192.168.1.8:5000)",
+    "description": "Auto-discovered: Synology DSM on 192.168.1.8:5000",
+    "category": "other",
+    "url": "http://192.168.1.8:5000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080435
+  },
+  {
+    "id": "auto-1787123418080-28",
+    "icon": "🔌",
+    "title": "HTTP (192.168.1.9:80)",
+    "description": "Auto-discovered: HTTP on 192.168.1.9:80",
+    "category": "other",
+    "url": "http://192.168.1.9:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080449
+  },
+  {
+    "id": "auto-1787123418080-30",
+    "icon": "🔌",
+    "title": "HTTPS (192.168.1.9:443)",
+    "description": "Auto-discovered: HTTPS on 192.168.1.9:443",
+    "category": "other",
+    "url": "https://192.168.1.9:443",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080459
+  },
+  {
+    "id": "auto-1787123418080-32",
+    "icon": "🔌",
+    "title": "Plex (192.168.1.9:32400)",
+    "description": "Auto-discovered: Plex on 192.168.1.9:32400",
+    "category": "other",
+    "url": "http://192.168.1.9:32400",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080471
+  },
+  {
+    "id": "auto-1787123418080-34",
+    "icon": "🔌",
+    "title": "Synology DSM (192.168.1.9:5000)",
+    "description": "Auto-discovered: Synology DSM on 192.168.1.9:5000",
+    "category": "other",
+    "url": "http://192.168.1.9:5000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080483
+  },
+  {
+    "id": "auto-1787123418080-36",
+    "icon": "🔌",
+    "title": "Synology HTTPS (192.168.1.9:5001)",
+    "description": "Auto-discovered: Synology HTTPS on 192.168.1.9:5001",
+    "category": "other",
+    "url": "https://192.168.1.9:5001",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080495
+  },
+  {
+    "id": "auto-1787123418080-38",
+    "icon": "🔌",
+    "title": "HTTP (192.168.1.30:80)",
+    "description": "Auto-discovered: HTTP on 192.168.1.30:80",
+    "category": "other",
+    "url": "http://192.168.1.30:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0805051
+  },
+  {
+    "id": "auto-1787123418080-40",
+    "icon": "🔌",
+    "title": "HTTPS (192.168.1.30:443)",
+    "description": "Auto-discovered: HTTPS on 192.168.1.30:443",
+    "category": "other",
+    "url": "https://192.168.1.30:443",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0805178
+  },
+  {
+    "id": "auto-1787123418080-42",
+    "icon": "🔌",
+    "title": "Gitea (192.168.1.30:3001)",
+    "description": "Auto-discovered: Gitea on 192.168.1.30:3001",
+    "category": "other",
+    "url": "http://192.168.1.30:3001",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080531
+  },
+  {
+    "id": "auto-1787123418080-44",
+    "icon": "🔌",
+    "title": "Synology DSM (192.168.1.30:5000)",
+    "description": "Auto-discovered: Synology DSM on 192.168.1.30:5000",
+    "category": "other",
+    "url": "http://192.168.1.30:5000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0805418
+  },
+  {
+    "id": "auto-1787123418080-46",
+    "icon": "🔌",
+    "title": "Qdrant (192.168.1.30:6333)",
+    "description": "Auto-discovered: Qdrant on 192.168.1.30:6333",
+    "category": "other",
+    "url": "http://192.168.1.30:6333",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080553
+  },
+  {
+    "id": "auto-1787123418080-48",
+    "icon": "🔌",
+    "title": "Web App (192.168.1.30:8080)",
+    "description": "Auto-discovered: Web App on 192.168.1.30:8080",
+    "category": "other",
+    "url": "http://192.168.1.30:8080",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080564
+  },
+  {
+    "id": "auto-1787123418080-50",
+    "icon": "🔌",
+    "title": "IPTV (192.168.1.30:8090)",
+    "description": "Auto-discovered: IPTV on 192.168.1.30:8090",
+    "category": "other",
+    "url": "http://192.168.1.30:8090",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080576
+  },
+  {
+    "id": "auto-1787123418080-52",
+    "icon": "🔌",
+    "title": "Mesh-LLM (192.168.1.30:9337)",
+    "description": "Auto-discovered: Mesh-LLM on 192.168.1.30:9337",
+    "category": "other",
+    "url": "http://192.168.1.30:9337",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080587
+  },
+  {
+    "id": "auto-1787123418080-54",
+    "icon": "🔌",
+    "title": "Mesh-LLM Console (192.168.1.30:3131)",
+    "description": "Auto-discovered: Mesh-LLM Console on 192.168.1.30:3131",
+    "category": "other",
+    "url": "http://192.168.1.30:3131",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080598
+  },
+  {
+    "id": "auto-1787123418080-56",
+    "icon": "🔌",
+    "title": "OpenCode (192.168.1.30:4096)",
+    "description": "Auto-discovered: OpenCode on 192.168.1.30:4096",
+    "category": "other",
+    "url": "http://192.168.1.30:4096",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080608
+  },
+  {
+    "id": "auto-1787123418080-58",
+    "icon": "🔌",
+    "title": "Ollama (192.168.1.30:11434)",
+    "description": "Auto-discovered: Ollama on 192.168.1.30:11434",
+    "category": "other",
+    "url": "http://192.168.1.30:11434",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080619
+  },
+  {
+    "id": "auto-1787123418080-60",
+    "icon": "🔌",
+    "title": "PostgreSQL (192.168.1.30:5432)",
+    "description": "Auto-discovered: PostgreSQL on 192.168.1.30:5432",
+    "category": "other",
+    "url": "http://192.168.1.30:5432",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080631
+  },
+  {
+    "id": "auto-1787123418080-62",
+    "icon": "🔌",
+    "title": "HTTP (192.168.1.60:80)",
+    "description": "Auto-discovered: HTTP on 192.168.1.60:80",
+    "category": "other",
+    "url": "http://192.168.1.60:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080642
+  },
+  {
+    "id": "auto-1787123418080-64",
+    "icon": "🔌",
+    "title": "Proxmox Web UI (192.168.1.60:8006)",
+    "description": "Auto-discovered: Proxmox Web UI on 192.168.1.60:8006",
+    "category": "other",
+    "url": "http://192.168.1.60:8006",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080653
+  },
+  {
+    "id": "auto-1787123418080-66",
+    "icon": "🔌",
+    "title": "HTTP (192.168.1.100:80)",
+    "description": "Auto-discovered: HTTP on 192.168.1.100:80",
+    "category": "other",
+    "url": "http://192.168.1.100:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0806642
+  },
+  {
+    "id": "auto-1787123418080-68",
+    "icon": "🔌",
+    "title": "HTTPS (192.168.1.100:443)",
+    "description": "Auto-discovered: HTTPS on 192.168.1.100:443",
+    "category": "other",
+    "url": "https://192.168.1.100:443",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0806751
+  },
+  {
+    "id": "auto-1787123418080-70",
+    "icon": "🔌",
+    "title": "Web App (192.168.1.100:3000)",
+    "description": "Auto-discovered: Web App on 192.168.1.100:3000",
+    "category": "other",
+    "url": "http://192.168.1.100:3000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0806851
+  },
+  {
+    "id": "auto-1787123418080-72",
+    "icon": "🔌",
+    "title": "Qdrant (192.168.1.100:6333)",
+    "description": "Auto-discovered: Qdrant on 192.168.1.100:6333",
+    "category": "other",
+    "url": "http://192.168.1.100:6333",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0806952
+  },
+  {
+    "id": "auto-1787123418080-74",
+    "icon": "🔌",
+    "title": "Web App (192.168.1.100:8080)",
+    "description": "Auto-discovered: Web App on 192.168.1.100:8080",
+    "category": "other",
+    "url": "http://192.168.1.100:8080",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080705
+  },
+  {
+    "id": "auto-1787123418080-76",
+    "icon": "🔌",
+    "title": "ESPHome MCP (192.168.1.100:8091)",
+    "description": "Auto-discovered: ESPHome MCP on 192.168.1.100:8091",
+    "category": "other",
+    "url": "http://192.168.1.100:8091",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080714
+  },
+  {
+    "id": "auto-1787123418080-78",
+    "icon": "🔌",
+    "title": "Ollama (192.168.1.100:11434)",
+    "description": "Auto-discovered: Ollama on 192.168.1.100:11434",
+    "category": "other",
+    "url": "http://192.168.1.100:11434",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080726
+  },
+  {
+    "id": "auto-1787123418080-80",
+    "icon": "🔌",
+    "title": "PostgreSQL (192.168.1.100:5432)",
+    "description": "Auto-discovered: PostgreSQL on 192.168.1.100:5432",
+    "category": "other",
+    "url": "http://192.168.1.100:5432",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080738
+  },
+  {
+    "id": "auto-1787123418080-82",
+    "icon": "🔌",
+    "title": "HTTP (192.168.1.117:80)",
+    "description": "Auto-discovered: HTTP on 192.168.1.117:80",
+    "category": "other",
+    "url": "http://192.168.1.117:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080749
+  },
+  {
+    "id": "auto-1787123418080-84",
+    "icon": "🔌",
+    "title": "Proxmox Web UI (192.168.1.117:8006)",
+    "description": "Auto-discovered: Proxmox Web UI on 192.168.1.117:8006",
+    "category": "other",
+    "url": "http://192.168.1.117:8006",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.08076
+  },
+  {
+    "id": "auto-1787123418080-86",
+    "icon": "🔌",
+    "title": "HTTPS (100.75.253.52:443)",
+    "description": "Auto-discovered: HTTPS on 100.75.253.52:443",
+    "category": "other",
+    "url": "https://100.75.253.52:443",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.08077
+  },
+  {
+    "id": "auto-1787123418080-88",
+    "icon": "🔌",
+    "title": "Gitea (100.75.253.52:3001)",
+    "description": "Auto-discovered: Gitea on 100.75.253.52:3001",
+    "category": "other",
+    "url": "http://100.75.253.52:3001",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.08078
+  },
+  {
+    "id": "auto-1787123418080-90",
+    "icon": "🔌",
+    "title": "Synology DSM (100.75.253.52:5000)",
+    "description": "Auto-discovered: Synology DSM on 100.75.253.52:5000",
+    "category": "other",
+    "url": "http://100.75.253.52:5000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080791
+  },
+  {
+    "id": "auto-1787123418080-92",
+    "icon": "🔌",
+    "title": "A2A Mesh (100.75.253.52:8650)",
+    "description": "Auto-discovered: A2A Mesh on 100.75.253.52:8650",
+    "category": "other",
+    "url": "http://100.75.253.52:8650",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080801
+  },
+  {
+    "id": "auto-1787123418080-94",
+    "icon": "🔌",
+    "title": "Brain Server (100.75.253.52:3322)",
+    "description": "Auto-discovered: Brain Server on 100.75.253.52:3322",
+    "category": "other",
+    "url": "http://100.75.253.52:3322",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0808141
+  },
+  {
+    "id": "auto-1787123418080-96",
+    "icon": "🔌",
+    "title": "Ollama (100.75.253.52:11434)",
+    "description": "Auto-discovered: Ollama on 100.75.253.52:11434",
+    "category": "other",
+    "url": "http://100.75.253.52:11434",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080826
+  },
+  {
+    "id": "auto-1787123418080-98",
+    "icon": "🔌",
+    "title": "HTTP (100.65.232.47:80)",
+    "description": "Auto-discovered: HTTP on 100.65.232.47:80",
+    "category": "other",
+    "url": "http://100.65.232.47:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080836
+  },
+  {
+    "id": "auto-1787123418080-100",
+    "icon": "🔌",
+    "title": "HTTPS (100.65.232.47:443)",
+    "description": "Auto-discovered: HTTPS on 100.65.232.47:443",
+    "category": "other",
+    "url": "https://100.65.232.47:443",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080845
+  },
+  {
+    "id": "auto-1787123418080-102",
+    "icon": "🔌",
+    "title": "Gitea (100.65.232.47:3001)",
+    "description": "Auto-discovered: Gitea on 100.65.232.47:3001",
+    "category": "other",
+    "url": "http://100.65.232.47:3001",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0808551
+  },
+  {
+    "id": "auto-1787123418080-104",
+    "icon": "🔌",
+    "title": "Synology DSM (100.65.232.47:5000)",
+    "description": "Auto-discovered: Synology DSM on 100.65.232.47:5000",
+    "category": "other",
+    "url": "http://100.65.232.47:5000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080865
+  },
+  {
+    "id": "auto-1787123418080-106",
+    "icon": "🔌",
+    "title": "Qdrant (100.65.232.47:6333)",
+    "description": "Auto-discovered: Qdrant on 100.65.232.47:6333",
+    "category": "other",
+    "url": "http://100.65.232.47:6333",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080878
+  },
+  {
+    "id": "auto-1787123418080-108",
+    "icon": "🔌",
+    "title": "Web App (100.65.232.47:8080)",
+    "description": "Auto-discovered: Web App on 100.65.232.47:8080",
+    "category": "other",
+    "url": "http://100.65.232.47:8080",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080889
+  },
+  {
+    "id": "auto-1787123418080-110",
+    "icon": "🔌",
+    "title": "IPTV (100.65.232.47:8090)",
+    "description": "Auto-discovered: IPTV on 100.65.232.47:8090",
+    "category": "other",
+    "url": "http://100.65.232.47:8090",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080899
+  },
+  {
+    "id": "auto-1787123418080-112",
+    "icon": "🔌",
+    "title": "A2A Mesh (100.65.232.47:8650)",
+    "description": "Auto-discovered: A2A Mesh on 100.65.232.47:8650",
+    "category": "other",
+    "url": "http://100.65.232.47:8650",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080909
+  },
+  {
+    "id": "auto-1787123418080-114",
+    "icon": "🔌",
+    "title": "Mesh-LLM (100.65.232.47:9337)",
+    "description": "Auto-discovered: Mesh-LLM on 100.65.232.47:9337",
+    "category": "other",
+    "url": "http://100.65.232.47:9337",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080919
+  },
+  {
+    "id": "auto-1787123418080-116",
+    "icon": "🔌",
+    "title": "Mesh-LLM Console (100.65.232.47:3131)",
+    "description": "Auto-discovered: Mesh-LLM Console on 100.65.232.47:3131",
+    "category": "other",
+    "url": "http://100.65.232.47:3131",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.08093
+  },
+  {
+    "id": "auto-1787123418080-118",
+    "icon": "🔌",
+    "title": "OpenCode (100.65.232.47:4096)",
+    "description": "Auto-discovered: OpenCode on 100.65.232.47:4096",
+    "category": "other",
+    "url": "http://100.65.232.47:4096",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.08094
+  },
+  {
+    "id": "auto-1787123418080-120",
+    "icon": "🔌",
+    "title": "Ollama (100.65.232.47:11434)",
+    "description": "Auto-discovered: Ollama on 100.65.232.47:11434",
+    "category": "other",
+    "url": "http://100.65.232.47:11434",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080951
+  },
+  {
+    "id": "auto-1787123418080-122",
+    "icon": "🔌",
+    "title": "PostgreSQL (100.65.232.47:5432)",
+    "description": "Auto-discovered: PostgreSQL on 100.65.232.47:5432",
+    "category": "other",
+    "url": "http://100.65.232.47:5432",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0809631
+  },
+  {
+    "id": "auto-1787123418080-124",
+    "icon": "🔌",
+    "title": "HTTP (100.125.223.24:80)",
+    "description": "Auto-discovered: HTTP on 100.125.223.24:80",
+    "category": "other",
+    "url": "http://100.125.223.24:80",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080974
+  },
+  {
+    "id": "auto-1787123418080-126",
+    "icon": "🔌",
+    "title": "HTTPS (100.125.223.24:443)",
+    "description": "Auto-discovered: HTTPS on 100.125.223.24:443",
+    "category": "other",
+    "url": "https://100.125.223.24:443",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.080986
+  },
+  {
+    "id": "auto-1787123418080-128",
+    "icon": "🔌",
+    "title": "Web App (100.125.223.24:3000)",
+    "description": "Auto-discovered: Web App on 100.125.223.24:3000",
+    "category": "other",
+    "url": "http://100.125.223.24:3000",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0809972
+  },
+  {
+    "id": "auto-1787123418081-130",
+    "icon": "🔌",
+    "title": "Gitea (100.125.223.24:3001)",
+    "description": "Auto-discovered: Gitea on 100.125.223.24:3001",
+    "category": "other",
+    "url": "http://100.125.223.24:3001",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081011
+  },
+  {
+    "id": "auto-1787123418081-132",
+    "icon": "🔌",
+    "title": "LibreTranslate (100.125.223.24:5500)",
+    "description": "Auto-discovered: LibreTranslate on 100.125.223.24:5500",
+    "category": "other",
+    "url": "http://100.125.223.24:5500",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0810208
+  },
+  {
+    "id": "auto-1787123418081-134",
+    "icon": "🔌",
+    "title": "Qdrant (100.125.223.24:6333)",
+    "description": "Auto-discovered: Qdrant on 100.125.223.24:6333",
+    "category": "other",
+    "url": "http://100.125.223.24:6333",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081032
+  },
+  {
+    "id": "auto-1787123418081-136",
+    "icon": "🔌",
+    "title": "Web App (100.125.223.24:8080)",
+    "description": "Auto-discovered: Web App on 100.125.223.24:8080",
+    "category": "other",
+    "url": "http://100.125.223.24:8080",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0810418
+  },
+  {
+    "id": "auto-1787123418081-138",
+    "icon": "🔌",
+    "title": "IPTV (100.125.223.24:8090)",
+    "description": "Auto-discovered: IPTV on 100.125.223.24:8090",
+    "category": "other",
+    "url": "http://100.125.223.24:8090",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081053
+  },
+  {
+    "id": "auto-1787123418081-140",
+    "icon": "🔌",
+    "title": "ESPHome MCP (100.125.223.24:8091)",
+    "description": "Auto-discovered: ESPHome MCP on 100.125.223.24:8091",
+    "category": "other",
+    "url": "http://100.125.223.24:8091",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0811222
+  },
+  {
+    "id": "auto-1787123418081-142",
+    "icon": "🔌",
+    "title": "Home Assistant (100.125.223.24:8123)",
+    "description": "Auto-discovered: Home Assistant on 100.125.223.24:8123",
+    "category": "other",
+    "url": "http://100.125.223.24:8123",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0811388
+  },
+  {
+    "id": "auto-1787123418081-144",
+    "icon": "🔌",
+    "title": "A2A Mesh (100.125.223.24:8650)",
+    "description": "Auto-discovered: A2A Mesh on 100.125.223.24:8650",
+    "category": "other",
+    "url": "http://100.125.223.24:8650",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.08115
+  },
+  {
+    "id": "auto-1787123418081-146",
+    "icon": "🔌",
+    "title": "SearXNG (100.125.223.24:8888)",
+    "description": "Auto-discovered: SearXNG on 100.125.223.24:8888",
+    "category": "other",
+    "url": "http://100.125.223.24:8888",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0811598
+  },
+  {
+    "id": "auto-1787123418081-148",
+    "icon": "🔌",
+    "title": "Prometheus (100.125.223.24:9090)",
+    "description": "Auto-discovered: Prometheus on 100.125.223.24:9090",
+    "category": "other",
+    "url": "http://100.125.223.24:9090",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0811698
+  },
+  {
+    "id": "auto-1787123418081-150",
+    "icon": "🔌",
+    "title": "Alertmanager (100.125.223.24:9093)",
+    "description": "Auto-discovered: Alertmanager on 100.125.223.24:9093",
+    "category": "other",
+    "url": "http://100.125.223.24:9093",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0811808
+  },
+  {
+    "id": "auto-1787123418081-152",
+    "icon": "🔌",
+    "title": "Grafana (100.125.223.24:3030)",
+    "description": "Auto-discovered: Grafana on 100.125.223.24:3030",
+    "category": "other",
+    "url": "http://100.125.223.24:3030",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.0811908
+  },
+  {
+    "id": "auto-1787123418081-154",
+    "icon": "🔌",
+    "title": "Mesh-LLM (100.125.223.24:9337)",
+    "description": "Auto-discovered: Mesh-LLM on 100.125.223.24:9337",
+    "category": "other",
+    "url": "http://100.125.223.24:9337",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081204
+  },
+  {
+    "id": "auto-1787123418081-156",
+    "icon": "🔌",
+    "title": "Mesh-LLM Console (100.125.223.24:3131)",
+    "description": "Auto-discovered: Mesh-LLM Console on 100.125.223.24:3131",
+    "category": "other",
+    "url": "http://100.125.223.24:3131",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081215
+  },
+  {
+    "id": "auto-1787123418081-158",
+    "icon": "🔌",
+    "title": "Ollama (100.125.223.24:11434)",
+    "description": "Auto-discovered: Ollama on 100.125.223.24:11434",
+    "category": "other",
+    "url": "http://100.125.223.24:11434",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081244
+  },
+  {
+    "id": "auto-1787123418081-160",
+    "icon": "🔌",
+    "title": "PostgreSQL (100.125.223.24:5432)",
+    "description": "Auto-discovered: PostgreSQL on 100.125.223.24:5432",
+    "category": "other",
+    "url": "http://100.125.223.24:5432",
+    "tags": [
+      "auto-discovered"
+    ],
+    "status": "active",
+    "created_at": 1787123418.081255
   }
 ]

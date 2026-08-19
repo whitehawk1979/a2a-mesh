@@ -210,6 +210,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/projects/health", self._api_projects_health)
         # Auto-discovery — scan LAN for services
         app.router.add_get("/api/projects/discover", self._api_projects_discover)
+        # Sync projects from peer node
+        app.router.add_post("/api/projects/sync", self._api_projects_sync)
         # Kanban API
         app.router.add_get("/api/kanban", self._api_kanban_boards)
         app.router.add_post("/api/kanban", self._api_kanban_create_board)
