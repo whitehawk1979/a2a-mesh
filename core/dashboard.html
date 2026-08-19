@@ -328,6 +328,61 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <span class="icon">⚙️</span> Mesh Beállítások
       </div>
     </div>
+
+    <!-- Marveen Menü — 15 új menüpont a Marveen projektből -->
+    <div class="channel-section">
+      <div class="channel-section-title">Marveen Menü</div>
+      <div class="channel-item" onclick="loadMarveenPage('kanban')">
+        <span class="icon">📋</span> Kanban
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('approvals')">
+        <span class="icon">✅</span> Jóváhagyások
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('activity')">
+        <span class="icon">📈</span> Aktivitás
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('bgTasks')">
+        <span class="icon">🔄</span> Háttér
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('memories')">
+        <span class="icon">🧠</span> Memória
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('naplo')">
+        <span class="icon">📝</span> Napló
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('research')">
+        <span class="icon">💡</span> Ötletláda
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('costs')">
+        <span class="icon">💰</span> Költségek
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('tokenUsage')">
+        <span class="icon">🔢</span> Token Monitor
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('updates')">
+        <span class="icon">⬆️</span> Frissítések
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('vault')">
+        <span class="icon">🔐</span> Vault
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('connectors')">
+        <span class="icon">🔌</span> MCP
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('federation')">
+        <span class="icon">🌐</span> Föderáció
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('migrate')">
+        <span class="icon">📦</span> Költöztetés
+      </div>
+      <div class="channel-item" onclick="loadMarveenPage('docs')">
+        <span class="icon">📚</span> Dokumentáció
+      </div>
+    </div>
+  </div>
+
+  <!-- Marveen Content Panel (hidden by default, shown when Marveen menu items are clicked) -->
+  <div id="marveenContent" style="display:none;flex:1;flex-direction:column;overflow:auto;padding:20px;background:var(--bg);">
+    <div style="text-align:center;padding:40px;color:var(--text3)">Válassz egy menüpontot a sidebarból</div>
   </div>
 
   <!-- Chat area -->
@@ -2688,7 +2743,7 @@ function loadMarveenPage(page) {
 }
 
 // ─── Settings Functions ──────────────────────────────────
-function showSettings() {\n  document.getElementById('messages').style.display = 'none';\n  document.getElementById('marveenContent').style.display = 'none';\n  document.getElementById('settingsMeshInfo').parentElement.style.display = 'block';\n  // ... rest of existing showSettings logic\n}
+function showSettings() {
   document.getElementById('settingsModal').style.display = 'flex';
   loadSettings();
   loadSettingsNodes();
