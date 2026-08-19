@@ -943,6 +943,59 @@ class MeshNode:
         elif status == "failed":
             log.warning(f"Delegated task '{subject}' FAILED on {assigned}: {result[:200]}")
         
+        # ── Update Kanban card agent_history ──
+        if status in ("completed", "failed"):
+            try:
+                import time as _time
+                from .core.kanban import _load_boards, _save_boards
+                kanban_card_id = task_row.get("kanban_card_id", "")
+                task_type = task_row.get("task_type", "")
+                if kanban_card_id:
+                    boards = _load_boards()
+                    for board in boards:
+                        for c in board.get("cards", []):
+                            if c["id"] == kanban_card_id:
+                                if "agent_history" not in c:
+                                    c["agent_history"] = []
+                                # Determine role
+                                role = "executor"
+                                if task_type == "code_review":
+                                    role = "reviewer"
+                                entry = {
+                                    "agent": assigned,
+                                    "role": role,
+                                    "action": f"{'completed' if status == 'completed' else 'failed'} {'review' if task_type == 'code_review' else 'task'}",
+                                    "result": (result or "")[:500],
+                                    "timestamp": _time.time(),
+                                }
+                                if task_type == "code_review":
+                                    # Parse verdict from result
+                                    import re as _re
+                                    json_match = _re.search(r'\{[^{}]*"verdict"[^{}]*\}', result or "", _re.DOTALL)
+                                    if json_match:
+                                        try:
+                                            import json as _json
+                                            vd = _json.loads(json_match.group())
+                                            entry["verdict"] = vd.get("verdict", "")
+                                            entry["reason"] = vd.get("reason", "")[:300]
+                                        except Exception:
+                                            pass
+                                c["agent_history"].append(entry)
+                                c["updated_at"] = _time.time()
+                                if task_type == "code_review":
+                                    c["review_status"] = entry.get("verdict", status)
+                                    if entry.get("reason"):
+                                        c["review_reason"] = entry["reason"]
+                                    c["reviewed_at"] = _time.time()
+                                else:
+                                    c["delegation_status"] = status
+                                    c["delegation_result"] = (result or "")[:2000]
+                                    c["completed_at"] = str(task_row.get("completed_at", ""))[:30]
+                                break
+                    _save_boards(boards)
+            except Exception as e:
+                log.debug(f"Kanban agent_history update failed: {e}")
+        
         # Feed delegation result into health scorer
         try:
             if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
