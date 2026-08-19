@@ -906,6 +906,8 @@ async def onboard_node(
         result['mesh_user'] = {'username': node_name, 'password': user_password}
         
         # 3. Create auth token (valid 24h)
+        import uuid
+        token_id = str(uuid.uuid4())
         token_secret = f"{node_name}_token_{int(time.time())}"
         # Deactivate old tokens
         await conn.execute(
@@ -914,10 +916,10 @@ async def onboard_node(
         )
         # Insert new token
         await conn.execute(
-            """INSERT INTO mesh.auth_tokens (node_name, secret, created_at, expires_at, is_active)
-               VALUES ($1, $2, extract(epoch from now())::float,
+            """INSERT INTO mesh.auth_tokens (token_id, node_name, secret, created_at, expires_at, is_active)
+               VALUES ($1, $2, $3, extract(epoch from now())::float,
                        extract(epoch from now() + interval '24 hours')::float, true)""",
-            node_name, token_secret
+            token_id, node_name, token_secret
         )
         step('auth_token', 'ok', f'Token valid 24h')
         result['auth_token'] = token_secret
