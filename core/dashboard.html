@@ -2742,19 +2742,42 @@ function loadMarveenPage(page) {
   var apiPath = apiMap[page];
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
 
-  // Create or show modal
+  // Create or show modal — always rebuild inner content to ensure structure is correct
   var modal = document.getElementById('marveenModal');
+  if (modal) {
+    // Remove old modal to force clean rebuild
+    modal.remove();
+    modal = null;
+  }
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'marveenModal';
     modal.className = 'marveen-modal-overlay';
-    modal.innerHTML = '<div class="marveen-modal">' +
-      '<div class="marveen-modal-header">' +
-        '<h2 id="marveenModalTitle"></h2>' +
-        '<button class="marveen-modal-close" onclick="closeMarveenModal()" title="Bezárás (Esc)">✕</button>' +
-      '</div>' +
-      '<div class="marveen-modal-body" id="marveenModalBody"></div>' +
-    '</div>';
+    var modalInner = document.createElement('div');
+    modalInner.className = 'marveen-modal';
+
+    var modalHeader = document.createElement('div');
+    modalHeader.className = 'marveen-modal-header';
+
+    var modalTitle = document.createElement('h2');
+    modalTitle.id = 'marveenModalTitle';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'marveen-modal-close';
+    closeBtn.innerHTML = '✕';
+    closeBtn.title = 'Bezárás (Esc)';
+    closeBtn.onclick = closeMarveenModal;
+
+    modalHeader.appendChild(modalTitle);
+    modalHeader.appendChild(closeBtn);
+
+    var modalBody = document.createElement('div');
+    modalBody.className = 'marveen-modal-body';
+    modalBody.id = 'marveenModalBody';
+
+    modalInner.appendChild(modalHeader);
+    modalInner.appendChild(modalBody);
+    modal.appendChild(modalInner);
     document.body.appendChild(modal);
     // Close on backdrop click
     modal.addEventListener('click', function(e) { if (e.target === modal) closeMarveenModal(); });
