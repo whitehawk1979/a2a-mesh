@@ -590,7 +590,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
             if pool and hasattr(pool, 'is_connected') and pool.is_connected():
                 rows = await pool.fetch(
-                    "SELECT id, node_name, category, severity, description, status, created_at "
+                    "SELECT suggestion_id, node, category, priority, title, description, status, created_at "
                     "FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT 20"
                 )
                 result["suggestions"] = [dict(r) for r in rows]
@@ -669,7 +669,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
             if pool and hasattr(pool, 'is_connected') and pool.is_connected():
                 rows = await pool.fetch(
-                    "SELECT node_name, host, port, status, last_heartbeat "
+                    "SELECT node_name, host, p2p_port, status, last_heartbeat "
                     "FROM mesh.mesh_nodes ORDER BY node_name"
                 )
                 result["fleet_status"]["nodes"] = [dict(r) for r in rows]
