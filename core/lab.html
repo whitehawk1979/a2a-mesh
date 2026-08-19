@@ -215,11 +215,18 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, Bl
 </div>
 
 <script>
-var token = localStorage.getItem("mesh_token") || "";
+var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
 var allProjects = [];
 
-// Load projects on start
-document.addEventListener("DOMContentLoaded", loadProjects);
+// Load projects on start — retry if not logged in yet
+document.addEventListener("DOMContentLoaded", function() {
+  // Try immediately
+  loadProjects();
+  // Retry after 2s in case login just completed
+  setTimeout(function() { if (allProjects.length === 0) { token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || ""; loadProjects(); } }, 2000);
+  // Retry after 5s
+  setTimeout(function() { if (allProjects.length === 0) { token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || ""; loadProjects(); } }, 5000);
+});
 
 var healthData = {};
 
