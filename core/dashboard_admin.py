@@ -1540,6 +1540,16 @@ class DashboardAdminMixin:
         except FileNotFoundError:
             return web.Response(text="<h1>Lab page not found</h1>", status=404)
 
+    async def _skills_page(self, request):
+        """GET /skills — Skill marketplace page."""
+        from aiohttp import web
+        html_path = os.path.join(os.path.dirname(__file__), "skills.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.Response(text="<h1>Skills page not found</h1>", status=404)
+
     async def _kanban_page(self, request):
         """GET /kanban — Kanban task management page."""
         from aiohttp import web

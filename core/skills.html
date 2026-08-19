@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧠 Skill Marketplace — A2A Mesh</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #1c2128; --border: #30363d;
+  --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --blue: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149;
+  --purple: #bc8cff; --accent: #1f6feb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+.header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 16px 24px; position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+.header h1 { font-size: 22px; white-space: nowrap; }
+.back-btn {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  text-decoration: none; transition: all 0.2s;
+}
+.back-btn:hover { background: var(--border); color: var(--text); }
+
+/* Stats bar */
+.stats-bar {
+  display: flex; gap: 16px; flex-wrap: wrap; padding: 16px 24px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.stat-card {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 20px; min-width: 120px; text-align: center;
+}
+.stat-card .num { font-size: 28px; font-weight: 700; color: var(--blue); }
+.stat-card .label { font-size: 12px; color: var(--text3); margin-top: 4px; }
+.stat-card.auto .num { color: var(--purple); }
+.stat-card.published .num { color: var(--green); }
+
+/* Agent breakdown */
+.agent-bar {
+  display: flex; gap: 8px; flex-wrap: wrap; padding: 8px 24px;
+  background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.agent-badge {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+  padding: 6px 14px; font-size: 13px; display: flex; align-items: center; gap: 6px;
+}
+.agent-badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+.agent-badge .count { font-weight: 700; color: var(--blue); }
+
+/* Search */
+.search-wrap { flex: 1; min-width: 200px; position: relative; }
+.search-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 16px 10px 42px; border-radius: 8px; font-size: 14px;
+  outline: none; transition: border 0.2s;
+}
+.search-input:focus { border-color: var(--blue); }
+.search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text3); font-size: 16px; }
+
+/* Skills grid */
+.skills-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px; padding: 24px;
+}
+.skill-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; transition: all 0.2s; cursor: pointer;
+}
+.skill-card:hover { border-color: var(--blue); transform: translateY(-2px); }
+.skill-card.auto { border-color: var(--purple); }
+.skill-card .skill-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.skill-card .skill-icon { font-size: 20px; }
+.skill-card .skill-name { font-size: 15px; font-weight: 600; flex: 1; }
+.skill-card .skill-agent {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: var(--surface2); color: var(--text2); border: 1px solid var(--border);
+}
+.skill-card .skill-desc { font-size: 13px; color: var(--text2); margin-bottom: 8px; line-height: 1.4; }
+.skill-card .skill-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.skill-card .tag {
+  font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: var(--surface2); color: var(--text3); border: 1px solid var(--border);
+}
+.skill-card .tag.auto { color: var(--purple); border-color: var(--purple); }
+.skill-card .skill-meta { display: flex; gap: 12px; margin-top: 8px; font-size: 11px; color: var(--text3); }
+.skill-card .meta-item { display: flex; align-items: center; gap: 4px; }
+
+/* Recent skills */
+.recent-section { padding: 0 24px 24px; }
+.recent-section h2 { font-size: 16px; margin-bottom: 12px; color: var(--text2); }
+.recent-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.recent-item {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px; font-size: 12px; display: flex; align-items: center; gap: 6px;
+}
+.recent-item .agent { color: var(--blue); font-weight: 600; }
+
+/* Sync button */
+.sync-btn {
+  background: var(--accent); border: none; color: white;
+  padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  font-weight: 600; transition: all 0.2s; white-space: nowrap;
+}
+.sync-btn:hover { background: #3884fd; }
+.sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 24px; color: var(--text3); }
+.empty .icon { font-size: 48px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/" class="back-btn">← Vissaz</a>
+  <h1>🧠 Skill Marketplace</h1>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" class="search-input" id="searchInput" placeholder="Keresés skill név, tag, leírás...">
+  </div>
+  <button class="sync-btn" onclick="syncSkills()">🔄 Szinkronizál</button>
+</div>
+
+<div class="stats-bar" id="statsBar">
+  <div class="stat-card"><div class="num" id="statTotal">-</div><div class="label">Összes Skill</div></div>
+  <div class="stat-card auto"><div class="num" id="statAuto">-</div><div class="label">Auto-generált</div></div>
+  <div class="stat-card published"><div class="num" id="statPublished">-</div><div class="label">Publikált fájlok</div></div>
+</div>
+
+<div class="agent-bar" id="agentBar"></div>
+
+<div class="recent-section" id="recentSection" style="display:none">
+  <h2>📦 Legutóbbi skillek</h2>
+  <div class="recent-list" id="recentList"></div>
+</div>
+
+<div class="skills-grid" id="skillsGrid"></div>
+
+<script>
+var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+var allSkills = [];
+
+function loadStats() {
+  fetch("/api/skills/stats", { headers: { "Authorization": "Bearer " + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById("statTotal").textContent = d.total_skills || 0;
+      document.getElementById("statAuto").textContent = d.auto_generated || 0;
+      document.getElementById("statPublished").textContent = d.published_files || 0;
+
+      // Agent breakdown
+      var bar = document.getElementById("agentBar");
+      bar.innerHTML = "";
+      var colors = { nova: "#58a6ff", morzsa: "#bc8cff", runa: "#3fb950", tor: "#d29922", lifecycle_node: "#f85149" };
+      Object.entries(d.by_agent || {}).forEach(function(entry) {
+        var name = entry[0], count = entry[1];
+        var color = colors[name] || "#8b949e";
+        var badge = document.createElement("div");
+        badge.className = "agent-badge";
+        badge.innerHTML = '<span class="dot" style="background:' + color + '"></span>' +
+          escapeHtml(name) + ' <span class="count">' + count + '</span>';
+        bar.appendChild(badge);
+      });
+
+      // Recent skills
+      if (d.recent && d.recent.length > 0) {
+        document.getElementById("recentSection").style.display = "block";
+        var list = document.getElementById("recentList");
+        list.innerHTML = "";
+        d.recent.forEach(function(s) {
+          var item = document.createElement("div");
+          item.className = "recent-item";
+          item.innerHTML = '<span class="agent">' + escapeHtml(s.agent) + '</span> ' + escapeHtml(s.display_name || s.skill_name);
+          list.appendChild(item);
+        });
+      }
+    })
+    .catch(function(e) { console.error("Stats error:", e); });
+}
+
+function loadSkills() {
+  fetch("/api/skills", { headers: { "Authorization": "Bearer " + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      allSkills = d.skills || [];
+      renderSkills(allSkills);
+    })
+    .catch(function(e) { console.error("Load error:", e); });
+}
+
+function renderSkills(skills) {
+  var grid = document.getElementById("skillsGrid");
+  if (skills.length === 0) {
+    grid.innerHTML = '<div class="empty"><div class="icon">🧠</div><p>Nincsenek skillek a marketplace-en</p></div>';
+    return;
+  }
+  grid.innerHTML = "";
+  skills.forEach(function(s) {
+    var isAuto = (s.tags || []).indexOf("auto-generated") >= 0;
+    var card = document.createElement("div");
+    card.className = "skill-card" + (isAuto ? " auto" : "");
+    var tagsHtml = (s.tags || []).map(function(t) {
+      return '<span class="tag' + (t === "auto-generated" ? " auto" : "") + '">' + escapeHtml(t) + '</span>';
+    }).join("");
+    card.innerHTML =
+      '<div class="skill-header">' +
+        '<span class="skill-icon">' + (isAuto ? "🧠" : "📋") + '</span>' +
+        '<span class="skill-name">' + escapeHtml(s.display_name || s.skill_name) + '</span>' +
+        '<span class="skill-agent">' + escapeHtml(s.agent) + '</span>' +
+      '</div>' +
+      '<div class="skill-desc">' + escapeHtml(s.description || "Nincs leírás") + '</div>' +
+      '<div class="skill-tags">' + tagsHtml + '</div>' +
+      '<div class="skill-meta">' +
+        '<span class="meta-item">⚡ ' + (s.success_rate || 0) + '%</span>' +
+        '<span class="meta-item">⏱ ' + (s.avg_latency_ms || 0) + 'ms</span>' +
+        '<span class="meta-item">🔄 max ' + (s.max_concurrent || 1) + '</span>' +
+      '</div>';
+    grid.appendChild(card);
+  });
+}
+
+function syncSkills() {
+  var btn = event.target;
+  var orig = btn.textContent;
+  btn.textContent = "⏳ Szinkronizálás...";
+  btn.disabled = true;
+  fetch("/api/skills/auto-sync", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token }, body: JSON.stringify({}) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      alert("✅ " + (d.synced || 0) + " skill szinkronizálva!");
+      loadSkills();
+      loadStats();
+    })
+    .catch(function(e) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      alert("Szinkronizálás hiba: " + e);
+    });
+}
+
+// Search filter
+document.getElementById("searchInput").addEventListener("input", function(e) {
+  var q = e.target.value.toLowerCase().trim();
+  if (!q) { renderSkills(allSkills); return; }
+  var filtered = allSkills.filter(function(s) {
+    return (s.skill_name || "").toLowerCase().indexOf(q) >= 0 ||
+           (s.display_name || "").toLowerCase().indexOf(q) >= 0 ||
+           (s.description || "").toLowerCase().indexOf(q) >= 0 ||
+           (s.tags || []).some(function(t) { return t.toLowerCase().indexOf(q) >= 0; });
+  });
+  renderSkills(filtered);
+});
+
+function escapeHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = text || "";
+  return div.innerHTML;
+}
+
+// Init
+document.addEventListener("DOMContentLoaded", function() {
+  loadStats();
+  loadSkills();
+});
+</script>
+
+</body>
+</html>

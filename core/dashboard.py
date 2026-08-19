@@ -197,6 +197,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/topology", self._api_topology_page)
         # Lab — project showcase
         app.router.add_get("/lab", self._lab_page)
+        # Skills marketplace
+        app.router.add_get("/skills", self._skills_page)
         # Kanban — task management
         app.router.add_get("/kanban", self._kanban_page)
         # Marveen Engine — visual dashboard
