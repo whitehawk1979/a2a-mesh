@@ -554,7 +554,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response(result)
 
     async def _api_activity(self, request):
-        """Recent mesh activity feed from PG."""
+        """Recent mesh activity feed from PG — last 30 non-heartbeat messages."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
@@ -565,15 +565,19 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 async with self.node.pg_pool.acquire() as conn:
                     rows = await conn.fetch(
                         "SELECT sender, recipient, msg_type, priority, created_at, status "
-                        "FROM mesh.mesh_messages ORDER BY created_at DESC LIMIT 30"
+                        "FROM mesh.mesh_messages "
+                        "WHERE msg_type NOT IN ('heartbeat','skills_announcement','diagnostic_report') "
+                        "ORDER BY created_at DESC LIMIT 30"
                     )
                     result["activities"] = [dict(r) for r in rows]
+            else:
+                result["error"] = "PG pool not available"
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)
 
     async def _api_research(self, request):
-        """Research/ideas board."""
+        """Research/ideas board — mesh_suggestions + shared_delegations with suggestions."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
@@ -582,11 +586,23 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         try:
             if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
                 async with self.node.pg_pool.acquire() as conn:
+                    # Get suggestions from mesh schema
                     rows = await conn.fetch(
                         "SELECT id, node_name, category, severity, description, status, created_at "
                         "FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT 20"
                     )
                     result["suggestions"] = [dict(r) for r in rows]
+                    # Also get pending delegations as "ideas" (tasks waiting for review)
+                    try:
+                        ideas = await conn.fetch(
+                            "SELECT id, sender, receiver, task_desc, status, created_at "
+                            "FROM shared_delegations WHERE status = 'pending' ORDER BY created_at DESC LIMIT 10"
+                        )
+                        result["ideas"] = [dict(r) for r in ideas]
+                    except Exception:
+                        pass
+            else:
+                result["error"] = "PG pool not available"
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)
