@@ -125,13 +125,17 @@ a { color: var(--blue); text-decoration: none; }
   <div class="card">
     <div class="card-header">
       <span class="icon">🧠</span><span class="title">Auto Skill-Factory</span>
+      <a href="/skills" target="_blank" style="margin-left:auto;font-size:12px;padding:3px 10px;border-radius:12px;background:var(--primary);color:#fff;text-decoration:none;font-weight:600">🔗 Marketplace</a>
       <span class="status status-ok" id="skillStatus">✓ Aktív</span>
     </div>
     <div class="card-body" id="skillBody">
       <div class="stat-row"><span class="label">Trigger: 5+ tool hívás</span><span class="value green">Auto</span></div>
-      <div class="stat-row"><span class="label">Generált skill-ek</span><span class="value blue" id="skillCount">—</span></div>
-      <div class="stat-row"><span class="label">Utolsó generálás</span><span class="value" id="skillLast">—</span></div>
+      <div class="stat-row"><span class="label">Összes skill a marketplace-en</span><span class="value blue" id="skillCount">—</span></div>
+      <div class="stat-row"><span class="label">Auto-generált skill-ek</span><span class="value" id="skillAuto" style="color:var(--purple)">—</span></div>
+      <div class="stat-row"><span class="label">Publikált fájlok</span><span class="value green" id="skillPublished">—</span></div>
       <div class="stat-row"><span class="label">Recovery-ből tanult</span><span class="value" id="skillRecovery">—</span></div>
+      <div id="skillAgentBar" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+      <div id="skillRecent" style="margin-top:8px;font-size:12px;color:var(--text3)"></div>
     </div>
   </div>
 
@@ -689,13 +693,48 @@ function loadAll() {
 }
 
 function loadSkills() {
-  api("/api/dream").then(function(d) {
-    if (!d || !d.buckets) return;
-    var mp = d.buckets.memory_patterns || {};
-    var sug = mp.suggestions || [];
-    document.getElementById("skillCount").textContent = sug.length;
-    document.getElementById("skillLast").textContent = sug.length > 0 ? sug[0].title.substring(0,30) : "—";
-    document.getElementById("skillRecovery").textContent = sug.filter(function(s){return s.access_count>=8;}).length;
+  // Load from skill marketplace stats API
+  api("/api/skills/stats").then(function(d) {
+    if (!d) return;
+    document.getElementById("skillCount").textContent = d.total_skills || 0;
+    document.getElementById("skillAuto").textContent = d.auto_generated || 0;
+    document.getElementById("skillPublished").textContent = d.published_files || 0;
+    // Recovery count: skills with "error-recovery" tag
+    document.getElementById("skillRecovery").textContent = "—";
+
+    // Agent badges
+    var bar = document.getElementById("skillAgentBar");
+    if (bar && d.by_agent) {
+      var colors = {nova:"#58a6ff", morzsa:"#bc8cff", runa:"#3fb950", tor:"#d29922", lifecycle_node:"#f85149"};
+      var html = "";
+      Object.keys(d.by_agent).forEach(function(name) {
+        var color = colors[name] || "#8b949e";
+        html += '<span style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px">';
+        html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + '"></span>';
+        html += name + ' <b style="color:var(--primary)">' + d.by_agent[name] + '</b></span>';
+      });
+      bar.innerHTML = html;
+    }
+
+    // Recent skills
+    var recent = document.getElementById("skillRecent");
+    if (recent && d.recent && d.recent.length > 0) {
+      var rhtml = "📦 Legutóbbi: ";
+      d.recent.forEach(function(s, i) {
+        if (i > 0) rhtml += " · ";
+        rhtml += s.agent + ": " + (s.display_name || s.skill_name);
+      });
+      recent.textContent = rhtml;
+    }
+  }).catch(function(e) {
+    // Fallback: try dream API
+    api("/api/dream").then(function(d) {
+      if (!d || !d.buckets) return;
+      var mp = d.buckets.memory_patterns || {};
+      var sug = mp.suggestions || [];
+      document.getElementById("skillCount").textContent = sug.length;
+      document.getElementById("skillRecovery").textContent = sug.filter(function(s){return s.access_count>=8;}).length;
+    });
   });
 }
 
