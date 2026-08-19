@@ -2634,8 +2634,61 @@ document.getElementById("authUsername").addEventListener("keydown", function(e) 
 document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
 document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
 
+function loadMarveenPage(page) {
+  var contentArea = document.getElementById('marveenContent');
+  var messagesArea = document.getElementById('messages');
+  
+  if (!contentArea) return;
+  
+  messagesArea.style.display = 'none';
+  contentArea.style.display = 'block';
+  contentArea.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Betöltés...</div>';
+
+  var apiMap = {
+    'kanban': '/api/kanban',
+    'bgTasks': '/api/cron',
+    'memories': '/api/memory',
+    'naplo': '/api/logs',
+    'costs': '/api/costops/summary',
+    'tokenUsage': '/api/token-usage',
+    'updates': '/api/update-checker',
+    'vault': '/api/vault/list',
+    'federation': '/api/federation'
+  };
+
+  var apiPath = apiMap[page];
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+
+  if (apiPath) {
+    fetch(apiPath, { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(r => r.json())
+      .then(data => {
+        var html = '<h2 style="margin-top:0">' + (page.charAt(0).toUpperCase() + page.slice(1)) + '</h2>';
+        html += '<div style="background:var(--surface);padding:15px;border-radius:8px;overflow:auto;color:var(--text2);font-size:13px;font-family:monospace;line-height:1.4;border:1px solid var(--border)">' + JSON.stringify(data, null, 2) + '</div>';
+        contentArea.innerHTML = html;
+      })
+      .catch(e => {
+        contentArea.innerHTML = '<div style="color:var(--danger);text-align:center;padding:40px;">Hiba a tartalom betöltésekor: ' + e.message + '</div>';
+      });
+  } else {
+    var descriptions = {
+      'approvals': 'Függő jóváhagyási kérelmek kezelése.',
+      'activity': 'A rendszer legutóbbi aktivitásainak követése.',
+      'research': 'Kutatási eredmények és ötletek gyűjtőtara.',
+      'connectors': 'MCP konnektorok konfigurálása és kezelése.',
+      'migrate': 'Adatok és konfigurációk átviteli eszközei.',
+      'docs': 'A rendszer dokumentációjának böngészése.'
+    };
+    contentArea.innerHTML = '<div style="text-align:center;padding:60px;">' +
+      '<div style="font-size:48px;margin-bottom:20px;">⏳</div>' +
+      '<h2 style="margin-bottom:10px;">Hamarosan</h2>' +
+      '<p style="color:var(--text3);font-size:16px;max-width:500px;margin:0 auto;">' + (descriptions[page] || 'Ez a funkció fejlesztés alatt áll.') + '</p>' +
+      '</div>';
+  }
+}
+
 // ─── Settings Functions ──────────────────────────────────
-function showSettings() {
+function showSettings() {\n  document.getElementById('messages').style.display = 'none';\n  document.getElementById('marveenContent').style.display = 'none';\n  document.getElementById('settingsMeshInfo').parentElement.style.display = 'block';\n  // ... rest of existing showSettings logic\n}
   document.getElementById('settingsModal').style.display = 'flex';
   loadSettings();
   loadSettingsNodes();
