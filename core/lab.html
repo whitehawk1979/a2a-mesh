@@ -223,8 +223,9 @@ document.addEventListener("DOMContentLoaded", loadProjects);
 
 var healthData = {};
 
-function discoverServices() {
-  var btn = event.target;
+function discoverServices(evt) {
+  var btn = evt ? evt.target : document.querySelector('button[onclick*="discoverServices"]');
+  if (!btn) btn = this;
   var orig = btn.textContent;
   btn.textContent = "⏳ Szkennelés...";
   btn.disabled = true;
