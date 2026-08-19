@@ -390,6 +390,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/metrics", self._api_prometheus_metrics)
         # Skills marketplace
         app.router.add_get("/api/skills", self._api_skills_list)
+        app.router.add_get("/api/skills/stats", self._api_skills_stats)
         app.router.add_get("/api/skills/search", self._api_skills_search)
         app.router.add_get("/api/skills/best", self._api_skills_best)
         app.router.add_post("/api/skills/advertise", self._api_skills_advertise)
@@ -404,6 +405,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/skills/{skill_id}/publish", self._api_skills_publish)
         app.router.add_get("/api/skills/{skill_id}/files", self._api_skills_pull)
         app.router.add_post("/api/skills/sync", self._api_skills_sync)
+        app.router.add_post("/api/skills/auto-sync", self._api_skills_auto_sync)
         # Config sync API
         app.router.add_get("/api/config/shared", self._api_config_shared_get)
         app.router.add_post("/api/config/shared", self._api_config_shared_set)

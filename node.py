@@ -3909,6 +3909,32 @@ echo "Status: ok"
         if advertised:
             log.info(f"📋 Auto-advertised {advertised} skills to marketplace")
 
+    async def _broadcast_skill_to_peers(self, skill_name: str):
+        """Notify peer nodes to pull a newly auto-generated skill from PG."""
+        import aiohttp as aiohttp_lib
+        try:
+            peers = getattr(self.peer_discovery, '_peers', {})
+            if not peers:
+                return
+            skill_id = f"skill-{self.node_name}-{skill_name}"
+            for name, peer in peers.items():
+                host = getattr(peer, 'host', None) or ''
+                if not host:
+                    continue
+                url = f"http://{host}:8650/api/skills/auto-sync"
+                try:
+                    timeout = aiohttp_lib.ClientTimeout(total=5)
+                    async with aiohttp_lib.ClientSession(timeout=timeout) as session:
+                        async with session.post(url, json={"skill_ids": [skill_id]}) as resp:
+                            if resp.status == 200:
+                                log.info(f"📦 Skill {skill_name} synced to {name}")
+                            else:
+                                log.debug(f"Skill sync to {name} failed: {resp.status}")
+                except Exception as e:
+                    log.debug(f"Skill sync to {name} skipped: {e}")
+        except Exception as e:
+            log.debug(f"Broadcast skill to peers skipped: {e}")
+
     async def _heartbeat_loop(self):
         """Send periodic heartbeat messages."""
         while self._running:
