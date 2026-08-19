@@ -3785,9 +3785,15 @@ echo "Status: ok"
                                 continue
 
                             # ── Untrusted framing for peer messages ──
-                            # Wrap all incoming peer messages before they are routed or dispatched
-                            from .core.prompt_safety import wrap_trusted_peer
-                            msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload))
+                            # Wrap only user-facing message types (a2a_message, agent_reply)
+                            # Internal protocol messages (ACK, heartbeat, skills_announcement,
+                            # memory_sync, file_transfer, diagnostic_report) keep their original
+                            # dict/bytes payload — wrapping them would break protocol parsing.
+                            if msg.type in ("a2a_message", "agent_reply"):
+                                from .core.prompt_safety import wrap_trusted_peer
+                                original = msg.payload
+                                msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                log.debug(f"Untrusted framing applied to {msg.type} {msg.id[:8]} from {msg.sender}")
 
                             result = await self.router.receive(msg, from_transport)
                             if result.status == "duplicate":
