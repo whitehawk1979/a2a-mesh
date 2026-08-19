@@ -1739,10 +1739,33 @@ class DashboardAdminMixin:
                 existing_urls.add(l.get("url", ""))
 
         new_services = [s for s in found if s["url"] not in existing_urls]
+        
+        # Auto-add new services to projects.json (permanent, updatable later)
+        added = []
+        if new_services:
+            import time as _time
+            for s in new_services:
+                project = {
+                    "id": f"auto-{int(_time.time()*1000)}-{len(existing)+len(added)}",
+                    "icon": "🔌",
+                    "title": f"{s['label']} ({s['host']}:{s['port']})",
+                    "description": f"Auto-discovered: {s['label']} on {s['host']}:{s['port']}",
+                    "category": "other",
+                    "url": s["url"],
+                    "tags": ["auto-discovered"],
+                    "status": "active",
+                    "created_at": _time.time(),
+                }
+                existing.append(project)
+                added.append(project)
+            self._save_projects(existing)
+            log.info(f"Lab auto-discover: added {len(added)} new services to projects.json")
+        
         return web.json_response({
             "found": found,
             "new": new_services,
-            "existing_count": len(existing),
+            "added": len(added),
+            "existing_count": len(existing) - len(added),
             "new_count": len(new_services)
         })
 

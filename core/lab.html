@@ -233,8 +233,9 @@ function discoverServices() {
     .then(function(data) {
       btn.textContent = orig;
       btn.disabled = false;
-      var newSvcs = data.new || [];
       var allFound = data.found || [];
+      var added = data.added || 0;
+      var newSvcs = data.new || [];
       if (newSvcs.length === 0) {
         alert("✅ Szkennelés kész!\n" + allFound.length + " szolgáltatás található, mind felvéve már.");
       } else {
@@ -242,27 +243,10 @@ function discoverServices() {
         newSvcs.forEach(function(s) {
           msg += "  " + s.label + " — " + s.url + "\n";
         });
-        msg += "\nFelvegyem az újakat?";
-        if (confirm(msg)) {
-          newSvcs.forEach(function(s) {
-            fetch("/api/projects", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                title: s.label + " (" + s.host + ":" + s.port + ")",
-                description: "Auto-discovered: " + s.label,
-                category: "other",
-                url: s.url,
-                tags: ["auto-discovered"],
-                icon: "🔌",
-                status: "active"
-              })
-            });
-          });
-          alert("✅ " + newSvcs.length + " új szolgáltatás felvéve!");
-          loadProjects();
-        }
+        msg += "\n✅ " + added + " új szolgáltatás automatikusan hozzáadva a listához!";
+        alert(msg);
       }
+      loadProjects();
     })
     .catch(function(e) {
       btn.textContent = orig;
