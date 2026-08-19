@@ -286,13 +286,13 @@ async def get_daily_logs(agent: str = None, days: int = 7) -> List[Dict]:
     try:
         if agent:
             rows = await _pg_pool.fetch(
-                "SELECT * FROM daily_logs WHERE agent = $1 AND date >= NOW() - INTERVAL '$2 days' ORDER BY date DESC",
-                agent, str(days)
+                "SELECT * FROM daily_logs WHERE agent = $1 AND date >= NOW() - make_interval(days => $2) ORDER BY date DESC",
+                agent, days
             )
         else:
             rows = await _pg_pool.fetch(
-                "SELECT * FROM daily_logs WHERE date >= NOW() - INTERVAL '$1 days' ORDER BY date DESC, agent",
-                str(days)
+                "SELECT * FROM daily_logs WHERE date >= NOW() - make_interval(days => $1) ORDER BY date DESC, agent",
+                days
             )
         return [_fix_dt(dict(r)) for r in rows]
     except Exception as e:
