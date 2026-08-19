@@ -2787,20 +2787,309 @@ function loadMarveenPage(page) {
 
   document.getElementById('marveenModalTitle').innerHTML = title;
   var body = document.getElementById('marveenModalBody');
-  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Betöltés...</div>';
+  body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)"><div style="font-size:32px;margin-bottom:12px">⏳</div>Betöltés...</div>';
   modal.style.display = 'flex';
+
+  // ── Per-page renderers ──
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function fmtTime(ts) {
+    if (!ts) return '<span style="color:var(--text3)">—</span>';
+    var d = new Date(ts);
+    if (isNaN(d)) return esc(ts);
+    return d.toLocaleString('hu-HU', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  }
+  function badge(text, color) {
+    var c = color || 'var(--primary)';
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:' + c + '22;color:' + c + ';">' + esc(text) + '</span>';
+  }
+  function card(inner) {
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">' + inner + '</div>';
+  }
+  function table(headers, rows) {
+    var h = '<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>';
+    headers.forEach(function(hd) { h += '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--border);color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">' + esc(hd) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    rows.forEach(function(row) {
+      h += '<tr style="border-bottom:1px solid var(--border)">';
+      row.forEach(function(cell) { h += '<td style="padding:8px 10px;color:var(--text2);">' + cell + '</td>'; });
+      h += '</tr>';
+    });
+    h += '</tbody></table>';
+    return h;
+  }
+  function empty(msg) {
+    return '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">' + (msg || 'Nincs adat') + '</div>';
+  }
+  function errorBox(msg) {
+    return '<div style="color:var(--danger);text-align:center;padding:40px;">' +
+      '<div style="font-size:32px;margin-bottom:12px">⚠️</div>' +
+      '<div style="font-size:14px;font-weight:600;margin-bottom:6px">Hiba</div>' +
+      '<div style="font-size:13px;color:var(--text3)">' + esc(msg) + '</div></div>';
+  }
+
+  var renderers = {
+    kanban: function(d) {
+      if (!d || (!d.boards && !d.cards)) return empty('Nincs kanban adat');
+      var html = '';
+      if (d.boards && d.boards.length) {
+        html += '<h3 style="margin:0 0 12px;font-size:15px;">📋 Táblák (' + d.boards.length + ')</h3>';
+        d.boards.forEach(function(b) {
+          html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+            '<strong style="font-size:14px;">' + esc(b.name || b.title || b.id) + '</strong>' +
+            badge(b.status || 'active') + '</div>' +
+            '<div style="color:var(--text3);font-size:12px;">' + esc(b.description || '') + '</div>');
+        });
+      }
+      if (d.cards && d.cards.length) {
+        html += '<h3 style="margin:20px 0 12px;font-size:15px;">🎫 Kártyák (' + d.cards.length + ')</h3>';
+        d.cards.forEach(function(c) {
+          var pri = c.priority || 'normal';
+          var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
+          html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+            '<strong>' + esc(c.title || c.name || '—') + '</strong>' + badge(pri, pc) +
+            '<span style="margin-left:auto;color:var(--text3);font-size:11px;">' + fmtTime(c.created_at) + '</span></div>' +
+            '<div style="color:var(--text3);font-size:12px;">Assignee: ' + esc(c.assignee || '—') + ' • Status: ' + esc(c.status || '—') + '</div>');
+        });
+      }
+      return html || empty('Nincs kanban adat');
+    },
+
+    approvals: function(d) {
+      var html = '';
+      var nodes = d.pending_nodes || [];
+      var cards = d.pending_cards || [];
+      if (!nodes.length && !cards.length) return empty('✅ Nincs függő jóváhagyás');
+      if (nodes.length) {
+        html += '<h3 style="margin:0 0 12px;font-size:15px;">🔗 Node Jóváhagyások (' + nodes.length + ')</h3>';
+        html += table(['Node', 'Host', 'Port', 'Státusz'], nodes.map(function(n) {
+          return [esc(n.node_name || n.name), esc(n.host), esc(n.port), badge(n.status || 'pending', 'var(--warning)')];
+        }));
+      }
+      if (cards.length) {
+        html += '<h3 style="margin:20px 0 12px;font-size:15px;">🎫 Kanban Jóváhagyások (' + cards.length + ')</h3>';
+        html += table(['Cím', 'Assignee', 'Prioritás', 'Létrehozva'], cards.map(function(c) {
+          return [esc(c.title), esc(c.assignee || '—'), badge(c.priority || 'normal'), fmtTime(c.created_at)];
+        }));
+      }
+      return html;
+    },
+
+    activity: function(d) {
+      var acts = d.activities || [];
+      if (!acts.length) return empty('Nincs aktivitás');
+      return table(['Feladó', 'Címzett', 'Típus', 'Prioritás', 'Idő'], acts.map(function(a) {
+        var pri = a.priority || 'normal';
+        var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
+        return [esc(a.sender), esc(a.recipient), badge(a.msg_type || 'msg'), badge(pri, pc), fmtTime(a.created_at)];
+      }));
+    },
+
+    bgTasks: function(d) {
+      var jobs = d.jobs || d.tasks || d.cron_jobs || [];
+      if (!jobs.length && !d.error) return empty('Nincs háttér feladat');
+      if (d.error) return errorBox(d.error);
+      return table(['Név', 'Ütemezés', 'Státusz', 'Utolsó futás'], jobs.map(function(j) {
+        return [esc(j.name || j.id), esc(j.schedule || j.cron || '—'), badge(j.status || 'active'), fmtTime(j.last_run || j.last_execution)];
+      }));
+    },
+
+    memories: function(d) {
+      var mems = d.memories || d.entries || d.data || [];
+      if (!mems.length && !d.error) {
+        if (d.key) return card('<strong>' + esc(d.key) + '</strong><pre style="white-space:pre-wrap;font-size:12px;color:var(--text2);margin-top:8px;">' + esc(JSON.stringify(d.value || d, null, 2)) + '</pre>');
+        return empty('Nincs memória adat');
+      }
+      if (d.error) return errorBox(d.error);
+      if (!Array.isArray(mems)) mems = [mems];
+      var html = '';
+      mems.forEach(function(m) {
+        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<strong style="font-size:13px;">' + esc(m.key || m.name || m.id || '—') + '</strong>' +
+          '<span style="margin-left:auto;color:var(--text3);font-size:11px;">' + fmtTime(m.created_at || m.updated_at) + '</span></div>' +
+          '<div style="font-size:12px;color:var(--text3);line-height:1.4;">' + esc(JSON.stringify(m.value || m.content || m.data || '').substring(0, 200)) + '</div>');
+      });
+      return html;
+    },
+
+    naplo: function(d) {
+      var logs = d.logs || d.entries || d.lines || [];
+      if (!logs.length && !d.error) return empty('Nincs napló bejegyzés');
+      if (d.error) return errorBox(d.error);
+      if (!Array.isArray(logs)) logs = [logs];
+      var html = '<div style="font-family:monospace;font-size:12px;line-height:1.6;">';
+      logs.forEach(function(l) {
+        var level = l.level || l.severity || 'INFO';
+        var lc = level === 'ERROR' ? 'var(--danger)' : level === 'WARNING' ? 'var(--warning)' : 'var(--text3)';
+        html += '<div style="padding:4px 0;border-bottom:1px solid var(--border);">' +
+          '<span style="color:' + lc + ';font-weight:600;">' + esc(level) + '</span> ' +
+          '<span style="color:var(--text3);">' + fmtTime(l.timestamp || l.time || l.created_at) + '</span> ' +
+          '<span style="color:var(--text2);">' + esc(l.message || l.msg || l.text || '') + '</span></div>';
+      });
+      html += '</div>';
+      return html;
+    },
+
+    research: function(d) {
+      var sugs = d.suggestions || d.ideas || [];
+      if (!sugs.length) return empty('Nincs javaslat');
+      var html = '';
+      sugs.forEach(function(s) {
+        var sev = s.severity || 'info';
+        var sc = sev === 'critical' ? 'var(--danger)' : sev === 'high' ? 'var(--warning)' : 'var(--primary)';
+        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<strong>' + esc(s.category || s.title || '—') + '</strong>' + badge(s.severity || 'info', sc) +
+          '<span style="margin-left:auto;color:var(--text3);font-size:11px;">' + esc(s.node_name || '') + '</span></div>' +
+          '<div style="font-size:12px;color:var(--text2);line-height:1.4;">' + esc(s.description || s.text || '') + '</div>' +
+          '<div style="margin-top:6px;color:var(--text3);font-size:11px;">' + fmtTime(s.created_at) + '</div>');
+      });
+      return html;
+    },
+
+    costs: function(d) {
+      if (d.error) return errorBox(d.error);
+      var total = d.total_cost || d.total || 0;
+      var html = card('<div style="text-align:center;padding:10px;">' +
+        '<div style="font-size:28px;font-weight:700;color:var(--primary);">$' + esc(total.toFixed ? total.toFixed(2) : total) + '</div>' +
+        '<div style="color:var(--text3);font-size:12px;margin-top:4px;">Összes költség</div></div>');
+      var entries = d.entries || d.costs || d.breakdown || [];
+      if (entries.length) {
+        html += table(['Tétel', 'Költség', 'Dátum'], entries.map(function(e) {
+          return [esc(e.name || e.category || e.description || '—'), '$' + esc(e.cost || e.amount || 0), fmtTime(e.date || e.created_at)];
+        }));
+      }
+      return html;
+    },
+
+    tokenUsage: function(d) {
+      if (d.error) return errorBox(d.error);
+      var total = d.total_tokens || d.total || 0;
+      var html = card('<div style="text-align:center;padding:10px;">' +
+        '<div style="font-size:28px;font-weight:700;color:var(--primary);">' + esc(total.toLocaleString ? total.toLocaleString() : total) + '</div>' +
+        '<div style="color:var(--text3);font-size:12px;margin-top:4px;">Összes token</div></div>');
+      var entries = d.usage || d.entries || d.by_model || d.models || [];
+      if (entries.length) {
+        html += table(['Modell', 'Token', 'Költség'], entries.map(function(e) {
+          return [esc(e.model || e.name || '—'), esc((e.tokens || e.total_tokens || 0).toLocaleString ? (e.tokens || e.total_tokens || 0).toLocaleString() : e.tokens || 0), '$' + esc((e.cost || 0).toFixed ? (e.cost || 0).toFixed(4) : e.cost || 0)];
+        }));
+      }
+      return html;
+    },
+
+    updates: function(d) {
+      if (d.error) return errorBox(d.error);
+      var updates = d.updates || d.available || d.entries || [];
+      if (!updates.length) {
+        return card('<div style="text-align:center;padding:20px;">' +
+          '<div style="font-size:32px;margin-bottom:8px;">✅</div>' +
+          '<div style="color:var(--text2);">Minden naprakész</div></div>');
+      }
+      var html = '';
+      updates.forEach(function(u) {
+        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<strong>' + esc(u.name || u.component || '—') + '</strong>' +
+          badge(u.current ? 'v' + u.current : '', 'var(--text3)') +
+          badge('→ v' + (u.latest || u.version || '?'), 'var(--primary)') + '</div>' +
+          '<div style="font-size:12px;color:var(--text3);">' + esc(u.description || u.notes || '') + '</div>');
+      });
+      return html;
+    },
+
+    vault: function(d) {
+      var items = d.items || d.secrets || d.entries || [];
+      if (!items.length && !d.error) return empty('Nincs vault adat');
+      if (d.error) return errorBox(d.error);
+      return table(['Kulcs', 'Létrehozva', 'Utolsó módosítás'], items.map(function(i) {
+        return [esc(i.key || i.name || i.id), fmtTime(i.created_at), fmtTime(i.updated_at || i.modified_at)];
+      }));
+    },
+
+    connectors: function(d) {
+      var conns = d.connectors || d.plugins || [];
+      if (!conns.length && !d.error) return empty('Nincs MCP konnektor');
+      if (d.error) return errorBox(d.error);
+      var html = '';
+      conns.forEach(function(c) {
+        var st = c.status || c.state || 'unknown';
+        var sc = st === 'connected' || st === 'active' ? 'var(--primary)' : st === 'error' ? 'var(--danger)' : 'var(--text3)';
+        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<strong>' + esc(c.name || c.id || '—') + '</strong>' + badge(st, sc) + '</div>' +
+          '<div style="font-size:12px;color:var(--text3);">' + esc(c.description || c.type || '') + '</div>');
+      });
+      return html;
+    },
+
+    federation: function(d) {
+      if (d.error) return errorBox(d.error);
+      var nodes = d.nodes || d.peers || d.federation || [];
+      var html = card('<div style="display:flex;gap:16px;justify-content:center;">' +
+        '<div style="text-align:center;"><div style="font-size:24px;font-weight:700;">' + (nodes.length || 0) + '</div><div style="color:var(--text3);font-size:11px;">Node-ok</div></div>' +
+        '<div style="text-align:center;"><div style="font-size:24px;font-weight:700;color:var(--primary)">' + (nodes.filter(function(n){return n.status==='connected'||n.status==='active'}).length) + '</div><div style="color:var(--text3);font-size:11px;">Aktív</div></div></div>');
+      if (nodes.length) {
+        html += table(['Node', 'Host', 'Státusz', 'Heartbeat'], nodes.map(function(n) {
+          var st = n.status || 'unknown';
+          var sc = st === 'connected' || st === 'active' ? 'var(--primary)' : st === 'offline' ? 'var(--danger)' : 'var(--text3)';
+          return [esc(n.node_name || n.name || n.id), esc(n.host || '—'), badge(st, sc), fmtTime(n.last_heartbeat)];
+        }));
+      }
+      return html;
+    },
+
+    migrate: function(d) {
+      if (d.error) return errorBox(d.error);
+      var nodes = (d.fleet_status && d.fleet_status.nodes) || d.nodes || [];
+      var caps = d.capabilities || [];
+      var html = '';
+      if (caps.length) {
+        html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
+        caps.forEach(function(c) { html += badge(c, 'var(--primary)'); });
+        html += '</div>';
+      }
+      if (nodes.length) {
+        html += table(['Node', 'Host', 'Port', 'Státusz', 'Heartbeat'], nodes.map(function(n) {
+          var st = n.status || 'unknown';
+          var sc = st === 'healthy' || st === 'active' ? 'var(--primary)' : 'var(--text3)';
+          return [esc(n.node_name || n.name), esc(n.host), esc(n.port || '—'), badge(st, sc), fmtTime(n.last_heartbeat)];
+        }));
+      } else {
+        html += empty('Nincs elérhető node');
+      }
+      return html;
+    },
+
+    docs: function(d) {
+      var docs = d.docs || [];
+      if (!docs.length) return empty('Nincs dokumentáció');
+      var html = '';
+      var bySource = {};
+      docs.forEach(function(doc) { (bySource[doc.source] = bySource[doc.source] || []).push(doc); });
+      Object.keys(bySource).forEach(function(src) {
+        html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">' + esc(src) + '</h3>';
+        bySource[src].forEach(function(doc) {
+          html += card('<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span style="font-size:16px;">📄</span>' +
+            '<strong style="font-size:13px;">' + esc(doc.name) + '</strong></div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + esc(doc.path) + '</div>');
+        });
+        html += '<div style="margin-bottom:16px;"></div>';
+      });
+      return html;
+    }
+  };
 
   if (apiPath) {
     fetch(apiPath, { headers: { 'Authorization': 'Bearer ' + token } })
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data) {
-        var html = '<div style="background:var(--surface);padding:15px;border-radius:8px;overflow:auto;color:var(--text2);font-size:13px;font-family:monospace;line-height:1.5;border:1px solid var(--border);max-height:calc(100vh - 200px)">';
-        html += JSON.stringify(data, null, 2);
-        html += '</div>';
-        body.innerHTML = html;
+        var renderer = renderers[page];
+        if (renderer) {
+          try { body.innerHTML = renderer(data); }
+          catch(e) { body.innerHTML = errorBox('Render hiba: ' + e.message); }
+        } else {
+          body.innerHTML = '<pre style="white-space:pre-wrap;font-size:12px;color:var(--text2);">' + esc(JSON.stringify(data, null, 2)) + '</pre>';
+        }
       })
       .catch(function(e) {
-        body.innerHTML = '<div style="color:var(--danger);text-align:center;padding:40px;">Hiba: ' + e.message + '</div>';
+        body.innerHTML = errorBox(e.message);
       });
   } else {
     body.innerHTML = '<div style="text-align:center;padding:60px;">' +
