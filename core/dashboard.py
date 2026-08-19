@@ -542,13 +542,16 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except Exception as e:
             result["pending_nodes_error"] = str(e)
         try:
-            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
-                async with self.node.pg_pool.acquire() as conn:
-                    rows = await conn.fetch(
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                try:
+                    rows = await pool.fetch(
                         "SELECT id, board_id, title, assignee, priority, created_at "
                         "FROM mesh.kanban_cards WHERE status = 'pending_approval' ORDER BY created_at DESC LIMIT 20"
                     )
                     result["pending_cards"] = [dict(r) for r in rows]
+                except Exception:
+                    result["pending_cards"] = []
         except Exception as e:
             result["pending_cards_error"] = str(e)
         return web.json_response(result)
@@ -561,15 +564,15 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             return err
         result = {"activities": []}
         try:
-            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
-                async with self.node.pg_pool.acquire() as conn:
-                    rows = await conn.fetch(
-                        "SELECT sender, recipient, msg_type, priority, created_at, status "
-                        "FROM mesh.mesh_messages "
-                        "WHERE msg_type NOT IN ('heartbeat','skills_announcement','diagnostic_report') "
-                        "ORDER BY created_at DESC LIMIT 30"
-                    )
-                    result["activities"] = [dict(r) for r in rows]
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                rows = await pool.fetch(
+                    "SELECT sender, recipient, msg_type, priority, created_at, status "
+                    "FROM mesh.mesh_messages "
+                    "WHERE msg_type NOT IN ('heartbeat','skills_announcement','diagnostic_report') "
+                    "ORDER BY created_at DESC LIMIT 30"
+                )
+                result["activities"] = [dict(r) for r in rows]
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
@@ -577,30 +580,28 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response(result)
 
     async def _api_research(self, request):
-        """Research/ideas board — mesh_suggestions + shared_delegations with suggestions."""
+        """Research/ideas board — mesh_suggestions + pending delegations."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
             return err
         result = {"ideas": [], "suggestions": []}
         try:
-            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
-                async with self.node.pg_pool.acquire() as conn:
-                    # Get suggestions from mesh schema
-                    rows = await conn.fetch(
-                        "SELECT id, node_name, category, severity, description, status, created_at "
-                        "FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT 20"
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                rows = await pool.fetch(
+                    "SELECT id, node_name, category, severity, description, status, created_at "
+                    "FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT 20"
+                )
+                result["suggestions"] = [dict(r) for r in rows]
+                try:
+                    ideas = await pool.fetch(
+                        "SELECT id, sender, receiver, task_desc, status, created_at "
+                        "FROM shared_delegations WHERE status = 'pending' ORDER BY created_at DESC LIMIT 10"
                     )
-                    result["suggestions"] = [dict(r) for r in rows]
-                    # Also get pending delegations as "ideas" (tasks waiting for review)
-                    try:
-                        ideas = await conn.fetch(
-                            "SELECT id, sender, receiver, task_desc, status, created_at "
-                            "FROM shared_delegations WHERE status = 'pending' ORDER BY created_at DESC LIMIT 10"
-                        )
-                        result["ideas"] = [dict(r) for r in ideas]
-                    except Exception:
-                        pass
+                    result["ideas"] = [dict(r) for r in ideas]
+                except Exception:
+                    pass
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
@@ -635,7 +636,6 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             return err
         result = {"connectors": [], "total": 0}
         try:
-            # 1. From Registry
             caps = set()
             if hasattr(self, 'registry') and self.registry:
                 agents = self.registry.list_agents() if hasattr(self.registry, 'list_agents') else []
@@ -644,17 +644,14 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                         for c in a.get('capabilities', []):
                             if any(x in c.lower() for x in ['mcp', 'plugin', 'connector', 'tool']):
                                 caps.add(c)
-            
-            # 2. From PG plugin_config
-            if self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
-                async with self.node.pg_pool.acquire() as conn:
-                    try:
-                        rows = await conn.fetch("SELECT plugin_name FROM plugin_config")
-                        for r in rows:
-                            caps.add(r['plugin_name'])
-                    except:
-                        pass
-            
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                try:
+                    rows = await pool.fetch("SELECT plugin_name FROM plugin_config")
+                    for r in rows:
+                        caps.add(r['plugin_name'])
+                except Exception:
+                    pass
             result["connectors"] = list(caps)
             result["total"] = len(caps)
         except Exception as e:
@@ -662,20 +659,22 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response(result)
 
     async def _api_migrate(self, request):
-        """Migration tools."""
+        """Migration tools — node fleet status from PG."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
             return err
         result = {"fleet_status": {}, "capabilities": ["export", "import", "node_migration"]}
         try:
-            if hasattr(self, 'node') and self.node and hasattr(self.node, 'pg_pool') and self.node.pg_pool:
-                async with self.node.pg_pool.acquire() as conn:
-                    rows = await conn.fetch(
-                        "SELECT node_name, host, port, status, last_heartbeat "
-                        "FROM mesh.mesh_nodes ORDER BY node_name"
-                    )
-                    result["fleet_status"]["nodes"] = [dict(r) for r in rows]
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                rows = await pool.fetch(
+                    "SELECT node_name, host, port, status, last_heartbeat "
+                    "FROM mesh.mesh_nodes ORDER BY node_name"
+                )
+                result["fleet_status"]["nodes"] = [dict(r) for r in rows]
+            else:
+                result["error"] = "PG pool not available"
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)

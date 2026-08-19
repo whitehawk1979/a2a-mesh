@@ -4089,6 +4089,11 @@ echo "Status: ok"
                 return docker_cfg['host_ip']
         return self._get_local_ip()
 
+    @property
+    def pg_pool(self):
+        """Expose _pg_pool as pg_pool for dashboard handlers."""
+        return self._pg_pool
+
     def get_status(self) -> dict:
         """Return node status."""
         status = {
