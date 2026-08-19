@@ -1575,6 +1575,8 @@ class DashboardAdminMixin:
         ssh_pubkey = body.get("ssh_pubkey", "").strip()
         use_tailscale = body.get("use_tailscale", True)
         pg_host = body.get("pg_host", "192.168.1.30")
+        role = body.get("role", "auto")
+        auto_approve = body.get("auto_approve", False)
         
         if not node_name:
             return web.json_response({"error": "node_name is required"}, status=400)
@@ -1586,11 +1588,116 @@ class DashboardAdminMixin:
                 ssh_pubkey=ssh_pubkey,
                 pg_host=pg_host,
                 use_tailscale=use_tailscale,
+                role=role,
+                auto_approve=auto_approve,
             )
             return web.json_response(result)
         except Exception as e:
             import logging
             logging.getLogger("a2a_mesh.dashboard").error(f"Onboard error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_onboard_scan(self, request):
+        """POST /api/onboard/scan — Scan for new nodes on Tailscale/LAN."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        
+        try:
+            import subprocess, json as _json
+            discovered = []
+            
+            # 1. Scan Tailscale network for new peers
+            r = subprocess.run('tailscale status --json 2>/dev/null', shell=True, capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout:
+                ts = _json.loads(r.stdout)
+                known_nodes = set()
+                # Get known mesh nodes from PG
+                try:
+                    from .async_db import AsyncDB
+                    db = AsyncDB()
+                    await db.connect()
+                    rows = await db.fetch("SELECT node_name, host FROM mesh.mesh_nodes WHERE status = 'active'")
+                    for row in rows:
+                        known_nodes.add(row['node_name'])
+                        known_nodes.add(row['host'])
+                    await db.close()
+                except Exception:
+                    pass
+                
+                # Parse Tailscale peers
+                peers = ts.get('Peer', {})
+                for peer_id, peer in peers.items():
+                    hostname = peer.get('HostName', '')
+                    ips = peer.get('TailscaleIPs', [])
+                    if not ips:
+                        continue
+                    ip = ips[0]
+                    # Skip if already in mesh
+                    if ip in known_nodes or hostname in known_nodes:
+                        continue
+                    # Check if it has mesh port open
+                    r2 = subprocess.run(f'curl -s --max-time 3 http://{ip}:8650/api/health 2>/dev/null', shell=True, capture_output=True, text=True, timeout=5)
+                    if r2.stdout and '"healthy"' in r2.stdout:
+                        try:
+                            info = _json.loads(r2.stdout)
+                            discovered.append({
+                                'name': info.get('node', hostname),
+                                'host': ip,
+                                'platform': info.get('version', 'unknown'),
+                                'role': 'router'
+                            })
+                        except Exception:
+                            discovered.append({'name': hostname, 'host': ip, 'platform': 'unknown', 'role': 'router'})
+            
+            # 2. Also check PG for pending nodes (status = 'pending')
+            try:
+                from .async_db import AsyncDB
+                db = AsyncDB()
+                await db.connect()
+                rows = await db.fetch("SELECT node_name, host, role FROM mesh.mesh_nodes WHERE status = 'pending'")
+                for row in rows:
+                    discovered.append({
+                        'name': row['node_name'],
+                        'host': row['host'] or 'unknown',
+                        'platform': 'pending',
+                        'role': row['role'] or 'router'
+                    })
+                await db.close()
+            except Exception:
+                pass
+            
+            return web.json_response({"discovered": discovered, "count": len(discovered)})
+        except Exception as e:
+            import logging
+            logging.getLogger("a2a_mesh.dashboard").error(f"Scan error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_onboard_reject(self, request):
+        """POST /api/onboard/reject — Reject a pending node."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        
+        node_name = body.get("node_name", "").strip()
+        if not node_name:
+            return web.json_response({"error": "node_name required"}, status=400)
+        
+        try:
+            from .async_db import AsyncDB
+            db = AsyncDB()
+            await db.connect()
+            await db.execute("UPDATE mesh.mesh_nodes SET status = 'rejected' WHERE node_name = $1", node_name)
+            await db.close()
+            return web.json_response({"status": "rejected", "node": node_name})
+        except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _kanban_page(self, request):

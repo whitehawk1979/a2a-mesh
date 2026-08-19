@@ -146,6 +146,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/nodes", self._api_nodes_list)
         # Node onboarding
         app.router.add_post("/api/onboard", self._api_onboard_node)
+        app.router.add_post("/api/onboard/scan", self._api_onboard_scan)
+        app.router.add_post("/api/onboard/reject", self._api_onboard_reject)
         app.router.add_route("GET", "/ws", self._websocket_handler)
         # Agent reply endpoint — agents call this to send replies to the mesh chat
         app.router.add_post("/api/agent-reply", self._api_agent_reply)

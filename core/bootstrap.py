@@ -820,6 +820,8 @@ async def onboard_node(
     pg_password: str = 'nova_agent_2026',
     use_tailscale: bool = True,
     ssh_targets: list = None,
+    role: str = 'auto',
+    auto_approve: bool = False,
 ) -> dict:
     """
     Full node onboarding: SSH key exchange, mesh user creation, auth token,
@@ -861,19 +863,48 @@ async def onboard_node(
             "SELECT node_name FROM mesh.mesh_nodes WHERE node_name = $1", node_name
         )
         if not existing:
+            # Determine role
+            node_role = role
+            if role == 'auto':
+                # Check if there's an active coordinator
+                coord = await conn.fetchval(
+                    "SELECT node_name FROM mesh.mesh_nodes WHERE role = 'coordinator' AND status = 'active'"
+                )
+                node_role = 'end_device' if coord else 'coordinator'
+            
+            node_status = 'active' if auto_approve else 'pending'
+            
             await conn.execute(
                 """INSERT INTO mesh.mesh_nodes 
                    (node_name, role, status, joined_at, last_heartbeat, 
                     p2p_port, health_port, pg_available, p2p_available, http_available,
                     capabilities, skills, version)
-                   VALUES ($1, 'end_device', 'active', now(), now(),
+                   VALUES ($1, $2, $3, now(), now(),
                            8645, 8650, true, false, true,
                            '[]'::jsonb, '[]'::jsonb, '0.29.0')""",
-                node_name
+                node_name, node_role, node_status
             )
-            step('pg_register', 'ok', f'Node {node_name} registered in mesh_nodes')
+            step('pg_register', 'ok', f'Node {node_name} registered as {node_role} ({node_status})')
         else:
+            # Update role if specified
+            if role and role != 'auto':
+                await conn.execute("UPDATE mesh.mesh_nodes SET role = $1 WHERE node_name = $2", role, node_name)
+            if auto_approve:
+                await conn.execute("UPDATE mesh.mesh_nodes SET status = 'active' WHERE node_name = $1", node_name)
             step('pg_register', 'ok', f'Node {node_name} already registered')
+        
+        # 1b. If pending, notify coordinator (send Telegram alert to Zsolt)
+        if not auto_approve:
+            try:
+                import subprocess as _sp
+                _msg = f"🚀 Új node onboarding kérelem: {node_name} (role: {role}). Jóváhagyás szükséges a dashboard Beállítások → Node Onboarding panelen."
+                _sp.run(
+                    f'hermes send --telegram 7796035659 "{_msg}" 2>/dev/null || true',
+                    shell=True, timeout=5
+                )
+                step('notify_coordinator', 'ok', 'Telegram notification sent')
+            except Exception:
+                pass  # Non-critical
         
         # 2. Create mesh user
         user_password = f"{node_name}_mesh_2026"

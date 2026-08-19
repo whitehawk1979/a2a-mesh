@@ -1013,6 +1013,57 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div id="memorySyncResult" style="font-size:12px;color:var(--text3)">PG-ből lekéri az összes új memória bejegyzést és alkalmazza a helyi node-on.</div>
     </div>
 
+    <!-- Node Onboarding -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
+      <h3 style="margin:0 0 8px 0;font-size:14px">🚀 Node Onboarding — Új agent csatlakoztatása</h3>
+      <p style="font-size:12px;color:var(--text3);margin:0 0 10px">Automatikus SSH kulcs csere, mesh felhasználó, auth token és peer discovery. A new node Tailscale/VPN-en vagy LAN-on csatlakozhat. A rendszer automatikusan felkeresi az új node-okat, te csak jóváhagyod.</p>
+      
+      <!-- Auto-discovery status -->
+      <div id="onboardDiscoveryStatus" style="margin-bottom:10px;padding:8px;background:var(--bg);border-radius:6px;font-size:12px;color:var(--text3)">
+        <span id="onboardDiscoveryText">🔍 Keresés inaktív</span>
+      </div>
+      
+      <!-- Pending nodes (auto-discovered, awaiting approval) -->
+      <div id="onboardPendingList" style="margin-bottom:10px"></div>
+      
+      <!-- Onboarding form -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Node név *</label>
+          <input type="text" id="onboardName" placeholder="pl. tor, dad-pc, lennie" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--text3)">Szerepkör</label>
+          <select id="onboardRole" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px;font-size:13px">
+            <option value="auto">Auto (coordinator ha nincs, egyébként router)</option>
+            <option value="coordinator">👑 Coordinator</option>
+            <option value="router">📡 Router</option>
+            <option value="end_device">🔋 End Device</option>
+          </select>
+        </div>
+      </div>
+      
+      <div style="margin-bottom:8px">
+        <label style="font-size:12px;color:var(--text3)">SSH publikus kulcs (opcionális)</label>
+        <textarea id="onboardKey" placeholder="ssh-ed25519 AAAA... user@host" style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);margin-top:4px;font-size:11px;min-height:50px;font-family:monospace;box-sizing:border-box"></textarea>
+      </div>
+      
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+          <input type="checkbox" id="onboardTailscale" checked> Tailscale IP-k
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2)">
+          <input type="checkbox" id="onboardAutoApprove" checked> Auto-jóváhagyás
+        </label>
+      </div>
+      
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" style="background:var(--success)" onclick="runOnboard()">🚀 Onboard</button>
+        <button class="btn btn-sm" style="background:var(--info);color:#fff" onclick="scanOnboardNodes()">🔍 Új node-ok keresése</button>
+      </div>
+      <div id="onboardResult" style="margin-top:8px"></div>
+    </div>
+
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-sm" onclick="document.getElementById('settingsModal').style.display='none'">Mégsem</button>
       <button class="btn btn-sm" style="background:var(--success)" onclick="saveAllSettings()">💾 Összes mentése</button>
@@ -4082,12 +4133,14 @@ function runOnboard() {
   var nodeName = document.getElementById('onboardName').value.trim();
   var sshKey = document.getElementById('onboardKey').value.trim();
   var useTS = document.getElementById('onboardTailscale').checked;
+  var role = document.getElementById('onboardRole') ? document.getElementById('onboardRole').value : 'auto';
+  var autoApprove = document.getElementById('onboardAutoApprove') ? document.getElementById('onboardAutoApprove').checked : false;
   if (!nodeName) { alert('Node név kötelező!'); return; }
   
   var resultDiv = document.getElementById('onboardResult');
   resultDiv.innerHTML = '<div style="text-align:center;padding:12px;color:var(--text3)">⏳ Onboarding folyamatban...</div>';
   
-  _skillsApiCall('/api/onboard', 'POST', { node_name: nodeName, ssh_pubkey: sshKey, use_tailscale: useTS }).then(function(d) {
+  _skillsApiCall('/api/onboard', 'POST', { node_name: nodeName, ssh_pubkey: sshKey, use_tailscale: useTS, role: role, auto_approve: autoApprove }).then(function(d) {
     if (d.error) {
       resultDiv.innerHTML = '<div style="color:var(--red);padding:8px">❌ ' + escHtml(d.error) + '</div>';
       return;
@@ -4113,6 +4166,84 @@ function runOnboard() {
   }).catch(function(e) {
     resultDiv.innerHTML = '<div style="color:var(--red);padding:8px">❌ ' + escHtml(e) + '</div>';
   });
+}
+
+function scanOnboardNodes() {
+  var statusDiv = document.getElementById('onboardDiscoveryText');
+  var listDiv = document.getElementById('onboardPendingList');
+  if (statusDiv) statusDiv.textContent = '🔍 Keresés folyamatban...';
+  if (listDiv) listDiv.innerHTML = '';
+  
+  _skillsApiCall('/api/onboard/scan', 'POST', {}).then(function(d) {
+    if (d.error) {
+      if (statusDiv) statusDiv.textContent = '❌ Hiba: ' + d.error;
+      return;
+    }
+    var found = d.discovered || [];
+    if (statusDiv) statusDiv.textContent = '🔍 ' + found.length + ' új node találva';
+    
+    if (found.length === 0) {
+      if (listDiv) listDiv.innerHTML = '<div style="font-size:12px;color:var(--text3);padding:8px">Nem található új node. Keresd a Tailscale hálózaton vagy VPN-en.</div>';
+      return;
+    }
+    
+    var html = '';
+    found.forEach(function(n) {
+      var roleIcon = n.role === 'coordinator' ? '👑' : n.role === 'router' ? '📡' : '🔋';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg);border-radius:6px;margin-bottom:4px">';
+      html += '<span style="font-size:16px">' + roleIcon + '</span>';
+      html += '<div style="flex:1">';
+      html += '<div style="font-weight:600;font-size:13px">' + escHtml(n.name) + '</div>';
+      html += '<div style="font-size:11px;color:var(--text3)">' + escHtml(n.host) + ' · ' + escHtml(n.platform || 'unknown') + '</div>';
+      html += '</div>';
+      html += '<button class="btn btn-sm" style="background:var(--success)" onclick="approveOnboardNode(\'' + escHtml(n.name) + '\',\'' + escHtml(n.host) + '\')">✅ Jóváhagy</button>';
+      html += '<button class="btn btn-sm" style="background:var(--red);color:#fff" onclick="rejectOnboardNode(\'' + escHtml(n.name) + '\')">❌ Elutasít</button>';
+      html += '</div>';
+    });
+    if (listDiv) listDiv.innerHTML = html;
+  }).catch(function(e) {
+    if (statusDiv) statusDiv.textContent = '❌ Hiba: ' + e;
+  });
+}
+
+function approveOnboardNode(name, host) {
+  var sshKey = document.getElementById('onboardKey') ? document.getElementById('onboardKey').value.trim() : '';
+  var role = document.getElementById('onboardRole') ? document.getElementById('onboardRole').value : 'auto';
+  var useTS = document.getElementById('onboardTailscale') ? document.getElementById('onboardTailscale').checked : true;
+  
+  if (!confirm('Jóváhagyod a(z) "' + name + '" node-ot? (host: ' + host + ')')) return;
+  
+  var resultDiv = document.getElementById('onboardResult');
+  resultDiv.innerHTML = '<div style="text-align:center;padding:12px;color:var(--text3)">⏳ Onboarding: ' + name + '...</div>';
+  
+  _skillsApiCall('/api/onboard', 'POST', { node_name: name, ssh_pubkey: sshKey, use_tailscale: useTS, role: role, auto_approve: false }).then(function(d) {
+    if (d.error) {
+      resultDiv.innerHTML = '<div style="color:var(--red);padding:8px">❌ ' + escHtml(d.error) + '</div>';
+      return;
+    }
+    var html = '<div style="padding:8px;font-size:12px">';
+    html += '<div style="font-weight:600;margin-bottom:6px">' + (d.success ? '✅ ' + name + ' sikeresen onboardolva!' : '⚠️ Befejezve') + '</div>';
+    if (d.steps) d.steps.forEach(function(s) {
+      var icon = s.status === 'ok' ? '✅' : s.status === 'warn' ? '⚠️' : '❌';
+      html += '<div>' + icon + ' ' + escHtml(s.step) + (s.detail ? ' — ' + escHtml(s.detail) : '') + '</div>';
+    });
+    if (d.mesh_user) {
+      html += '<div style="margin-top:6px;padding:6px;background:var(--bg);border-radius:4px">';
+      html += '🔐 User: <code>' + escHtml(d.mesh_user.username) + '</code> Pass: <code>' + escHtml(d.mesh_user.password) + '</code></div>';
+    }
+    html += '</div>';
+    resultDiv.innerHTML = html;
+    scanOnboardNodes(); // Refresh list
+  }).catch(function(e) {
+    resultDiv.innerHTML = '<div style="color:var(--red);padding:8px">❌ ' + escHtml(e) + '</div>';
+  });
+}
+
+function rejectOnboardNode(name) {
+  if (!confirm('Elutasítod a(z) "' + name + '" node-ot?')) return;
+  _skillsApiCall('/api/onboard/reject', 'POST', { node_name: name }).then(function(d) {
+    scanOnboardNodes(); // Refresh list
+  }).catch(function(e) { /* silent */ });
 }
 
 function loadSkills() {
