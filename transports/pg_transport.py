@@ -48,7 +48,7 @@ class PGTransport(TransportAdapter):
         self._running = False
         self._incoming_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._channels = config.pg.channels if config else [
-            "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel", "diagnostic_channel"
+            "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel", "diagnostic_channel", "mesh_message_arrived"
         ]
         self._reconnect_count = 0
 
@@ -234,6 +234,28 @@ class PGTransport(TransportAdapter):
                     message = A2AMessage.from_dict(msg_data)
                     await self._incoming_queue.put((message, "pg_notify"))
                     log.info(f"Received mesh message (fallback) from {sender}")
+            elif channel == "mesh_message_arrived":
+                # New message trigger — fetch the full message from mesh_messages
+                msg_id = data.get("id")
+                sender = data.get("sender", "unknown")
+                recipient = data.get("recipient")
+                msg_type = data.get("msg_type", "unknown")
+                log.info(f"PG NOTIFY: mesh_message_arrived id={msg_id[:8] if msg_id else '?'} from={sender} type={msg_type}")
+                if msg_id:
+                    message = await self._fetch_message(msg_id)
+                    if message:
+                        await self._incoming_queue.put((message, "pg_notify"))
+                        log.info(f"Delivered message {msg_id[:8]} from {sender} via mesh_message_arrived trigger")
+                        # Mark as delivered
+                        try:
+                            await self._pool.execute(
+                                "UPDATE mesh.mesh_messages SET status = 'delivered', delivered_at = now() WHERE id = $1 AND status = 'sent'",
+                                msg_id
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        log.warning(f"mesh_message_arrived: could not fetch message {msg_id[:8]}")
             else:
                 # Other channels (a2a_channel, a2a_steer_channel, etc.)
                 # Diagnostic channel uses its own payload format — wrap as A2AMessage
