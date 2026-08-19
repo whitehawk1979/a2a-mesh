@@ -2692,54 +2692,91 @@ document.getElementById("messageInput").addEventListener("keydown", function(e) 
 function loadMarveenPage(page) {
   var contentArea = document.getElementById('marveenContent');
   var messagesArea = document.getElementById('messages');
-  
+
   if (!contentArea) return;
-  
+
+  // Hide chat, show marveen content
   messagesArea.style.display = 'none';
+  if (document.querySelector('.input-area')) document.querySelector('.input-area').style.display = 'none';
   contentArea.style.display = 'block';
   contentArea.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">Betöltés...</div>';
 
   var apiMap = {
     'kanban': '/api/kanban',
+    'approvals': '/api/approvals',
+    'activity': '/api/activity',
     'bgTasks': '/api/cron',
     'memories': '/api/memory',
     'naplo': '/api/logs',
+    'research': '/api/research',
     'costs': '/api/costops/summary',
     'tokenUsage': '/api/token-usage',
     'updates': '/api/update-checker',
     'vault': '/api/vault/list',
-    'federation': '/api/federation'
+    'connectors': '/api/connectors',
+    'federation': '/api/federation',
+    'migrate': '/api/migrate',
+    'docs': '/api/docs'
+  };
+
+  var titleMap = {
+    'kanban': '📋 Kanban Táblák',
+    'approvals': '✅ Jóváhagyások',
+    'activity': '📈 Aktivitás',
+    'bgTasks': '🔄 Háttér Feladatok',
+    'memories': '🧠 Memória',
+    'naplo': '📝 Napló',
+    'research': '💡 Ötletláda',
+    'costs': '💰 Költségek',
+    'tokenUsage': '🔢 Token Monitor',
+    'updates': '⬆️ Frissítések',
+    'vault': '🔐 Vault',
+    'connectors': '🔌 MCP Konnektorok',
+    'federation': '🌐 Föderáció',
+    'migrate': '📦 Költöztetés',
+    'docs': '📚 Dokumentáció'
   };
 
   var apiPath = apiMap[page];
+  var title = titleMap[page] || page;
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
 
   if (apiPath) {
     fetch(apiPath, { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(data => {
-        var html = '<h2 style="margin-top:0">' + (page.charAt(0).toUpperCase() + page.slice(1)) + '</h2>';
-        html += '<div style="background:var(--surface);padding:15px;border-radius:8px;overflow:auto;color:var(--text2);font-size:13px;font-family:monospace;line-height:1.4;border:1px solid var(--border)">' + JSON.stringify(data, null, 2) + '</div>';
+        var html = '<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">';
+        html += '<h2 style="margin:0">' + title + '</h2>';
+        html += '<button onclick="backToChat()" style="margin-left:auto;padding:6px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">← Vissza a Chat-re</button>';
+        html += '</div>';
+
+        // Render data as formatted JSON in a scrollable container
+        html += '<div style="background:var(--surface);padding:15px;border-radius:8px;overflow:auto;max-height:calc(100vh - 200px);color:var(--text2);font-size:13px;font-family:monospace;line-height:1.5;border:1px solid var(--border)">';
+        html += JSON.stringify(data, null, 2);
+        html += '</div>';
         contentArea.innerHTML = html;
       })
       .catch(e => {
-        contentArea.innerHTML = '<div style="color:var(--danger);text-align:center;padding:40px;">Hiba a tartalom betöltésekor: ' + e.message + '</div>';
+        contentArea.innerHTML = '<div style="margin-bottom:20px;display:flex;align-items:center;gap:12px;">' +
+          '<h2 style="margin:0">' + title + '</h2>' +
+          '<button onclick="backToChat()" style="margin-left:auto;padding:6px 16px;background:var(--primary);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;">← Vissza a Chat-re</button></div>' +
+          '<div style="color:var(--danger);text-align:center;padding:40px;">Hiba: ' + e.message + '</div>';
       });
   } else {
-    var descriptions = {
-      'approvals': 'Függő jóváhagyási kérelmek kezelése.',
-      'activity': 'A rendszer legutóbbi aktivitásainak követése.',
-      'research': 'Kutatási eredmények és ötletek gyűjtőtara.',
-      'connectors': 'MCP konnektorok konfigurálása és kezelése.',
-      'migrate': 'Adatok és konfigurációk átviteli eszközei.',
-      'docs': 'A rendszer dokumentációjának böngészése.'
-    };
     contentArea.innerHTML = '<div style="text-align:center;padding:60px;">' +
       '<div style="font-size:48px;margin-bottom:20px;">⏳</div>' +
-      '<h2 style="margin-bottom:10px;">Hamarosan</h2>' +
-      '<p style="color:var(--text3);font-size:16px;max-width:500px;margin:0 auto;">' + (descriptions[page] || 'Ez a funkció fejlesztés alatt áll.') + '</p>' +
+      '<h2 style="margin-bottom:10px;">' + title + '</h2>' +
+      '<p style="color:var(--text3);font-size:16px;max-width:500px;margin:0 auto;">Ez a funkció fejlesztés alatt áll.</p>' +
       '</div>';
   }
+}
+
+function backToChat() {
+  var contentArea = document.getElementById('marveenContent');
+  var messagesArea = document.getElementById('messages');
+  if (contentArea) contentArea.style.display = 'none';
+  if (messagesArea) messagesArea.style.display = '';
+  if (document.querySelector('.input-area')) document.querySelector('.input-area').style.display = '';
 }
 
 // ─── Settings Functions ──────────────────────────────────
