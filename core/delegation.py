@@ -250,6 +250,12 @@ class DelegationManager:
                     card["delegation_status"] = status
                     card["from_agent"] = self.node_name
                     card["to_agent"] = actual_to
+                    card["agent_history"] = [{
+                        "agent": self.node_name,
+                        "role": "delegator",
+                        "action": "created task",
+                        "timestamp": time.time(),
+                    }]
                     _save_boards_local(boards)
                     # Update PG with kanban_card_id
                     await self.pg_pool.execute(
@@ -316,6 +322,12 @@ class DelegationManager:
                             child_card["delegation_status"] = child_status
                             child_card["from_agent"] = self.node_name
                             child_card["to_agent"] = child_to
+                            child_card["agent_history"] = [{
+                                "agent": self.node_name,
+                                "role": "delegator",
+                                "action": "created fan-out task",
+                                "timestamp": time.time(),
+                            }]
                             child_card["distribute_mode"] = distribute_mode
                             _save_boards(boards2)
                             await self.pg_pool.execute(
@@ -1373,6 +1385,15 @@ class DelegationManager:
                                     c["completed_at"] = str(row.get("completed_at", ""))[:30]
                                     c["updated_at"] = time.time()
                                     c["review_status"] = "pending"
+                                    if "agent_history" not in c:
+                                        c["agent_history"] = []
+                                    c["agent_history"].append({
+                                        "agent": row.get("assigned_agent", "unknown"),
+                                        "role": "executor",
+                                        "action": "completed task",
+                                        "result": result_text[:500],
+                                        "timestamp": time.time(),
+                                    })
                                     
                                     asyncio.create_task(self._delegate_review(
                                         str(row["task_id"]),
@@ -1421,6 +1442,8 @@ class DelegationManager:
                                                 c2["review_analysis"] = c["review_analysis"]
                                             if c.get("approval_required"):
                                                 c2["approval_required"] = True
+                                            if c.get("agent_history"):
+                                                c2["agent_history"] = c["agent_history"]
                                             break
                                     # Also save subtask cards if any
                                     if analysis.get("subtasks") if row["status"] == STATUS_COMPLETED else False:
@@ -1826,6 +1849,16 @@ class DelegationManager:
                                     else:
                                         c["column"] = "todo"
                                         c["review_status"] = "rejected"
+                                    if "agent_history" not in c:
+                                        c["agent_history"] = []
+                                    c["agent_history"].append({
+                                        "agent": from_agent,
+                                        "role": "reviewer",
+                                        "action": f"review: {verdict}",
+                                        "verdict": verdict,
+                                        "reason": reason[:300],
+                                        "timestamp": time.time(),
+                                    })
                                     break
                         _save_boards(boards)
                     except Exception as ke:
@@ -1868,6 +1901,30 @@ class DelegationManager:
             await self.add_note(review_task_id, f"[REVIEW_OF] {original_task_id}", "system")
             await self.add_note(review_task_id, f"[REVIEW_CARD] {kanban_card_id}", "system")
             
+            if kanban_card_id:
+                try:
+                    from .kanban import _load_boards, _save_boards
+                    boards = _load_boards()
+                    for board in boards:
+                        for c in board.get("cards", []):
+                            if c["id"] == kanban_card_id:
+                                if "agent_history" not in c:
+                                    c["agent_history"] = []
+                                c["agent_history"].append({
+                                    "agent": reviewer,
+                                    "role": "reviewer",
+                                    "action": "review delegated",
+                                    "review_task_id": review_task_id[:8],
+                                    "timestamp": time.time(),
+                                })
+                                c["reviewer"] = reviewer
+                                c["review_task_id"] = review_task_id
+                                c["updated_at"] = time.time()
+                                break
+                    _save_boards(boards)
+                except Exception as ke:
+                    log.warning(f"Review delegation Kanban update failed: {ke}")
+
             log.info(f"🔍 Review delegated: task={review_task_id[:8]} reviewer={reviewer} original={str(original_task_id)[:8]}")
         except Exception as e:
             log.error(f"Review delegation failed: {e}")
@@ -1940,6 +1997,16 @@ class DelegationManager:
                                     c["column"] = "todo"
                                     c["review_status"] = "rejected"
                                     log.info(f"🔍 Review REJECT: card → todo (redispatch)")
+                                if "agent_history" not in c:
+                                    c["agent_history"] = []
+                                c["agent_history"].append({
+                                    "agent": c.get("reviewer", "unknown"),
+                                    "role": "reviewer",
+                                    "action": f"review: {verdict}",
+                                    "verdict": verdict,
+                                    "reason": reason[:300],
+                                    "timestamp": time.time(),
+                                })
                                 break
                     _save_boards(boards)
                 except Exception as ke:

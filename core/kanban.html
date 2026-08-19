@@ -203,6 +203,13 @@ function createCardEl(card, boardId) {
     (card.approval_required ? '<div style="font-size:11px;color:#ff9800;margin-top:4px;padding:4px;background:rgba(255,152,0,0.1);border-radius:4px">⏳ Jóváhagyás szükséges<br><button onclick="event.stopPropagation();approveCard(\\'' + boardId + '\\',\\'' + card.id + '\\')" style="margin-top:4px;padding:2px 8px;background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">✅ Jóváhagy</button></div>' : '') +
     (card.delegation_status === 'completed' && !card.approval_required ? '<div style="font-size:11px;color:#4caf50;margin-top:4px">✅ completed</div>' : '') +
     (card.delegation_status === 'failed' ? '<div style="font-size:11px;color:#f44336;margin-top:4px">❌ failed</div>' : '') +
+    (card.agent_history && card.agent_history.length > 0 ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">' + card.agent_history.map(function(h) {
+      var icon = h.role === 'delegator' ? '📤' : h.role === 'executor' ? '⚙️' : h.role === 'reviewer' ? '🔍' : '👤';
+      var vc = h.verdict === 'accept' ? '#4caf50' : h.verdict === 'reject' ? '#f44336' : 'var(--text3)';
+      return '<span style="color:' + vc + '">' + icon + ' ' + escapeHtml(h.agent || '') + '</span>';
+    }).join(' · ') + '</div>' : '') +
+    (card.review_status && card.review_status !== 'pending' ? '<div style="font-size:10px;margin-top:2px;color:' + (card.review_status === 'accept' || card.review_status === 'accepted' ? '#4caf50' : '#f44336') + '">' + (card.review_status === 'accept' || card.review_status === 'accepted' ? '✅' : '❌') + ' review: ' + escapeHtml(card.review_status) + '</div>' : '') +
+    (card.review_reason ? '<div style="font-size:10px;color:var(--text3);margin-top:2px;padding:3px;background:var(--surface2);border-radius:3px">💬 ' + escapeHtml(card.review_reason.substring(0,150)) + '</div>' : '') +
     (card.review_analysis && card.review_analysis.reason ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">🔍 ' + escapeHtml(card.review_analysis.reason) + '</div>' : '') +
     (card.delegation_result ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;padding:4px;background:var(--surface2);border-radius:4px;max-height:60px;overflow:hidden">📋 ' + escapeHtml(card.delegation_result.substring(0,120)) + '</div>' : '') +
     (card.result_file ? '<div style="font-size:11px;color:var(--primary);margin-top:2px">📎 <a href="' + escapeHtml(card.result_file) + '" target="_blank" style="color:var(--primary)">result file</a></div>' : '') +
