@@ -1329,16 +1329,20 @@ class DelegationManager:
             # Dedup: skip if callback already fired for this task
             if task_id in self._results_seen:
                 continue
-            self._results_seen.add(task_id)
-            self._results_seen_timestamps[task_id] = now
             if self._on_result_callback:
                 try:
                     if asyncio.iscoroutinefunction(self._on_result_callback):
                         await self._on_result_callback(dict(row))
                     else:
                         self._on_result_callback(dict(row))
+                    # Only mark as seen AFTER successful callback
+                    self._results_seen.add(task_id)
+                    self._results_seen_timestamps[task_id] = now
                 except Exception as e:
-                    log.debug(f"Result callback error: {e}")
+                    log.warning(f"Result callback error (will retry next poll): {e}")
+            else:
+                self._results_seen.add(task_id)
+                self._results_seen_timestamps[task_id] = now
 
             # ── Process review results ──
             if row["status"] == STATUS_COMPLETED and row.get("task_type") == "code_review":

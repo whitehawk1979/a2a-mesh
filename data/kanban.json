@@ -836,9 +836,107 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787117200.177772
+      },
+      {
+        "id": "card-1787118164020-56",
+        "title": "Agent history test 4: írj egy haikut a mesh-ről",
+        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787118164.020375,
+        "updated_at": 1787118164.0314398,
+        "created_by": "unknown",
+        "delegation_task_id": "6d18c642-cdfe-48b1-898f-08791b816034",
+        "delegation_status": "available",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787118164.0314372
+          }
+        ]
+      },
+      {
+        "id": "card-1787118164933-57",
+        "title": "Agent history test 4: írj egy haikut a mesh-ről",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787118164.933643,
+        "updated_at": 1787118434.3882298,
+        "delegation_task_id": "6d18c642-cdfe-48b1-898f-08791b816034",
+        "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
+        "task_type": "code",
+        "agent_history": [
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] Generated bash code for 'Agent history test 4: irj egy haikut a mesh-rol' at 2026-08-19T05:42:[PHONE REDACTED]+00:00\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nSystem info from morzsa\nHostname: openclaw\nUptime: up 4 days, 10 hours, 2 minutes\nCPU load: 17.88 18.83 18.64 5/[PHONE REDACTED]\nMemory:                total        used        free      shared  buff/cache   available\nMem:            16Gi       6.3Gi       4.0Gi       215Mi       5.9Gi       9.7Gi\nDisk: /dev/mapper/pve-vm--104--",
+            "timestamp": 1787118203.0654578
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "4e131b90",
+            "timestamp": 1787118205.2619698
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The result contains system information (hostname, uptime, CPU, memory, disk) instead of a haiku about the mesh. The original task was to write a haiku about the mesh, which was not completed.",
+            "timestamp": 1787118214.7208269
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The result contains system information (hostname, uptime, CPU, memory, disk) instead of a haiku about the mesh. The original task was to write a haiku about the mesh, which was not completed.",
+            "timestamp": 1787118367.4470851
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'Agent history test 4: irj egy haikut a mesh-rol' \\u2014 485 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nHaiku az A2A Mesh rendszerrol:\n\nAgents weave the net,\nMessages flow node to node,\nMesh hums soft and bright.\n",
+            "timestamp": 1787118420.839274
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "9372f88e",
+            "timestamp": 1787118421.188846
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Valid 5-7-5 haiku about the A2A Mesh system with relevant imagery.",
+            "timestamp": 1787118434.3886569
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'Agent history test 4: irj egy haikut a mesh-rol' \\u2014 485 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nHaiku az A2A Mesh rendszerrol:\n\nAgents weave the net,\nMessages flow node to node,\nMesh hums soft and bright.\n",
+        "completed_at": "2026-08-19 05:46:58.171433+00:",
+        "reviewer": "runa",
+        "review_task_id": "9372f88e-91db-4963-8bf3-72be2fb1364f",
+        "review_status": "accept",
+        "review_reason": "Valid 5-7-5 haiku about the A2A Mesh system with relevant imagery.",
+        "reviewed_at": 1787118434.3882282
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787117173.171804
+    "updated_at": 1787118420.928896
   }
 ]
