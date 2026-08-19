@@ -92,7 +92,7 @@ class DelegationManager:
         # ── Result callback dedup: avoid calling callback for same completed task repeatedly ──
         self._results_seen: set = set()  # task_ids already passed to callback
         self._results_seen_timestamps: Dict[str, float] = {}  # TTL tracking
-        self._results_seen_ttl = 300.0  # 5 min (matches query window)
+        self._results_seen_ttl = 1800.0  # 30 min (matches query window)
 
     async def start(self):
         """Start polling for delegated tasks."""
@@ -1318,7 +1318,7 @@ class DelegationManager:
         rows = await self.pg_pool.fetch(
             """SELECT * FROM shared_delegations 
                WHERE from_agent = $1 AND status IN ($2, $3, $4) 
-               AND completed_at > NOW() - INTERVAL '5 minutes'
+               AND completed_at > NOW() - INTERVAL '30 minutes'
                ORDER BY completed_at DESC LIMIT 10""",
             self.node_name, STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED,
         )
