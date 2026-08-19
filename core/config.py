@@ -140,7 +140,8 @@ class HeartbeatConfig:
 class TopologyConfig:
     """Zigbee-inspired topology configuration."""
     node_role: str = "end_device"          # "coordinator", "router", "end_device"
-    routing_mode: str = "hybrid"           # "flood", "tree", "hybrid"
+    routing_mode: str = "hybrid"           # "flood", "tree", "hybrid" (topological)
+    capability_routing_mode: str = "catalog_first"  # "strong", "catalog_first", "advisory" (Marveen-inspired)
     max_children: int = 20                 # Cm: max children per router
     max_routers: int = 6                   # Rm: max router children per node
     max_depth: int = 5                     # Lm: max tree depth
@@ -558,6 +559,7 @@ class MeshConfig:
             config.topology = TopologyConfig(
                 node_role=topo_data.get('node_role', 'end_device'),
                 routing_mode=topo_data.get('routing_mode', 'hybrid'),
+                capability_routing_mode=topo_data.get('capability_routing_mode', 'catalog_first'),
                 max_children=topo_data.get('max_children', 20),
                 max_routers=topo_data.get('max_routers', 6),
                 max_depth=topo_data.get('max_depth', 5),

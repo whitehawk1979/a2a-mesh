@@ -3784,7 +3784,12 @@ echo "Status: ok"
                                 log.debug(f"Skipping empty payload message {msg.id[:8]} from {msg.sender}")
                                 continue
 
-                            # ── Untrusted framing for peer messages ──\n                            # Wrap all incoming peer messages before they are routed or dispatched\n                            from .core.prompt_safety import wrap_trusted_peer\n                            msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload))\n\n                            result = await self.router.receive(msg, from_transport)
+                            # ── Untrusted framing for peer messages ──
+                            # Wrap all incoming peer messages before they are routed or dispatched
+                            from .core.prompt_safety import wrap_trusted_peer
+                            msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload))
+
+                            result = await self.router.receive(msg, from_transport)
                             if result.status == "duplicate":
                                 log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             else:
