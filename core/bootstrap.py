@@ -973,15 +973,15 @@ async def onboard_node(
         for target in ssh_targets:
             try:
                 tname = target.get('name', target['host'])
-                # Use SSH to add the key
+                # Use SSH to add the key (short timeout, don't block)
                 ssh_cmd = (
-                    f"ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "
+                    f"ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "
                     f"-i ~/.ssh/id_ed25519_openclaw "
                     f"{target['user']}@{target['host']} "
                     f"\"echo '{ssh_pubkey}' >> ~/.ssh/authorized_keys 2>/dev/null; "
                     f"grep -c '{ssh_pubkey.split()[-1]}' ~/.ssh/authorized_keys\""
                 )
-                r = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=15)
+                r = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=8)
                 if r.returncode == 0 and r.stdout.strip():
                     count = r.stdout.strip().split('\n')[-1]
                     step(f'ssh_key_{tname}', 'ok', f'Key added ({count} entries)')
@@ -1013,12 +1013,12 @@ async def onboard_node(
                     host = tailscale_map[tname]
             
             ssh_cmd = (
-                f"ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no "
+                f"ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "
                 f"-i ~/.ssh/id_ed25519_openclaw "
                 f"{user}@{host} "
                 f"'cat ~/.ssh/id_ed25519_openclaw.pub 2>/dev/null || cat ~/.ssh/id_ed25519.pub 2>/dev/null || echo NO_KEY'"
             )
-            r = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=15)
+            r = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=8)
             if r.returncode == 0 and r.stdout.strip() and 'NO_KEY' not in r.stdout:
                 peer_keys.append({'name': tname, 'host': host, 'key': r.stdout.strip()})
                 step(f'peer_key_{tname}', 'ok', f'Got peer SSH key')
