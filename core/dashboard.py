@@ -426,6 +426,13 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/alerts/rules", self._api_alerts_add_rule)
         app.router.add_delete("/api/alerts/rules/{rule_id}", self._api_alerts_delete_rule)
         app.router.add_post("/api/alerts/rules/{rule_id}/toggle", self._api_alerts_toggle_rule)
+        # ── Marveen menu API endpoints ──
+        app.router.add_get("/api/approvals", self._api_approvals)
+        app.router.add_get("/api/activity", self._api_activity)
+        app.router.add_get("/api/research", self._api_research)
+        app.router.add_get("/api/docs", self._api_docs)
+        app.router.add_get("/api/connectors", self._api_connectors)
+        app.router.add_get("/api/migrate", self._api_migrate)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
