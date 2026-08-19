@@ -143,6 +143,14 @@ class DashboardDelegationsMixin:
                                 "delegation_task_id": str(tid),
                                 "description": data.get("description", ""),
                                 "task_type": data.get("task_type", "generic"),
+                                "from_agent": self.node.node_name,
+                                "to_agent": to_agent,
+                                "agent_history": [{
+                                    "agent": self.node.node_name,
+                                    "role": "delegator",
+                                    "action": "created task",
+                                    "timestamp": _time.time(),
+                                }],
                             }
                             board.setdefault("cards", []).append(card)
                             card_ids.append(card["id"])

@@ -868,7 +868,7 @@
         "priority": 5,
         "assigned_to": "",
         "created_at": 1787118164.933643,
-        "updated_at": 1787118434.3882298,
+        "updated_at": 1787121230.638914,
         "delegation_task_id": "6d18c642-cdfe-48b1-898f-08791b816034",
         "description": "Írj egy 3 soros haikut az A2A Mesh rendszerről.",
         "task_type": "code",
@@ -924,19 +924,117 @@
             "verdict": "accept",
             "reason": "Valid 5-7-5 haiku about the A2A Mesh system with relevant imagery.",
             "timestamp": 1787118434.3886569
+          },
+          {
+            "agent": "nova",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[nova] LLM (glm-5.2:cloud) generated code for 'Agent history test 4: irj egy haikut a mesh-rol' \\u2014 298 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nMesh halozat el,\nKodok egyutt mukodnek,\nHalozat kapcsol.\n",
+            "timestamp": 1787121212.9751868
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Line 2 has 9 syllables, expected 7",
+            "timestamp": 1787121213.081872
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "84550edc",
+            "timestamp": 1787121214.555944
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787121230.639383
           }
         ],
         "delegation_status": "completed",
-        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'Agent history test 4: irj egy haikut a mesh-rol' \\u2014 485 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nHaiku az A2A Mesh rendszerrol:\n\nAgents weave the net,\nMessages flow node to node,\nMesh hums soft and bright.\n",
-        "completed_at": "2026-08-19 05:46:58.171433+00:",
+        "delegation_result": "[nova] LLM (glm-5.2:cloud) generated code for 'Agent history test 4: irj egy haikut a mesh-rol' \\u2014 298 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nMesh halozat el,\nKodok egyutt mukodnek,\nHalozat kapcsol.\n",
+        "completed_at": "2026-08-19 06:19:48.093014+00:",
         "reviewer": "runa",
-        "review_task_id": "9372f88e-91db-4963-8bf3-72be2fb1364f",
+        "review_task_id": "84550edc-8797-4a6b-8c1b-f50f7eeee172",
         "review_status": "accept",
-        "review_reason": "Valid 5-7-5 haiku about the A2A Mesh system with relevant imagery.",
-        "reviewed_at": 1787118434.3882282
+        "review_reason": "",
+        "reviewed_at": 1787121230.638913
+      },
+      {
+        "id": "card-1787121292615-58",
+        "title": "Agent history final test",
+        "description": "Irj egy rovid haikut a mesh-rol",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787121292.615679,
+        "updated_at": 1787121292.6266618,
+        "created_by": "unknown",
+        "delegation_task_id": "9e8e437d-e246-4321-aee6-626651240b0c",
+        "delegation_status": "available",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787121292.626657
+          }
+        ]
+      },
+      {
+        "id": "card-1787121292781-59",
+        "title": "Agent history final test",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "",
+        "created_at": 1787121292.782005,
+        "updated_at": 1787121436.7259011,
+        "delegation_task_id": "9e8e437d-e246-4321-aee6-626651240b0c",
+        "description": "Irj egy rovid haikut a mesh-rol",
+        "task_type": "code",
+        "agent_history": [
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'Agent history final test' \\u2014 233 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nMesh halo szotte,\nCsomopontok beszelnek,\nAdat csendben arad.\n\n",
+            "timestamp": 1787121366.458375
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "c929c101",
+            "timestamp": 1787121367.21735
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787121436.726298
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'Agent history final test' \\u2014 233 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nMesh halo szotte,\nCsomopontok beszelnek,\nAdat csendben arad.\n\n",
+        "completed_at": "2026-08-19 06:35:05.944359+00:",
+        "reviewer": "runa",
+        "review_task_id": "c929c101-0b93-4a0f-8589-f993b1cbe0b5",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787121436.7259
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787118420.928896
+    "updated_at": 1787121366.631045
   }
 ]
