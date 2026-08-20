@@ -3709,7 +3709,7 @@ function renderKanbanCard(card, delegation) {
 
 var _loadDelegationsRunning = false;
 function loadDelegations() {
-  if (_loadDelegationsRunning) return;  // prevent concurrent runs
+  if (_loadDelegationsRunning) return;
   _loadDelegationsRunning = true;
   
   var filters = "";
@@ -3725,9 +3725,11 @@ function loadDelegations() {
   var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
   
   Promise.all([
-    fetch("/api/kanban", {headers: {"Authorization": "Bearer " + token}}).then(r => r.json()),
-    fetch("/api/delegations?limit=100" + filters, {headers: {"Authorization": "Bearer " + token}}).then(r => r.json())
-  ]).then(function([kanbanData, delData]) {
+    fetch("/api/kanban", {headers: {"Authorization": "Bearer " + token}}).then(function(r) { return r.json(); }),
+    fetch("/api/delegations?limit=100" + filters, {headers: {"Authorization": "Bearer " + token}}).then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var kanbanData = results[0];
+    var delData = results[1];
     var delegations = delData.delegations || [];
     var kanbanCards = [];
     
@@ -3735,10 +3737,8 @@ function loadDelegations() {
       kanbanCards = kanbanData.boards[0].cards || [];
     }
     
-    // Enrich Kanban cards with delegation data
     var enrichedCards = kanbanCards.map(function(card) {
-      var del = delegations.find(d => d.task_id === card.delegation_task_id);
-      // Override card column based on delegation status
+      var del = delegations.find(function(d) { return d.task_id === card.delegation_task_id; });
       if (del) {
         if (del.status === 'completed' || del.status === 'cancelled' || del.status === 'failed' || del.status === 'expired') card.column = 'done';
         else if (del.status === 'running' || del.status === 'accepted') card.column = 'in_progress';
@@ -3747,9 +3747,8 @@ function loadDelegations() {
       return { card: card, delegation: del };
     });
     
-    // Also add delegations that might not be in Kanban yet
     delegations.forEach(function(d) {
-      if (!kanbanCards.find(c => c.delegation_task_id === d.task_id)) {
+      if (!kanbanCards.find(function(c) { return c.delegation_task_id === d.task_id; })) {
         enrichedCards.push({
           card: { id: d.task_id, title: d.subject, column: (d.status === 'completed' || d.status === 'cancelled' || d.status === 'failed' || d.status === 'expired' ? 'done' : d.status === 'running' || d.status === 'accepted' ? 'in_progress' : 'todo'), priority: d.priority, created_at: d.created_at },
           delegation: d
@@ -3765,10 +3764,10 @@ function loadDelegations() {
     
     var counts = {todo:0, in_progress:0, review:0, done:0};
     
-    // Apply priority filter client-side
+    // Apply priority filter
     if (fp && fp.value) {
       var minP = parseInt(fp.value);
-      enrichedCards = enrichedCards.filter(item => (item.delegation ? item.delegation.priority : item.card.priority) === minP);
+      enrichedCards = enrichedCards.filter(function(item) { return (item.delegation ? item.delegation.priority : item.card.priority) === minP; });
     }
     
     var fcEl = document.getElementById("delFilterCount");
@@ -3779,33 +3778,40 @@ function loadDelegations() {
         var col = document.getElementById("kanban-" + s);
         if (col) col.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:11px;padding:16px">Üres</div>';
       });
+      _loadDelegationsRunning = false;
       return;
     }
     
-    // Sort cards: done column by completion time (newest first), others by creation time
+    // Sort: done by completion time (newest first), others by creation time
     enrichedCards.sort(function(a, b) {
       var aCol = a.card.column || "todo";
       var bCol = b.card.column || "todo";
       if (aCol === "done" && bCol === "done") {
         var aTime = (a.delegation && (a.delegation.completed_at || a.delegation.updated_at)) || a.card.created_at || "";
         var bTime = (b.delegation && (b.delegation.completed_at || b.delegation.updated_at)) || b.card.created_at || "";
-        return bTime.localeCompare(aTime);  // newest first
+        return String(bTime).localeCompare(String(aTime));
       }
-      var aTime = (a.delegation && a.delegation.created_at) || a.card.created_at || "";
-      var bTime = (b.delegation && b.delegation.created_at) || b.card.created_at || "";
-      return bTime.localeCompare(aTime);  // newest first
+      var aTime2 = (a.delegation && a.delegation.created_at) || a.card.created_at || "";
+      var bTime2 = (b.delegation && b.delegation.created_at) || b.card.created_at || "";
+      return String(bTime2).localeCompare(String(aTime2));
     });
-
+    
+    // Render cards
     enrichedCards.forEach(function(item) {
       var col = item.card.column || "todo";
-      if (!["todo", "in_progress", "review", "done"].includes(col)) col = "todo";
+      if (["todo", "in_progress", "review", "done"].indexOf(col) === -1) col = "todo";
       var el = document.getElementById("kanban-" + col);
       if (el) {
-        el.innerHTML += renderKanbanCard(item.card, item.delegation);
-        counts[col]++;
+        try {
+          el.innerHTML += renderKanbanCard(item.card, item.delegation);
+          counts[col]++;
+        } catch(e) {
+          console.error("renderKanbanCard error:", e);
+        }
       }
     });
     
+    // Update column headers
     ["todo", "in_progress", "review", "done"].forEach(function(s) {
       var header = document.querySelector('[data-status="' + s + '"] .kanban-col-header');
       if (header) {
@@ -3821,7 +3827,6 @@ function loadDelegations() {
     _loadDelegationsRunning = false;
   });
 }
-
 function loadDelegationStats() {
   fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}})
     .then(function(r) { return r.json(); })
