@@ -3707,7 +3707,11 @@ function renderKanbanCard(card, delegation) {
     '</div>';
 }
 
+var _loadDelegationsRunning = false;
 function loadDelegations() {
+  if (_loadDelegationsRunning) return;  // prevent concurrent runs
+  _loadDelegationsRunning = true;
+  
   var filters = "";
   var fs = document.getElementById("delFilterStatus");
   var ft = document.getElementById("delFilterType");
@@ -3813,6 +3817,8 @@ function loadDelegations() {
     loadDelegationStats();
   }).catch(function(e) {
     console.error("Load delegations error:", e);
+  }).finally(function() {
+    _loadDelegationsRunning = false;
   });
 }
 
