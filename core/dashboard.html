@@ -1567,10 +1567,15 @@ function switchChannel(channel) {
   } else {
     header.innerHTML = "👤 " + channel;
     info.innerHTML = "Közvetlen üzenet — csak te és " + channel;
-    // Set recipient to this agent
-    var opts = document.getElementById("recipientSelect").options;
-    for (var i = 0; i < opts.length; i++) {
-      if (opts[i].value === channel) { document.getElementById("recipientSelect").selectedIndex = i; break; }
+    // Set recipient to this agent — use .value (more reliable than selectedIndex)
+    var selEl = document.getElementById("recipientSelect");
+    if (selEl) selEl.value = channel;
+    // Fallback: if .value didn't stick (option not found), find by text
+    if (selEl && selEl.value !== channel) {
+      var opts = selEl.options;
+      for (var i = 0; i < opts.length; i++) {
+        if (opts[i].value === channel) { selEl.selectedIndex = i; break; }
+      }
     }
     // Show DM agent indicator with status
     var status = knownAgents[channel] || "offline";
@@ -1585,7 +1590,10 @@ function switchChannel(channel) {
     }
   }
 
-  // Load channel messages from server
+  // Render existing channel messages immediately (don't wait for server reload)
+  renderChannelMessages();
+
+  // Load channel messages from server (merges new ones, doesn't wipe existing)
   loadMessages();
 }
 
@@ -2019,25 +2027,26 @@ function loadMessages() {
   fetch("/api/chat/messages?limit=100", {
     headers: { "Authorization": "Bearer " + token }
   }).then(function(r) { return r.json(); }).then(function(d) {
-    document.getElementById("messages").innerHTML = "";
+    // DON'T wipe channelMessages — merge new messages into existing channels
     messageHistory = [];
-    channelMessages = {};
-    channelMessages[currentChannel || "general"] = [];
+    if (!channelMessages[currentChannel || "general"]) {
+      channelMessages[currentChannel || "general"] = [];
+    }
     (d.messages || []).forEach(function(m) {
-      // Normalize chat API format to display format
       m.content = m.content || m.text || "";
       m.timestamp = m.timestamp || m.created_at || "";
       addMessage(m, false);
     });
     document.getElementById("msgCount").textContent = d.total || (d.messages || []).length;
+    renderChannelMessages();
     scrollToBottom();
   }).catch(function() {
     // Fallback to old API
     fetch("/api/messages?limit=100").then(function(r) { return r.json(); }).then(function(d) {
-      document.getElementById("messages").innerHTML = "";
       messageHistory = [];
       d.messages.reverse().forEach(function(m) { addMessage(m, false); });
       document.getElementById("msgCount").textContent = d.total || d.messages.length;
+      renderChannelMessages();
       scrollToBottom();
     }).catch(function() {});
   });
@@ -2050,6 +2059,8 @@ function loadAgents() {
     renderAgents(d.agents);
     document.getElementById("totalAgents").textContent = d.total;
     var sel = document.getElementById("recipientSelect");
+    // Preserve current selection
+    var currentVal = sel.value;
     sel.innerHTML = '<option value="">📢 Mindenkinek</option>';
     d.agents.forEach(function(a) {
       if (a.name !== nodeId) {
@@ -2061,6 +2072,8 @@ function loadAgents() {
         addDMChannel(a.name, a.status);
       }
     });
+    // Restore selection
+    sel.value = currentVal;
   }).catch(function() {});
 }
 
