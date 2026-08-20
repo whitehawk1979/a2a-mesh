@@ -1895,12 +1895,14 @@ function sendMessage() {
       // Add message to UI immediately
       addMessage({
         id: "local_" + Date.now(),
-        sender: nodeId || "me",
+        sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
         recipient: to,
         type: "chat",
         content: content,
         timestamp: new Date().toISOString(),
-        priority: priority
+        priority: priority,
+        source: "web_dashboard",
+        username: authUser ? authUser.display_name : "Zsolt"
       }, true);
       input.value = "";
       scrollToBottom();

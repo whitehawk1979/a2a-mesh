@@ -458,7 +458,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/migrate", self._api_migrate)
         app.router.add_get("/api/overview", self._api_overview)
         app.router.add_get("/api/agents-page", self._api_agents_page)
-        app.router.add_get("/api/messages-page", self._api_messages)
+        app.router.add_get("/api/messages-page", self._api_messages_page)
         app.router.add_get("/api/tasks", self._api_tasks)
         app.router.add_get("/api/memory-page", self._api_memory_page)
         app.router.add_get("/api/logs-page", self._api_logs_page)
@@ -913,8 +913,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             result["error"] = str(e)
         return web.json_response(result)
 
-    async def _api_messages(self, request):
-        """Messages page — browse A2A messages with filters."""
+    async def _api_messages_page(self, request):
+        """Messages page — browse A2A messages with filters (metadata only, no payload)."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
