@@ -122,12 +122,12 @@ class FederationManager:
             import asyncio as aio
             async def probe(ip_addr):
                 try:
-                    # Quick TCP connect check
-                    conn = await aio.wait_for(aio.open_connection(ip_addr, port), timeout=1)
-                    conn.close()
-                    # Fetch node info
+                    # Direct HTTP health check (skip TCP pre-check)
                     async with aiohttp.ClientSession() as session:
-                        async with session.get(f"http://{ip_addr}:{port}/api/health", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                        async with session.get(
+                            f"http://{ip_addr}:{port}/api/health",
+                            timeout=aiohttp.ClientTimeout(total=2)
+                        ) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
                                 node_name = data.get("node", ip_addr)
