@@ -2501,6 +2501,7 @@ class DashboardAdminMixin:
         """POST /api/federation/discover — LAN auto-discover."""
         from aiohttp import web
         from .federation import manager
+        manager.node_name = self.node.node_name
         discovered = await manager.discover_lan()
         return web.json_response({"discovered": discovered})
 

@@ -49,6 +49,7 @@ class FederationManager:
     def __init__(self):
         self.bridge = FederationBridge()
         self.health_status = {}
+        self.node_name = "nova"  # default, overridden by dashboard
 
     def get_config(self) -> dict:
         try:
