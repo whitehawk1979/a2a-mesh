@@ -275,6 +275,29 @@ class DashboardAgentsMixin:
             log.info(f"Nova CLI response ({len(output)} chars): {output[:200]}")
             if err:
                 log.warning(f"Nova CLI stderr: {err[:200]}")
+            
+            # Send the agent's reply to the chat via /api/agent-reply
+            clean_reply = output.strip()
+            if clean_reply and reply_endpoint:
+                try:
+                    import aiohttp as _aiohttp
+                    reply_body = json.dumps({
+                        "sender": self.node.node_name,
+                        "content": clean_reply[:2000],
+                        "recipient": "broadcast",
+                        "priority": 5,
+                        "reply_to": mesh_msg_id,
+                    })
+                    async with _aiohttp.ClientSession() as sess:
+                        async with sess.post(
+                            reply_endpoint,
+                            data=reply_body.encode(),
+                            headers={"Content-Type": "application/json"},
+                            timeout=_aiohttp.ClientTimeout(total=15),
+                        ) as resp:
+                            log.info(f"Nova agent reply sent to {reply_endpoint}: {resp.status}")
+                except Exception as reply_err:
+                    log.warning(f"Failed to send Nova agent reply: {reply_err}")
                 
         except asyncio.TimeoutError:
             log.warning("Nova CLI timed out (90s)")
@@ -660,12 +683,30 @@ class DashboardAgentsMixin:
                 if err:
                     log.warning(f"Wake-agent '{agent_name}' stderr: {err[:200]}")
 
-                # NOTE: Do NOT send raw stdout via router.send() — the agent
-                # already replies via curl to /api/agent-reply with clean text.
-                # Sending stdout here caused duplicate messages + JSON garbage
-                # (tool output, reasoning, metadata mixed into the chat).
-                # The wake-agent endpoint just runs the CLI; the agent's own
-                # curl call delivers the clean reply to the mesh chat.
+                # The agent's clean reply is in stdout. Send it to the reply_endpoint
+                # so it appears in the mesh chat. (Previously we relied on the agent
+                # running curl itself, but hermes -z doesn't execute tool calls.)
+                clean_reply = output.strip()
+                if clean_reply and reply_endpoint:
+                    try:
+                        import aiohttp as _aiohttp
+                        reply_body = json.dumps({
+                            "sender": agent_name,
+                            "content": clean_reply[:2000],
+                            "recipient": "broadcast",
+                            "priority": 5,
+                            "reply_to": body.get("mesh_message_id", ""),
+                        })
+                        async with _aiohttp.ClientSession() as sess:
+                            async with sess.post(
+                                reply_endpoint,
+                                data=reply_body.encode(),
+                                headers={"Content-Type": "application/json"},
+                                timeout=_aiohttp.ClientTimeout(total=15),
+                            ) as resp:
+                                log.info(f"Agent reply sent to {reply_endpoint}: {resp.status}")
+                    except Exception as reply_err:
+                        log.warning(f"Failed to send agent reply to {reply_endpoint}: {reply_err}")
                 
                 return web.json_response({
                     "status": "completed",
