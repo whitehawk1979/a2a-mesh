@@ -33,10 +33,10 @@ class McpAdvertiserPlugin(MeshPlugin):
         self._refresh_interval = 300  # 5 minutes
 
     async def on_start(self, node):
-        """Publish MCP servers on startup."""
+        """Publish MCP servers on startup (with retry for PG pool readiness)."""
         self.log.info(f"McpAdvertiser plugin starting on {node.node_name}")
-        await self._publish_mcp_registry(node)
-        self._refresh_task = asyncio.create_task(self._refresh_loop(node))
+        # Delay publish slightly to allow PG pool to connect
+        self._refresh_task = asyncio.create_task(self._delayed_start(node))
 
     async def on_stop(self, node):
         """Clean up on shutdown."""
@@ -46,6 +46,24 @@ class McpAdvertiserPlugin(MeshPlugin):
                 await self._refresh_task
             except asyncio.CancelledError:
                 pass
+
+    async def _delayed_start(self, node):
+        """Wait for PG pool to be ready, then publish + start refresh loop."""
+        for attempt in range(10):  # 10 attempts, 3s each = 30s max
+            await asyncio.sleep(3)
+            pg_pool = getattr(node, "_pg_pool", None) or getattr(node, "pg_pool", None)
+            if pg_pool and (not hasattr(pg_pool, 'is_closed') or not pg_pool.is_closed()):
+                try:
+                    await self._publish_mcp_registry(node)
+                    break
+                except Exception as e:
+                    self.log.warning(f"Publish attempt {attempt+1} failed: {e}")
+            else:
+                self.log.debug(f"Waiting for PG pool (attempt {attempt+1}/10)")
+        else:
+            self.log.warning("PG pool not ready after 30s — MCP registry will retry on refresh")
+        # Start periodic refresh
+        await self._refresh_loop(node)
 
     async def _refresh_loop(self, node):
         """Periodically re-publish MCP configs."""
