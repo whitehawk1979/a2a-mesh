@@ -2986,8 +2986,8 @@ function loadMarveenPage(page) {
       '<div style="font-size:13px;color:var(--text3)">' + esc(msg) + '</div></div>';
   }
 
-  // ─── Memory detail modal ───
-  function showMemoryDetail(mid) {
+  // ─── Memory detail modal (exposed to global scope for onclick) ───
+  window.showMemoryDetail = function(mid) {
     // Find memory in current data by id
     var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
     fetch('/api/memory-page', { headers: { 'Authorization': 'Bearer ' + token } })
@@ -2999,7 +2999,6 @@ function loadMarveenPage(page) {
         var body = document.getElementById('marveenModalBody');
         if (!body) return;
         var content = mem.content || '';
-        // Try to pretty-print JSON content
         var contentHtml;
         try {
           var parsed = JSON.parse(content);
@@ -3023,8 +3022,8 @@ function loadMarveenPage(page) {
       }).catch(function(e) { alert('Hiba: ' + e); });
   }
 
-  // ─── Log detail modal ───
-  function showLogDetail(lid, detailJson) {
+  // ─── Log detail modal (exposed to global scope for onclick) ───
+  window.showLogDetail = function(lid, detailJson) {
     var body = document.getElementById('marveenModalBody');
     if (!body) return;
     try {
@@ -3067,8 +3066,8 @@ function loadMarveenPage(page) {
     if (title) title.textContent = '📋 Napló bejegyzés';
   }
 
-  // ─── Log filter ───
-  function filterLogs(type) {
+  // ─── Log filter (exposed to global scope) ───
+  window.filterLogs = function(type) {
     var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
     fetch('/api/logs-page?type=' + type + '&limit=50', { headers: { 'Authorization': 'Bearer ' + token } })
       .then(function(r) { return r.json(); })
