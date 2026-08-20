@@ -256,7 +256,11 @@ class MeshConfig:
                 with open(pyproject) as f:
                     for line in f:
                         if line.strip().startswith("version"):
-                            return line.split("=", 1)[1].strip().strip('"').strip("'")
+                            val = line.split("=", 1)[1].strip()
+                            # Strip inline comments: version = "0.30.0"  # comment
+                            if "#" in val:
+                                val = val.split("#")[0].strip()
+                            return val.strip('"').strip("'")
         except Exception:
             pass
         # Fallback: git tag

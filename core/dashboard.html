@@ -3778,6 +3778,20 @@ function loadDelegations() {
       return;
     }
     
+    // Sort cards: done column by completion time (newest first), others by creation time
+    enrichedCards.sort(function(a, b) {
+      var aCol = a.card.column || "todo";
+      var bCol = b.card.column || "todo";
+      if (aCol === "done" && bCol === "done") {
+        var aTime = (a.delegation && (a.delegation.completed_at || a.delegation.updated_at)) || a.card.created_at || "";
+        var bTime = (b.delegation && (b.delegation.completed_at || b.delegation.updated_at)) || b.card.created_at || "";
+        return bTime.localeCompare(aTime);  // newest first
+      }
+      var aTime = (a.delegation && a.delegation.created_at) || a.card.created_at || "";
+      var bTime = (b.delegation && b.delegation.created_at) || b.card.created_at || "";
+      return bTime.localeCompare(aTime);  // newest first
+    });
+
     enrichedCards.forEach(function(item) {
       var col = item.card.column || "todo";
       if (!["todo", "in_progress", "review", "done"].includes(col)) col = "todo";
