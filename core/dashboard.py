@@ -453,6 +453,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/research", self._api_research)
         app.router.add_get("/api/docs", self._api_docs)
         app.router.add_get("/api/connectors", self._api_connectors)
+        app.router.add_get("/api/mcp-registry", self._api_mcp_registry)
+        app.router.add_post("/api/mcp-install", self._api_mcp_install)
         app.router.add_get("/api/migrate", self._api_migrate)
         app.router.add_get("/api/overview", self._api_overview)
         app.router.add_get("/api/agents-page", self._api_agents_page)
@@ -684,6 +686,144 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)
+
+    async def _api_mcp_registry(self, request):
+        """MCP Registry — collects MCP servers from all mesh nodes.
+        
+        Reads local config.yaml mcp_servers section, then queries other nodes
+        via their health/agent-card endpoints to discover their MCP servers.
+        Returns a unified registry grouped by node.
+        """
+        from aiohttp import web
+        import yaml, os as _os
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"nodes": [], "total_servers": 0, "total_tools": 0}
+        try:
+            # 1. Collect local MCP servers from config.yaml
+            local_node = getattr(self.node, 'name', 'unknown')
+            local_servers = []
+            config_path = _os.path.expanduser("~/.hermes/config.yaml")
+            if _os.path.exists(config_path):
+                try:
+                    with open(config_path) as f:
+                        cfg = yaml.safe_load(f) or {}
+                    mcp_servers = cfg.get("mcp_servers", {}) or {}
+                    for name, conf in mcp_servers.items():
+                        if not isinstance(conf, dict):
+                            continue
+                        entry = {
+                            "name": name,
+                            "enabled": conf.get("enabled", True),
+                            "transport": "streamable_http" if "url" in conf else "stdio",
+                            "url": conf.get("url", ""),
+                            "command": conf.get("command", ""),
+                            "args": conf.get("args", []),
+                            "env_keys": list(conf.get("env", {}).keys()) if isinstance(conf.get("env"), dict) else [],
+                            "has_credentials": bool(conf.get("env") or conf.get("headers")),
+                            "source": "local"
+                        }
+                        local_servers.append(entry)
+                except Exception as e:
+                    local_servers.append({"name": "_error", "error": str(e)})
+            
+            result["nodes"].append({
+                "node": local_node,
+                "host": getattr(self.node, 'host', ''),
+                "status": "local",
+                "mcp_servers": local_servers
+            })
+            result["total_servers"] += len([s for s in local_servers if s.get("name") != "_error"])
+
+            # 2. Query other nodes via P2P for their MCP configs
+            if hasattr(self.node, 'pg_pool') and self.node.pg_pool:
+                try:
+                    pool = self.node.pg_pool
+                    rows = await pool.fetch("""
+                        SELECT DISTINCT ON (sender) sender, payload
+                        FROM shared_a2a_memory
+                        WHERE memory_type = 'mcp_registry' AND sender != $1
+                        ORDER BY sender, created_at DESC
+                    """, local_node)
+                    for row in rows:
+                        try:
+                            import json as _json
+                            data = _json.loads(row['payload']) if isinstance(row['payload'], str) else row['payload']
+                            result["nodes"].append({
+                                "node": row['sender'],
+                                "host": data.get("host", ""),
+                                "status": "remote",
+                                "mcp_servers": data.get("servers", [])
+                            })
+                            result["total_servers"] += len(data.get("servers", []))
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # 3. Publish our MCP servers to the registry (for other nodes)
+            try:
+                import json as _json2
+                payload = _json2.dumps({
+                    "host": getattr(self.node, 'host', ''),
+                    "servers": [{"name": s["name"], "enabled": s["enabled"], "transport": s["transport"],
+                                 "url": s["url"], "command": s["command"], "args": s.get("args", []),
+                                 "env_keys": s.get("env_keys", []), "has_credentials": s.get("has_credentials", False)}
+                                for s in local_servers if s.get("name") != "_error"]
+                })
+                if hasattr(self.node, '_publish_memory'):
+                    await self.node._publish_memory(local_node, "any", "mcp_registry", payload, priority=1)
+            except Exception:
+                pass
+
+            result["total_tools"] = result["total_servers"]  # approximate
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_mcp_install(self, request):
+        """Install an MCP server config into local config.yaml.
+        
+        Body: {"name": "server-name", "config": {...mcp config...}}
+        """
+        from aiohttp import web
+        import yaml, os as _os, json as _json, tempfile, shutil
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            body = await request.json()
+            name = body.get("name", "").strip()
+            config = body.get("config", {})
+            if not name or not config:
+                return web.json_response({"error": "name and config required"}, status=400)
+            
+            config_path = _os.path.expanduser("~/.hermes/config.yaml")
+            if not _os.path.exists(config_path):
+                return web.json_response({"error": "config.yaml not found"}, status=404)
+            
+            # Backup
+            backup_path = config_path + ".mcp-backup"
+            shutil.copy2(config_path, backup_path)
+            
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f) or {}
+            
+            mcp_servers = cfg.setdefault("mcp_servers", {})
+            mcp_servers[name] = config
+            
+            with open(config_path, "w") as f:
+                yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+            
+            return web.json_response({
+                "success": True, 
+                "name": name, 
+                "backup": backup_path,
+                "message": f"MCP '{name}' added to config.yaml. Restart Hermes to activate."
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     async def _api_migrate(self, request):
         """Migration tools — node fleet status from PG."""

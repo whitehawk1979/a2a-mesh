@@ -2868,7 +2868,7 @@ function loadMarveenPage(page) {
     'tokenUsage': '🔢 Token Monitor',
     'updates': '⬆️ Frissítések',
     'vault': '🔐 Vault',
-    'connectors': '🔌 MCP Konnektorok',
+    'connectors': '🔌 MCP Registry',
     'federation': '🌐 Föderáció',
     'migrate': '📦 Költöztetés',
     'docs': '📚 Dokumentáció'
@@ -2891,7 +2891,7 @@ function loadMarveenPage(page) {
     'tokenUsage': '/api/token-usage',
     'updates': '/api/update-checker',
     'vault': '/api/vault/list',
-    'connectors': '/api/connectors',
+    'connectors': '/api/mcp-registry',
     'federation': '/api/federation',
     'migrate': '/api/migrate',
     'docs': '/api/docs'
@@ -2985,6 +2985,77 @@ function loadMarveenPage(page) {
       '<div style="font-size:14px;font-weight:600;margin-bottom:6px">Hiba</div>' +
       '<div style="font-size:13px;color:var(--text3)">' + esc(msg) + '</div></div>';
   }
+
+  // ─── MCP detail modal (exposed to global scope) ───
+  window.showMcpDetail = function(name, node, detailStr) {
+    var s = typeof detailStr === 'string' ? JSON.parse(detailStr.replace(/&quot;/g, '"').replace(/&#39;/g, "'")) : detailStr;
+    var modal = document.getElementById('marveenModal');
+    var title = document.getElementById('marveenModalTitle');
+    var body = document.getElementById('marveenModalBody');
+    if (!modal || !body) return;
+    title.textContent = '🔌 ' + name + ' — MCP Részletek';
+    var transport = s.transport || 'stdio';
+    var html = '<div style="padding:16px">';
+    html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Szerver:</strong> ' + esc(s.name || '?') + '</div>';
+    html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Node:</strong> ' + esc(node) + '</div>';
+    html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Transport:</strong> ' + (transport === 'streamable_http' ? '🌐 HTTP' : '📦 STDIO') + '</div>';
+    if (s.url) html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">URL:</strong><br><code style="font-size:11px;word-break:break-all">' + esc(s.url) + '</code></div>';
+    if (s.command) {
+      html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Parancs:</strong><br><code style="font-size:11px">' + esc(s.command) + ' ' + esc((s.args || []).join(' ')) + '</code></div>';
+    }
+    html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Státusz:</strong> ' + (s.enabled !== false ? '✅ aktív' : '⏸️ inaktív') + '</div>';
+    if (s.env_keys && s.env_keys.length) {
+      html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Env változók:</strong><br>';
+      s.env_keys.forEach(function(k) { html += '<code style="font-size:11px;margin-right:8px">' + esc(k) + '</code>'; });
+      html += '</div>';
+    }
+    if (s.has_credentials) {
+      html += '<div style="margin-bottom:12px;padding:8px;background:var(--warning);color:#000;border-radius:6px;font-size:11px">⚠️ Ez a szerver hitelesítési adatokat igényel — a beépítés után be kell állítani az env változókat!</div>';
+    }
+    // Config preview
+    var config = {};
+    if (s.url) config.url = s.url;
+    if (s.command) { config.command = s.command; config.args = s.args || []; }
+    config.enabled = true;
+    html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">config.yaml bejegyzés:</strong><pre style="background:var(--surface2);padding:8px;border-radius:6px;font-size:10px;overflow-x:auto">' + esc(JSON.stringify(config, null, 2)) + '</pre></div>';
+    // Install button
+    if (s.url || s.command) {
+      html += '<button onclick="installMcpServer(\'' + esc(s.name) + '\', \'' + esc(s.url || '') + '\', \'' + esc(node) + '\', \'' + esc(s.command || '') + '\', ' + JSON.stringify(s.args || []).replace(/'/g, "&#39;") + ')" ' +
+        'style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;width:100%;font-size:13px">🔌 Beépítem a lokális config-ba</button>';
+    }
+    html += '</div>';
+    body.innerHTML = html;
+    modal.style.display = 'flex';
+  };
+
+  // ─── Install MCP server to local config (exposed to global scope) ───
+  window.installMcpServer = function(name, url, sourceNode, command, args) {
+    var config = {enabled: true};
+    if (url) {
+      config.url = url;
+      config.transport = 'streamable_http';
+    } else if (command) {
+      config.command = command;
+      config.args = args || [];
+    }
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var body = JSON.stringify({name: name + '-from-' + sourceNode, config: config});
+    fetch('/api/mcp-install', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+      body: body
+    }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) {
+        alert('✅ MCP \'' + name + '\' beépítve!\n\n' + d.message + '\n\nBackup: ' + d.backup);
+        loadMarveenPage('connectors');  // refresh
+      } else {
+        alert('❌ Hiba: ' + (d.error || 'ismeretlen'));
+      }
+    }).catch(function(e) {
+      alert('❌ Hálózati hiba: ' + e.message);
+    });
+  };
 
   // ─── Memory detail modal (exposed to global scope for onclick) ───
   window.showMemoryDetail = function(mid) {
@@ -3312,17 +3383,107 @@ function loadMarveenPage(page) {
     },
 
     connectors: function(d) {
-      var conns = d.connectors || d.plugins || [];
-      if (!conns.length && !d.error) return empty('Nincs MCP konnektor');
+      // MCP Registry — Marveen-inspired node-grouped card layout
       if (d.error) return errorBox(d.error);
-      var html = '';
-      conns.forEach(function(c) {
-        var st = c.status || c.state || 'unknown';
-        var sc = st === 'connected' || st === 'active' ? 'var(--primary)' : st === 'error' ? 'var(--danger)' : 'var(--text3)';
-        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-          '<strong>' + esc(c.name || c.id || '—') + '</strong>' + badge(st, sc) + '</div>' +
-          '<div style="font-size:12px;color:var(--text3);">' + esc(c.description || c.type || '') + '</div>');
+      var nodes = d.nodes || [];
+      var totalServers = d.total_servers || 0;
+      if (!nodes.length) return empty('Nincs MCP adat');
+
+      // Summary bar
+      var html = '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">' +
+        '<div style="background:var(--surface);border-radius:8px;padding:12px 16px;text-align:center;flex:1;min-width:120px">' +
+        '<div style="font-size:28px;font-weight:700;color:var(--primary)">' + nodes.length + '</div>' +
+        '<div style="font-size:11px;color:var(--text3)">Node-ok</div></div>' +
+        '<div style="background:var(--surface);border-radius:8px;padding:12px 16px;text-align:center;flex:1;min-width:120px">' +
+        '<div style="font-size:28px;font-weight:700;color:var(--success)">' + totalServers + '</div>' +
+        '<div style="font-size:11px;color:var(--text3)">MCP szerverek</div></div>' +
+        '</div>';
+
+      // Group by node
+      nodes.forEach(function(node) {
+        var nodeName = esc(node.node || 'unknown');
+        var nodeStatus = node.status || 'unknown';
+        var statusIcon = nodeStatus === 'local' ? '🏠' : '🔗';
+        var statusColor = nodeStatus === 'local' ? 'var(--primary)' : 'var(--info)';
+        var servers = node.mcp_servers || [];
+
+        html += '<div style="margin-bottom:16px">' +
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 12px;background:var(--surface);border-radius:8px;border-left:3px solid ' + statusColor + '">' +
+          '<span style="font-size:16px">' + statusIcon + '</span>' +
+          '<strong style="color:var(--text)">' + nodeName + '</strong>' +
+          '<span style="font-size:11px;color:var(--text3)">' + esc(node.host || '') + '</span>' +
+          '<span style="margin-left:auto;font-size:11px;color:var(--text3)">' + servers.length + ' MCP</span>' +
+          '</div>';
+
+        if (!servers.length) {
+          html += '<div style="padding:8px 16px;color:var(--text3);font-size:12px">Nincs MCP szerver</div>';
+        } else {
+          // MCP server cards
+          html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;padding:0 4px">';
+          servers.forEach(function(s) {
+            if (s.error) {
+              html += '<div style="background:var(--surface);border-radius:8px;padding:12px;border:1px solid var(--danger)">' +
+                '<div style="color:var(--danger);font-size:12px">⚠️ ' + esc(s.error) + '</div></div>';
+              return;
+            }
+            var name = esc(s.name || 'unknown');
+            var enabled = s.enabled !== false;
+            var transport = s.transport || 'stdio';
+            var url = s.url || '';
+            var command = s.command || '';
+            var hasCreds = s.has_credentials;
+            var isLocal = nodeStatus === 'local';
+            var alreadyInstalled = isLocal && enabled;
+
+            // Transport icon
+            var transIcon = transport === 'streamable_http' ? '🌐' : '📦';
+            var transLabel = transport === 'streamable_http' ? 'HTTP' : 'STDIO';
+
+            // Status badge
+            var stBadge = enabled ?
+              '<span style="background:var(--success);color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">aktív</span>' :
+              '<span style="background:var(--text3);color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">inaktív</span>';
+
+            // Credential badge
+            var credBadge = hasCreds ?
+              '<span style="font-size:10px;color:var(--warning)" title="Környezeti változókat igényel">🔐 cred</span>' : '';
+
+            // Install button (only for remote servers not yet installed locally)
+            var installBtn = '';
+            if (!isLocal) {
+              // Check if this is a remote HTTP server that can be used locally
+              if (url) {
+                installBtn = '<button onclick="installMcpServer(\'' + esc(s.name) + '\', \'' + esc(url) + '\', \'' + esc(nodeName) + '\')" ' +
+                  'style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;margin-top:6px">🔌 Beépítem</button>';
+              } else if (command) {
+                installBtn = '<button onclick="installMcpServer(\'' + esc(s.name) + '\', \'\', \'' + esc(nodeName) + '\', \'' + esc(command) + '\', ' + JSON.stringify(s.args || []).replace(/'/g, "&#39;") + ')" ' +
+                  'style="background:var(--info);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;margin-top:6px">📋 Másolom</button>';
+              }
+            }
+
+            var cardContent = '<div style="font-weight:600;font-size:13px;margin-bottom:4px">' + transIcon + ' ' + name + '</div>' +
+              '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">' + stBadge + ' ' + credBadge + '</div>' +
+              '<div style="font-size:11px;color:var(--text3);margin-bottom:2px"><strong>' + transLabel + '</strong></div>';
+            if (url) cardContent += '<div style="font-size:10px;color:var(--text3);word-break:break-all">🔗 ' + esc(url) + '</div>';
+            if (command) cardContent += '<div style="font-size:10px;color:var(--text3)">$ ' + esc(command) + ' ' + esc((s.args || []).join(' ')) + '</div>';
+            if (s.env_keys && s.env_keys.length) cardContent += '<div style="font-size:10px;color:var(--warning);margin-top:2px">Env: ' + esc(s.env_keys.join(', ')) + '</div>';
+            cardContent += installBtn;
+
+            html += '<div onclick="showMcpDetail(\'' + esc(s.name) + '\', \'' + esc(nodeName) + '\', ' + JSON.stringify(s).replace(/'/g, "&#39;").replace(/"/g, '&quot;') + ')" ' +
+              'style="background:var(--surface);border-radius:8px;padding:12px;cursor:pointer;border:1px solid var(--surface2);transition:border-color 0.2s" ' +
+              'onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--surface2)\'">' +
+              cardContent + '</div>';
+          });
+          html += '</div>';
+        }
+        html += '</div>';
       });
+
+      // Help text
+      html += '<div style="margin-top:16px;padding:12px;background:var(--surface);border-radius:8px;font-size:11px;color:var(--text3)">' +
+        '💡 A <strong>Beépítem</strong> gomb a kiválasztott MCP szerver URL-jét hozzáadja a lokális config.yaml-hoz. ' +
+        'HTTP transportú szerverek közvetlenül használhatóak, STDIO típusúakhoz a parancsot kell telepíteni.</div>';
+
       return html;
     },
 
