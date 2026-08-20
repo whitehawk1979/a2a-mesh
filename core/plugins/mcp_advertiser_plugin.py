@@ -107,16 +107,16 @@ class McpAdvertiserPlugin(MeshPlugin):
         })
 
         try:
-            # Upsert into shared_a2a_memory with memory_type='mcp_registry'
+            # Upsert into shared_a2a_memory (memory_type must be 'observation' — CHECK constraint)
             # Delete old entries from this node first, then insert fresh
             await pg_pool.execute(
-                "DELETE FROM shared_a2a_memory WHERE sender = $1 AND memory_type = 'mcp_registry'",
+                "DELETE FROM shared_a2a_memory WHERE sender_agent = $1 AND subject = 'mcp_registry'",
                 node_name,
             )
             await pg_pool.execute(
                 """INSERT INTO shared_a2a_memory
-                   (sender, receiver, memory_type, payload, priority, created_at)
-                   VALUES ($1, 'any', 'mcp_registry', $2, 1, NOW())""",
+                   (sender_agent, recipient_agent, memory_type, subject, content, priority, status, created_at)
+                   VALUES ($1, 'any', 'observation', 'mcp_registry', $2, 1, 'sent', NOW())""",
                 node_name, payload,
             )
             self.log.info(f"Published {len(servers)} MCP servers to mesh registry")

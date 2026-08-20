@@ -741,17 +741,17 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 try:
                     pool = self.node.pg_pool
                     rows = await pool.fetch("""
-                        SELECT DISTINCT ON (sender) sender, payload
+                        SELECT DISTINCT ON (sender_agent) sender_agent, content
                         FROM shared_a2a_memory
-                        WHERE memory_type = 'mcp_registry' AND sender != $1
-                        ORDER BY sender, created_at DESC
+                        WHERE subject = 'mcp_registry' AND sender_agent != $1
+                        ORDER BY sender_agent, created_at DESC
                     """, local_node)
                     for row in rows:
                         try:
                             import json as _json
-                            data = _json.loads(row['payload']) if isinstance(row['payload'], str) else row['payload']
+                            data = _json.loads(row['content']) if isinstance(row['content'], str) else row['content']
                             result["nodes"].append({
-                                "node": row['sender'],
+                                "node": row['sender_agent'],
                                 "host": data.get("host", ""),
                                 "status": "remote",
                                 "mcp_servers": data.get("servers", [])
