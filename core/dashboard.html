@@ -432,6 +432,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
     </div>
     <div class="messages" id="messages"></div>
+    <!-- Open chats bar — horizontal tabs above the send area -->
+    <div id="openChatsBar" style="display:flex;align-items:center;gap:4px;padding:4px 12px;border-top:1px solid var(--border);background:var(--surface);overflow-x:auto;scrollbar-width:thin;flex-shrink:0;">
+      <!-- Tabs rendered dynamically by renderOpenChatsBar() -->
+    </div>
     <div class="input-area">
       <div id="dmAgentIndicator" style="display:none;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;white-space:nowrap;">
         <span id="dmAgentDot" style="font-size:14px;">🔴</span>
@@ -1455,6 +1459,62 @@ var messageHistory = [];
 var currentChannel = "general";  // "general" or agent name for DM
 var channelMessages = {};  // channel -> [messages]
 channelMessages["general"] = [];
+var openChats = ["general"];  // track which chats are open as tabs
+
+// ─── Open Chats Bar — horizontal tabs above send area ───
+function renderOpenChatsBar() {
+  var bar = document.getElementById("openChatsBar");
+  if (!bar) return;
+  bar.innerHTML = "";
+  openChats.forEach(function(ch) {
+    var isGeneral = (ch === "general");
+    var isActive = (ch === currentChannel);
+    var status = knownAgents[ch] || (isGeneral ? "online" : "offline");
+    var dot = isGeneral ? "" : (status === "online") ? "🟢 " : (status === "available" || status === "connected") ? "🟡 " : "🔴 ";
+    var tab = document.createElement("div");
+    tab.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0;" +
+      (isActive ? "background:var(--primary);color:#fff;font-weight:600;" : "background:var(--surface2);color:var(--text);border:1px solid var(--border);");
+    var label = document.createElement("span");
+    label.textContent = (isGeneral ? "💬 " : dot + "👤 ") + (isGeneral ? "Közös" : ch);
+    label.onclick = function() { switchChannel(ch); };
+    tab.appendChild(label);
+    // Close button (not for general)
+    if (!isGeneral) {
+      var closeBtn = document.createElement("span");
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText = "margin-left:4px;opacity:" + (isActive ? "0.9" : "0.5") + ";font-size:11px;padding:0 3px;border-radius:4px;";
+      closeBtn.onmouseover = function() { this.style.opacity = "1"; this.style.background = "rgba(255,0,0,0.2)"; };
+      closeBtn.onmouseout = function() { this.style.opacity = isActive ? "0.9" : "0.5"; this.style.background = ""; };
+      closeBtn.onclick = function(e) {
+        e.stopPropagation();
+        closeChat(ch);
+      };
+      tab.appendChild(closeBtn);
+    }
+    bar.appendChild(tab);
+  });
+}
+
+function openChat(channel) {
+  if (openChats.indexOf(channel) === -1) {
+    openChats.push(channel);
+  }
+  renderOpenChatsBar();
+}
+
+function closeChat(channel) {
+  var idx = openChats.indexOf(channel);
+  if (idx === -1) return;
+  openChats.splice(idx, 1);
+  // If closing the active channel, switch to the last remaining one
+  if (currentChannel === channel) {
+    var next = openChats[openChats.length - 1] || "general";
+    if (openChats.indexOf("general") === -1) openChats.unshift("general");
+    switchChannel(next);
+  } else {
+    renderOpenChatsBar();
+  }
+}
 
 function toggleSidebar() {
   var sb = document.getElementById("channelSidebar");
@@ -1540,6 +1600,8 @@ function updateMobileNav(active) {
 
 function switchChannel(channel) {
   currentChannel = channel;
+  // Track as open chat tab
+  openChat(channel);
   // Update UI
   document.querySelectorAll(".channel-item").forEach(function(el) { el.classList.remove("active"); });
   var chEl = document.getElementById("ch-" + channel);
@@ -1592,6 +1654,8 @@ function switchChannel(channel) {
 
   // Render existing channel messages immediately (don't wait for server reload)
   renderChannelMessages();
+  // Update open chats bar (highlight active tab)
+  renderOpenChatsBar();
 
   // Load channel messages from server (merges new ones, doesn't wipe existing)
   loadMessages();
@@ -1751,6 +1815,8 @@ function addMessage(msg, scroll) {
   if (channel === currentChannel) {
     addMessageToDOM(msg, scroll);
   } else {
+    // Auto-open chat tab for this channel
+    openChat(channel);
     // Show notification badge on the channel
     var chEl = document.getElementById("ch-" + channel);
     if (!chEl) {
@@ -2775,7 +2841,7 @@ if (savedToken) {
         document.getElementById("authModal").style.display = "none";
         document.getElementById("userBadge").style.display = "flex";
         updateUserBadge();
-        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel();
+        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel(); renderOpenChatsBar();
       } else { localStorage.removeItem("a2a_token"); localStorage.removeItem("mesh_token"); showAuth(); }
     }).catch(function() { showAuth(); });
 } else { showAuth(); }
