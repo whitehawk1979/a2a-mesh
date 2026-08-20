@@ -42,7 +42,7 @@ class DashboardAgentsMixin:
         
         # Fetch chat history for context injection (Telegram-group-like session)
         recipient = message.recipient or "broadcast"
-        channel = "general" if recipient == "broadcast" else f"dm:{message.sender}"
+        channel = "general" if recipient == "broadcast" else f"dm:{recipient}"
         chat_history = self._fetch_chat_history(limit=10, channel=channel)
         
         payload = json.dumps({
@@ -59,15 +59,19 @@ class DashboardAgentsMixin:
         })
         sig = hmac_mod.new(b"a2a-instant-secret-2026", payload.encode(), hashlib.sha256).hexdigest()
 
-        # Build list of webhook targets: self + all known peers
-        webhook_targets = [
-            ("self", self._get_webhook_url()),
-        ]
-        # Build wake targets: self (CLI) + peers (wake-agent API)
+        # Build list of wake targets: self + peers
+        # Filter by recipient — if DM, only wake the targeted agent
+        recipient = message.recipient or "broadcast"
+        is_dm = recipient != "broadcast"
+        
         peer_targets = []
         try:
             for name, peer in self.node.peer_discovery.get_all_peers().items():
                 if peer.host and name != self.node.node_name:
+                    # Skip if DM and this peer is not the recipient
+                    if is_dm and name != recipient:
+                        log.info(f"Skipping wake for '{name}': DM to {recipient}")
+                        continue
                     # Use the peer's health port for wake-agent API
                     # Fallback to 8650 (standard health port) if not set or equals P2P port
                     health_port = peer.health_port or 8650
@@ -77,12 +81,19 @@ class DashboardAgentsMixin:
         except Exception as e:
             log.warning(f"Failed to get peers for wake: {e}")
 
-        total = 1 + len(peer_targets)  # self + peers
-        log.info(f"Waking {total} agent(s): self (CLI) + {len(peer_targets)} peers (wake-agent API)")
-
-        # Wake self via CLI (hermes -z with context)
-        asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
-
+        # Wake self via CLI — only if broadcast or DM to self
+        wake_self = True
+        if is_dm and recipient != self.node.node_name:
+            wake_self = False
+            log.info(f"Skipping self-wake: DM to {recipient} (not self)")
+        
+        if wake_self:
+            total = 1 + len(peer_targets)  # self + peers
+            log.info(f"Waking {total} agent(s): self (CLI) + {len(peer_targets)} peers (wake-agent API)")
+            asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
+        else:
+            log.info(f"Waking {len(peer_targets)} peer agent(s) only (DM to {recipient})")
+        
         # Wake peers via wake-agent API (HTTP POST to peer's mesh node)
         for agent_name, wake_url in peer_targets:
             asyncio.ensure_future(self._call_wake_agent_api(agent_name, wake_url, payload, message))
@@ -207,7 +218,7 @@ class DashboardAgentsMixin:
             
             # Determine channel from recipient
             recipient = payload_data.get("recipient", "broadcast")
-            channel = "general" if recipient == "broadcast" else f"dm:{sender}"
+            channel = "general" if recipient == "broadcast" else f"dm:{recipient}"
             
             # Skip if sender is self (don't reply to own messages)
             if sender == self.node.node_name:

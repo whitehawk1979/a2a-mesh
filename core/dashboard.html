@@ -1681,8 +1681,12 @@ function addMessageToDOM(msg, scroll) {
     messageHistory = messageHistory.filter(function(m) { return m.type !== "agent_processing" && m.type !== "agent_timeout"; });
   }
   var isSent = msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId;
-  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId && msg.type !== "agent_reply" && msg.type !== "directive";
-  var isBroadcast = !msg.recipient || msg.recipient === "broadcast" || msg.type === "agent_reply" || msg.type === "directive";
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId && msg.type !== "agent_reply";
+  // Directives from web_dashboard with a specific recipient are DMs
+  if (!isDM && msg.type === "directive" && msg.recipient && msg.recipient !== "broadcast" && msg.source === "web_dashboard") {
+    isDM = true;
+  }
+  var isBroadcast = !isDM && (!msg.recipient || msg.recipient === "broadcast" || msg.type === "agent_reply" || msg.type === "directive");
 
   var cls = isSent ? "sent" : (msg.type === "agent_processing" ? "system" : (isDM ? "dm" : (isBroadcast ? "broadcast" : "received")));
   var pri = msg.priority || 5;
@@ -1792,7 +1796,12 @@ function addMessage(msg, scroll) {
 
   // Route message to the correct channel
   // Agent replies (even if recipient=nova) should appear in general chat (Telegram-like)
-  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.type !== "agent_reply" && msg.type !== "directive";
+  // But DM messages (recipient is a specific agent, not broadcast) go to DM channel
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId && msg.type !== "agent_reply";
+  // Directives from web_dashboard with a specific recipient are DMs
+  if (!isDM && msg.type === "directive" && msg.recipient && msg.recipient !== "broadcast" && msg.source === "web_dashboard") {
+    isDM = true;
+  }
   var channel;
 
   if (isDM) {
