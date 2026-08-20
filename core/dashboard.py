@@ -876,8 +876,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             return err
         result = {"memories": [], "categories": {}, "total": 0}
         try:
-            pool = self._get_pg_pool()
-            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool:
                 # Get non-heartbeat memories, grouped by memory_type
                 rows = await pool.fetch(
                     "SELECT id, sender_agent, recipient_agent, subject, content, "
@@ -915,8 +915,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         limit = min(int(request.query.get("limit", "50")), 200)
         result = {"logs": [], "total": 0, "type": log_type}
         try:
-            pool = self._get_pg_pool()
-            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool:
                 entries = []
                 if log_type in ("delegation", "all"):
                     rows = await pool.fetch(
