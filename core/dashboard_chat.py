@@ -333,6 +333,21 @@ class DashboardChatMixin:
         # Insert into PG for mesh-wide persistence (mesh_messages, not shared_a2a_memory)
         await self._insert_mesh_message(msg, user)
 
+        # MARVEEN: Inbox nudge — track unread for DM messages
+        if effective_recipient != "broadcast":
+            try:
+                from .inbox_nudge import record_unread
+                record_unread(msg.id, effective_recipient, msg.sender, content[:100])
+            except Exception as nudge_err:
+                log.warning(f"Inbox nudge failed: {nudge_err}")
+
+        # MARVEEN: Conversation log
+        try:
+            from .marveen_db import log_conversation
+            await log_conversation(msg.sender, "user", content[:1000])
+        except Exception as conv_err:
+            log.warning(f"Conversation log failed: {conv_err}")
+
         # Always wake agent for dashboard messages (user is waiting for reply)
         await self._wake_agent(msg)
 

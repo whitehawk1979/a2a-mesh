@@ -174,6 +174,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/agent-reply", self._api_agent_reply)
         # Wake-agent endpoint — peer nodes call this to wake the local agent
         app.router.add_post("/api/wake-agent", self._api_wake_agent)
+        # Agent-to-agent direct messaging — agents send messages to each other
+        app.router.add_post("/api/agent-message", self._api_agent_message)
         # Message management — delete
         app.router.add_delete("/api/messages/{msg_id}", self._api_delete_message)
         # Agent Registry endpoints

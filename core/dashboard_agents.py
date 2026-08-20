@@ -64,6 +64,22 @@ class DashboardAgentsMixin:
         recipient = message.recipient or "broadcast"
         is_dm = recipient != "broadcast"
         
+        # MARVEEN: Capability filtering — if message contains [capability:X] tags,
+        # only wake agents that have that capability
+        content_text = ""
+        try:
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            content_text = payload.get("text", str(message.payload))
+        except Exception:
+            content_text = str(getattr(message, 'payload', ''))
+        
+        import re as _re
+        capability_tags = _re.findall(r'\[capability:(\w+)\]', content_text)
+        capability_filter_active = len(capability_tags) > 0
+        
+        if capability_filter_active:
+            log.info(f"Capability filter active: {capability_tags}")
+        
         peer_targets = []
         try:
             for name, peer in self.node.peer_discovery.get_all_peers().items():
@@ -72,6 +88,20 @@ class DashboardAgentsMixin:
                     if is_dm and name != recipient:
                         log.info(f"Skipping wake for '{name}': DM to {recipient}")
                         continue
+                    # MARVEEN: Skip if capability filter active and peer lacks required caps
+                    if capability_filter_active:
+                        try:
+                            smart_router = getattr(self.node, 'smart_router', None)
+                            if smart_router and hasattr(smart_router, 'registry'):
+                                registry = smart_router.registry
+                                peer_card = registry.get(name)
+                                if peer_card:
+                                    peer_caps = set(peer_card.capabilities)
+                                    if not all(cap in peer_caps for cap in capability_tags):
+                                        log.info(f"Skipping wake for '{name}': missing capabilities {capability_tags}")
+                                        continue
+                        except Exception as cap_err:
+                            log.debug(f"Capability check failed for {name}: {cap_err}")
                     # Use the peer's health port for wake-agent API
                     # Fallback to 8650 (standard health port) if not set or equals P2P port
                     health_port = peer.health_port or 8650
@@ -160,14 +190,30 @@ class DashboardAgentsMixin:
             is_human = sender.lower() not in agent_names
             sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
             
+            # MARVEEN: Untrusted Framing — wrap peer content appropriately
+            try:
+                from .prompt_safety import wrap_untrusted, wrap_trusted_peer, UNTRUSTED_PREAMBLE
+                if sender != agent_name:
+                    if is_human:
+                        framed = wrap_untrusted(sender, content_text[:500])
+                    else:
+                        framed = wrap_trusted_peer(sender, content_text[:500])
+                else:
+                    framed = content_text[:500]
+                preamble = UNTRUSTED_PREAMBLE + "\n\n"
+            except Exception:
+                framed = content_text[:500]
+                preamble = ""
+            
             prompt = (
+                f"{preamble}"
                 f"Te egy A2A Mesh chat résztvevője vagy ({agent_name} 🤖). "
                 f"Ez egy közös chat session, mint egy Telegram csoport. "
                 f"A chatben emberi felhasználók (👤) és AI agentek (🤖) vesznek részt. "
                 f"Az emberi felhasználók (pl. Zsolt) írnak üzeneteket, az agentek válaszolnak. "
                 f"Látod a beszélgetés előzményeit és az új üzenetet.\n\n"
                 f"── Beszélgetés eddig ──\n{chat_context}\n\n"
-                f"── Új üzenet ──\n[{sender_tag}] {content_text[:500]}\n\n"
+                f"── Új üzenet ──\n[{sender_tag}] {framed}\n\n"
                 f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
                 f"Ha az üzenet emberi felhasználótól (👤) van, neki válaszolj. "
                 f"Ha egy másik agent (🤖) írt és nem hozzád szól, nem kell válaszolnod. "
@@ -185,6 +231,8 @@ class DashboardAgentsMixin:
                 "agent_name": agent_name,
                 "prompt": prompt,
                 "reply_endpoint": reply_endpoint,
+                "original_sender": message.sender,
+                "mesh_message_id": message.id,
             })
             
             async with aiohttp.ClientSession() as session:
@@ -281,10 +329,12 @@ class DashboardAgentsMixin:
             if clean_reply and reply_endpoint:
                 try:
                     import aiohttp as _aiohttp
+                    # MARVEEN: Reply to the original sender, not broadcast
+                    reply_recipient = original_message.sender if original_message.sender != self.node.node_name else "broadcast"
                     reply_body = json.dumps({
                         "sender": self.node.node_name,
                         "content": clean_reply[:2000],
-                        "recipient": "broadcast",
+                        "recipient": reply_recipient,
                         "priority": 5,
                         "reply_to": mesh_msg_id,
                     })
@@ -577,6 +627,21 @@ class DashboardAgentsMixin:
             # Insert into mesh_messages for persistence
             await self._insert_mesh_message(msg, auth_user=None)
 
+            # MARVEEN: Mark original message as read (inbox nudge)
+            if reply_to:
+                try:
+                    from .inbox_nudge import mark_read
+                    mark_read(reply_to)
+                except Exception as nudge_err:
+                    log.warning(f"Inbox mark_read failed: {nudge_err}")
+
+            # MARVEEN: Conversation log
+            try:
+                from .marveen_db import log_conversation
+                await log_conversation(sender, "assistant", content[:1000])
+            except Exception as conv_err:
+                log.warning(f"Conversation log failed: {conv_err}")
+
             # Broadcast to all connected dashboard users
             msg_dict = {
                 "id": msg.id,
@@ -690,10 +755,12 @@ class DashboardAgentsMixin:
                 if clean_reply and reply_endpoint:
                     try:
                         import aiohttp as _aiohttp
+                        # MARVEEN: Reply to the original sender, not broadcast
+                        original_sender = body.get("original_sender", "broadcast")
                         reply_body = json.dumps({
                             "sender": agent_name,
                             "content": clean_reply[:2000],
-                            "recipient": "broadcast",
+                            "recipient": original_sender,
                             "priority": 5,
                             "reply_to": body.get("mesh_message_id", ""),
                         })
@@ -779,3 +846,70 @@ class DashboardAgentsMixin:
         )
         
         return web.json_response(card.to_dict())
+
+    async def _api_agent_message(self, request):
+        """POST /api/agent-message — Agent-to-agent direct messaging.
+        
+        Agents send messages to each other through this endpoint.
+        Uses shared-secret auth (same as wake-agent).
+        """
+        from aiohttp import web
+        try:
+            body = await request.json()
+            
+            # Shared-secret auth (internal mesh)
+            provided_secret = body.get("mesh_secret", "")
+            if provided_secret != "mesh-wake-secret-2026":
+                return web.json_response({"error": "Unauthorized"}, status=401)
+            
+            from_agent = body.get("from_agent", "")
+            to_agent = body.get("to_agent", "")
+            content = body.get("content", "")
+            msg_type = body.get("msg_type", "directive")
+            priority = int(body.get("priority", 5))
+            
+            if not content.strip() or not to_agent:
+                return web.json_response({"error": "Missing content or to_agent"}, status=400)
+            
+            # Create and send A2A message
+            from .message import A2AMessage, MSG_TYPE_DIRECTIVE
+            msg = A2AMessage(
+                sender=from_agent or self.node.node_name,
+                recipient=to_agent,
+                type=MSG_TYPE_DIRECTIVE if msg_type == "directive" else msg_type,
+                priority=priority,
+                payload={
+                    "text": content,
+                    "source": "agent_message",
+                    "from_agent": from_agent,
+                    "original_sender": from_agent,
+                },
+            )
+            
+            result = await self.node.router.send(msg)
+            
+            # Insert into PG
+            await self._insert_mesh_message(msg, auth_user=None)
+            
+            # Wake the target agent
+            await self._wake_agent(msg)
+            
+            # Conversation log
+            try:
+                from .marveen_db import log_conversation
+                await log_conversation(from_agent or self.node.node_name, "user", content[:1000])
+            except Exception:
+                pass
+            
+            log.info(f"Agent message: {from_agent}→{to_agent}: {content[:80]}")
+            return web.json_response({
+                "status": "sent",
+                "message_id": msg.id,
+                "from": from_agent,
+                "to": to_agent,
+                "result": str(result),
+            })
+            
+        except Exception as e:
+            log.error(f"Agent message failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
