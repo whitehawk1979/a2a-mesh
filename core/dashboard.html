@@ -3001,7 +3001,8 @@ function loadMarveenPage(page) {
     html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Transport:</strong> ' + (transport === 'streamable_http' ? '🌐 HTTP' : '📦 STDIO') + '</div>';
     if (s.url) html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">URL:</strong><br><code style="font-size:11px;word-break:break-all">' + esc(s.url) + '</code></div>';
     if (s.command) {
-      html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Parancs:</strong><br><code style="font-size:11px">' + esc(s.command) + ' ' + esc((s.args || []).join(' ')) + '</code></div>';
+      var argsStr = Array.isArray(s.args) ? s.args.join(' ') : (typeof s.args === 'string' ? s.args : '');
+      html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Parancs:</strong><br><code style="font-size:11px">' + esc(s.command) + ' ' + esc(argsStr) + '</code></div>';
     }
     html += '<div style="margin-bottom:12px"><strong style="color:var(--text)">Státusz:</strong> ' + (s.enabled !== false ? '✅ aktív' : '⏸️ inaktív') + '</div>';
     if (s.env_keys && s.env_keys.length) {
@@ -3465,7 +3466,7 @@ function loadMarveenPage(page) {
               '<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">' + stBadge + ' ' + credBadge + '</div>' +
               '<div style="font-size:11px;color:var(--text3);margin-bottom:2px"><strong>' + transLabel + '</strong></div>';
             if (url) cardContent += '<div style="font-size:10px;color:var(--text3);word-break:break-all">🔗 ' + esc(url) + '</div>';
-            if (command) cardContent += '<div style="font-size:10px;color:var(--text3)">$ ' + esc(command) + ' ' + esc((s.args || []).join(' ')) + '</div>';
+            if (command) cardContent += '<div style="font-size:10px;color:var(--text3)">$ ' + esc(command) + ' ' + esc(Array.isArray(s.args) ? s.args.join(' ') : (typeof s.args === 'string' ? s.args : '')) + '</div>';
             if (s.env_keys && s.env_keys.length) cardContent += '<div style="font-size:10px;color:var(--warning);margin-top:2px">Env: ' + esc(s.env_keys.join(', ')) + '</div>';
             cardContent += installBtn;
 
