@@ -102,32 +102,56 @@ class FederationManager:
         discovered = []
         import socket
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.01)
+            # Get local IP reliably (not 127.0.0.1)
+            local_ip = None
+            try:
+                s_test = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s_test.connect(("8.8.8.8", 80))
+                local_ip = s_test.getsockname()[0]
+                s_test.close()
+            except Exception:
+                pass
+            if not local_ip or local_ip.startswith("127."):
+                local_ip = "192.168.1.8"  # fallback Nova LAN IP
             
-            hostname = socket.gethostname()
-            local_ip = socket.gethostbyname(hostname)
-            subnet = "".join(local_ip.split(".")[:-1]) + "."
+            subnet = ".".join(local_ip.split(".")[:3]) + "."
             
-            log.info(f"Scanning LAN subnet {subnet}0/24 on port {port}...")
+            log.info(f"Scanning LAN subnet {subnet}0/24 on port {port} (local_ip={local_ip})...")
             
-            for i in range(1, 255):
-                target = f"{subnet}{i}"
+            import asyncio as aio
+            async def probe(ip_addr):
                 try:
-                    if s.connect_ex((target, port)) == 0:
-                        async with aiohttp.ClientSession() as session:
-                            async with session.get(f"http://{target}:{port}/api/overview", timeout=0.5) as resp:
-                                if resp.status == 200:
-                                    data = await resp.json()
-                                    discovered.append({
-                                        "name": data.get("node_name", target),
-                                        "address": target,
-                                        "port": port,
-                                        "status": "discovered"
-                                    })
-                except:
+                    # Quick TCP connect check
+                    conn = await aio.open_connection(ip_addr, port)
+                    conn.close()
+                    # Fetch node info
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"http://{ip_addr}:{port}/api/health", timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                node_name = data.get("node", ip_addr)
+                                # Skip self
+                                if node_name == self.node_name:
+                                    return None
+                                return {
+                                    "name": node_name,
+                                    "address": ip_addr,
+                                    "port": port,
+                                    "status": "discovered",
+                                    "version": data.get("version", "?"),
+                                    "peers": data.get("peers", {})
+                                }
+                except Exception:
                     pass
-            s.close()
+                return None
+            
+            tasks = [probe(f"{subnet}{i}") for i in range(1, 255)]
+            results = await aio.gather(*tasks, return_exceptions=True)
+            for r in results:
+                if r and r is not None:
+                    discovered.append(r)
+            
+            log.info(f"LAN discovery found {len(discovered)} nodes")
         except Exception as e:
             log.error(f"LAN discovery failed: {e}")
             
