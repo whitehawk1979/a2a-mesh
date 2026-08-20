@@ -57,6 +57,21 @@ class DashboardUser:
         }
 
 
+
+def _serialize_pg_rows(rows):
+    """Convert asyncpg Record rows to JSON-safe dicts (datetime → isoformat)."""
+    import datetime
+    result = []
+    for r in rows:
+        d = dict(r)
+        for k, v in d.items():
+            if isinstance(v, (datetime.datetime, datetime.date)):
+                d[k] = v.isoformat()
+            elif isinstance(v, bytes):
+                d[k] = v.decode('utf-8', errors='replace')
+        result.append(d)
+    return result
+
 class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin, ConfigSyncMixin, RecoveryNotesMixin):
     """Handles web dashboard HTTP and WebSocket requests.
 
@@ -549,7 +564,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                         "SELECT id, board_id, title, assignee, priority, created_at "
                         "FROM mesh.kanban_cards WHERE status = 'pending_approval' ORDER BY created_at DESC LIMIT 20"
                     )
-                    result["pending_cards"] = [dict(r) for r in rows]
+                    result["pending_cards"] = _serialize_pg_rows(rows)
                 except Exception:
                     result["pending_cards"] = []
         except Exception as e:
@@ -572,7 +587,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     "WHERE msg_type NOT IN ('heartbeat','skills_announcement','diagnostic_report') "
                     "ORDER BY created_at DESC LIMIT 30"
                 )
-                result["activities"] = [dict(r) for r in rows]
+                result["activities"] = _serialize_pg_rows(rows)
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
@@ -593,13 +608,13 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     "SELECT suggestion_id, node, category, priority, title, description, status, created_at "
                     "FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT 20"
                 )
-                result["suggestions"] = [dict(r) for r in rows]
+                result["suggestions"] = _serialize_pg_rows(rows)
                 try:
                     ideas = await pool.fetch(
                         "SELECT id, sender, receiver, task_desc, status, created_at "
                         "FROM shared_delegations WHERE status = 'pending' ORDER BY created_at DESC LIMIT 10"
                     )
-                    result["ideas"] = [dict(r) for r in ideas]
+                    result["ideas"] = _serialize_pg_rows(ideas)
                 except Exception:
                     pass
             else:
@@ -672,7 +687,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     "SELECT node_name, host, p2p_port, status, last_heartbeat "
                     "FROM mesh.mesh_nodes ORDER BY node_name"
                 )
-                result["fleet_status"]["nodes"] = [dict(r) for r in rows]
+                result["fleet_status"]["nodes"] = _serialize_pg_rows(rows)
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
