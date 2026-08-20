@@ -3027,7 +3027,7 @@ function loadMarveenPage(page) {
     var body = document.getElementById('marveenModalBody');
     if (!body) return;
     try {
-      var l = JSON.parse(detailJson.replace(/&#39;/g, "'"));
+      var l = JSON.parse(detailJson.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\\'/g, "'"));
     } catch(e) {
       body.innerHTML = '<div style="color:var(--danger);">Nem sikerült elemezni a bejegyzést</div>';
       return;
@@ -3219,8 +3219,8 @@ function loadMarveenPage(page) {
         var fromA = esc(l.from_agent || '');
         var toA = esc(l.to_agent || l.assigned_agent || '');
         var lid = esc(l.id || l.task_id || '');
-        // Build detail JSON for the modal
-        var detailJson = esc(JSON.stringify(l).replace(/'/g, "&#39;"));
+        // Build detail JSON for the modal — escape only single quotes for HTML attribute
+        var detailJson = JSON.stringify(l).replace(/'/g, "\\'").replace(/"/g, '&quot;');
         html += '<div onclick="showLogDetail(\'' + lid + '\', \'' + detailJson + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:6px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
         html += '<div style="display:flex;align-items:center;gap:8px;">';
         html += '<span style="font-size:16px;">' + typeIcon + '</span>';
