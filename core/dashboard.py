@@ -702,7 +702,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         result = {"nodes": [], "total_servers": 0, "total_tools": 0}
         try:
             # 1. Collect local MCP servers from config.yaml
-            local_node = getattr(self.node, 'name', 'unknown')
+            local_node = getattr(getattr(self.node, 'config', None), 'node_name', '') or self.node.get_status().get('node', 'unknown')
             local_servers = []
             config_path = _os.path.expanduser("~/.hermes/config.yaml")
             if _os.path.exists(config_path):
@@ -730,7 +730,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             
             result["nodes"].append({
                 "node": local_node,
-                "host": getattr(self.node, 'host', ''),
+                "host": getattr(getattr(self.node, 'config', None), 'listen_host', '') or getattr(getattr(self.node, 'config', None), 'host', ''),
                 "status": "local",
                 "mcp_servers": local_servers
             })
@@ -766,7 +766,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             try:
                 import json as _json2
                 payload = _json2.dumps({
-                    "host": getattr(self.node, 'host', ''),
+                    "host": getattr(getattr(self.node, 'config', None), 'listen_host', '') or getattr(getattr(self.node, 'config', None), 'host', ''),
                     "servers": [{"name": s["name"], "enabled": s["enabled"], "transport": s["transport"],
                                  "url": s["url"], "command": s["command"], "args": s.get("args", []),
                                  "env_keys": s.get("env_keys", []), "has_credentials": s.get("has_credentials", False)}
