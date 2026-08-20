@@ -686,9 +686,321 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787121436.7259
+      },
+      {
+        "id": "card-1787213877723-35",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787213877.723694,
+        "updated_at": 1787213877.7338529,
+        "created_by": "unknown",
+        "delegation_task_id": "647c3986-f23f-4608-b6f1-c8d373259aa2",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.733849
+          }
+        ]
+      },
+      {
+        "id": "card-1787213877755-36",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213877.75599,
+        "updated_at": 1787213877.765069,
+        "created_by": "unknown",
+        "delegation_task_id": "7d3d97eb-531e-45b6-9466-7712e8ace88e",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.765065
+          }
+        ]
+      },
+      {
+        "id": "card-1787213877788-37",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213877.7884722,
+        "updated_at": 1787213877.796253,
+        "created_by": "unknown",
+        "delegation_task_id": "486443e8-21b8-45f6-a185-a776df90eb61",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.7962492
+          }
+        ]
+      },
+      {
+        "id": "card-1787213877817-38",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787213877.8171031,
+        "updated_at": 1787213877.8256052,
+        "created_by": "unknown",
+        "delegation_task_id": "bddaa4c9-e5ce-4161-931f-485fde6ad19c",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.825602
+          }
+        ]
+      },
+      {
+        "id": "card-1787213877842-39",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787213877.842367,
+        "updated_at": 1787213877.851278,
+        "created_by": "unknown",
+        "delegation_task_id": "03cdecaf-0a36-4934-9215-53c1cff65a8d",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.851275
+          }
+        ]
+      },
+      {
+        "id": "card-1787213877869-40",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213877.869784,
+        "updated_at": 1787213877.877538,
+        "created_by": "unknown",
+        "delegation_task_id": "1210e9b3-c94f-4a4d-a42e-bdbccebd9233",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.8775349
+          }
+        ]
+      },
+      {
+        "id": "card-1787213877948-41",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787213877.9486458,
+        "updated_at": 1787213877.955843,
+        "created_by": "unknown",
+        "delegation_task_id": "06723bbe-00fc-4a2c-8bf0-ed599145f798",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.955841
+          }
+        ]
+      },
+      {
+        "id": "card-1787213878017-42",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787213878.0180118,
+        "updated_at": 1787213878.027319,
+        "created_by": "unknown",
+        "delegation_task_id": "040eee1c-8b2f-4070-b7eb-febeb75afea5",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.0273159
+          }
+        ]
+      },
+      {
+        "id": "card-1787213878043-43",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787213878.043353,
+        "updated_at": 1787213878.052611,
+        "created_by": "unknown",
+        "delegation_task_id": "169d9b9a-2050-4434-acf9-0a41b5abc3b5",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.052608
+          }
+        ]
+      },
+      {
+        "id": "card-1787213878076-44",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1787213878.076677,
+        "updated_at": 1787213878.084411,
+        "created_by": "unknown",
+        "delegation_task_id": "fc31c6bf-6610-4fe2-aef7-58f0018f2b38",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.084408
+          }
+        ]
+      },
+      {
+        "id": "card-1787213878102-45",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213878.102554,
+        "updated_at": 1787213878.1124978,
+        "created_by": "unknown",
+        "delegation_task_id": "defcda7a-cea1-4007-830f-283f8b06cb70",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.1124961
+          }
+        ]
+      },
+      {
+        "id": "card-1787213878128-46",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1787213878.128469,
+        "updated_at": 1787213878.1361768,
+        "created_by": "unknown",
+        "delegation_task_id": "0390bf0f-1351-412a-8202-c266183ab77f",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.1361752
+          }
+        ]
+      },
+      {
+        "id": "card-1787213878151-47",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213878.151444,
+        "updated_at": 1787213878.1588511,
+        "created_by": "unknown",
+        "delegation_task_id": "bfafde68-1258-4b61-8b69-b5190a50b1f5",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.158848
+          }
+        ]
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787121366.631045
+    "updated_at": 1787213878.1514518
   }
 ]

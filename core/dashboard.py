@@ -310,6 +310,12 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Federation
         app.router.add_get("/api/federation", self._api_federation_status)
         app.router.add_post("/api/federation/peer", self._api_federation_add)
+        app.router.add_delete("/api/federation/peer/{name}", self._api_federation_remove)
+        app.router.add_post("/api/federation/connect", self._api_federation_connect)
+        app.router.add_post("/api/federation/discover", self._api_federation_discover)
+        app.router.add_get("/api/federation/capabilities/{name}", self._api_federation_capabilities)
+        app.router.add_post("/api/federation/trust/{name}", self._api_federation_trust)
+        app.router.add_get("/api/federation/health/{name}", self._api_federation_health)
         # Model Suggest
         app.router.add_get("/api/model-suggest", self._api_model_suggest)
         app.router.add_get("/api/model-suggest/{node}", self._api_model_suggest_node)

@@ -3149,18 +3149,131 @@ function loadMarveenPage(page) {
     if (title) title.textContent = '📋 Napló bejegyzés';
   }
 
-  // ─── Log filter (exposed to global scope) ───
-  window.filterLogs = function(type) {
+  // ─── Federation actions (exposed to global scope) ───
+  window.federationAction = function(action, name) {
     var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-    fetch('/api/logs-page?type=' + type + '&limit=50', { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(function(r) { return r.json(); })
+    var url = '/api/federation';
+    var method = 'POST';
+    var body = null;
+
+    if (action === 'remove') {
+      url += '/peer/' + encodeURIComponent(name);
+      method = 'DELETE';
+    } else if (action === 'connect') {
+      body = JSON.stringify({name: name});
+    } else if (action === 'discover') {
+      // laremos a current page-t, hogy frissuljön a nézet
+      loadMarveenPage('federation');
+      // call the api in background
+      fetch(url + '/discover', {
+        method: 'POST',
+        headers: {'Authorization': 'Bearer ' + token}
+      }).then(function() { loadMarveenPage('federation'); });
+      return;
+    } else if (action === 'trust') {
+      url += '/trust/' + encodeURIComponent(name);
+      body = JSON.stringify({level: 'trusted'}); // simple toggle for now
+    }
+
+    fetch(url, {
+      method: method,
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+      body: body
+    }).then(function(r) { return r.json(); })
       .then(function(d) {
-        var body = document.getElementById('marveenModalBody');
-        if (!body) return;
-        if (d.error) { body.innerHTML = errorBox(d.error); return; }
-        body.innerHTML = renderers.naplo(d);
-      }).catch(function(e) { alert('Hiba: ' + e); });
-  }
+        if (d.success) {
+          loadMarveenPage('federation');
+        } else {
+          alert('❌ Hiba: ' + (d.error || 'ismeretlen'));
+        }
+      }).catch(function(e) { alert('❌ Hálózati hiba: ' + e.message); });
+  };
+
+  window.showFederationAddModal = function() {
+    var body = document.getElementById('marveenModalBody');
+    if (!body) return;
+    var title = document.getElementById('marveenModalTitle');
+    if (title) title.textContent = '🌐 Új Federált Peer';
+    
+    var html = '<div style=\"padding:16px;display:flex;flex-direction:column;gap:12px\">';
+    html += '<div><label style=\"display:block;font-size:12px;color:var(--text3);margin-bottom:4px\">Név</label>';
+    html += '<input type=\"text\" id=\"fedPeerName\" style=\"width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);\"></div>';
+    html += '<div><label style=\"display:block;font-size:12px;color:var(--text3);margin-bottom:4px\">Host / IP</label>';
+    html += '<input type=\"text\" id=\"fedPeerHost\" style=\"width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);\"></div>';
+    html += '<div><label style=\"display:block;font-size:12px;color:var(--text3);margin-bottom:4px\">Port</label>';
+    html += '<input type=\"text\" id=\"fedPeerPort\" value=\"8650\" style=\"width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px;color:var(--text);\"></div>';
+    html += '<div style=\"display:flex;align-items:center;gap:8px;margin-top:8px\">';
+    html += '<input type=\"checkbox\" id=\"fedPeerSsh\" style=\"cursor:pointer;\"> <label for=\"fedPeerSsh\" style=\"font-size:12px;color:var(--text);cursor:pointer;\">SSH Tünnel használata</label></div>';
+    html += '<div style=\"display:flex;gap:8px;justify-content:flex-end;margin-top:16px\">';
+    html += '<button onclick=\"closeMarveenModal()\" style=\"background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;\">Mégsem</button>';
+    html += '<button onclick=\"submitFederationAdd()\" style=\"background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:600\">Hozzáadás</button>';
+    html += '</div></div>';
+    
+    body.innerHTML = html;
+    document.getElementById('marveenModal').style.display = 'flex';
+  };
+
+  window.submitFederationAdd = function() {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var data = {
+      name: document.getElementById('fedPeerName').value,
+      address: document.getElementById('fedPeerHost').value,
+      port: parseInt(document.getElementById('fedPeerPort').value) || 8650,
+      ssh_tunnel: document.getElementById('fedPeerSsh').checked
+    };
+    
+    if (!data.name || !data.address) { alert('Kérjük, adjad meg a nevet és a hostot!'); return; }
+    
+    fetch('/api/federation/peer', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+      body: JSON.stringify(data)
+    }).then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.name) {
+          closeMarveenModal();
+          loadMarveenPage('federation');
+        } else {
+          alert('❌ Hiba: ' + (d.error || 'ismeretlen'));
+        }
+      }).catch(function(e) { alert('❌ Hálózati hiba: ' + e.message); });
+  };
+
+  window.showFederationDetail = function(name) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var body = document.getElementById('marveenModalBody');
+    if (!body) return;
+    var title = document.getElementById('marveenModalTitle');
+    if (title) title.textContent = '🌐 ' + name + ' — Részletek';
+    
+    body.innerHTML = '<div style=\"text-align:center;padding:40px;color:var(--text3)\">Betöltés...</div>';
+    document.getElementById('marveenModal').style.display = 'flex';
+    
+    // Fetch health and capabilities in parallel
+    Promise.all([
+      fetch('/api/federation/health/' + encodeURIComponent(name), { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json()),
+      fetch('/api/federation/capabilities/' + encodeURIComponent(name), { headers: { 'Authorization': 'Bearer ' + token } }).then(r => r.json())
+    ]).then(function(results) {
+      var health = results[0];
+      var caps = results[1].capabilities || [];
+      
+      var html = '<div style=\"padding:16px\">';
+      html += '<div style=\"margin-bottom:12px\"><strong style=\"color:var(--text)\">Státusz:</strong> ' + (health.status === 'online' ? '✅ online' : '❌ offline') + '</div>';
+      html += '<div style=\"margin-bottom:12px\"><strong style=\"color:var(--text)\">Utolsó jel:</strong> ' + fmtTime(health.last_seen) + '</div>';
+      html += '<div style=\"margin-bottom:12px\"><strong style=\"color:var(--text)\">Képességek:</strong></div>';
+      if (caps.length) {
+        html += '<div style=\"display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;\">';
+        caps.forEach(function(c) { html += badge(c, 'var(--primary)'); });
+        html += '</div>';
+      } else {
+        html += '<div style=\"font-size:12px;color:var(--text3);margin-top:8px;\">Nincs lekérdezett képesség</div>';
+      }
+      html += '</div>';
+      body.innerHTML = html;
+    }).catch(function(e) {
+      body.innerHTML = errorBox('Hiba a részletek lekérése közben: ' + e.message);
+    });
+  };
 
   var renderers = {
     kanban: function(d) {
@@ -3501,16 +3614,54 @@ function loadMarveenPage(page) {
 
     federation: function(d) {
       if (d.error) return errorBox(d.error);
-      var nodes = d.nodes || d.peers || d.federation || [];
-      var html = card('<div style="display:flex;gap:16px;justify-content:center;">' +
-        '<div style="text-align:center;"><div style="font-size:24px;font-weight:700;">' + (nodes.length || 0) + '</div><div style="color:var(--text3);font-size:11px;">Node-ok</div></div>' +
-        '<div style="text-align:center;"><div style="font-size:24px;font-weight:700;color:var(--primary)">' + (nodes.filter(function(n){return n.status==='connected'||n.status==='active'}).length) + '</div><div style="color:var(--text3);font-size:11px;">Aktív</div></div></div>');
-      if (nodes.length) {
-        html += table(['Node', 'Host', 'Státusz', 'Heartbeat'], nodes.map(function(n) {
-          var st = n.status || 'unknown';
-          var sc = st === 'connected' || st === 'active' ? 'var(--primary)' : st === 'offline' ? 'var(--danger)' : 'var(--text3)';
-          return [esc(n.node_name || n.name || n.id), esc(n.host || '—'), badge(st, sc), fmtTime(n.last_heartbeat)];
-        }));
+      var peers = d.peers || [];
+      var activeCount = d.active_count || 0;
+      var tunnelCount = d.tunnel_count || 0;
+      
+      var html = '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += statBox('Peerek', peers.length);
+      html += statBox('Aktívak', activeCount, 'var(--success)');
+      html += statBox('Tünnelek', tunnelCount, 'var(--primary)');
+      html += '</div>';
+      
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px; justify-content:flex-end;">';
+      html += '<button onclick="federationAction(\'discover\')" style="background:var(--primary);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">🔍 Felfedezés</button>';
+      html += '<button onclick="showFederationAddModal()" style="background:var(--success);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">➕ Új Peer</button>';
+      html += '</div>';
+      
+      if (!peers.length) {
+        html += empty('Nincs konfigurált federált peer');
+      } else {
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));gap:12px;">';
+        peers.forEach(function(p) {
+          var st = p.status || 'unknown';
+          var stColor = st === 'online' ? 'var(--success)' : st === 'offline' ? 'var(--danger)' : 'var(--text3)';
+          var trustColor = p.trust === 'trusted' ? 'var(--success)' : p.trust === 'untrusted' ? 'var(--danger)' : 'var(--warning)';
+          
+          var cardInner = '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">' +
+            '<div>' +
+            '<div style="font-weight:700;font-size:14px;">' + esc(p.name) + ' ' + badge(p.trust, trustColor) + '</div>' +
+            '<div style="font-size:12px;color:var(--text3);">' + esc(p.address) + ':' + esc(p.port) + '</div>' +
+            '</div>' +
+            '<div>' + badge(st, stColor) + '</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:8px;margin-bottom:12px;font-size:11px;color:var(--text3);">' +
+            '<span>Kötés: ' + (p.ssh_tunnel ? 'Tünnel' : 'Közvetlen') + '</span>' +
+            '<span>Képességek: ' + (p.capabilities ? p.capabilities.length : 0) + '</span>' +
+            '<span>Utolsó: ' + fmtTime(p.last_seen) + '</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:6px;justify-content:flex-end;">' +
+            '<button onclick="federationAction(\'connect\', \'' + esc(p.name) + '\')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">🔌 Csatlakozás</button>' +
+            '<button onclick="federationAction(\'trust\', \'' + esc(p.name) + '\')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">🛡️ Trust</button>' +
+            '<button onclick="federationAction(\'remove\', \'' + esc(p.name) + '\')" style="background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">🗑️ Törlés</button>' +
+            '</div>' +
+            '<div style="text-align:right;margin-top:8px;">' +
+            '<a href="#" onclick="showFederationDetail(\'' + esc(p.name) + '\')" style="color:var(--primary);font-size:11px;text-decoration:none;">Részletek ❯</a>' +
+            '</div>';
+          
+          html += card(cardInner);
+        });
+        html += '</div>';
       }
       return html;
     },

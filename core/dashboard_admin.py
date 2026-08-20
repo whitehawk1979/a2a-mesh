@@ -2461,18 +2461,89 @@ class DashboardAdminMixin:
     async def _api_federation_status(self, request):
         """GET /api/federation — Federation status."""
         from aiohttp import web
-        from .federation import get_federation_status
-        return web.json_response(get_federation_status())
+        from .federation import manager
+        return web.json_response(manager.get_status())
 
     async def _api_federation_add(self, request):
         """POST /api/federation/peer — Add federated peer."""
         from aiohttp import web
-        from .federation import add_federation_peer
+        from .federation import manager
         data = await request.json()
-        return web.json_response(add_federation_peer(
+        return web.json_response(manager.add_peer(
             data.get("name", ""), data.get("address", ""),
             data.get("port", 8650), data.get("ssh_tunnel", False)
         ))
+
+    async def _api_federation_remove(self, request):
+        """DELETE /api/federation/peer/{name} — Remove peer."""
+        from aiohttp import web
+        from .federation import manager
+        name = request.match_info.get("name", "")
+        success = manager.remove_peer(name)
+        return web.json_response({"success": success})
+
+    async def _api_federation_connect(self, request):
+        """POST /api/federation/connect — Start SSH tunnel."""
+        from aiohttp import web
+        from .federation import manager
+        data = await request.json()
+        name = data.get("name", "")
+        peer = next((p for p in manager.get_config()["peers"] if p["name"] == name), None)
+        if not peer:
+            return web.json_response({"error": "Peer not found"}, status=404)
+        
+        success = manager.bridge.start_tunnel(
+            name, peer["address"], peer["port"], 8650
+        )
+        return web.json_response({"success": success})
+
+    async def _api_federation_discover(self, request):
+        """POST /api/federation/discover — LAN auto-discover."""
+        from aiohttp import web
+        from .federation import manager
+        discovered = await manager.discover_lan()
+        return web.json_response({"discovered": discovered})
+
+    async def _api_federation_capabilities(self, request):
+        """GET /api/federation/capabilities/{name} — Remote mesh capabilities."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err: return err
+        from .federation import manager
+        name = request.match_info.get("name", "")
+        peer = next((p for p in manager.get_config()["peers"] if p["name"] == name), None)
+        if not peer:
+            return web.json_response({"error": "Peer not found"}, status=404)
+        
+        caps = await manager.fetch_capabilities(peer)
+        return web.json_response({"capabilities": caps})
+
+    async def _api_federation_trust(self, request):
+        """POST /api/federation/trust/{name} — Set trust level."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err: return err
+        from .federation import manager
+        name = request.match_info.get("name", "")
+        data = await request.json()
+        level = data.get("level", "discovered")
+        success = manager.set_trust(name, level)
+        return web.json_response({"success": success})
+
+    async def _api_federation_health(self, request):
+        """GET /api/federation/health/{name} — Remote mesh health."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err: return err
+        from .federation import manager
+        name = request.match_info.get("name", "")
+        peer = next((p for p in manager.get_config()["peers"] if p["name"] == name), None)
+        if not peer:
+            return web.json_response({"error": "Peer not found"}, status=404)
+        
+        health = await manager.check_health(peer)
+        return web.json_response(health)
+
 
     async def _api_model_suggest(self, request):
         """GET /api/model-suggest — All model suggestions."""

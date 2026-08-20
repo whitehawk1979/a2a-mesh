@@ -1,84 +1,184 @@
-"""
-Federation — inter-mesh federation for connecting separate mesh clusters.
-
-Inspired by Marveen's federation:
-  - Bridge: connect to remote mesh via SSH tunnel
-  - Capabilities: exchange capability summaries between meshes
-  - Poller: periodic poll of remote mesh status
-  - Onboarding: enroll new mesh nodes
-
-For A2A Mesh:
-  - Connect multiple A2A Mesh clusters (e.g., home + office)
-  - Exchange node capabilities
-  - Cross-mesh delegation
-"""
+# Federation — inter-mesh federation for connecting separate mesh clusters.
+# Inspired by Marveen's federation system.
 
 import time
 import logging
 import json
 import os
+import asyncio
+import aiohttp
+import subprocess
+from typing import Dict, List, Optional, Any
 
 log = logging.getLogger("federation")
 
 FEDERATION_CONFIG = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/federation.json")
 
+class FederationBridge:
+    """Handles SSH tunnels to remote meshes."""
+    def __init__(self):
+        self.tunnels: Dict[str, subprocess.Popen] = {}
 
-def get_federation_config():
-    """Get federation configuration."""
-    try:
-        with open(FEDERATION_CONFIG, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"peers": [], "enabled": False}
+    def start_tunnel(self, peer_name: str, remote_host: str, remote_port: int, local_port: int = 8650):
+        """Starts an SSH tunnel to the remote mesh."""
+        # Simple SSH tunnel command: ssh -L local_port:localhost:remote_port user@remote_host -N
+        cmd = ["ssh", "-L", f"{local_port}:localhost:{remote_port}", remote_host, "-N"]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.tunnels[peer_name] = proc
+            log.info(f"SSH tunnel started for {peer_name} ({remote_host})")
+            return True
+        except Exception as e:
+            log.error(f"Failed to start SSH tunnel for {peer_name}: {e}")
+            return False
 
+    def stop_tunnel(self, peer_name: str):
+        """Stops the SSH tunnel for a peer."""
+        proc = self.tunnels.pop(peer_name, None)
+        if proc:
+            proc.terminate()
+            log.info(f"SSH tunnel stopped for {peer_name}")
 
-def add_federation_peer(name, address, port=8650, ssh_tunnel=False):
-    """Add a federated peer mesh."""
-    config = get_federation_config()
-    peer = {
-        "name": name,
-        "address": address,
-        "port": port,
-        "ssh_tunnel": ssh_tunnel,
-        "added_at": time.time(),
-        "status": "unknown",
-    }
-    # Remove existing with same name
-    config["peers"] = [p for p in config["peers"] if p["name"] != name]
-    config["peers"].append(peer)
-    _save_config(config)
-    return peer
+    def stop_all(self):
+        """Stop all active tunnels."""
+        for name in list(self.tunnels.keys()):
+            self.stop_tunnel(name)
 
+class FederationManager:
+    """Manages federation peers, health, and capabilities."""
+    def __init__(self):
+        self.bridge = FederationBridge()
+        self.health_status = {}
 
-def remove_federation_peer(name):
-    """Remove a federated peer."""
-    config = get_federation_config()
-    before = len(config["peers"])
-    config["peers"] = [p for p in config["peers"] if p["name"] != name]
-    _save_config(config)
-    return len(config["peers"]) < before
+    def get_config(self) -> dict:
+        try:
+            with open(FEDERATION_CONFIG, "r") as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {"peers": [], "enabled": False}
 
+    def save_config(self, config: dict):
+        os.makedirs(os.path.dirname(FEDERATION_CONFIG), exist_ok=True)
+        with open(FEDERATION_CONFIG, "w") as f:
+            json.dump(config, f, indent=2)
 
-def get_federation_status():
-    """Get federation status for dashboard."""
-    config = get_federation_config()
-    return {
-        "enabled": config.get("enabled", False),
-        "peer_count": len(config.get("peers", [])),
-        "peers": [
-            {
-                "name": p["name"],
-                "address": p["address"],
-                "port": p.get("port", 8650),
-                "status": p.get("status", "unknown"),
-                "ssh_tunnel": p.get("ssh_tunnel", False),
-            }
-            for p in config.get("peers", [])
-        ],
-    }
+    def add_peer(self, name: str, address: str, port: int = 8650, ssh_tunnel: bool = False):
+        config = self.get_config()
+        peer = {
+            "name": name,
+            "address": address,
+            "port": port,
+            "ssh_tunnel": ssh_tunnel,
+            "trust": "discovered", # trusted, untrusted, discovered
+            "added_at": time.time(),
+            "status": "unknown",
+            "capabilities": [],
+            "last_seen": 0
+        }
+        config["peers"] = [p for p in config["peers"] if p["name"] != name]
+        config["peers"].append(peer)
+        self.save_config(config)
+        return peer
 
+    def remove_peer(self, name: str):
+        config = self.get_config()
+        peers_before = len(config["peers"])
+        config["peers"] = [p for p in config["peers"] if p["name"] != name]
+        self.bridge.stop_tunnel(name)
+        self.save_config(config)
+        return len(config["peers"]) < peers_before
 
-def _save_config(config):
-    os.makedirs(os.path.dirname(FEDERATION_CONFIG), exist_ok=True)
-    with open(FEDERATION_CONFIG, "w") as f:
-        json.dump(config, f, indent=2)
+    def set_trust(self, name: str, level: str):
+        config = self.get_config()
+        for p in config["peers"]:
+            if p["name"] == name:
+                p["trust"] = level
+                self.save_config(config)
+                return True
+        return False
+
+    async def discover_lan(self, port: int = 8650) -> List[dict]:
+        """Scans local network for mesh nodes on specified port."""
+        discovered = []
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.01)
+            
+            hostname = socket.gethostname()
+            local_ip = socket.gethostbyname(hostname)
+            subnet = "".join(local_ip.split(".")[:-1]) + "."
+            
+            log.info(f"Scanning LAN subnet {subnet}0/24 on port {port}...")
+            
+            for i in range(1, 255):
+                target = f"{subnet}{i}"
+                try:
+                    if s.connect_ex((target, port)) == 0:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(f"http://{target}:{port}/api/overview", timeout=0.5) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    discovered.append({
+                                        "name": data.get("node_name", target),
+                                        "address": target,
+                                        "port": port,
+                                        "status": "discovered"
+                                    })
+                except:
+                    pass
+            s.close()
+        except Exception as e:
+            log.error(f"LAN discovery failed: {e}")
+            
+        return discovered
+
+    async def check_health(self, peer: dict) -> dict:
+        """Checks the health of a remote mesh."""
+        url = f"http://{peer['address']}:{peer['port']}/api/health"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=2) as resp:
+                    if resp.status == 200:
+                        return {"status": "online", "last_seen": time.time()}
+        except Exception:
+            pass
+        return {"status": "offline", "last_seen": time.time()}
+
+    async def fetch_capabilities(self, peer: dict) -> List[str]:
+        """Fetches capabilities from a remote mesh."""
+        url = f"http://{peer['address']}:{peer['port']}/api/overview"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=2) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data.get("capabilities", [])
+        except Exception as e:
+            log.warning(f"Failed to fetch capabilities for {peer['name']}: {e}")
+        return []
+
+    async def poll_all_peers(self):
+        """Periodic poll of all federated peers."""
+        config = self.get_config()
+        for p in config.get("peers", []):
+            health = await self.check_health(p)
+            p["status"] = health["status"]
+            p["last_seen"] = health["last_seen"]
+            if health["status"] == "online":
+                p["capabilities"] = await self.fetch_capabilities(p)
+        self.save_config(config)
+
+    def get_status(self):
+        config = self.get_config()
+        peers = config.get("peers", [])
+        return {
+            "enabled": config.get("enabled", False),
+            "peer_count": len(peers),
+            "active_count": len([p for p in peers if p.get("status") == "online"]),
+            "tunnel_count": len(self.bridge.tunnels),
+            "peers": peers
+        }
+
+# Singleton instance
+manager = FederationManager()
