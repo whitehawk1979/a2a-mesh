@@ -458,6 +458,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/agents-page", self._api_agents_page)
         app.router.add_get("/api/messages-page", self._api_messages)
         app.router.add_get("/api/tasks", self._api_tasks)
+        app.router.add_get("/api/memory-page", self._api_memory_page)
+        app.router.add_get("/api/logs-page", self._api_logs_page)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -860,6 +862,89 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     result["total"] = len(rows)
                 except Exception as te:
                     result["error"] = "tasks query: " + str(te)
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_memory_page(self, request):
+        """Memory page — shared_a2a_memory grouped by type (Marveen-style cards)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"memories": [], "categories": {}, "total": 0}
+        try:
+            pool = self._get_pg_pool()
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                # Get non-heartbeat memories, grouped by memory_type
+                rows = await pool.fetch(
+                    "SELECT id, sender_agent, recipient_agent, subject, content, "
+                    "memory_type, priority, status, created_at, read_at, message_type, metadata "
+                    "FROM shared_a2a_memory "
+                    "WHERE memory_type != 'heartbeat' AND message_type != 'heartbeat' "
+                    "ORDER BY created_at DESC LIMIT 100"
+                )
+                serialized = _serialize_pg_rows(rows)
+                # Group by memory_type
+                categories = {}
+                for m in serialized:
+                    cat = m.get("memory_type") or m.get("message_type") or "other"
+                    if cat not in categories:
+                        categories[cat] = []
+                    categories[cat].append(m)
+                result["memories"] = serialized
+                result["categories"] = {}
+                for cat, items in categories.items():
+                    result["categories"][cat] = {"count": len(items), "items": items}
+                result["total"] = len(serialized)
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_logs_page(self, request):
+        """Logs page — delegation history + node health, clickable entries."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        log_type = request.query.get("type", "all")
+        limit = min(int(request.query.get("limit", "50")), 200)
+        result = {"logs": [], "total": 0, "type": log_type}
+        try:
+            pool = self._get_pg_pool()
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                entries = []
+                if log_type in ("delegation", "all"):
+                    rows = await pool.fetch(
+                        "SELECT id, from_agent, to_agent, subject, status, priority, "
+                        "retry_count, assigned_agent, created_at, completed_at, task_type "
+                        "FROM shared_delegations ORDER BY created_at DESC LIMIT $1",
+                        limit
+                    )
+                    for r in _serialize_pg_rows(rows):
+                        r["log_type"] = "delegation"
+                        entries.append(r)
+                if log_type in ("health", "all"):
+                    try:
+                        rows = await pool.fetch(
+                            "SELECT node_name, status, cpu_pct, memory_pct, disk_pct, "
+                            "last_seen, updated_at "
+                            "FROM mesh_node_health ORDER BY updated_at DESC LIMIT $1",
+                            limit
+                        )
+                        for r in _serialize_pg_rows(rows):
+                            r["log_type"] = "health"
+                            entries.append(r)
+                    except Exception:
+                        pass  # mesh_node_health may not exist
+                # Sort by created_at/updated_at descending
+                entries.sort(key=lambda x: x.get("created_at") or x.get("updated_at") or "", reverse=True)
+                result["logs"] = entries[:limit]
+                result["total"] = len(result["logs"])
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:

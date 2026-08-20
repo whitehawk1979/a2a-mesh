@@ -2883,8 +2883,8 @@ function loadMarveenPage(page) {
     'messages': '/api/messages-page',
     'tasks': '/api/tasks',
     'bgTasks': '/api/cron',
-    'memories': '/api/memory',
-    'naplo': '/api/logs',
+    'memories': '/api/memory-page',
+    'naplo': '/api/logs-page',
     'skills': '/api/skills',
     'research': '/api/research',
     'costs': '/api/costops/summary',
@@ -2986,6 +2986,100 @@ function loadMarveenPage(page) {
       '<div style="font-size:13px;color:var(--text3)">' + esc(msg) + '</div></div>';
   }
 
+  // ─── Memory detail modal ───
+  function showMemoryDetail(mid) {
+    // Find memory in current data by id
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    fetch('/api/memory-page', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var mem = null;
+        (d.memories || []).forEach(function(m) { if (m.id === mid) mem = m; });
+        if (!mem) { alert('Memória nem található'); return; }
+        var body = document.getElementById('marveenModalBody');
+        if (!body) return;
+        var content = mem.content || '';
+        // Try to pretty-print JSON content
+        var contentHtml;
+        try {
+          var parsed = JSON.parse(content);
+          contentHtml = '<pre style="white-space:pre-wrap;font-size:12px;color:var(--text2);background:var(--surface2);padding:12px;border-radius:8px;overflow-x:auto;">' + esc(JSON.stringify(parsed, null, 2)) + '</pre>';
+        } catch(e) {
+          contentHtml = '<div style="font-size:13px;color:var(--text2);line-height:1.6;white-space:pre-wrap;">' + esc(content) + '</div>';
+        }
+        body.innerHTML =
+          '<div style="margin-bottom:12px;">' +
+          '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Típus: ' + esc(mem.memory_type || mem.message_type || '—') + '</div>' +
+          '<div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px;">' + esc(mem.subject || '(nincs tárgy)') + '</div>' +
+          '<div style="display:flex;gap:12px;font-size:12px;color:var(--text3);margin-bottom:12px;">' +
+          '<span>📤 ' + esc(mem.sender_agent || '?') + '</span>' +
+          '<span>📥 ' + esc(mem.recipient_agent || '?') + '</span>' +
+          '<span>Priority: P' + (mem.priority || 5) + '</span>' +
+          '<span>Status: ' + esc(mem.status || '—') + '</span>' +
+          '</div></div>' + contentHtml +
+          '<div style="margin-top:12px;font-size:11px;color:var(--text3);">ID: ' + esc(mem.id) + ' | Létrehozva: ' + fmtTime(mem.created_at) + '</div>';
+        var title = document.getElementById('marveenModalTitle');
+        if (title) title.textContent = '🧠 Memória részletek';
+      }).catch(function(e) { alert('Hiba: ' + e); });
+  }
+
+  // ─── Log detail modal ───
+  function showLogDetail(lid, detailJson) {
+    var body = document.getElementById('marveenModalBody');
+    if (!body) return;
+    try {
+      var l = JSON.parse(detailJson.replace(/&#39;/g, "'"));
+    } catch(e) {
+      body.innerHTML = '<div style="color:var(--danger);">Nem sikerült elemezni a bejegyzést</div>';
+      return;
+    }
+    var lt = l.log_type || 'delegation';
+    var typeLabel = lt === 'health' ? '💊 Health Check' : '📋 Delegáció';
+    var status = l.status || '—';
+    var statusColor = status === 'completed' ? 'var(--success)' : status === 'failed' ? 'var(--danger)' : status === 'available' ? 'var(--warning)' : 'var(--text3)';
+    // Build detail fields
+    var fields = [];
+    if (l.from_agent) fields.push(['Feladó', l.from_agent]);
+    if (l.to_agent) fields.push(['Címzett', l.to_agent]);
+    if (l.assigned_agent) fields.push(['Hozzárendelt', l.assigned_agent]);
+    if (l.priority) fields.push(['Prioritás', 'P' + l.priority]);
+    if (l.retry_count !== undefined) fields.push(['Újrapróbálkozások', l.retry_count]);
+    if (l.task_type) fields.push(['Típus', l.task_type]);
+    if (l.node_name) fields.push(['Node', l.node_name]);
+    if (l.cpu_pct !== undefined) fields.push(['CPU', l.cpu_pct + '%']);
+    if (l.memory_pct !== undefined) fields.push(['Memória', l.memory_pct + '%']);
+    if (l.disk_pct !== undefined) fields.push(['Lemez', l.disk_pct + '%']);
+    if (l.created_at) fields.push(['Létrehozva', fmtTime(l.created_at)]);
+    if (l.completed_at) fields.push(['Befejezve', fmtTime(l.completed_at)]);
+    if (l.last_seen) fields.push(['Utolsó jel', fmtTime(l.last_seen)]);
+    if (l.updated_at) fields.push(['Frissítve', fmtTime(l.updated_at)]);
+    var fieldsHtml = '';
+    fields.forEach(function(f) {
+      fieldsHtml += '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text3);min-width:120px;font-size:12px;">' + esc(f[0]) + '</span><span style="color:var(--text);font-size:13px;">' + esc(String(f[1])) + '</span></div>';
+    });
+    body.innerHTML =
+      '<div style="margin-bottom:12px;">' +
+      '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">' + typeLabel + '</div>' +
+      '<div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px;">' + esc(l.subject || l.node_name || '(nincs)') + '</div>' +
+      '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + statusColor + ';color:#fff;font-weight:600;text-transform:uppercase;">' + esc(status) + '</span>' +
+      '</div>' + fieldsHtml;
+    var title = document.getElementById('marveenModalTitle');
+    if (title) title.textContent = '📋 Napló bejegyzés';
+  }
+
+  // ─── Log filter ───
+  function filterLogs(type) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    fetch('/api/logs-page?type=' + type + '&limit=50', { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var body = document.getElementById('marveenModalBody');
+        if (!body) return;
+        if (d.error) { body.innerHTML = errorBox(d.error); return; }
+        body.innerHTML = renderers.naplo(d);
+      }).catch(function(e) { alert('Hiba: ' + e); });
+  }
+
   var renderers = {
     kanban: function(d) {
       if (!d || (!d.boards && !d.cards)) return empty('Nincs kanban adat');
@@ -3053,38 +3147,94 @@ function loadMarveenPage(page) {
     },
 
     memories: function(d) {
-      var mems = d.memories || d.entries || d.data || [];
-      if (!mems.length && !d.error) {
-        if (d.key) return card('<strong>' + esc(d.key) + '</strong><pre style="white-space:pre-wrap;font-size:12px;color:var(--text2);margin-top:8px;">' + esc(JSON.stringify(d.value || d, null, 2)) + '</pre>');
-        return empty('Nincs memória adat');
-      }
       if (d.error) return errorBox(d.error);
-      if (!Array.isArray(mems)) mems = [mems];
-      var html = '';
-      mems.forEach(function(m) {
-        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-          '<strong style="font-size:13px;">' + esc(m.key || m.name || m.id || '—') + '</strong>' +
-          '<span style="margin-left:auto;color:var(--text3);font-size:11px;">' + fmtTime(m.created_at || m.updated_at) + '</span></div>' +
-          '<div style="font-size:12px;color:var(--text3);line-height:1.4;">' + esc(JSON.stringify(m.value || m.content || m.data || '').substring(0, 200)) + '</div>');
+      var cats = d.categories || {};
+      var total = d.total || 0;
+      if (!total) return empty('Nincs memória adat');
+      // Category labels (Hungarian)
+      var catLabels = {
+        'directive': '📋 Utasítások',
+        'a2a_message': '💬 Agent üzenetek',
+        'agent_reply': '↩️ Válaszok',
+        'memory': '🧠 Memóriák',
+        'task': '✅ Feladatok',
+        'context': '📄 Kontextus',
+        'other': '📦 Egyéb'
+      };
+      var html = '<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+      html += '<span style="background:var(--primary);color:#fff;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;">Összes: ' + total + '</span>';
+      Object.keys(cats).forEach(function(c) {
+        var label = catLabels[c] || ('📦 ' + c);
+        html += '<span style="background:var(--surface2);border:1px solid var(--border);padding:4px 12px;border-radius:8px;font-size:12px;">' + label + ' (' + cats[c].count + ')</span>';
+      });
+      html += '</div>';
+      // Render each category as a section with cards
+      Object.keys(cats).forEach(function(c) {
+        var label = catLabels[c] || ('📦 ' + c);
+        var items = cats[c].items || [];
+        html += '<div style="margin-bottom:16px;">';
+        html += '<div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid var(--border);">' + label + ' (' + items.length + ')</div>';
+        items.forEach(function(m) {
+          var subj = esc(m.subject || '(nincs tárgy)');
+          var content = esc((m.content || '').substring(0, 300));
+          var sender = esc(m.sender_agent || '?');
+          var recip = esc(m.recipient_agent || '?');
+          var prio = m.priority || 5;
+          var prioColor = prio >= 7 ? 'var(--danger)' : prio >= 4 ? 'var(--warning)' : 'var(--text3)';
+          var status = esc(m.status || '—');
+          var time = fmtTime(m.created_at);
+          var mid = esc(m.id || '');
+          html += '<div onclick="showMemoryDetail(\'' + mid + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">';
+          html += '<strong style="font-size:13px;color:var(--text);">' + subj + '</strong>';
+          html += '<span style="margin-left:auto;font-size:10px;padding:2px 6px;border-radius:4px;background:' + prioColor + ';color:#fff;font-weight:600;">P' + prio + '</span>';
+          if (status === 'read') html += '<span style="font-size:10px;color:var(--success);">✓ olvasott</span>';
+          html += '</div>';
+          html += '<div style="font-size:12px;color:var(--text3);line-height:1.5;max-height:60px;overflow:hidden;">' + content + '</div>';
+          html += '<div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">';
+          html += '<span>📤 ' + sender + '</span><span>📥 ' + recip + '</span><span style="margin-left:auto;">' + time + '</span>';
+          html += '</div></div>';
+        });
+        html += '</div>';
       });
       return html;
     },
 
     naplo: function(d) {
-      var logs = d.logs || d.entries || d.lines || [];
-      if (!logs.length && !d.error) return empty('Nincs napló bejegyzés');
       if (d.error) return errorBox(d.error);
-      if (!Array.isArray(logs)) logs = [logs];
-      var html = '<div style="font-family:monospace;font-size:12px;line-height:1.6;">';
-      logs.forEach(function(l) {
-        var level = l.level || l.severity || 'INFO';
-        var lc = level === 'ERROR' ? 'var(--danger)' : level === 'WARNING' ? 'var(--warning)' : 'var(--text3)';
-        html += '<div style="padding:4px 0;border-bottom:1px solid var(--border);">' +
-          '<span style="color:' + lc + ';font-weight:600;">' + esc(level) + '</span> ' +
-          '<span style="color:var(--text3);">' + fmtTime(l.timestamp || l.time || l.created_at) + '</span> ' +
-          '<span style="color:var(--text2);">' + esc(l.message || l.msg || l.text || '') + '</span></div>';
-      });
+      var logs = d.logs || [];
+      if (!logs.length) return empty('Nincs napló bejegyzés');
+      // Type filter buttons
+      var html = '<div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap;">';
+      html += '<span onclick="loadMarveenPage(\'naplo\')" style="background:var(--primary);color:#fff;padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;">Összes (' + logs.length + ')</span>';
+      html += '<span onclick="filterLogs(\'delegation\')" style="background:var(--surface2);border:1px solid var(--border);padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;">📋 Delegációk</span>';
+      html += '<span onclick="filterLogs(\'health\')" style="background:var(--surface2);border:1px solid var(--border);padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;">💊 Health</span>';
       html += '</div>';
+      logs.forEach(function(l) {
+        var lt = l.log_type || 'delegation';
+        var typeIcon = lt === 'health' ? '💊' : '📋';
+        var status = l.status || '—';
+        var statusColor = status === 'completed' ? 'var(--success)' : status === 'failed' ? 'var(--danger)' : status === 'available' ? 'var(--warning)' : 'var(--text3)';
+        var time = fmtTime(l.created_at || l.updated_at || l.last_seen);
+        var subj = esc(l.subject || l.node_name || '(nincs)');
+        var fromA = esc(l.from_agent || '');
+        var toA = esc(l.to_agent || l.assigned_agent || '');
+        var lid = esc(l.id || l.task_id || '');
+        // Build detail JSON for the modal
+        var detailJson = esc(JSON.stringify(l).replace(/'/g, "&#39;"));
+        html += '<div onclick="showLogDetail(\'' + lid + '\', \'' + detailJson + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:6px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+        html += '<div style="display:flex;align-items:center;gap:8px;">';
+        html += '<span style="font-size:16px;">' + typeIcon + '</span>';
+        html += '<strong style="font-size:13px;color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + subj + '</strong>';
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + statusColor + ';color:#fff;font-weight:600;text-transform:uppercase;">' + esc(status) + '</span>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:12px;margin-top:6px;font-size:11px;color:var(--text3);">';
+        if (fromA) html += '<span>📤 ' + fromA + '</span>';
+        if (toA) html += '<span>📥 ' + toA + '</span>';
+        if (l.priority) html += '<span>P' + l.priority + '</span>';
+        html += '<span style="margin-left:auto;">' + time + '</span>';
+        html += '</div></div>';
+      });
       return html;
     },
 
