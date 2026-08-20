@@ -806,20 +806,23 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
             if pool and hasattr(pool, 'is_connected') and pool.is_connected():
                 rows = await pool.fetch(
-                    "SELECT node_name, skills FROM mesh.mesh_nodes WHERE skills IS NOT NULL"
+                    "SELECT skill_name, display_name, agent_name, status, tags, "
+                    "cost, avg_latency_ms, success_rate, description "
+                    "FROM mesh.mesh_skills ORDER BY agent_name, skill_name"
                 )
                 all_skills = []
                 for r in rows:
-                    node = r["node_name"]
-                    skills = r["skills"] if r["skills"] else []
-                    if isinstance(skills, str):
-                        import json as _json
-                        try:
-                            skills = _json.loads(skills)
-                        except Exception:
-                            skills = [skills]
-                    for s in skills:
-                        all_skills.append({"node": node, "skill": s})
+                    all_skills.append({
+                        "node": r.get("agent_name") or r.get("agent") or "—",
+                        "skill": r.get("skill_name") or r.get("skill") or "—",
+                        "display_name": r.get("display_name") or "",
+                        "description": r.get("description") or "",
+                        "status": r.get("status") or "active",
+                        "tags": list(r["tags"]) if r.get("tags") else [],
+                        "cost": r.get("cost") or 0,
+                        "avg_latency_ms": r.get("avg_latency_ms") or 0,
+                        "success_rate": r.get("success_rate") or 0
+                    })
                 result["skills"] = all_skills
                 result["total"] = len(all_skills)
             else:
@@ -840,8 +843,9 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             if pool and hasattr(pool, 'is_connected') and pool.is_connected():
                 try:
                     rows = await pool.fetch(
-                        "SELECT id, task_name, node, status, started_at, completed_at, duration_ms "
-                        "FROM task_runs ORDER BY started_at DESC LIMIT 30"
+                        "SELECT id, from_agent, to_agent, subject, status, priority, "
+                        "created_at, accepted_at, completed_at, task_type "
+                        "FROM shared_delegations ORDER BY created_at DESC LIMIT 30"
                     )
                     result["tasks"] = _serialize_pg_rows(rows)
                     result["total"] = len(rows)
