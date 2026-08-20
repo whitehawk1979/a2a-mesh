@@ -260,7 +260,7 @@ class MeshNode:
             self._health_port = self.config.p2p.listen_port + 5
             log.warning(f"health_port == p2p_port ({self.config.p2p.listen_port}), auto-corrected to {self._health_port}")
 
-        # Initialize transports
+        # Initialize transports (shared PG pool injected after _init_pg_write_conn)
         self._pg_transport = PGTransport(self.config)
         self._p2p_transport = P2PTransport(self.config, node_version=self._resolved_version)
         self._http_transport = HTTPTransport(self.config)
@@ -629,9 +629,16 @@ class MeshNode:
         # Apply resource limits early (memory cap, nice, etc.)
         self.apply_resource_limits()
 
-        # Initialize direct PG connection for writes
+        # Initialize direct PG connection for writes (shared pool for all subsystems)
         if not await self._init_pg_write_conn():
             log.warning("PG write connection failed — will retry")
+
+        # Inject shared pool into subsystems that would otherwise create their own
+        if self._pg_pool and self._pg_pool.is_connected():
+            self._pg_transport._shared_pool = self._pg_pool
+            self._pg_transport._owns_pool = False
+            self._p2p_transport._shared_pool = self._pg_pool
+            log.info("Shared PG pool injected into PG transport + P2P MessageAuth")
 
         # Register self in mesh.mesh_nodes
         await self._register_node()
@@ -4335,6 +4342,11 @@ echo "Status: ok"
                     if not _pg_was_down:
                         log.warning("[self-heal] No PG connection — attempting bootstrap")
                     if await self._init_pg_write_conn():
+                        # Re-inject shared pool into subsystems
+                        if self._pg_pool and self._pg_pool.is_connected():
+                            self._pg_transport._shared_pool = self._pg_pool
+                            self._pg_transport._owns_pool = False
+                            self._p2p_transport._shared_pool = self._pg_pool
                         log.info("[self-heal] PG bootstrap successful")
                         pg_ok = True
 

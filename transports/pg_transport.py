@@ -39,10 +39,12 @@ class PGTransport(TransportAdapter):
 
     name = "pg_notify"
 
-    def __init__(self, config):
+    def __init__(self, config, shared_pool: Optional[AsyncDBPool] = None):
         self.config = config
         self._available = False
         self._pool: Optional[AsyncDBPool] = None
+        self._shared_pool = shared_pool  # If provided, use instead of creating own
+        self._owns_pool = shared_pool is None  # True if we create/close our own pool
         self._listener_conn: Optional[asyncpg.Connection] = None
         self._listener_task = None
         self._running = False
@@ -63,12 +65,16 @@ class PGTransport(TransportAdapter):
             return False
 
         try:
-            # Create asyncpg connection pool for all DB operations
-            self._pool = AsyncDBPool(self.config)
-            if not await self._pool.connect():
-                log.error("Failed to create asyncpg connection pool")
-                self._available = False
-                return False
+            # Use shared pool if provided, otherwise create our own
+            if self._shared_pool and self._shared_pool.is_connected():
+                self._pool = self._shared_pool
+                log.info("PG transport using shared connection pool")
+            else:
+                self._pool = AsyncDBPool(self.config)
+                if not await self._pool.connect():
+                    log.error("Failed to create asyncpg connection pool")
+                    self._available = False
+                    return False
 
             # Acquire a dedicated listener connection for NOTIFY/LISTEN
             self._listener_conn = await self._pool._pool.acquire()
@@ -109,8 +115,9 @@ class PGTransport(TransportAdapter):
             except Exception:
                 pass
             self._listener_conn = None
-        if self._pool:
+        if self._pool and self._owns_pool:
             await self._pool.close()
+        self._pool = None
         self._available = False
         log.info("PG transport stopped")
         return True

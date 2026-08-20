@@ -27,7 +27,7 @@ class AsyncDBPool:
     The pool manages connections, reconnection, and health checks automatically.
     """
 
-    def __init__(self, config=None, dsn: str = "", min_size: int = 2, max_size: int = 10):
+    def __init__(self, config=None, dsn: str = "", min_size: int = 1, max_size: int = 5):
         """Initialize with config or DSN string.
 
         Args:

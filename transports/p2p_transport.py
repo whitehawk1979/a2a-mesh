@@ -69,9 +69,10 @@ class P2PTransport(TransportAdapter):
     ADAPTIVE_RTT_LOW = 0.01       # RTT below this = fast link (batch up to MAX)
     ADAPTIVE_RTT_HIGH = 0.10      # RTT above this = slow link (batch down to MIN)
 
-    def __init__(self, config, node_version: str = "unknown"):
+    def __init__(self, config, node_version: str = "unknown", shared_pool=None):
         self.config = config
         self._node_version = node_version
+        self._shared_pool = shared_pool  # Shared AsyncDBPool for MessageAuth
         self._available = False
         self._server: Optional[asyncio.Server] = None
         self._peers: Dict[str, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
@@ -152,7 +153,7 @@ class P2PTransport(TransportAdapter):
         security_config = getattr(config, 'security', None)
         if security_config and getattr(security_config, 'transport_auth', 'none') != 'none':
             try:
-                self._message_auth = MessageAuth(config)
+                self._message_auth = MessageAuth(config, pg_pool=self._shared_pool)
                 log.info(f"P2P MessageAuth initialized (mode={security_config.transport_auth}, "
                          f"rotation_interval={getattr(security_config, 'auth_rotation_interval', 3600)}s, "
                          f"rate_limit={getattr(security_config, 'auth_rate_limit', 100)}/min)")
