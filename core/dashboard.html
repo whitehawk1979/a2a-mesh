@@ -433,6 +433,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     </div>
     <div class="messages" id="messages"></div>
     <div class="input-area">
+      <div id="dmAgentIndicator" style="display:none;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;white-space:nowrap;">
+        <span id="dmAgentDot" style="font-size:14px;">🔴</span>
+        <span id="dmAgentName" style="font-weight:600;color:var(--text);">—</span>
+      </div>
       <select id="recipientSelect">
         <option value="">📢 Mindenkinek</option>
       </select>
@@ -1557,6 +1561,9 @@ function switchChannel(channel) {
     header.innerHTML = "💬 Közös Szoba";
     info.innerHTML = "Minden agent látja és válaszol — valós idejű közös chat";
     document.getElementById("recipientSelect").value = "";
+    // Hide DM agent indicator in general channel
+    var ind = document.getElementById("dmAgentIndicator");
+    if (ind) ind.style.display = "none";
   } else {
     header.innerHTML = "👤 " + channel;
     info.innerHTML = "Közvetlen üzenet — csak te és " + channel;
@@ -1564,6 +1571,17 @@ function switchChannel(channel) {
     var opts = document.getElementById("recipientSelect").options;
     for (var i = 0; i < opts.length; i++) {
       if (opts[i].value === channel) { document.getElementById("recipientSelect").selectedIndex = i; break; }
+    }
+    // Show DM agent indicator with status
+    var status = knownAgents[channel] || "offline";
+    var dot = (status === "online") ? "🟢" : (status === "available" || status === "connected") ? "🟡" : "🔴";
+    var ind = document.getElementById("dmAgentIndicator");
+    var indDot = document.getElementById("dmAgentDot");
+    var indName = document.getElementById("dmAgentName");
+    if (ind && indDot && indName) {
+      indDot.textContent = dot;
+      indName.textContent = channel + (status === "online" ? " (aktív)" : status === "available" || status === "connected" ? " (elérhető)" : " (offline)");
+      ind.style.display = "flex";
     }
   }
 
@@ -1764,6 +1782,15 @@ function addDMChannel(agentName, status) {
     // Update status dot in existing channel item
     var iconSpan = existing.querySelector(".dm-status-dot");
     if (iconSpan) iconSpan.textContent = statusIcon;
+    // Update DM agent indicator if this is the current channel
+    if (currentChannel === agentName) {
+      var indDot = document.getElementById("dmAgentDot");
+      var indName = document.getElementById("dmAgentName");
+      if (indDot && indName) {
+        indDot.textContent = statusIcon;
+        indName.textContent = agentName + (statusInfo === "online" ? " (aktív)" : statusInfo === "available" || statusInfo === "connected" ? " (elérhető)" : " (offline)");
+      }
+    }
     return;
   }
   var div = document.createElement("div");
@@ -2017,7 +2044,9 @@ function loadMessages() {
 }
 
 function loadAgents() {
-  fetch("/api/agents").then(function(r) { return r.json(); }).then(function(d) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch("/api/agents", { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); }).then(function(d) {
     renderAgents(d.agents);
     document.getElementById("totalAgents").textContent = d.total;
     var sel = document.getElementById("recipientSelect");
@@ -2770,9 +2799,9 @@ function loadMarveenPage(page) {
     'overview': '/api/overview',
     'kanban': '/api/kanban',
     'approvals': '/api/approvals',
-    'agents': '/api/agents',
+    'agents': '/api/agents-page',
     'activity': '/api/activity',
-    'messages': '/api/messages',
+    'messages': '/api/messages-page',
     'tasks': '/api/tasks',
     'bgTasks': '/api/cron',
     'memories': '/api/memory',

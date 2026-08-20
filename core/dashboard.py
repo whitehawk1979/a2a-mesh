@@ -455,8 +455,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/connectors", self._api_connectors)
         app.router.add_get("/api/migrate", self._api_migrate)
         app.router.add_get("/api/overview", self._api_overview)
-        app.router.add_get("/api/agents", self._api_agents)
-        app.router.add_get("/api/messages", self._api_messages)
+        app.router.add_get("/api/agents-page", self._api_agents_page)
+        app.router.add_get("/api/messages-page", self._api_messages)
         app.router.add_get("/api/tasks", self._api_tasks)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
@@ -749,8 +749,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             result["error"] = str(e)
         return web.json_response(result)
 
-    async def _api_agents(self, request):
-        """Agents page — mesh node list with capabilities, status, skills."""
+    async def _api_agents_page(self, request):
+        """Agents page — mesh node list with capabilities, status, skills (Marveen menu)."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
