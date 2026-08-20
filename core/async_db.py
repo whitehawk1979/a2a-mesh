@@ -87,7 +87,7 @@ class AsyncDBPool:
             except Exception as e:
                 log.warning(f"AsyncDB: pool exists but connections stale ({e}) — recreating pool")
                 try:
-                    await self._pool.close()
+                    await self._pool.terminate()
                 except Exception:
                     pass
                 self._pool = None
@@ -157,7 +157,7 @@ class AsyncDBPool:
         # Close stale pool
         if self._pool:
             try:
-                await self._pool.close()
+                await self._pool.terminate()
             except Exception:
                 pass
             self._pool = None
