@@ -457,7 +457,6 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/overview", self._api_overview)
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_get("/api/messages", self._api_messages)
-        app.router.add_get("/api/skills", self._api_skills)
         app.router.add_get("/api/tasks", self._api_tasks)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
@@ -818,16 +817,20 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 )
                 all_skills = []
                 for r in rows:
+                    row = dict(r)  # Convert Record to dict for safe access
+                    ag = row.get("agent_name") or row.get("agent") or "—"
+                    sk = row.get("skill_name") or row.get("skill") or "—"
+                    dn = row.get("display_name") or sk
                     all_skills.append({
-                        "node": r.get("agent_name") or r.get("agent") or "—",
-                        "skill": r.get("skill_name") or r.get("skill") or "—",
-                        "display_name": r.get("display_name") or "",
-                        "description": r.get("description") or "",
-                        "status": r.get("status") or "active",
-                        "tags": list(r["tags"]) if r.get("tags") else [],
-                        "cost": r.get("cost") or 0,
-                        "avg_latency_ms": r.get("avg_latency_ms") or 0,
-                        "success_rate": r.get("success_rate") or 0
+                        "node": ag,
+                        "skill": sk,
+                        "display_name": dn,
+                        "description": row.get("description") or "",
+                        "status": row.get("status") or "active",
+                        "tags": list(row["tags"]) if row.get("tags") else [],
+                        "cost": row.get("cost") or 0,
+                        "avg_latency_ms": row.get("avg_latency_ms") or 0,
+                        "success_rate": row.get("success_rate") or 0
                     })
                 result["skills"] = all_skills
                 result["total"] = len(all_skills)

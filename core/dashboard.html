@@ -3210,15 +3210,28 @@ function loadMarveenPage(page) {
       if (d.error) return errorBox(d.error);
       var skills = d.skills || [];
       if (!skills.length) return empty('Nincs skill');
-      // Group by node
       var byNode = {};
-      skills.forEach(function(s) { (byNode[s.node] = byNode[s.node] || []).push(s.skill); });
+      skills.forEach(function(s) {
+        var node = s.node || s.agent || '—';
+        (byNode[node] = byNode[node] || []).push(s);
+      });
       var html = '';
       Object.keys(byNode).forEach(function(node) {
         html += '<h3 style="margin:0 0 8px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">🤖 ' + esc(node) + ' (' + byNode[node].length + ')</h3>';
-        html += '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">';
-        byNode[node].forEach(function(s) { html += badge(s, 'var(--primary)'); });
-        html += '</div>';
+        byNode[node].forEach(function(s) {
+          var st = s.status || 'active';
+          var sc = st === 'active' ? 'var(--primary)' : 'var(--text3)';
+          var tags = (s.tags || []).join(', ');
+          var name = s.display_name || s.skill_name || s.skill || '—';
+          html += card(
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+            '<strong style="font-size:13px;">' + esc(name) + '</strong>' +
+            badge(st, sc) + '</div>' +
+            (s.description ? '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">' + esc(s.description) + '</div>' : '') +
+            (tags ? '<div style="font-size:11px;color:var(--text2);">🏷️ ' + esc(tags) + '</div>' : '')
+          );
+        });
+        html += '<div style="margin-bottom:16px;"></div>';
       });
       return html;
     },
@@ -3227,11 +3240,12 @@ function loadMarveenPage(page) {
       if (d.error) return errorBox(d.error);
       var tasks = d.tasks || [];
       if (!tasks.length) return empty('Nincs ütemezett feladat');
-      return table(['ID', 'Név', 'Node', 'Státusz', 'Indítás', 'Befejezés', 'Időtartam'], tasks.map(function(t) {
+      return table(['ID', 'Feladó', 'Címzett', 'Tárgy', 'Státusz', 'Prioritás', 'Típus', 'Létrehozva'], tasks.map(function(t) {
         var st = t.status || 'unknown';
-        var sc = st === 'completed' ? 'var(--primary)' : st === 'running' ? 'var(--warning)' : st === 'failed' ? 'var(--danger)' : 'var(--text3)';
-        var dur = t.duration_ms ? (t.duration_ms / 1000).toFixed(1) + 's' : '—';
-        return [esc((t.id || '').toString().substring(0, 8)), esc(t.task_name || '—'), esc(t.node || '—'), badge(st, sc), fmtTime(t.started_at), fmtTime(t.completed_at), dur];
+        var sc = st === 'completed' ? 'var(--primary)' : st === 'running' || st === 'accepted' ? 'var(--warning)' : st === 'failed' || st === 'expired' ? 'var(--danger)' : 'var(--text3)';
+        var pri = t.priority || 'normal';
+        var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
+        return [esc((t.id || '').toString().substring(0, 8)), esc(t.from_agent || '—'), esc(t.to_agent || '—'), esc(t.subject || '—'), badge(st, sc), badge(pri, pc), badge(t.task_type || '—'), fmtTime(t.created_at)];
       }));
     }
   };
