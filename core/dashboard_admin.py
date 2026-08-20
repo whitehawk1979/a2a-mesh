@@ -2520,16 +2520,16 @@ class DashboardAdminMixin:
         return web.json_response({"capabilities": caps})
 
     async def _api_federation_trust(self, request):
-        """POST /api/federation/trust/{name} — Set trust level."""
+        """POST /api/federation/trust/{name} — Toggle trust level."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err: return err
         from .federation import manager
         name = request.match_info.get("name", "")
         data = await request.json()
-        level = data.get("level", "discovered")
-        success = manager.set_trust(name, level)
-        return web.json_response({"success": success})
+        level = data.get("level", "toggle")
+        success, new_level = manager.set_trust(name, level if level != "toggle" else None)
+        return web.json_response({"success": success, "trust": new_level})
 
     async def _api_federation_health(self, request):
         """GET /api/federation/health/{name} — Remote mesh health."""

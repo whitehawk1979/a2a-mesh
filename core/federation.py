@@ -65,6 +65,15 @@ class FederationManager:
 
     def add_peer(self, name: str, address: str, port: int = 8650, ssh_tunnel: bool = False):
         config = self.get_config()
+        # Check if peer already exists — preserve trust level
+        existing = next((p for p in config["peers"] if p["name"] == name), None)
+        if existing:
+            # Update address/port but keep trust and other metadata
+            existing["address"] = address
+            existing["port"] = port
+            existing["ssh_tunnel"] = ssh_tunnel
+            self.save_config(config)
+            return existing
         peer = {
             "name": name,
             "address": address,
@@ -76,7 +85,6 @@ class FederationManager:
             "capabilities": [],
             "last_seen": 0
         }
-        config["peers"] = [p for p in config["peers"] if p["name"] != name]
         config["peers"].append(peer)
         self.save_config(config)
         return peer
@@ -89,14 +97,18 @@ class FederationManager:
         self.save_config(config)
         return len(config["peers"]) < peers_before
 
-    def set_trust(self, name: str, level: str):
+    def set_trust(self, name: str, level: str = None):
         config = self.get_config()
         for p in config["peers"]:
             if p["name"] == name:
-                p["trust"] = level
+                # Toggle if no explicit level given
+                if level is None or level == "toggle":
+                    p["trust"] = "trusted" if p.get("trust", "discovered") != "trusted" else "untrusted"
+                else:
+                    p["trust"] = level
                 self.save_config(config)
-                return True
-        return False
+                return True, p["trust"]
+        return False, None
 
     async def discover_lan(self, port: int = 8650) -> List[dict]:
         """Scans local network for mesh nodes on specified port."""

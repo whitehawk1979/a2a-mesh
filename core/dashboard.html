@@ -3190,7 +3190,7 @@ function loadMarveenPage(page) {
       return;
     } else if (action === 'trust') {
       url += '/trust/' + encodeURIComponent(name);
-      body = JSON.stringify({level: 'trusted'}); // simple toggle for now
+      body = JSON.stringify({level: 'toggle'}); // toggle trust on each click
     }
 
     fetch(url, {
