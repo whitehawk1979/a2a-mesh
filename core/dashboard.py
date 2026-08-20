@@ -59,8 +59,8 @@ class DashboardUser:
 
 
 def _serialize_pg_rows(rows):
-    """Convert asyncpg Record rows to JSON-safe dicts (datetime → isoformat)."""
-    import datetime
+    """Convert asyncpg Record rows to JSON-safe dicts (datetime → isoformat, UUID → str)."""
+    import datetime, uuid
     result = []
     for r in rows:
         d = dict(r)
@@ -69,6 +69,12 @@ def _serialize_pg_rows(rows):
                 d[k] = v.isoformat()
             elif isinstance(v, bytes):
                 d[k] = v.decode('utf-8', errors='replace')
+            elif isinstance(v, uuid.UUID):
+                d[k] = str(v)
+            elif isinstance(v, (list, tuple)):
+                d[k] = [str(x) if isinstance(x, uuid.UUID) else x for x in v]
+            elif v is not None and not isinstance(v, (str, int, float, bool, dict, list)):
+                d[k] = str(v)
         result.append(d)
     return result
 
@@ -849,8 +855,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     )
                     result["tasks"] = _serialize_pg_rows(rows)
                     result["total"] = len(rows)
-                except Exception:
-                    pass
+                except Exception as te:
+                    result["error"] = "tasks query: " + str(te)
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
