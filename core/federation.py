@@ -122,7 +122,7 @@ class FederationManager:
             async def probe(ip_addr):
                 try:
                     # Quick TCP connect check
-                    conn = await aio.open_connection(ip_addr, port)
+                    conn = await aio.wait_for(aio.open_connection(ip_addr, port), timeout=1)
                     conn.close()
                     # Fetch node info
                     async with aiohttp.ClientSession() as session:
@@ -146,7 +146,7 @@ class FederationManager:
                 return None
             
             tasks = [probe(f"{subnet}{i}") for i in range(1, 255)]
-            results = await aio.gather(*tasks, return_exceptions=True)
+            results = await aio.wait_for(aio.gather(*tasks, return_exceptions=True), timeout=15)
             for r in results:
                 if r and r is not None:
                     discovered.append(r)
