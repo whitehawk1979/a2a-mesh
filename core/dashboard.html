@@ -3162,13 +3162,31 @@ function loadMarveenPage(page) {
     } else if (action === 'connect') {
       body = JSON.stringify({name: name});
     } else if (action === 'discover') {
-      // laremos a current page-t, hogy frissuljön a nézet
-      loadMarveenPage('federation');
-      // call the api in background
+      // call discovery API, then reload
       fetch(url + '/discover', {
         method: 'POST',
-        headers: {'Authorization': 'Bearer ' + token}
-      }).then(function() { loadMarveenPage('federation'); });
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+        body: '{}'
+      }).then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.discovered && d.discovered.length > 0) {
+            // Auto-add discovered peers
+            var added = 0;
+            var total = d.discovered.length;
+            d.discovered.forEach(function(node) {
+              fetch('/api/federation/peer', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+                body: JSON.stringify({name: node.name, address: node.address, port: node.port})
+              }).then(function() {
+                added++;
+                if (added >= total) { loadMarveenPage('federation'); }
+              });
+            });
+          } else {
+            loadMarveenPage('federation');
+          }
+        }).catch(function(e) { alert('Hiba: ' + e.message); loadMarveenPage('federation'); });
       return;
     } else if (action === 'trust') {
       url += '/trust/' + encodeURIComponent(name);
