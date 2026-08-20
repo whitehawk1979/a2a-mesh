@@ -1417,8 +1417,9 @@ class DiagnosticEngine:
         """
         implemented_ids: List[str] = []
         
-        # Step 1: Deduplicate pending suggestions in PG
+        # Step 1: Deduplicate pending AND accepted suggestions in PG
         await self._dedup_pending_suggestions_pg()
+        await self._dedup_accepted_suggestions_pg()
         
         # Step 2: Reload suggestions from PG (post-dedup)
         self._suggestions = []
@@ -1545,3 +1546,58 @@ class DiagnosticEngine:
                 log.info(f"📋 Cleanup: {cleanup_count} old accepted suggestions → superseded (>3 days)")
         except Exception as e:
             log.warning(f"Failed to cleanup old accepted suggestions: {e}")
+
+    async def _dedup_accepted_suggestions_pg(self):
+        """Mark duplicate ACCEPTED suggestions as 'superseded' in PG.
+        
+        Groups by (title, node) and keeps only the most recent one as 'accepted'.
+        This prevents accumulation of 67+ copies of the same disk warning, etc.
+        Also handles prefix-based dedup for dynamic titles (e.g. "Gyakori restart — uptime: X perc").
+        """
+        try:
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            if not pg_pool:
+                return
+            
+            # Pass 1: exact title match — keep only latest per (title, node)
+            result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'accepted'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh.mesh_suggestions s2
+                       WHERE s2.node = s1.node
+                       AND s2.title = s1.title
+                       AND s2.status = 'accepted'
+                   )""",
+            )
+            # Pass 2: prefix-based dedup for dynamic titles
+            prefix_result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'accepted'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh.mesh_suggestions s2
+                       WHERE s2.node = s1.node
+                       AND s2.category = s1.category
+                       AND s2.status = 'accepted'
+                       AND split_part(s2.title, ' \\u2014 ', 1) = split_part(s1.title, ' \\u2014 ', 1)
+                   )""",
+            )
+            def _count(r):
+                if hasattr(r, 'split'):
+                    return r.split()[-1] if ' ' in str(r) else str(r)
+                return '?'
+            exact_count = _count(result)
+            prefix_count = _count(prefix_result)
+            total_count = int(exact_count) if exact_count.isdigit() else 0
+            total_count += int(prefix_count) if prefix_count.isdigit() else 0
+            if total_count:
+                log.info(f"📋 Dedup accepted: {total_count} duplicate accepted suggestions marked superseded (exact={exact_count}, prefix={prefix_count})")
+            else:
+                log.info(f"📋 Dedup accepted: no duplicates found")
+                
+        except Exception as e:
+            log.warning(f"Failed to dedup accepted suggestions in PG: {e}")
