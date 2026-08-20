@@ -448,6 +448,11 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/docs", self._api_docs)
         app.router.add_get("/api/connectors", self._api_connectors)
         app.router.add_get("/api/migrate", self._api_migrate)
+        app.router.add_get("/api/overview", self._api_overview)
+        app.router.add_get("/api/agents", self._api_agents)
+        app.router.add_get("/api/messages", self._api_messages)
+        app.router.add_get("/api/skills", self._api_skills)
+        app.router.add_get("/api/tasks", self._api_tasks)
     def _require_auth(self, request):
         """Extract and verify auth token from request. Returns (user, error_response)."""
         from aiohttp import web
@@ -688,6 +693,160 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     "FROM mesh.mesh_nodes ORDER BY node_name"
                 )
                 result["fleet_status"]["nodes"] = _serialize_pg_rows(rows)
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_overview(self, request):
+        """Overview page — node stats, peer count, task summary, recent activity."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"nodes": [], "peers": 0, "tasks_total": 0, "tasks_pending": 0, "recent_activity": []}
+        try:
+            if hasattr(self, 'node') and self.node:
+                status = self.node.get_status()
+                result["peers"] = status.get("peers", {}).get("connected", 0)
+                result["peers_total"] = status.get("peers", {}).get("known", 0)
+                result["uptime"] = status.get("uptime_seconds", 0)
+                result["node_name"] = status.get("node", "")
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                try:
+                    rows = await pool.fetch(
+                        "SELECT node_name, status, last_heartbeat FROM mesh.mesh_nodes ORDER BY node_name"
+                    )
+                    result["nodes"] = _serialize_pg_rows(rows)
+                except Exception:
+                    pass
+                try:
+                    row = await pool.fetchrow("SELECT count(*) as c FROM shared_delegations")
+                    result["tasks_total"] = row["c"] if row else 0
+                    row2 = await pool.fetchrow("SELECT count(*) as c FROM shared_delegations WHERE status='pending'")
+                    result["tasks_pending"] = row2["c"] if row2 else 0
+                except Exception:
+                    pass
+                try:
+                    act = await pool.fetch(
+                        "SELECT sender, recipient, msg_type, created_at FROM mesh.mesh_messages "
+                        "WHERE msg_type NOT IN ('heartbeat','skills_announcement','diagnostic_report') "
+                        "ORDER BY created_at DESC LIMIT 10"
+                    )
+                    result["recent_activity"] = _serialize_pg_rows(act)
+                except Exception:
+                    pass
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_agents(self, request):
+        """Agents page — mesh node list with capabilities, status, skills."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"agents": []}
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                rows = await pool.fetch(
+                    "SELECT node_name, role, status, host, p2p_port, last_heartbeat, "
+                    "capabilities, skills, version "
+                    "FROM mesh.mesh_nodes ORDER BY node_name"
+                )
+                result["agents"] = _serialize_pg_rows(rows)
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_messages(self, request):
+        """Messages page — browse A2A messages with filters."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"messages": [], "total": 0}
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                rows = await pool.fetch(
+                    "SELECT id, sender, recipient, msg_type, priority, status, created_at "
+                    "FROM mesh.mesh_messages ORDER BY created_at DESC LIMIT 50"
+                )
+                result["messages"] = _serialize_pg_rows(rows)
+                result["total"] = len(rows)
+                try:
+                    counts = await pool.fetch(
+                        "SELECT msg_type, count(*) as c FROM mesh.mesh_messages GROUP BY msg_type ORDER BY c DESC"
+                    )
+                    result["type_counts"] = _serialize_pg_rows(counts)
+                except Exception:
+                    pass
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_skills(self, request):
+        """Skills page — mesh skill registry from PG."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"skills": [], "total": 0}
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                rows = await pool.fetch(
+                    "SELECT node_name, skills FROM mesh.mesh_nodes WHERE skills IS NOT NULL"
+                )
+                all_skills = []
+                for r in rows:
+                    node = r["node_name"]
+                    skills = r["skills"] if r["skills"] else []
+                    if isinstance(skills, str):
+                        import json as _json
+                        try:
+                            skills = _json.loads(skills)
+                        except Exception:
+                            skills = [skills]
+                    for s in skills:
+                        all_skills.append({"node": node, "skill": s})
+                result["skills"] = all_skills
+                result["total"] = len(all_skills)
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_tasks(self, request):
+        """Scheduled tasks page — cron jobs + task_runs from PG."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        result = {"tasks": [], "total": 0}
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                try:
+                    rows = await pool.fetch(
+                        "SELECT id, task_name, node, status, started_at, completed_at, duration_ms "
+                        "FROM task_runs ORDER BY started_at DESC LIMIT 30"
+                    )
+                    result["tasks"] = _serialize_pg_rows(rows)
+                    result["total"] = len(rows)
+                except Exception:
+                    pass
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:

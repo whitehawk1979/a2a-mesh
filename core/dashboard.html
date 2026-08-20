@@ -329,53 +329,94 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
     </div>
 
-    <!-- Marveen Menü — 15 új menüpont a Marveen projektből -->
+    <!-- Marveen Menü — Marveen projekt alapú grouped sidebar -->
     <div class="channel-section">
       <div class="channel-section-title">Marveen Menü</div>
+      <!-- Top-level items -->
+      <div class="channel-item" onclick="loadMarveenPage('overview')" style="font-weight:600">
+        <span class="icon">📊</span> Áttekintés
+      </div>
       <div class="channel-item" onclick="loadMarveenPage('kanban')">
         <span class="icon">📋</span> Kanban
       </div>
       <div class="channel-item" onclick="loadMarveenPage('approvals')">
         <span class="icon">✅</span> Jóváhagyások
+        <span id="approvalsBadge" class="marveen-badge" hidden style="margin-left:auto;background:var(--danger);color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;">0</span>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('activity')">
-        <span class="icon">📈</span> Aktivitás
+      <!-- CSAPAT group -->
+      <div class="marveen-group-header" onclick="this.classList.toggle('expanded');var el=document.getElementById('marveenGroupTeam');if(el) el.style.display=this.classList.contains('expanded')?'block':'none'">
+        <span class="icon">▸</span> <strong>CSAPAT</strong>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('bgTasks')">
-        <span class="icon">🔄</span> Háttér
+      <div id="marveenGroupTeam" style="display:none;padding-left:8px">
+        <div class="channel-item" onclick="loadMarveenPage('agents')">
+          <span class="icon">🤖</span> Ügynökök
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('activity')">
+          <span class="icon">📈</span> Aktivitás
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('messages')">
+          <span class="icon">💬</span> Üzenetek
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('tasks')">
+          <span class="icon">⏰</span> Ütemezések
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('bgTasks')">
+          <span class="icon">🔄</span> Háttér
+        </div>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('memories')">
-        <span class="icon">🧠</span> Memória
+      <!-- TUDÁS group -->
+      <div class="marveen-group-header" onclick="this.classList.toggle('expanded');var el=document.getElementById('marveenGroupKnowledge');if(el) el.style.display=this.classList.contains('expanded')?'block':'none'">
+        <span class="icon">▸</span> <strong>TUDÁS</strong>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('naplo')">
-        <span class="icon">📝</span> Napló
+      <div id="marveenGroupKnowledge" style="display:none;padding-left:8px">
+        <div class="channel-item" onclick="loadMarveenPage('memories')">
+          <span class="icon">🧠</span> Memória
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('naplo')">
+          <span class="icon">📝</span> Napló
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('skills')">
+          <span class="icon">⭐</span> Skillek
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('research')">
+          <span class="icon">💡</span> Ötletláda
+        </div>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('research')">
-        <span class="icon">💡</span> Ötletláda
+      <!-- STATISZTIKÁK group -->
+      <div class="marveen-group-header" onclick="this.classList.toggle('expanded');var el=document.getElementById('marveenGroupStats');if(el) el.style.display=this.classList.contains('expanded')?'block':'none'">
+        <span class="icon">▸</span> <strong>STATISZTIKÁK</strong>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('costs')">
-        <span class="icon">💰</span> Költségek
+      <div id="marveenGroupStats" style="display:none;padding-left:8px">
+        <div class="channel-item" onclick="loadMarveenPage('costs')">
+          <span class="icon">💰</span> Költségek
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('tokenUsage')">
+          <span class="icon">🔢</span> Token Monitor
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('updates')">
+          <span class="icon">⬆️</span> Frissítések
+        </div>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('tokenUsage')">
-        <span class="icon">🔢</span> Token Monitor
+      <!-- RENDSZER group -->
+      <div class="marveen-group-header" onclick="this.classList.toggle('expanded');var el=document.getElementById('marveenGroupSystem');if(el) el.style.display=this.classList.contains('expanded')?'block':'none'">
+        <span class="icon">▸</span> <strong>RENDSZER</strong>
       </div>
-      <div class="channel-item" onclick="loadMarveenPage('updates')">
-        <span class="icon">⬆️</span> Frissítések
-      </div>
-      <div class="channel-item" onclick="loadMarveenPage('vault')">
-        <span class="icon">🔐</span> Vault
-      </div>
-      <div class="channel-item" onclick="loadMarveenPage('connectors')">
-        <span class="icon">🔌</span> MCP
-      </div>
-      <div class="channel-item" onclick="loadMarveenPage('federation')">
-        <span class="icon">🌐</span> Föderáció
-      </div>
-      <div class="channel-item" onclick="loadMarveenPage('migrate')">
-        <span class="icon">📦</span> Költöztetés
-      </div>
-      <div class="channel-item" onclick="loadMarveenPage('docs')">
-        <span class="icon">📚</span> Dokumentáció
+      <div id="marveenGroupSystem" style="display:none;padding-left:8px">
+        <div class="channel-item" onclick="loadMarveenPage('vault')">
+          <span class="icon">🔐</span> Vault
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('connectors')">
+          <span class="icon">🔌</span> MCP
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('federation')">
+          <span class="icon">🌐</span> Föderáció
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('migrate')">
+          <span class="icon">📦</span> Költöztetés
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('docs')">
+          <span class="icon">📚</span> Dokumentáció
+        </div>
       </div>
     </div>
   </div>
@@ -2703,12 +2744,17 @@ document.getElementById("messageInput").addEventListener("keydown", function(e) 
 
 function loadMarveenPage(page) {
   var titleMap = {
+    'overview': '📊 Áttekintés',
     'kanban': '📋 Kanban Táblák',
     'approvals': '✅ Jóváhagyások',
+    'agents': '🤖 Ügynökök',
     'activity': '📈 Aktivitás',
+    'messages': '💬 Üzenetek',
+    'tasks': '⏰ Ütemezések',
     'bgTasks': '🔄 Háttér Feladatok',
     'memories': '🧠 Memória',
     'naplo': '📝 Napló',
+    'skills': '⭐ Skillek',
     'research': '💡 Ötletláda',
     'costs': '💰 Költségek',
     'tokenUsage': '🔢 Token Monitor',
@@ -2721,12 +2767,17 @@ function loadMarveenPage(page) {
   };
 
   var apiMap = {
+    'overview': '/api/overview',
     'kanban': '/api/kanban',
     'approvals': '/api/approvals',
+    'agents': '/api/agents',
     'activity': '/api/activity',
+    'messages': '/api/messages',
+    'tasks': '/api/tasks',
     'bgTasks': '/api/cron',
     'memories': '/api/memory',
     'naplo': '/api/logs',
+    'skills': '/api/skills',
     'research': '/api/research',
     'costs': '/api/costops/summary',
     'tokenUsage': '/api/token-usage',
@@ -3073,6 +3124,115 @@ function loadMarveenPage(page) {
         html += '<div style="margin-bottom:16px;"></div>';
       });
       return html;
+    },
+
+    overview: function(d) {
+      if (d.error) return errorBox(d.error);
+      var html = '';
+      // Stats row
+      html += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += statBox('Node', d.node_name || '—');
+      html += statBox('Peers', (d.peers || 0) + '/' + (d.peers_total || 0));
+      html += statBox('Tasks', (d.tasks_total || 0));
+      html += statBox('Pending', (d.tasks_pending || 0));
+      html += '</div>';
+      // Node list
+      var nodes = d.nodes || [];
+      if (nodes.length) {
+        html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Node-ok</h3>';
+        html += table(['Node', 'Státusz', 'Heartbeat'], nodes.map(function(n) {
+          var st = n.status || 'unknown';
+          var sc = st === 'active' || st === 'healthy' ? 'var(--primary)' : 'var(--text3)';
+          return [esc(n.node_name || n.name), badge(st, sc), fmtTime(n.last_heartbeat)];
+        }));
+      }
+      // Recent activity
+      var act = d.recent_activity || [];
+      if (act.length) {
+        html += '<h3 style="margin:16px 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Legutóbbi aktivitás</h3>';
+        html += table(['Feladó', 'Címzett', 'Típus', 'Idő'], act.map(function(a) {
+          return [esc(a.sender), esc(a.recipient), badge(a.msg_type || 'msg'), fmtTime(a.created_at)];
+        }));
+      }
+      return html || empty('Nincs adat');
+    },
+
+    agents: function(d) {
+      if (d.error) return errorBox(d.error);
+      var agents = d.agents || [];
+      if (!agents.length) return empty('Nincs ügynök');
+      var html = '';
+      agents.forEach(function(a) {
+        var st = a.status || 'unknown';
+        var sc = st === 'active' || st === 'healthy' ? 'var(--primary)' : 'var(--text3)';
+        var caps = a.capabilities || [];
+        var skills = a.skills || [];
+        if (typeof caps === 'string') { try { caps = JSON.parse(caps); } catch(e) { caps = [caps]; } }
+        if (typeof skills === 'string') { try { skills = JSON.parse(skills); } catch(e) { skills = [skills]; } }
+        html += card(
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+          '<span style="font-size:20px;">🤖</span>' +
+          '<strong style="font-size:14px;">' + esc(a.node_name || a.name || '—') + '</strong>' +
+          badge(st, sc) +
+          (a.version ? badge('v' + a.version, 'var(--text3)') : '') +
+          '</div>' +
+          '<div style="font-size:12px;color:var(--text3);margin-bottom:6px;">' + esc(a.role || '') + ' @ ' + esc(a.host || '—') + ':' + esc(a.p2p_port || '') + '</div>' +
+          (caps.length ? '<div style="margin-bottom:6px;"><span style="font-size:11px;color:var(--text3);">Képességek:</span> ' + caps.map(function(c) { return badge(c, 'var(--primary)'); }).join(' ') + '</div>' : '') +
+          (skills.length ? '<div><span style="font-size:11px;color:var(--text3);">Skillek:</span> ' + skills.slice(0, 10).map(function(s) { return badge(s, 'var(--surface2)'); }).join(' ') + (skills.length > 10 ? ' +' + (skills.length - 10) : '') + '</div>' : '')
+        );
+      });
+      return html;
+    },
+
+    messages: function(d) {
+      if (d.error) return errorBox(d.error);
+      var msgs = d.messages || [];
+      var counts = d.type_counts || [];
+      var html = '';
+      // Type summary
+      if (counts.length) {
+        html += '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">';
+        counts.forEach(function(c) {
+          html += badge(c.msg_type + ': ' + c.c, 'var(--surface2)');
+        });
+        html += '</div>';
+      }
+      if (!msgs.length) return html + empty('Nincs üzenet');
+      html += table(['ID', 'Feladó', 'Címzett', 'Típus', 'Prioritás', 'Státusz', 'Idő'], msgs.map(function(m) {
+        var pri = m.priority || 'normal';
+        var pc = pri === 'high' ? 'var(--danger)' : 'var(--text3)';
+        return [esc((m.id || '').toString().substring(0, 8)), esc(m.sender), esc(m.recipient), badge(m.msg_type || 'msg'), badge(pri, pc), badge(m.status || '—'), fmtTime(m.created_at)];
+      }));
+      return html;
+    },
+
+    skills: function(d) {
+      if (d.error) return errorBox(d.error);
+      var skills = d.skills || [];
+      if (!skills.length) return empty('Nincs skill');
+      // Group by node
+      var byNode = {};
+      skills.forEach(function(s) { (byNode[s.node] = byNode[s.node] || []).push(s.skill); });
+      var html = '';
+      Object.keys(byNode).forEach(function(node) {
+        html += '<h3 style="margin:0 0 8px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">🤖 ' + esc(node) + ' (' + byNode[node].length + ')</h3>';
+        html += '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">';
+        byNode[node].forEach(function(s) { html += badge(s, 'var(--primary)'); });
+        html += '</div>';
+      });
+      return html;
+    },
+
+    tasks: function(d) {
+      if (d.error) return errorBox(d.error);
+      var tasks = d.tasks || [];
+      if (!tasks.length) return empty('Nincs ütemezett feladat');
+      return table(['ID', 'Név', 'Node', 'Státusz', 'Indítás', 'Befejezés', 'Időtartam'], tasks.map(function(t) {
+        var st = t.status || 'unknown';
+        var sc = st === 'completed' ? 'var(--primary)' : st === 'running' ? 'var(--warning)' : st === 'failed' ? 'var(--danger)' : 'var(--text3)';
+        var dur = t.duration_ms ? (t.duration_ms / 1000).toFixed(1) + 's' : '—';
+        return [esc((t.id || '').toString().substring(0, 8)), esc(t.task_name || '—'), esc(t.node || '—'), badge(st, sc), fmtTime(t.started_at), fmtTime(t.completed_at), dur];
+      }));
     }
   };
 
