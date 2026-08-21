@@ -418,6 +418,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
           <span class="icon">📚</span> Dokumentáció
         </div>
       </div>
+      <!-- INSIGHTS group -->
+      <div class="marveen-group-header" onclick="this.classList.toggle('expanded');var el=document.getElementById('marveenGroupInsights');if(el) el.style.display=this.classList.contains('expanded')?'block':'none'">
+        <span class="icon">▸</span> <strong>INSIGHTS</strong>
+      </div>
+      <div id="marveenGroupInsights" style="display:none;padding-left:8px">
+        <div class="channel-item" onclick="loadMarveenPage('insights-cost')">
+          <span class="icon">💰</span> Költség
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('insights-inbox')">
+          <span class="icon">📥</span> Beérkező <span id="inboxBadge" class="marveen-badge" hidden style="margin-left:auto;background:var(--danger);color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;">0</span>
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('insights-context-gate')">
+          <span class="icon">🧠</span> Kontextus Kapu
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('insights-conversations')">
+          <span class="icon">💬</span> Beszélgetések
+        </div>
+        <div class="channel-item" onclick="loadMarveenPage('insights-dream')">
+          <span class="icon">🌙</span> Dream Engine
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2882,7 +2903,12 @@ function loadMarveenPage(page) {
     'connectors': '🔌 MCP Registry',
     'federation': '🌐 Föderáció',
     'migrate': '📦 Költöztetés',
-    'docs': '📚 Dokumentáció'
+    'docs': '📚 Dokumentáció',
+    'insights-cost': '💰 Költség',
+    'insights-inbox': '📥 Beérkező',
+    'insights-context-gate': '🧠 Kontextus Kapu',
+    'insights-conversations': '💬 Beszélgetések',
+    'insights-dream': '🌙 Dream Engine'
   };
 
   var apiMap = {
@@ -2905,7 +2931,11 @@ function loadMarveenPage(page) {
     'connectors': '/api/mcp-registry',
     'federation': '/api/federation',
     'migrate': '/api/migrate',
-    'docs': '/api/docs'
+    'docs': '/api/docs',
+    'insights-cost': '/api/insights/cost',
+    'insights-inbox': '/api/insights/inbox',
+    'insights-context-gate': '/api/insights/context-gate',
+    'insights-dream': '/api/insights/dream'
   };
 
   var title = titleMap[page] || page;
@@ -3846,6 +3876,110 @@ function loadMarveenPage(page) {
         var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
         return [esc((t.id || '').toString().substring(0, 8)), esc(t.from_agent || '—'), esc(t.to_agent || '—'), esc(t.subject || '—'), badge(st, sc), badge(pri, pc), badge(t.task_type || '—'), fmtTime(t.created_at)];
       }));
+    },
+    'insights-cost': function(d) {
+      if (d.error) return errorBox(d.error);
+      var html = '';
+      var summary = d.summary || [];
+      if (summary.length) {
+        html += '<h3 style=\"margin-bottom:12px\">💰 Havi költségek</h3>';
+        html += table(['Ügynök', 'Modell', 'Input', 'Output', 'Költség'], summary.map(function(s) {
+          return [esc(s.agent), esc(s.model), esc(s.input_tokens), esc(s.output_tokens), '$' + esc(s.cost_usd)];
+        }));
+      }
+      var alerts = d.alerts || [];
+      if (alerts.length) {
+        html += '<h3 style=\"margin-top:20px;margin-bottom:12px\">⚠️ Költségfigyelő</h3>';
+        alerts.forEach(function(a) {
+          var c = a.level === 'red' ? 'var(--danger)' : a.level === 'yellow' ? 'var(--warning)' : 'var(--success)';
+          html += card('<div style=\"display:flex;align-items:center;gap:8px\">' + badge(a.level.toUpperCase(), c) + '<span>' + esc(a.message) + '</span></div>');
+        });
+      }
+      return html || empty('Nincs költség adat');
+    },
+    'insights-inbox': function(d) {
+      if (d.error) return errorBox(d.error);
+      var html = '<div style=\"display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;\">';
+      html += '<div style=\"background:var(--surface2);border:1px solid var(--border);padding:8px 16px;border-radius:8px;text-align:center;flex:1;min-width:100px\"><div style=\"font-size:20px;font-weight:700;color:var(--text)\">' + (d.total_unread || 0) + '</div><div style=\"font-size:11px;color:var(--text3)\">Olvasatlan</div></div>';
+      html += '<div style=\"background:var(--surface2);border:1px solid var(--border);padding:8px 16px;border-radius:8px;text-align:center;flex:1;min-width:100px\"><div style=\"font-size:20px;font-weight:700;color:var(--warning)\">' + (d.nudged || 0) + '</div><div style=\"font-size:11px;color:var(--text3)\">Emlékeztető</div></div>';
+      html += '<div style=\"background:var(--surface2);border:1px solid var(--border);padding:8px 16px;border-radius:8px;text-align:center;flex:1;min-width:100px\"><div style=\"font-size:20px;font-weight:700;color:var(--danger)\">' + (d.alerted || 0) + '</div><div style=\"font-size:11px;color:var(--text3)\">Sürgős</div></div>';
+      html += '</div>';
+      var msgs = d.messages || [];
+      if (msgs.length) {
+        html += '<h3 style=\"margin-bottom:12px\">📥 Üzenetek</h3>';
+        html += table(['Címzett', 'Feladó', 'Idő', 'Képek', 'Státusz'], msgs.map(function(m) {
+          var status = '';
+          if (m.alerted) status += badge('SÜRGŐS', 'var(--danger)') + ' ';
+          if (m.nudged) status += badge('EMLÉKEZTETŐ', 'var(--warning)');
+          return [esc(m.to_node), esc(m.from_node), esc(m.age_min + ' perc'), esc(m.preview), status];
+        }));
+      }
+      return html || empty('Nincs beérkező üzenet');
+    },
+    'insights-context-gate': function(d) {
+      if (d.error) return errorBox(d.error);
+      var agents = d.agents || [];
+      if (!agents.length) return empty('Nincs adat');
+      var html = '<h3 style=\"margin-bottom:12px\">🧠 Kontextus Telítottság</h3>';
+      agents.forEach(function(a) {
+        var pct = a.pct || 0;
+        var color = pct < 70 ? 'var(--success)' : pct < 85 ? 'var(--warning)' : 'var(--danger)';
+        html += card('<div style=\"margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:13px;\">' + 
+          '<strong>' + esc(a.name) + '</strong>' + 
+          '<span>' + esc(a.turns) + ' / ' + esc(a.max_turns) + ' (' + pct + '%)</span>' + 
+          '</div>' + 
+          '<div style=\"background:var(--border);height:6px;border-radius:3px;overflow:hidden;\">' + 
+          '<div style=\"background:' + color + ';height:100%;width:' + pct + '%;transition:width .3s\"></div>' + 
+          '</div>');
+      });
+      return html;
+    },
+    'insights-conversations-log': function(d) {
+      if (d.error) return errorBox(d.error);
+      var msgs = d.messages || [];
+      if (!msgs.length) return empty('Nincs üzenet');
+      var html = '<div style=\"display:flex;flex-direction:column;gap:8px;padding:10px;max-height:600px;overflow-y:auto;\">';
+      msgs.slice(-50).forEach(function(m) {
+        var isUser = m.role === 'user';
+        var align = isUser ? 'flex-start' : 'flex-end';
+        var bg = isUser ? 'var(--primary-dim)' : 'var(--success)';
+        var color = '#fff';
+        html += '<div style=\"display:flex;justify-content:' + align + ';\">' + 
+          '<div style=\"max-width:80%;padding:8px 12px;border-radius:12px;background:' + bg + ';color:' + color + ';font-size:13px;line-height:1.4;word-wrap:break-word;border-bottom-right-radius:' + (isUser ? '12px' : '4px') + ';border-bottom-left-radius:' + (isUser ? '4px' : '12px') + '\">' + 
+          '<div style=\"font-size:10px;opacity:.8;margin-bottom:4px;font-weight:600;\">' + esc(m.role === 'user' ? 'Felhasználó' : 'Asszisztens') + '</div>' + 
+          '<div>' + esc(m.content) + '</div>' + 
+          '<div style=\"font-size:10px;opacity:.6;margin-top:4px;text-align:right;\">' + fmtTime(m.timestamp) + '</div>' + 
+          '</div></div>';
+      });
+      html += '</div>';
+      return html;
+    },
+    'insights-dream': function(d) {
+      if (d.error) return errorBox(d.error);
+      var html = card('<div style=\"text-align:center;padding:10px;\">' + 
+        '<div style=\"font-size:24px;margin-bottom:8px;\">🌙 Dream Engine</div>' + 
+        '<div style=\"font-size:18px;font-weight:700;color:' + (d.enabled ? 'var(--success)' : 'var(--danger)') + '\">' + (d.enabled ? 'Aktív' : 'Inaktív') + '</div>' + 
+        '<div style=\"color:var(--text3);font-size:12px;margin-top:4px;\">Fut minden ' + (d.interval_hours || 6) + ' órában</div>' + 
+        '</div>');
+      
+      html += '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;\">' + 
+        '<div style=\"background:var(--surface2);padding:10px;border-radius:8px;text-align:center;border:1px solid var(--border)\">' + 
+        '<div style=\"font-size:20px;font-weight:700;color:var(--primary)\">' + (d.total_dreams || 0) + '</div><div style=\"font-size:11px;color:var(--text3)\">Összes álom</div></div>' + 
+        '<div style=\"background:var(--surface2);padding:10px;border-radius:8px;text-align:center;border:1px solid var(--border)\">' + 
+        '<div style=\"font-size:13px;color:var(--text)\">Utolsó: ' + fmtTime(d.last_run) + '</div><div style=\"font-size:11px;color:var(--text3)\">Következő: ' + fmtTime(d.next_run) + '</div></div>' + 
+        '</div>';
+
+      var results = d.recent_results || [];
+      if (results.length) {
+        html += '<h3 style=\"margin-bottom:12px\">🌙 Legutóbbi eredmények</h3>';
+        results.forEach(function(r) {
+          html += card('<div style=\"display:flex;justify-content:space-between;align-items:start;gap:8px;\">' + 
+            '<div><div style=\"font-size:12px;color:var(--text2);line-height:1.4;\">' + esc(r.preview) + '</div>' + 
+            '<div style=\"font-size:10px;color:var(--text3);margin-top:4px;\">' + fmtTime(r.timestamp) + '</div></div>' + 
+            '</div>');
+        });
+      }
+      return html || empty('Nincs álom adat');
     }
   };
 
