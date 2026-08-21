@@ -1979,6 +1979,7 @@ function deleteMessage(msgId) {
 }
 
 function escapeHtml(t) { var d = document.createElement("div"); d.textContent = t; return d.innerHTML; }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function log(msg) {
   var el = document.getElementById("sysLog");
