@@ -3833,12 +3833,12 @@ class DashboardAdminMixin:
 
             if assigned_to:
                 await pool.execute(
-                    "UPDATE mesh.mesh_ideas SET status = $2, assigned_to = $3, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('done','rejected') THEN NOW() ELSE NULL END WHERE idea_id = $1",
+                    "UPDATE mesh.mesh_ideas SET status = $2::varchar, assigned_to = $3, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('done','rejected') THEN NOW() ELSE NULL END WHERE idea_id = $1",
                     idea_id, new_status, assigned_to
                 )
             else:
                 await pool.execute(
-                    "UPDATE mesh.mesh_ideas SET status = $2, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('done','rejected') THEN NOW() ELSE NULL END WHERE idea_id = $1",
+                    "UPDATE mesh.mesh_ideas SET status = $2::varchar, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('done','rejected') THEN NOW() ELSE NULL END WHERE idea_id = $1",
                     idea_id, new_status
                 )
             return web.json_response({"ok": True, "status": new_status})
