@@ -3757,7 +3757,7 @@ class DashboardAdminMixin:
             if not isinstance(tags, list):
                 tags = []
             source_type = (data.get("source_type") or "user").strip()
-            submitted_by = (data.get("submitted_by") or user or "user").strip()
+            submitted_by = (data.get("submitted_by") or getattr(user, 'username', None) or getattr(user, 'name', None) or "user").strip()
 
             idea_id = "idea_" + _uuid.uuid4().hex[:12]
             pool = self._get_pg_pool()
@@ -3783,7 +3783,7 @@ class DashboardAdminMixin:
             idea_id = request.match_info.get("id", "")
             data = await request.json()
             vote = data.get("vote", "up")  # "up" or "down"
-            voter = data.get("voter", user or "user")
+            voter = data.get("voter", getattr(user, 'username', None) or getattr(user, 'name', None) or "user")
             pool = self._get_pg_pool()
             if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
