@@ -3591,3 +3591,73 @@ class DashboardAdminMixin:
             "info": sum(1 for a in alerts if a["severity"] == "info"),
             "alerts": alerts,
         })
+
+    # ─── Marveen Insights API ──────────────────────────────────────────
+
+    async def _api_insights_cost(self, request):
+        """GET /api/insights/cost — Cost tracking per agent."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from .costops import get_monthly_summary, check_budget_alerts
+            summary = get_monthly_summary()
+            alerts = check_budget_alerts()
+            return web.json_response({"summary": summary, "alerts": alerts})
+        except Exception as e:
+            return web.json_response({"error": str(e), "summary": {}, "alerts": []}, status=500)
+
+    async def _api_insights_inbox(self, request):
+        """GET /api/insights/inbox — Inbox nudge status per agent."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from .inbox_nudge import get_inbox_status
+            status = get_inbox_status()
+            return web.json_response(status)
+        except Exception as e:
+            return web.json_response({"error": str(e), "total_unread": 0, "messages": []}, status=500)
+
+    async def _api_insights_context_gate(self, request):
+        """GET /api/insights/context-gate — Context saturation per agent."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from .context_gate import context_gate_tick
+            results = await context_gate_tick(self._pg_pool) if self._pg_pool else []
+            return web.json_response({"agents": results, "checked": len(results)})
+        except Exception as e:
+            return web.json_response({"error": str(e), "agents": []}, status=500)
+
+    async def _api_insights_conversations(self, request):
+        """GET /api/insights/conversations/{agent} — Conversation log for agent."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        agent = request.match_info.get("agent", "")
+        limit = int(request.query.get("limit", 50))
+        try:
+            from .marveen_db import get_conversation_log
+            logs = await get_conversation_log(agent, limit=limit)
+            return web.json_response({"agent": agent, "messages": logs, "count": len(logs)})
+        except Exception as e:
+            return web.json_response({"error": str(e), "messages": []}, status=500)
+
+    async def _api_insights_dream(self, request):
+        """GET /api/insights/dream — Dream Engine status and recent cycles."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from .dream_engine import get_dream_status
+            status = await get_dream_status(self._pg_pool) if self._pg_pool else {"enabled": False, "error": "PG unavailable"}
+            return web.json_response(status)
+        except Exception as e:
+            return web.json_response({"error": str(e), "enabled": False}, status=500)

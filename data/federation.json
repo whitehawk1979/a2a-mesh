@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "peers": [
+    {
+      "name": "morzsa",
+      "address": "192.168.1.30",
+      "port": 8650,
+      "trust": "trusted",
+      "ssh_tunnel": false,
+      "last_seen": null,
+      "capabilities": []
+    },
+    {
+      "name": "runa",
+      "address": "192.168.1.100",
+      "port": 8650,
+      "trust": "trusted",
+      "ssh_tunnel": false,
+      "last_seen": null,
+      "capabilities": []
+    }
+  ]
+}

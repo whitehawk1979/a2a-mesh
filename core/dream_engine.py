@@ -247,4 +247,38 @@ def _generate_dream_md(results):
     lines.append("---")
     lines.append("*Dream Engine — A2A Mesh v0.29+*")
 
-    return "\n".join(lines)
+
+async def get_dream_status(pg_pool=None):
+    """Get Dream Engine status for dashboard."""
+    import time as _time
+    status = {
+        "enabled": True,
+        "interval_hours": 6,
+        "last_run": None,
+        "next_run": None,
+        "recent_results": [],
+    }
+    if not pg_pool or not pg_pool.is_connected():
+        status["enabled"] = False
+        status["error"] = "PG unavailable"
+        return status
+    try:
+        async with pg_pool.acquire() as conn:
+            # Check for recent dream results in memory or logs
+            rows = await conn.fetch(
+                """SELECT created_at, content FROM shared_a2a_memory
+                   WHERE namespace = 'dream_engine' AND created_at > NOW() - INTERVAL '24 hours'
+                   ORDER BY created_at DESC LIMIT 5"""
+            )
+            if rows:
+                status["last_run"] = rows[0]["created_at"].isoformat() if rows else None
+                status["recent_results"] = [
+                    {"timestamp": r["created_at"].isoformat(), "preview": str(r["content"])[:200]}
+                    for r in rows
+                ]
+            # Check memory health
+            mem_count = await conn.fetchval("SELECT COUNT(*) FROM shared_a2a_memory WHERE namespace = 'dream_engine'")
+            status["total_dreams"] = mem_count or 0
+    except Exception as e:
+        status["error"] = str(e)
+    return status

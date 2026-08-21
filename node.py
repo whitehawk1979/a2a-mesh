@@ -4313,9 +4313,18 @@ echo "Status: ok"
         _last_caps_broadcast = 0
         _last_decay = 0
         _last_dream = 0
+        _last_inbox_check = 0
+        _last_context_gate = 0
+        _last_auto_skill = 0
+        _last_cap_sync = 0
+        _last_gw_watchdog = 0
         CAPS_REBROADCAST_INTERVAL = 300  # 5 min
         DECAY_INTERVAL = 3600  # 1 hour
         DREAM_INTERVAL = 21600  # 6 hours
+        INBOX_CHECK_INTERVAL = 300  # 5 min
+        CONTEXT_GATE_INTERVAL = 300  # 5 min
+        AUTO_SKILL_INTERVAL = 600  # 10 min
+        CAP_SYNC_INTERVAL = 600  # 10 min
 
         while self._running:
             try:
@@ -4438,6 +4447,119 @@ echo "Status: ok"
                     except Exception as e:
                         log.debug(f"[self-heal] Dream Engine skipped: {e}")
                     _last_dream = now_ts
+
+                # 8. Inbox Nudge — check unread messages, escalate if needed (5 min)
+                if now_ts - _last_inbox_check > INBOX_CHECK_INTERVAL:
+                    try:
+                        from .core.inbox_nudge import check_nudges
+                        actions = check_nudges()
+                        for action in actions:
+                            if action["action"] == "alert":
+                                log.warning(f"[inbox] ALERT: {action['to_node']} has unread from {action['from_node']} ({action['age_min']}min old)")
+                                # Send alert via alert_manager if available
+                                if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'alert_manager'):
+                                    try:
+                                        await self.dashboard.alert_manager.send_alert(
+                                            title=f"Inbox alert: {action['to_node']}",
+                                            body=f"Unread message from {action['from_node']} ({action['age_min']}min): {action['preview']}",
+                                            severity="warning",
+                                        )
+                                    except Exception:
+                                        pass
+                            elif action["action"] == "nudge":
+                                log.info(f"[inbox] NUDGE: {action['to_node']} has unread from {action['from_node']} ({action['age_min']}min old)")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Inbox nudge check skipped: {e}")
+                    _last_inbox_check = now_ts
+
+                # 9. Context Gate — check agent context saturation (5 min)
+                if now_ts - _last_context_gate > CONTEXT_GATE_INTERVAL:
+                    try:
+                        from .core.context_gate import context_gate_tick
+                        gate_results = await context_gate_tick(self._pg_pool)
+                        for gr in gate_results:
+                            log.warning(f"[context-gate] {gr['message']}")
+                            if gr["severity"] == "critical" and hasattr(self, 'dashboard') and hasattr(self.dashboard, 'alert_manager'):
+                                try:
+                                    await self.dashboard.alert_manager.send_alert(
+                                        title=f"Context gate: {gr['node']}",
+                                        body=gr["message"],
+                                        severity="critical",
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        log.debug(f"[self-heal] Context gate tick skipped: {e}")
+                    _last_context_gate = now_ts
+
+                # 10. Auto-Skill — generate skills from completed delegations (10 min)
+                if now_ts - _last_auto_skill > AUTO_SKILL_INTERVAL:
+                    try:
+                        from .core.auto_skill import maybe_generate_skill
+                        # Check recently completed tasks from Kanban
+                        kanban_mgr = getattr(self.dashboard, '_kanban_mgr', None) if hasattr(self, 'dashboard') else None
+                        if kanban_mgr and self._pg_pool and self._pg_pool.is_connected():
+                            async with self._pg_pool.acquire() as conn:
+                                rows = await conn.fetch(
+                                    """SELECT * FROM shared_delegations
+                                       WHERE status = 'completed' AND created_at > NOW() - INTERVAL '1 hour'
+                                       ORDER BY created_at DESC LIMIT 5"""
+                                )
+                                for row in rows:
+                                    task = dict(row)
+                                    skill_name = await maybe_generate_skill(task, self.node_name)
+                                    if skill_name:
+                                        log.info(f"[auto-skill] Generated: {skill_name}")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Auto-skill check skipped: {e}")
+                    _last_auto_skill = now_ts
+
+                # 11. Capability Registry Sync — update SmartRouter from node capabilities (10 min)
+                if now_ts - _last_cap_sync > CAP_SYNC_INTERVAL:
+                    try:
+                        smart_router = getattr(self, 'smart_router', None) or getattr(self.router, 'smart_router', None)
+                        if smart_router and hasattr(smart_router, 'registry') and self._pg_pool and self._pg_pool.is_connected():
+                            async with self._pg_pool.acquire() as conn:
+                                rows = await conn.fetch(
+                                    """SELECT node_name, capabilities FROM mesh_nodes WHERE capabilities IS NOT NULL"""
+                                )
+                                for row in rows:
+                                    name = row["node_name"]
+                                    caps = row["capabilities"] if isinstance(row["capabilities"], list) else []
+                                    # Update registry with latest capabilities
+                                    try:
+                                        smart_router.registry.update_capabilities(name, caps)
+                                    except Exception:
+                                        pass
+                            log.debug("[self-heal] Capability registry synced from PG")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Capability sync skipped: {e}")
+                    _last_cap_sync = now_ts
+
+                # 12. Gateway Watchdog — check Hermes gateway health (every 2 min)
+                if now_ts - _last_gw_watchdog > 120:
+                    try:
+                        import urllib.request as _urllib
+                        try:
+                            req = _urllib.request.Request("http://localhost:8650/api/health", method="GET")
+                            resp = _urllib.request.urlopen(req, timeout=10)
+                            gw_ok = resp.status == 200
+                        except Exception:
+                            gw_ok = False
+                        if not gw_ok:
+                            log.warning("[self-heal] Gateway watchdog: health endpoint down")
+                            try:
+                                from .core.gateway_watchdog import check_cooldown, check_restart_rate, restart_gateway, record_restart
+                                if check_cooldown() and check_restart_rate():
+                                    success = restart_gateway(self.node_name)
+                                    if success:
+                                        record_restart()
+                                        log.info(f"[self-heal] Gateway restart dispatched for {self.node_name}")
+                            except Exception as gw_err:
+                                log.debug(f"[self-heal] Gateway watchdog restart failed: {gw_err}")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Gateway watchdog check skipped: {e}")
+                    _last_gw_watchdog = now_ts
 
             except asyncio.CancelledError:
                 break

@@ -409,6 +409,12 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/recovery-notes/{id}/read", self._api_recovery_note_read)
         # Code Review API
         app.router.add_post("/api/code-review", self._api_code_review)
+        # Marveen insights API — cost, inbox, context gate, conversation log, dream engine
+        app.router.add_get("/api/insights/cost", self._api_insights_cost)
+        app.router.add_get("/api/insights/inbox", self._api_insights_inbox)
+        app.router.add_get("/api/insights/context-gate", self._api_insights_context_gate)
+        app.router.add_get("/api/insights/conversations/{agent}", self._api_insights_conversations)
+        app.router.add_get("/api/insights/dream", self._api_insights_dream)
         # Log viewer API
         app.router.add_get("/api/logs", self._api_logs)
         # Shared context API
