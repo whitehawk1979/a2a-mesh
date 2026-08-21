@@ -3680,7 +3680,7 @@ class DashboardAdminMixin:
             return err
         try:
             pool = self._get_pg_pool()
-            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+            if not pool:
                 return web.json_response({"error": "PG unavailable", "ideas": []}, status=503)
 
             status_filter = request.query.get("status", "")
@@ -3754,20 +3754,22 @@ class DashboardAdminMixin:
             category = (data.get("category") or "general").strip()
             priority = (data.get("priority") or "medium").strip()
             tags = data.get("tags", [])
+            if not isinstance(tags, list):
+                tags = []
             source_type = (data.get("source_type") or "user").strip()
             submitted_by = (data.get("submitted_by") or user or "user").strip()
 
             idea_id = "idea_" + _uuid.uuid4().hex[:12]
             pool = self._get_pg_pool()
-            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+            if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
 
             await pool.execute(
                 "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])",
                 idea_id, title, description, category, priority, source_type, submitted_by, tags
             )
-            return web.json_response({"ok": True, "idea_id": idea_id})
+            return web.json_response({"ok": True, "id": idea_id})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
@@ -3783,7 +3785,7 @@ class DashboardAdminMixin:
             vote = data.get("vote", "up")  # "up" or "down"
             voter = data.get("voter", user or "user")
             pool = self._get_pg_pool()
-            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+            if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
 
             row = await pool.fetchrow("SELECT voters, upvotes, downvotes FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
@@ -3826,7 +3828,7 @@ class DashboardAdminMixin:
                 return web.json_response({"error": "Invalid status. Valid: " + ", ".join(valid)}, status=400)
             assigned_to = data.get("assigned_to")
             pool = self._get_pg_pool()
-            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+            if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
 
             if assigned_to:
@@ -3852,7 +3854,7 @@ class DashboardAdminMixin:
         try:
             idea_id = request.match_info.get("id", "")
             pool = self._get_pg_pool()
-            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+            if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
             await pool.execute("DELETE FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
             return web.json_response({"ok": True})
