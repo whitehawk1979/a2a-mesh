@@ -3661,3 +3661,200 @@ class DashboardAdminMixin:
             return web.json_response(status)
         except Exception as e:
             return web.json_response({"error": str(e), "enabled": False}, status=500)
+
+    # ─── Ideas Board (Ötletláda) ─────────────────────────────────────
+
+    def _get_pg_pool(self):
+        """Get PG pool from node or self."""
+        pool = getattr(self, '_pg_pool', None)
+        if not pool:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+        return pool
+
+    async def _api_ideas_list(self, request):
+        """GET /api/ideas — list all ideas with optional filters."""
+        from aiohttp import web
+        import json as _json
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            pool = self._get_pg_pool()
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG unavailable", "ideas": []}, status=503)
+
+            status_filter = request.query.get("status", "")
+            category_filter = request.query.get("category", "")
+            limit = int(request.query.get("limit", 100))
+
+            query = "SELECT * FROM mesh.mesh_ideas"
+            conditions = []
+            params = []
+            idx = 1
+            if status_filter:
+                conditions.append("status = $" + str(idx))
+                params.append(status_filter)
+                idx += 1
+            if category_filter:
+                conditions.append("category = $" + str(idx))
+                params.append(category_filter)
+                idx += 1
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+            query += " ORDER BY created_at DESC LIMIT $" + str(idx)
+            params.append(limit)
+
+            rows = await pool.fetch(query, *params)
+            ideas = []
+            for r in rows:
+                ideas.append({
+                    "id": r["idea_id"],
+                    "title": r["title"],
+                    "description": r["description"],
+                    "category": r["category"],
+                    "priority": r["priority"],
+                    "status": r["status"],
+                    "submitted_by": r["submitted_by"],
+                    "source_type": r["source_type"],
+                    "tags": list(r["tags"]) if r["tags"] else [],
+                    "upvotes": r["upvotes"],
+                    "downvotes": r["downvotes"],
+                    "score": r["upvotes"] - r["downvotes"],
+                    "voters": list(r["voters"]) if r["voters"] else [],
+                    "assigned_to": r["assigned_to"],
+                    "linked_task_id": r["linked_task_id"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                    "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                })
+
+            # Stats
+            stats = {"total": len(ideas), "idea": 0, "approved": 0, "in_progress": 0, "done": 0, "rejected": 0}
+            for idea in ideas:
+                s = idea["status"]
+                if s in stats:
+                    stats[s] += 1
+
+            return web.json_response({"ideas": ideas, "stats": stats})
+        except Exception as e:
+            return web.json_response({"error": str(e), "ideas": [], "stats": {}}, status=500)
+
+    async def _api_ideas_submit(self, request):
+        """POST /api/ideas — submit a new idea."""
+        from aiohttp import web
+        import uuid as _uuid
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            title = (data.get("title") or "").strip()
+            if not title:
+                return web.json_response({"error": "Title required"}, status=400)
+            description = (data.get("description") or "").strip()
+            category = (data.get("category") or "general").strip()
+            priority = (data.get("priority") or "medium").strip()
+            tags = data.get("tags", [])
+            source_type = (data.get("source_type") or "user").strip()
+            submitted_by = (data.get("submitted_by") or user or "user").strip()
+
+            idea_id = "idea_" + _uuid.uuid4().hex[:12]
+            pool = self._get_pg_pool()
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG unavailable"}, status=503)
+
+            await pool.execute(
+                "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                idea_id, title, description, category, priority, source_type, submitted_by, tags
+            )
+            return web.json_response({"ok": True, "idea_id": idea_id})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_ideas_vote(self, request):
+        """POST /api/ideas/{id}/vote — upvote or downvote an idea."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            data = await request.json()
+            vote = data.get("vote", "up")  # "up" or "down"
+            voter = data.get("voter", user or "user")
+            pool = self._get_pg_pool()
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG unavailable"}, status=503)
+
+            row = await pool.fetchrow("SELECT voters, upvotes, downvotes FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
+            if not row:
+                return web.json_response({"error": "Idea not found"}, status=404)
+
+            voters = list(row["voters"]) if row["voters"] else []
+            if voter in voters:
+                return web.json_response({"error": "Already voted", "upvotes": row["upvotes"], "downvotes": row["downvotes"]}, status=409)
+
+            voters.append(voter)
+            if vote == "down":
+                await pool.execute(
+                    "UPDATE mesh.mesh_ideas SET downvotes = downvotes + 1, voters = $2, updated_at = NOW() WHERE idea_id = $1",
+                    idea_id, voters
+                )
+            else:
+                await pool.execute(
+                    "UPDATE mesh.mesh_ideas SET upvotes = upvotes + 1, voters = $2, updated_at = NOW() WHERE idea_id = $1",
+                    idea_id, voters
+                )
+
+            row2 = await pool.fetchrow("SELECT upvotes, downvotes FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
+            return web.json_response({"ok": True, "upvotes": row2["upvotes"], "downvotes": row2["downvotes"], "score": row2["upvotes"] - row2["downvotes"]})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_ideas_status(self, request):
+        """POST /api/ideas/{id}/status — change idea status."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            data = await request.json()
+            new_status = (data.get("status") or "").strip()
+            valid = {"idea", "approved", "in_progress", "done", "rejected"}
+            if new_status not in valid:
+                return web.json_response({"error": "Invalid status. Valid: " + ", ".join(valid)}, status=400)
+            assigned_to = data.get("assigned_to")
+            pool = self._get_pg_pool()
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG unavailable"}, status=503)
+
+            if assigned_to:
+                await pool.execute(
+                    "UPDATE mesh.mesh_ideas SET status = $2, assigned_to = $3, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('done','rejected') THEN NOW() ELSE NULL END WHERE idea_id = $1",
+                    idea_id, new_status, assigned_to
+                )
+            else:
+                await pool.execute(
+                    "UPDATE mesh.mesh_ideas SET status = $2, updated_at = NOW(), closed_at = CASE WHEN $2 IN ('done','rejected') THEN NOW() ELSE NULL END WHERE idea_id = $1",
+                    idea_id, new_status
+                )
+            return web.json_response({"ok": True, "status": new_status})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_ideas_delete(self, request):
+        """DELETE /api/ideas/{id} — delete an idea."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            pool = self._get_pg_pool()
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG unavailable"}, status=503)
+            await pool.execute("DELETE FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
+            return web.json_response({"ok": True})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
