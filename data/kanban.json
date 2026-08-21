@@ -998,9 +998,115 @@
             "timestamp": 1787213878.158848
           }
         ]
+      },
+      {
+        "id": "card-1787281582731-48",
+        "title": "[DEPLOY] Deploy main to morzsa",
+        "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 90}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787281582.731412,
+        "updated_at": 1787281650.417964,
+        "created_by": "unknown",
+        "delegation_task_id": "13d3c1f2-4354-4743-848f-531ce1e05bde",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787281582.7437172
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git: TIMEOUT",
+            "timestamp": 1787281619.6575968
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "9f23cde9",
+            "timestamp": 1787281622.1234581
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787281650.418375
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git: TIMEOUT",
+        "completed_at": "2026-08-21 03:06:51.390448+00:",
+        "reviewer": "tor",
+        "review_task_id": "9f23cde9-4f90-4a04-b759-aa16410936db",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787281650.417961
+      },
+      {
+        "id": "card-1787281586442-49",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 90}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787281586.442374,
+        "updated_at": 1787281639.5227368,
+        "created_by": "unknown",
+        "delegation_task_id": "65c86afa-a4b9-4065-941c-835ff4ea3a47",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787281586.4541922
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+            "timestamp": 1787281614.234307
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "52cacda0",
+            "timestamp": 1787281621.969644
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787281639.523356
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+        "completed_at": "2026-08-21 03:06:52.938598+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "52cacda0-b88f-411e-b593-f48663f9a679",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787281639.522733
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787213878.1514518
+    "updated_at": 1787281619.906497
   }
 ]

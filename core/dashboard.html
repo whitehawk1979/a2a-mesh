@@ -2935,6 +2935,7 @@ function loadMarveenPage(page) {
     'insights-cost': '/api/insights/cost',
     'insights-inbox': '/api/insights/inbox',
     'insights-context-gate': '/api/insights/context-gate',
+    'insights-conversations': 'none',
     'insights-dream': '/api/insights/dream'
   };
 
@@ -3980,10 +3981,24 @@ function loadMarveenPage(page) {
         });
       }
       return html || empty('Nincs álom adat');
+    },
+    'insights-conversations': function(d) {
+      // This is called when no API path — show agent selector
+      var agents = ['nova', 'morzsa', 'runa'];
+      var html = '<div style="margin-bottom:16px;">' +
+        '<label style="display:block;font-size:12px;color:var(--text3);margin-bottom:6px;">Válassz agentet:</label>' +
+        '<select id="convAgentSelect" onchange="loadConversationLog()" style="width:100%;padding:8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;">' +
+        '<option value="">-- válassz --</option>';
+      agents.forEach(function(a) {
+        html += '<option value="' + a + '">' + a + '</option>';
+      });
+      html += '</select></div>';
+      html += '<div id="convLogContainer">' + empty('Válassz agentet a beszélgetések megtekintéséhez') + '</div>';
+      return html;
     }
   };
 
-  if (apiPath) {
+  if (apiPath && apiPath !== 'none') {
     fetch(apiPath, { headers: { 'Authorization': 'Bearer ' + token } })
       .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function(data) {
@@ -3999,10 +4014,17 @@ function loadMarveenPage(page) {
         body.innerHTML = errorBox(e.message);
       });
   } else {
-    body.innerHTML = '<div style="text-align:center;padding:60px;">' +
-      '<div style="font-size:48px;margin-bottom:20px;">⏳</div>' +
-      '<p style="color:var(--text3);font-size:16px;max-width:500px;margin:0 auto;">Ez a funkció fejlesztés alatt áll.</p>' +
-      '</div>';
+    // No API path — check if there's a renderer that doesn't need fetch
+    var renderer = renderers[page];
+    if (renderer) {
+      try { body.innerHTML = renderer({}); }
+      catch(e) { body.innerHTML = errorBox('Render hiba: ' + e.message); }
+    } else {
+      body.innerHTML = '<div style="text-align:center;padding:60px;">' +
+        '<div style="font-size:48px;margin-bottom:20px;">⏳</div>' +
+        '<p style="color:var(--text3);font-size:16px;max-width:500px;margin:0 auto;">Ez a funkció fejlesztés alatt áll.</p>' +
+        '</div>';
+    }
   }
 }
 
@@ -4010,6 +4032,45 @@ function closeMarveenModal() {
   var modal = document.getElementById('marveenModal');
   if (modal) modal.style.display = 'none';
 }
+
+// Load conversation log for selected agent
+window.loadConversationLog = function() {
+  var sel = document.getElementById('convAgentSelect');
+  if (!sel || !sel.value) return;
+  var agent = sel.value;
+  var container = document.getElementById('convLogContainer');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3);">⏳ Betöltés...</div>';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/insights/conversations/' + encodeURIComponent(agent) + '?limit=50', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(d) {
+      var msgs = d.messages || [];
+      if (!msgs.length) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">Nincs beszélgetés</div>';
+        return;
+      }
+      var html = '<div style="display:flex;flex-direction:column;gap:8px;padding:10px;max-height:600px;overflow-y:auto;">';
+      msgs.forEach(function(m) {
+        var isUser = m.role === 'user';
+        var align = isUser ? 'flex-start' : 'flex-end';
+        var bg = isUser ? 'var(--primary)' : 'var(--success)';
+        html += '<div style="display:flex;justify-content:' + align + ';">' +
+          '<div style="max-width:80%;padding:8px 12px;border-radius:12px;background:' + bg + ';color:#fff;font-size:13px;line-height:1.4;word-wrap:break-word;">' +
+          '<div style="font-size:10px;opacity:.8;margin-bottom:4px;font-weight:600;">' + (isUser ? 'Felhasználó' : 'Asszisztens') + '</div>' +
+          '<div>' + (typeof m.content === 'string' ? m.content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '') + '</div>' +
+          '<div style="font-size:10px;opacity:.6;margin-top:4px;text-align:right;">' + (m.timestamp || '') + '</div>' +
+          '</div></div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    })
+    .catch(function(e) {
+      container.innerHTML = '<div style="color:var(--danger);text-align:center;padding:20px;">Hiba: ' + e.message + '</div>';
+    });
+};
 
 // ─── Settings Functions ──────────────────────────────────
 function showSettings() {
