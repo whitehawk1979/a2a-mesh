@@ -4089,19 +4089,79 @@ function loadMarveenPage(page) {
     'insights-context-gate': function(d) {
       if (d.error) return errorBox(d.error);
       var agents = d.agents || [];
-      if (!agents.length) return empty('Nincs adat');
-      var html = '<h3 style=\"margin-bottom:12px\">🧠 Kontextus Telítottság</h3>';
+      if (!agents.length) return empty('Nincs aktív delegation — minden agent tétlen (healthy)');
+
+      // Summary bar
+      var s = d.summary || {};
+      var th = d.thresholds || {};
+      var html = '<div style="padding:16px;">';
+
+      // Header
+      html += '<h2 style="margin:0 0 16px;font-size:18px;">🧠 Kontextus Kapu</h2>';
+
+      // Summary cards
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--border);">';
+      html += '<div style="font-size:20px;font-weight:700;color:var(--primary);">' + (s.total || 0) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text3);">Összes agent</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--success);">';
+      html += '<div style="font-size:20px;font-weight:700;color:var(--success);">' + (s.healthy || 0) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text3);">Healthy</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--warning);">';
+      html += '<div style="font-size:20px;font-weight:700;color:var(--warning);">' + (s.warning || 0) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text3);">Warning</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--danger);">';
+      html += '<div style="font-size:20px;font-weight:700;color:var(--danger);">' + (s.critical || 0) + '</div>';
+      html += '<div style="font-size:10px;color:var(--text3);">Critical</div></div>';
+      html += '</div>';
+
+      // Threshold info
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;margin-bottom:16px;font-size:11px;color:var(--text3);">';
+      html += 'Thresholds: Soft ' + (th.soft || 70) + '% | Hard ' + (th.hard || 85) + '% | Critical ' + (th.critical || 95) + '%';
+      html += '</div>';
+
+      // Agent cards
+      html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Agent státuszok</h3>';
       agents.forEach(function(a) {
         var pct = a.pct || 0;
-        var color = pct < 70 ? 'var(--success)' : pct < 85 ? 'var(--warning)' : 'var(--danger)';
-        html += card('<div style=\"margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:13px;\">' + 
-          '<strong>' + esc(a.name) + '</strong>' + 
-          '<span>' + esc(a.turns) + ' / ' + esc(a.max_turns) + ' (' + pct + '%)</span>' + 
-          '</div>' + 
-          '<div style=\"background:var(--border);height:6px;border-radius:3px;overflow:hidden;\">' + 
-          '<div style=\"background:' + color + ';height:100%;width:' + pct + '%;transition:width .3s\"></div>' + 
-          '</div>');
+        var sev = a.severity || 'ok';
+        var color = sev === 'critical' ? 'var(--danger)' : sev === 'warning' ? 'var(--warning)' : 'var(--success)';
+        var bgColor = sev === 'critical' ? 'rgba(220,53,69,0.1)' : sev === 'warning' ? 'rgba(255,193,7,0.1)' : 'var(--surface2)';
+        var icon = sev === 'critical' ? '🔴' : sev === 'warning' ? '🟡' : '🟢';
+
+        html += '<div style="background:' + bgColor + ';border-radius:10px;padding:14px;margin-bottom:10px;border:1px solid ' + color + ';">';
+
+        // Agent header
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;">';
+        html += '<span style="font-size:14px;">' + icon + '</span>';
+        html += '<strong style="font-size:14px;">' + esc(a.agent) + '</strong>';
+        html += '</div>';
+        html += '<div style="font-size:12px;color:var(--text2);">' + (a.est_tokens || 0) + ' tokens</div>';
+        html += '</div>';
+
+        // Progress bar
+        html += '<div style="background:var(--border);height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;">';
+        html += '<div style="background:' + color + ';height:100%;width:' + Math.min(pct, 100) + '%;transition:width .3s;border-radius:4px;"></div>';
+        html += '</div>';
+
+        // Stats grid
+        html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;">';
+        html += '<div style="text-align:center;"><div style="color:var(--text2);font-weight:600;">' + (a.turns || 0) + '/' + (a.max_turns || 90) + '</div><div style="color:var(--text3);font-size:9px;">turns</div></div>';
+        html += '<div style="text-align:center;"><div style="color:var(--text2);font-weight:600;">' + pct + '%</div><div style="color:var(--text3);font-size:9px;">saturation</div></div>';
+        html += '<div style="text-align:center;"><div style="color:var(--text2);font-weight:600;">' + (a.running || 0) + '/' + (a.pending || 0) + '</div><div style="color:var(--text3);font-size:9px;">run/pending</div></div>';
+        html += '<div style="text-align:center;"><div style="color:var(--text2);font-weight:600;">' + (a.active_delegations || 0) + '</div><div style="color:var(--text3);font-size:9px;">delegations</div></div>';
+        html += '</div>';
+
+        // Action message
+        if (a.message) {
+          html += '<div style="margin-top:8px;padding:6px 10px;background:rgba(0,0,0,0.15);border-radius:6px;font-size:11px;color:' + color + ';font-weight:500;">' + esc(a.message) + '</div>';
+        }
+
+        html += '</div>';
       });
+
+      html += '</div>';
       return html;
     },
     'insights-conversations-log': function(d) {

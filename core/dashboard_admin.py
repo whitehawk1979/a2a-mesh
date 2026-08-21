@@ -2337,10 +2337,10 @@ class DashboardAdminMixin:
     async def _api_context_gate(self, request):
         """GET /api/context-gate — Check context saturation."""
         from aiohttp import web
-        from .context_gate import context_gate_tick
-        pg_pool = getattr(self, '_pg_pool', None)
-        results = await context_gate_tick(pg_pool)
-        return web.json_response({"checks": results})
+        from .context_gate import get_context_status
+        pg_pool = getattr(self.node, '_pg_pool', None) or getattr(self, '_pg_pool', None)
+        status = await get_context_status(pg_pool) if pg_pool else {"agents": [], "error": "PG unavailable"}
+        return web.json_response(status)
 
     async def _api_llm_breakdown(self, request):
         """POST /api/llm-breakdown — Break down a task into subtasks.
@@ -3628,9 +3628,10 @@ class DashboardAdminMixin:
         if err:
             return err
         try:
-            from .context_gate import context_gate_tick
-            results = await context_gate_tick(self._pg_pool) if self._pg_pool else []
-            return web.json_response({"agents": results, "checked": len(results)})
+            from .context_gate import get_context_status
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            status = await get_context_status(pg_pool) if pg_pool else {"agents": [], "error": "PG unavailable"}
+            return web.json_response(status)
         except Exception as e:
             return web.json_response({"error": str(e), "agents": []}, status=500)
 
