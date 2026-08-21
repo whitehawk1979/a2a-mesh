@@ -4126,30 +4126,44 @@ function loadMarveenPage(page) {
     },
     'insights-dream': function(d) {
       if (d.error) return errorBox(d.error);
-      var html = card('<div style=\"text-align:center;padding:10px;\">' + 
-        '<div style=\"font-size:24px;margin-bottom:8px;\">🌙 Dream Engine</div>' + 
-        '<div style=\"font-size:18px;font-weight:700;color:' + (d.enabled ? 'var(--success)' : 'var(--danger)') + '\">' + (d.enabled ? 'Aktív' : 'Inaktív') + '</div>' + 
-        '<div style=\"color:var(--text3);font-size:12px;margin-top:4px;\">Fut minden ' + (d.interval_hours || 6) + ' órában</div>' + 
-        '</div>');
+      var html = '<div style="padding:16px;">';
       
-      html += '<div style=\"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;\">' + 
-        '<div style=\"background:var(--surface2);padding:10px;border-radius:8px;text-align:center;border:1px solid var(--border)\">' + 
-        '<div style=\"font-size:20px;font-weight:700;color:var(--primary)\">' + (d.total_dreams || 0) + '</div><div style=\"font-size:11px;color:var(--text3)\">Összes álom</div></div>' + 
-        '<div style=\"background:var(--surface2);padding:10px;border-radius:8px;text-align:center;border:1px solid var(--border)\">' + 
-        '<div style=\"font-size:13px;color:var(--text)\">Utolsó: ' + fmtTime(d.last_run) + '</div><div style=\"font-size:11px;color:var(--text3)\">Következő: ' + fmtTime(d.next_run) + '</div></div>' + 
-        '</div>';
+      // Header + trigger button
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">';
+      html += '<div><h2 style="margin:0;font-size:18px;">🌙 Dream Engine</h2>';
+      html += '<div style="font-size:12px;color:var(--text3);margin-top:2px;">Fut minden ' + (d.interval_hours || 6) + ' órában</div></div>';
+      html += '<button onclick="triggerDream()" id="dreamTriggerBtn" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13px;">▶ Indítás most</button>';
+      html += '</div>';
+      
+      // Status card
+      var enabledColor = d.enabled ? 'var(--success)' : 'var(--danger)';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:16px;border-left:4px solid ' + enabledColor + ';">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+      html += '<div style="width:10px;height:10px;border-radius:50%;background:' + enabledColor + ';"></div>';
+      html += '<strong style="font-size:14px;">' + (d.enabled ? 'Aktív' : 'Inaktív') + '</strong>';
+      html += '</div>';
+      html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">';
+      html += '<div style="text-align:center;"><div style="font-size:20px;font-weight:700;color:var(--primary);">' + (d.total_dreams || 0) + '</div><div style="font-size:10px;color:var(--text3);">Összes álom</div></div>';
+      html += '<div style="text-align:center;"><div style="font-size:13px;font-weight:600;">' + fmtTime(d.last_run) + '</div><div style="font-size:10px;color:var(--text3);">Utolsó futás</div></div>';
+      html += '<div style="text-align:center;"><div style="font-size:13px;font-weight:600;">' + fmtTime(d.next_run) + '</div><div style="font-size:10px;color:var(--text3);">Következő</div></div>';
+      html += '</div></div>';
 
+      // Recent results
       var results = d.recent_results || [];
       if (results.length) {
-        html += '<h3 style=\"margin-bottom:12px\">🌙 Legutóbbi eredmények</h3>';
+        html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Legutóbbi eredmények</h3>';
         results.forEach(function(r) {
-          html += card('<div style=\"display:flex;justify-content:space-between;align-items:start;gap:8px;\">' + 
-            '<div><div style=\"font-size:12px;color:var(--text2);line-height:1.4;\">' + esc(r.preview) + '</div>' + 
-            '<div style=\"font-size:10px;color:var(--text3);margin-top:4px;\">' + fmtTime(r.timestamp) + '</div></div>' + 
-            '</div>');
+          html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:8px;border:1px solid var(--border);">';
+          html += '<div style="font-size:12px;color:var(--text2);line-height:1.4;">' + esc(r.preview) + '</div>';
+          html += '<div style="font-size:10px;color:var(--text3);margin-top:4px;">' + fmtTime(r.timestamp) + '</div>';
+          html += '</div>';
         });
+      } else {
+        html += '<div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Még nincs álom eredmény. Kattints az "Indítás most" gombra.</div>';
       }
-      return html || empty('Nincs álom adat');
+      
+      html += '</div>';
+      return html;
     },
     'insights-conversations': function(d) {
       // This is called when no API path — show agent selector
@@ -4243,6 +4257,29 @@ window.loadConversationLog = function() {
 
 // ─── Ideas Board (Ötletláda) Functions ──────────────────────
 // ─── Skills Marketplace Functions ───────────────────────────
+// ─── Dream Engine Functions ─────────────────────────────────
+window.triggerDream = function() {
+  var btn = document.getElementById('dreamTriggerBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Fut...'; }
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/insights/dream/trigger', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (btn) { btn.disabled = false; btn.textContent = '▶ Indítás most'; }
+      if (d.ok) {
+        alert('✅ Dream cycle lefutott!\nBuckets: ' + (d.buckets || []).join(', '));
+        loadMarveenPage('insights-dream');
+      } else {
+        alert('Hiba: ' + (d.error || 'ismeretlen'));
+      }
+    })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = '▶ Indítás most'; }
+      alert('Hiba: ' + e.message);
+    });
+};
 function _collectSkillTags(skills) {
   var tags = {};
   skills.forEach(function(s) {

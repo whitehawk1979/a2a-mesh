@@ -53,6 +53,15 @@ async def run_dream_cycle(pg_pool, node_name="unknown", kanban_mgr=None):
     # Bucket 4: Error patterns from PG
     results["buckets"]["errors"] = await _analyze_errors(pg_pool)
 
+    # Bucket 5: Agent performance (Marveen)
+    results["buckets"]["agent_performance"] = await _analyze_agent_performance(pg_pool)
+
+    # Bucket 6: Skill usage (Marveen)
+    results["buckets"]["skill_usage"] = await _analyze_skill_usage(pg_pool)
+
+    # Bucket 7: Cost analysis (Marveen)
+    results["buckets"]["cost"] = await _analyze_cost(pg_pool)
+
     # Generate DREAM.md
     dream_md = _generate_dream_md(results)
     try:
@@ -68,7 +77,7 @@ async def run_dream_cycle(pg_pool, node_name="unknown", kanban_mgr=None):
 
 async def _analyze_memory_patterns(pg_pool):
     """Find repeated memory patterns that could become skills."""
-    if not pg_pool or not pg_pool.is_connected():
+    if not pg_pool:
         return {"suggestions": [], "total_memories": 0}
     try:
         async with pg_pool.acquire() as conn:
@@ -106,7 +115,7 @@ async def _analyze_memory_patterns(pg_pool):
 
 async def _check_memory_health(pg_pool):
     """Check memory vectorization + stale hot-tier."""
-    if not pg_pool or not pg_pool.is_connected():
+    if not pg_pool:
         return {"unvectorized": 0, "stale_hot": 0}
     try:
         async with pg_pool.acquire() as conn:
@@ -141,7 +150,7 @@ async def _analyze_kanban(kanban_mgr):
 
 async def _analyze_errors(pg_pool):
     """Find recurring error patterns."""
-    if not pg_pool or not pg_pool.is_connected():
+    if not pg_pool:
         return {"recurring": [], "total_errors": 0}
     try:
         async with pg_pool.acquire() as conn:
@@ -166,6 +175,94 @@ async def _analyze_errors(pg_pool):
     except Exception as e:
         log.debug(f"Dream error analysis error: {e}")
         return {"recurring": [], "total_errors": 0, "error": str(e)}
+
+
+async def _analyze_agent_performance(pg_pool):
+    """Analyze per-agent performance metrics from delegations."""
+    if not pg_pool:
+        return {"agents": [], "best": None, "worst": None}
+    try:
+        async with pg_pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT to_agent,
+                          COUNT(*) as total,
+                          COUNT(*) FILTER (WHERE status = 'completed') as completed,
+                          COUNT(*) FILTER (WHERE status = 'failed') as failed,
+                          AVG(EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - created_at))) as avg_duration_s
+                   FROM shared_delegations
+                   WHERE created_at > NOW() - INTERVAL '24 hours'
+                   GROUP BY to_agent ORDER BY total DESC"""
+            )
+            agents = []
+            for r in rows:
+                total = r["total"] or 0
+                completed = r["completed"] or 0
+                failed = r["failed"] or 0
+                sr = (completed / total * 100) if total > 0 else 0
+                agents.append({
+                    "agent": r["to_agent"],
+                    "total": total,
+                    "completed": completed,
+                    "failed": failed,
+                    "success_rate": round(sr, 1),
+                    "avg_duration_s": round(r["avg_duration_s"] or 0, 1),
+                })
+            best = max(agents, key=lambda a: a["success_rate"]) if agents else None
+            worst = min(agents, key=lambda a: a["success_rate"]) if agents else None
+            return {"agents": agents, "best": best, "worst": worst}
+    except Exception as e:
+        log.debug(f"Dream agent performance error: {e}")
+        return {"agents": [], "error": str(e)}
+
+
+async def _analyze_skill_usage(pg_pool):
+    """Analyze which skills are used vs idle."""
+    if not pg_pool:
+        return {"total": 0, "active": 0, "idle": [], "auto_generated": 0}
+    try:
+        async with pg_pool.acquire() as conn:
+            total = await conn.fetchval("SELECT COUNT(*) FROM mesh.mesh_skills WHERE status = 'active'") or 0
+            auto = await conn.fetchval("SELECT COUNT(*) FROM mesh.mesh_skills WHERE 'auto' = ANY(tags)") or 0
+            # Skills with 0 cost and 0 latency are likely never used
+            idle = await conn.fetch(
+                """SELECT skill_name, agent_name FROM mesh.mesh_skills
+                   WHERE status = 'active' AND avg_latency_ms = 0 AND cost = 0
+                   LIMIT 10"""
+            )
+            return {
+                "total": total,
+                "auto_generated": auto,
+                "idle": [{"skill": r["skill_name"], "agent": r["agent_name"]} for r in idle],
+                "idle_count": len(idle),
+            }
+    except Exception as e:
+        log.debug(f"Dream skill usage error: {e}")
+        return {"total": 0, "error": str(e)}
+
+
+async def _analyze_cost(pg_pool):
+    """Analyze daily cost trends from costops."""
+    if not pg_pool:
+        return {"today": 0, "yesterday": 0, "trend": "unknown"}
+    try:
+        async with pg_pool.acquire() as conn:
+            # Check if costops table exists
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'mesh_costops')"
+            )
+            if not exists:
+                return {"today": 0, "yesterday": 0, "trend": "no data"}
+            today = await conn.fetchval(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM mesh_costops WHERE created_at > NOW() - INTERVAL '24 hours'"
+            ) or 0
+            yesterday = await conn.fetchval(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM mesh_costops WHERE created_at > NOW() - INTERVAL '48 hours' AND created_at < NOW() - INTERVAL '24 hours'"
+            ) or 0
+            trend = "up" if today > yesterday else "down" if today < yesterday else "flat"
+            return {"today": round(today, 4), "yesterday": round(yesterday, 4), "trend": trend}
+    except Exception as e:
+        log.debug(f"Dream cost analysis error: {e}")
+        return {"today": 0, "trend": "error"}
 
 
 def _generate_dream_md(results):
@@ -223,6 +320,37 @@ def _generate_dream_md(results):
     else:
         lines.append("*(nincs visszatérő hiba)*")
 
+    # Bucket 5: Agent performance
+    lines.extend(["", "## 🤖 Bucket 5 — Agent teljesítmény", ""])
+    ap = b.get("agent_performance", {})
+    if ap.get("agents"):
+        for a in ap["agents"]:
+            lines.append(f"- **{a['agent']}**: {a['total']} task, {a['success_rate']}% siker, {a['avg_duration_s']}s átlag")
+        if ap.get("best"):
+            lines.append(f"\n🏆 Legjobb: {ap['best']['agent']} ({ap['best']['success_rate']}%)")
+        if ap.get("worst"):
+            lines.append(f"⚠️ Legrosszabb: {ap['worst']['agent']} ({ap['worst']['success_rate']}%)")
+    else:
+        lines.append("*(nincs adat az elmúlt 24órában)*")
+
+    # Bucket 6: Skill usage
+    lines.extend(["", "## ⭐ Bucket 6 — Skill használat", ""])
+    su = b.get("skill_usage", {})
+    lines.append(f"- Összes aktív skill: {su.get('total', 0)}")
+    lines.append(f"- Auto-generált: {su.get('auto_generated', 0)}")
+    if su.get("idle"):
+        lines.append(f"- Tétlen skill-ek ({su.get('idle_count', 0)}):")
+        for s in su["idle"][:5]:
+            lines.append(f"  - {s['skill']} ({s['agent']})")
+
+    # Bucket 7: Cost
+    lines.extend(["", "## 💰 Bucket 7 — Költség", ""])
+    cost = b.get("cost", {})
+    lines.append(f"- Ma: ${cost.get('today', 0)}")
+    lines.append(f"- Tegnap: ${cost.get('yesterday', 0)}")
+    trend_icon = "📈" if cost.get("trend") == "up" else "📉" if cost.get("trend") == "down" else "➡️"
+    lines.append(f"- Trend: {trend_icon} {cost.get('trend', 'unknown')}")
+
     lines.extend([
         "",
         "## 🎯 Reggeli javaslatok",
@@ -245,7 +373,9 @@ def _generate_dream_md(results):
 
     lines.append("")
     lines.append("---")
-    lines.append("*Dream Engine — A2A Mesh v0.29+*")
+    lines.append("*Dream Engine — A2A Mesh v0.36+*")
+
+    return "\n".join(lines)
 
 
 async def get_dream_status(pg_pool=None):
@@ -258,7 +388,7 @@ async def get_dream_status(pg_pool=None):
         "next_run": None,
         "recent_results": [],
     }
-    if not pg_pool or not pg_pool.is_connected():
+    if not pg_pool:
         status["enabled"] = False
         status["error"] = "PG unavailable"
         return status

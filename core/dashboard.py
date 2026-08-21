@@ -415,6 +415,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/insights/context-gate", self._api_insights_context_gate)
         app.router.add_get("/api/insights/conversations/{agent}", self._api_insights_conversations)
         app.router.add_get("/api/insights/dream", self._api_insights_dream)
+        app.router.add_post("/api/insights/dream/trigger", self._api_insights_dream_trigger)
         # Log viewer API
         app.router.add_get("/api/logs", self._api_logs)
         # Shared context API

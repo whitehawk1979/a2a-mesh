@@ -3657,12 +3657,34 @@ class DashboardAdminMixin:
             return err
         try:
             from .dream_engine import get_dream_status
-            status = await get_dream_status(self._pg_pool) if self._pg_pool else {"enabled": False, "error": "PG unavailable"}
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            status = await get_dream_status(pg_pool) if pg_pool else {"enabled": False, "error": "PG unavailable"}
             return web.json_response(status)
         except Exception as e:
             return web.json_response({"error": str(e), "enabled": False}, status=500)
 
     # ─── Ideas Board (Ötletláda) ─────────────────────────────────────
+
+    async def _api_insights_dream_trigger(self, request):
+        """POST /api/insights/dream/trigger — Manually trigger a dream cycle."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from .dream_engine import run_dream_cycle
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            node_name = getattr(self.node, 'node_name', 'unknown')
+            if not pg_pool:
+                return web.json_response({"error": "PG unavailable"}, status=503)
+            results = await run_dream_cycle(pg_pool, node_name)
+            return web.json_response({
+                "ok": True,
+                "timestamp": results.get("timestamp"),
+                "buckets": list(results.get("buckets", {}).keys()),
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     def _get_pg_pool(self):
         """Get PG pool from node or self."""
