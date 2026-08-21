@@ -237,33 +237,19 @@ class MeshConfig:
     version: str = ""
 
     def _resolve_version(self) -> str:
-        """Resolve version from pyproject.toml, fallback to git tag, then hardcoded.
-        
+        """Resolve version dynamically — git tag is single source of truth.
+
         Priority:
         1. Explicit version in config YAML (if set)
-        2. pyproject.toml version (most reliable — no git state dependency)
-        3. Git tag (fallback)
+        2. Git tag (SSOT — always reflects latest release)
+        3. pyproject.toml (fallback for non-git deployments)
         4. Hardcoded default
         """
         if self.version:
             return self.version
         import subprocess, os
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # Try pyproject.toml first (most reliable — no git state dependency)
-        try:
-            pyproject = os.path.join(repo_dir, "pyproject.toml")
-            if os.path.exists(pyproject):
-                with open(pyproject) as f:
-                    for line in f:
-                        if line.strip().startswith("version"):
-                            val = line.split("=", 1)[1].strip()
-                            # Strip inline comments: version = "0.30.0"  # comment
-                            if "#" in val:
-                                val = val.split("#")[0].strip()
-                            return val.strip('"').strip("'")
-        except Exception:
-            pass
-        # Fallback: git tag
+        # Try git tag first (single source of truth)
         try:
             tag = subprocess.check_output(
                 ["git", "describe", "--tags", "--abbrev=0"],
@@ -272,7 +258,20 @@ class MeshConfig:
             return tag
         except Exception:
             pass
-        return "0.20.0"
+        # Fallback: pyproject.toml (for non-git deployments)
+        try:
+            pyproject = os.path.join(repo_dir, "pyproject.toml")
+            if os.path.exists(pyproject):
+                with open(pyproject) as f:
+                    for line in f:
+                        if line.strip().startswith("version"):
+                            val = line.split("=", 1)[1].strip()
+                            if "#" in val:
+                                val = val.split("#")[0].strip()
+                            return val.strip('"').strip("'")
+        except Exception:
+            pass
+        return "0.0.0"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
