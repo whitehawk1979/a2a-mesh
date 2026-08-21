@@ -465,6 +465,12 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/approvals", self._api_approvals)
         app.router.add_get("/api/activity", self._api_activity)
         app.router.add_get("/api/research", self._api_research)
+        # Ideas board (Ötletláda) — submit, vote, status, list
+        app.router.add_get("/api/ideas", self._api_ideas_list)
+        app.router.add_post("/api/ideas", self._api_ideas_submit)
+        app.router.add_post("/api/ideas/{id}/vote", self._api_ideas_vote)
+        app.router.add_post("/api/ideas/{id}/status", self._api_ideas_status)
+        app.router.add_delete("/api/ideas/{id}", self._api_ideas_delete)
         app.router.add_get("/api/docs", self._api_docs)
         app.router.add_get("/api/connectors", self._api_connectors)
         app.router.add_get("/api/mcp-registry", self._api_mcp_registry)
