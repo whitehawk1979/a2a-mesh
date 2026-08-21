@@ -72,6 +72,18 @@ async def run_dream_cycle(pg_pool, node_name="unknown", kanban_mgr=None):
     except Exception as e:
         log.error(f"Dream Engine: Failed to write DREAM.md: {e}")
 
+    # Save to PG for dashboard status
+    try:
+        if pg_pool:
+            await pg_pool.execute(
+                """INSERT INTO shared_a2a_memory (sender_agent, recipient_agent, subject, content, memory_type, priority)
+                   VALUES ($1, $1, 'dream_engine', $2, 'observation', 3)""",
+                node_name, dream_md[:5000]
+            )
+            log.info("Dream Engine: results saved to PG")
+    except Exception as e:
+        log.debug(f"Dream Engine: PG save skipped: {e}")
+
     return results
 
 
@@ -380,8 +392,8 @@ async def get_dream_status(pg_pool=None):
         return status
     try:
         rows = await pg_pool.fetch(
-            """SELECT created_at, content FROM shared_a2a_memory
-               WHERE namespace = 'dream_engine' AND created_at > NOW() - INTERVAL '24 hours'
+            """SELECT created_at, content, subject FROM shared_a2a_memory
+               WHERE subject = 'dream_engine' AND created_at > NOW() - INTERVAL '24 hours'
                ORDER BY created_at DESC LIMIT 5"""
         )
         if rows:
@@ -390,7 +402,7 @@ async def get_dream_status(pg_pool=None):
                 {"timestamp": r["created_at"].isoformat(), "preview": str(r["content"])[:200]}
                 for r in rows
             ]
-        mem_count = await pg_pool.fetchval("SELECT COUNT(*) FROM shared_a2a_memory WHERE namespace = 'dream_engine'")
+        mem_count = await pg_pool.fetchval("SELECT COUNT(*) FROM shared_a2a_memory WHERE subject = 'dream_engine'")
         status["total_dreams"] = mem_count or 0
     except Exception as e:
         status["error"] = str(e)
