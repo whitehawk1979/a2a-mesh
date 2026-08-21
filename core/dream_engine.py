@@ -80,34 +80,33 @@ async def _analyze_memory_patterns(pg_pool):
     if not pg_pool:
         return {"suggestions": [], "total_memories": 0}
     try:
-        async with pg_pool.acquire() as conn:
-            # Count memories by category in last 24h
-            rows = await conn.fetch(
-                """SELECT category, COUNT(*) as cnt
-                   FROM agent_memory
-                   WHERE created_at > NOW() - INTERVAL '24 hours'
-                   GROUP BY category ORDER BY cnt DESC"""
-            )
-            total = sum(r["cnt"] for r in rows)
-            cats = {r["category"]: r["cnt"] for r in rows}
+        # Count memories by category in last 24h
+        rows = await pg_pool.fetch(
+            """SELECT category, COUNT(*) as cnt
+               FROM agent_memory
+               WHERE created_at > NOW() - INTERVAL '24 hours'
+               GROUP BY category ORDER BY cnt DESC"""
+        )
+        total = sum(r["cnt"] for r in rows)
+        cats = {r["category"]: r["cnt"] for r in rows}
 
-            # Find frequently accessed memories (potential skill candidates)
-            hot = await conn.fetch(
-                """SELECT title, importance, access_count
-                   FROM agent_memory
-                   WHERE access_count > 3 AND importance >= 70
-                   ORDER BY access_count DESC LIMIT 10"""
-            )
-            suggestions = []
-            for m in hot:
-                if m["access_count"] >= 5:
-                    suggestions.append({
-                        "title": m["title"] or "(untitled)",
-                        "access_count": m["access_count"],
-                        "importance": m["importance"],
-                        "recommendation": "Consider creating a SKILL.md — accessed 5+ times"
-                    })
-            return {"suggestions": suggestions, "total_memories": total, "categories": cats}
+        # Find frequently accessed memories (potential skill candidates)
+        hot = await pg_pool.fetch(
+            """SELECT title, importance, access_count
+               FROM agent_memory
+               WHERE access_count > 3 AND importance >= 70
+               ORDER BY access_count DESC LIMIT 10"""
+        )
+        suggestions = []
+        for m in hot:
+            if m["access_count"] >= 5:
+                suggestions.append({
+                    "title": m["title"] or "(untitled)",
+                    "access_count": m["access_count"],
+                    "importance": m["importance"],
+                    "recommendation": "Consider creating a SKILL.md — accessed 5+ times"
+                })
+        return {"suggestions": suggestions, "total_memories": total, "categories": cats}
     except Exception as e:
         log.debug(f"Dream memory patterns error: {e}")
         return {"suggestions": [], "total_memories": 0, "error": str(e)}
@@ -118,18 +117,13 @@ async def _check_memory_health(pg_pool):
     if not pg_pool:
         return {"unvectorized": 0, "stale_hot": 0}
     try:
-        async with pg_pool.acquire() as conn:
-            # Unvectorized memories
-            unvec = await conn.fetchval(
-                "SELECT COUNT(*) FROM agent_memory WHERE embedding IS NULL"
-            )
-            # Stale hot-tier (>7 days, not accessed)
-            stale = await conn.fetchval(
-                """SELECT COUNT(*) FROM agent_memory
-                   WHERE importance >= 70
-                   AND COALESCE(last_accessed_at, updated_at) < NOW() - INTERVAL '7 days'"""
-            )
-            return {"unvectorized": unvec or 0, "stale_hot": stale or 0}
+        unvec = await pg_pool.fetchval("SELECT COUNT(*) FROM agent_memory WHERE embedding IS NULL")
+        stale = await pg_pool.fetchval(
+            """SELECT COUNT(*) FROM agent_memory
+               WHERE importance >= 70
+               AND COALESCE(last_accessed_at, updated_at) < NOW() - INTERVAL '7 days'"""
+        )
+        return {"unvectorized": unvec or 0, "stale_hot": stale or 0}
     except Exception as e:
         log.debug(f"Dream memory health error: {e}")
         return {"unvectorized": 0, "stale_hot": 0, "error": str(e)}
@@ -153,25 +147,22 @@ async def _analyze_errors(pg_pool):
     if not pg_pool:
         return {"recurring": [], "total_errors": 0}
     try:
-        async with pg_pool.acquire() as conn:
-            # Check if error_log table exists
-            exists = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='error_log')"
-            )
-            if not exists:
-                return {"recurring": [], "total_errors": 0}
-            # Recurring errors in last 24h
-            rows = await conn.fetch(
-                """SELECT substring(content from 1 for 80) as err_prefix, COUNT(*) as cnt
-                   FROM error_log
-                   WHERE created_at > NOW() - INTERVAL '24 hours'
-                   GROUP BY err_prefix
-                   HAVING COUNT(*) > 2
-                   ORDER BY cnt DESC LIMIT 5"""
-            )
-            recurring = [{"pattern": r["err_prefix"], "count": r["cnt"]} for r in rows]
-            total = sum(r["cnt"] for r in rows)
-            return {"recurring": recurring, "total_errors": total}
+        exists = await pg_pool.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name='error_log')"
+        )
+        if not exists:
+            return {"recurring": [], "total_errors": 0}
+        rows = await pg_pool.fetch(
+            """SELECT substring(content from 1 for 80) as err_prefix, COUNT(*) as cnt
+               FROM error_log
+               WHERE created_at > NOW() - INTERVAL '24 hours'
+               GROUP BY err_prefix
+               HAVING COUNT(*) > 2
+               ORDER BY cnt DESC LIMIT 5"""
+        )
+        recurring = [{"pattern": r["err_prefix"], "count": r["cnt"]} for r in rows]
+        total = sum(r["cnt"] for r in rows)
+        return {"recurring": recurring, "total_errors": total}
     except Exception as e:
         log.debug(f"Dream error analysis error: {e}")
         return {"recurring": [], "total_errors": 0, "error": str(e)}
@@ -182,34 +173,33 @@ async def _analyze_agent_performance(pg_pool):
     if not pg_pool:
         return {"agents": [], "best": None, "worst": None}
     try:
-        async with pg_pool.acquire() as conn:
-            rows = await conn.fetch(
-                """SELECT to_agent,
-                          COUNT(*) as total,
-                          COUNT(*) FILTER (WHERE status = 'completed') as completed,
-                          COUNT(*) FILTER (WHERE status = 'failed') as failed,
-                          AVG(EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - created_at))) as avg_duration_s
-                   FROM shared_delegations
-                   WHERE created_at > NOW() - INTERVAL '24 hours'
-                   GROUP BY to_agent ORDER BY total DESC"""
-            )
-            agents = []
-            for r in rows:
-                total = r["total"] or 0
-                completed = r["completed"] or 0
-                failed = r["failed"] or 0
-                sr = (completed / total * 100) if total > 0 else 0
-                agents.append({
-                    "agent": r["to_agent"],
-                    "total": total,
-                    "completed": completed,
-                    "failed": failed,
-                    "success_rate": round(sr, 1),
-                    "avg_duration_s": round(r["avg_duration_s"] or 0, 1),
-                })
-            best = max(agents, key=lambda a: a["success_rate"]) if agents else None
-            worst = min(agents, key=lambda a: a["success_rate"]) if agents else None
-            return {"agents": agents, "best": best, "worst": worst}
+        rows = await pg_pool.fetch(
+            """SELECT to_agent,
+                      COUNT(*) as total,
+                      COUNT(*) FILTER (WHERE status = 'completed') as completed,
+                      COUNT(*) FILTER (WHERE status = 'failed') as failed,
+                      AVG(EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - created_at))) as avg_duration_s
+               FROM shared_delegations
+               WHERE created_at > NOW() - INTERVAL '24 hours'
+               GROUP BY to_agent ORDER BY total DESC"""
+        )
+        agents = []
+        for r in rows:
+            total = r["total"] or 0
+            completed = r["completed"] or 0
+            failed = r["failed"] or 0
+            sr = (completed / total * 100) if total > 0 else 0
+            agents.append({
+                "agent": r["to_agent"],
+                "total": total,
+                "completed": completed,
+                "failed": failed,
+                "success_rate": round(sr, 1),
+                "avg_duration_s": round(r["avg_duration_s"] or 0, 1),
+            })
+        best = max(agents, key=lambda a: a["success_rate"]) if agents else None
+        worst = min(agents, key=lambda a: a["success_rate"]) if agents else None
+        return {"agents": agents, "best": best, "worst": worst}
     except Exception as e:
         log.debug(f"Dream agent performance error: {e}")
         return {"agents": [], "error": str(e)}
@@ -220,21 +210,19 @@ async def _analyze_skill_usage(pg_pool):
     if not pg_pool:
         return {"total": 0, "active": 0, "idle": [], "auto_generated": 0}
     try:
-        async with pg_pool.acquire() as conn:
-            total = await conn.fetchval("SELECT COUNT(*) FROM mesh.mesh_skills WHERE status = 'active'") or 0
-            auto = await conn.fetchval("SELECT COUNT(*) FROM mesh.mesh_skills WHERE 'auto' = ANY(tags)") or 0
-            # Skills with 0 cost and 0 latency are likely never used
-            idle = await conn.fetch(
-                """SELECT skill_name, agent_name FROM mesh.mesh_skills
-                   WHERE status = 'active' AND avg_latency_ms = 0 AND cost = 0
-                   LIMIT 10"""
-            )
-            return {
-                "total": total,
-                "auto_generated": auto,
-                "idle": [{"skill": r["skill_name"], "agent": r["agent_name"]} for r in idle],
-                "idle_count": len(idle),
-            }
+        total = await pg_pool.fetchval("SELECT COUNT(*) FROM mesh.mesh_skills WHERE status = 'active'") or 0
+        auto = await pg_pool.fetchval("SELECT COUNT(*) FROM mesh.mesh_skills WHERE 'auto' = ANY(tags)") or 0
+        idle = await pg_pool.fetch(
+            """SELECT skill_name, agent_name FROM mesh.mesh_skills
+               WHERE status = 'active' AND avg_latency_ms = 0 AND cost = 0
+               LIMIT 10"""
+        )
+        return {
+            "total": total,
+            "auto_generated": auto,
+            "idle": [{"skill": r["skill_name"], "agent": r["agent_name"]} for r in idle],
+            "idle_count": len(idle),
+        }
     except Exception as e:
         log.debug(f"Dream skill usage error: {e}")
         return {"total": 0, "error": str(e)}
@@ -245,21 +233,19 @@ async def _analyze_cost(pg_pool):
     if not pg_pool:
         return {"today": 0, "yesterday": 0, "trend": "unknown"}
     try:
-        async with pg_pool.acquire() as conn:
-            # Check if costops table exists
-            exists = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'mesh_costops')"
-            )
-            if not exists:
-                return {"today": 0, "yesterday": 0, "trend": "no data"}
-            today = await conn.fetchval(
-                "SELECT COALESCE(SUM(cost_usd), 0) FROM mesh_costops WHERE created_at > NOW() - INTERVAL '24 hours'"
-            ) or 0
-            yesterday = await conn.fetchval(
-                "SELECT COALESCE(SUM(cost_usd), 0) FROM mesh_costops WHERE created_at > NOW() - INTERVAL '48 hours' AND created_at < NOW() - INTERVAL '24 hours'"
-            ) or 0
-            trend = "up" if today > yesterday else "down" if today < yesterday else "flat"
-            return {"today": round(today, 4), "yesterday": round(yesterday, 4), "trend": trend}
+        exists = await pg_pool.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name = 'mesh_costops')"
+        )
+        if not exists:
+            return {"today": 0, "yesterday": 0, "trend": "no data"}
+        today = await pg_pool.fetchval(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM mesh_costops WHERE created_at > NOW() - INTERVAL '24 hours'"
+        ) or 0
+        yesterday = await pg_pool.fetchval(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM mesh_costops WHERE created_at > NOW() - INTERVAL '48 hours' AND created_at < NOW() - INTERVAL '24 hours'"
+        ) or 0
+        trend = "up" if today > yesterday else "down" if today < yesterday else "flat"
+        return {"today": round(today, 4), "yesterday": round(yesterday, 4), "trend": trend}
     except Exception as e:
         log.debug(f"Dream cost analysis error: {e}")
         return {"today": 0, "trend": "error"}
@@ -393,22 +379,19 @@ async def get_dream_status(pg_pool=None):
         status["error"] = "PG unavailable"
         return status
     try:
-        async with pg_pool.acquire() as conn:
-            # Check for recent dream results in memory or logs
-            rows = await conn.fetch(
-                """SELECT created_at, content FROM shared_a2a_memory
-                   WHERE namespace = 'dream_engine' AND created_at > NOW() - INTERVAL '24 hours'
-                   ORDER BY created_at DESC LIMIT 5"""
-            )
-            if rows:
-                status["last_run"] = rows[0]["created_at"].isoformat() if rows else None
-                status["recent_results"] = [
-                    {"timestamp": r["created_at"].isoformat(), "preview": str(r["content"])[:200]}
-                    for r in rows
-                ]
-            # Check memory health
-            mem_count = await conn.fetchval("SELECT COUNT(*) FROM shared_a2a_memory WHERE namespace = 'dream_engine'")
-            status["total_dreams"] = mem_count or 0
+        rows = await pg_pool.fetch(
+            """SELECT created_at, content FROM shared_a2a_memory
+               WHERE namespace = 'dream_engine' AND created_at > NOW() - INTERVAL '24 hours'
+               ORDER BY created_at DESC LIMIT 5"""
+        )
+        if rows:
+            status["last_run"] = rows[0]["created_at"].isoformat() if rows else None
+            status["recent_results"] = [
+                {"timestamp": r["created_at"].isoformat(), "preview": str(r["content"])[:200]}
+                for r in rows
+            ]
+        mem_count = await pg_pool.fetchval("SELECT COUNT(*) FROM shared_a2a_memory WHERE namespace = 'dream_engine'")
+        status["total_dreams"] = mem_count or 0
     except Exception as e:
         status["error"] = str(e)
     return status
