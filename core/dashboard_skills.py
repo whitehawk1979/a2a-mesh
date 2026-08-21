@@ -143,6 +143,8 @@ class DashboardSkillsMixin:
                 return web.json_response({"error": "DB not available"}, status=503)
 
             # Search in skill_name, display_name, description, tags
+            # Normalize: replace spaces with underscores for skill_name matching
+            query_norm = query.replace(' ', '_')
             rows = await pg_pool.fetch(
                 """SELECT skill_id, agent_name, skill_name, display_name,
                           description, tags, cost, avg_latency_ms, success_rate
@@ -151,9 +153,11 @@ class DashboardSkillsMixin:
                      AND (LOWER(skill_name) LIKE '%' || $1 || '%'
                           OR LOWER(display_name) LIKE '%' || $1 || '%'
                           OR LOWER(description) LIKE '%' || $1 || '%'
-                          OR $1 = ANY(tags))
+                          OR $1 = ANY(tags)
+                          OR LOWER(skill_name) LIKE '%' || $2 || '%'
+                          OR $2 = ANY(tags))
                    ORDER BY success_rate DESC, avg_latency_ms ASC""",
-                query
+                query, query_norm
             )
             results = []
             for r in rows:
@@ -254,6 +258,8 @@ class DashboardSkillsMixin:
             if not pg_pool:
                 return web.json_response({"error": "DB not available"}, status=503)
 
+            # Normalize: replace spaces with underscores for skill_name matching
+            task_normalized = task.replace(' ', '_')
             rows = await pg_pool.fetch(
                 """SELECT skill_id, agent_name, skill_name, display_name,
                           description, tags, cost, max_concurrent,
@@ -261,10 +267,12 @@ class DashboardSkillsMixin:
                    FROM mesh.mesh_skills
                    WHERE status = 'active'
                      AND (LOWER(skill_name) LIKE '%' || $1 || '%'
-                          OR $1 = ANY(tags))
+                          OR LOWER(skill_name) LIKE '%' || $2 || '%'
+                          OR $1 = ANY(tags)
+                          OR $2 = ANY(tags))
                    ORDER BY success_rate DESC, avg_latency_ms ASC
                    LIMIT 5""",
-                task
+                task, task_normalized
             )
             if not rows:
                 return web.json_response({"error": "No matching skills found"}, status=404)

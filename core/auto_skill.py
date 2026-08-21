@@ -26,6 +26,9 @@ MIN_TOOL_CALLS = 5
 MAX_PER_DAY = 10
 # Skills directory
 SKILLS_DIR = os.path.expanduser("~/.hermes/skills/auto")
+# Track generated skills per day for rate limiting
+_daily_count = 0
+_daily_reset_ts = 0
 
 
 def _sanitize_name(name: str) -> str:
@@ -68,20 +71,20 @@ def _had_retry(task: dict) -> bool:
 
 def _existing_skill_covers(subject: str, task_type: str) -> bool:
     """Check if a skill already exists that covers this task type."""
-    if not os.path.isdir(SKILLS_DIR):
-        return False
     sanitized = _sanitize_name(subject)
-    # Check for exact name match
-    for entry in os.listdir(SKILLS_DIR):
-        if entry == sanitized:
-            return True
+    # Check local FS
+    if os.path.isdir(SKILLS_DIR):
+        for entry in os.listdir(SKILLS_DIR):
+            if entry == sanitized:
+                return True
     return False
 
 
 async def maybe_generate_skill(task: dict, node_name: str, llm_generate=None):
     """
     Check if a completed task should trigger auto-skill generation.
-    If yes, generate and save a SKILL.md file.
+    Marveen-style: considers tool calls, error recovery, task complexity,
+    and rate limiting. Generates SKILL.md + registers in PG mesh_skills.
     
     Args:
         task: The completed task dict
@@ -92,8 +95,21 @@ async def maybe_generate_skill(task: dict, node_name: str, llm_generate=None):
     Returns:
         str or None: The skill name if generated, None if skipped.
     """
+    global _daily_count, _daily_reset_ts
     try:
+        # Rate limiting: reset daily counter
+        now_ts = time.time()
+        if now_ts - _daily_reset_ts > 86400:  # 24h
+            _daily_count = 0
+            _daily_reset_ts = now_ts
+        if _daily_count >= MAX_PER_DAY:
+            log.debug(f"Auto-skip: daily limit reached ({_daily_count}/{MAX_PER_DAY})")
+            return None
+        
         subject = task.get("subject", "")
+        if not subject or len(subject) < 3:
+            return None
+            
         task_type = "generic"
         desc = task.get("description", "{}")
         if isinstance(desc, str):
@@ -107,6 +123,7 @@ async def maybe_generate_skill(task: dict, node_name: str, llm_generate=None):
         tool_calls = _count_tool_calls(task)
         had_retry = _had_retry(task)
         
+        # Marveen: skip trivial tasks
         if tool_calls < MIN_TOOL_CALLS and not had_retry:
             log.debug(f"Auto-skill skip: {subject} (only {tool_calls} tool calls, no retry)")
             return None
@@ -171,6 +188,7 @@ Keep it practical and concise. Output only the SKILL.md content."""
             f.write(skill_content)
         
         log.info(f"✅ Auto-skill generated: {skill_name} ({tool_calls} tool calls, retry={had_retry})")
+        _daily_count += 1
         return skill_name
         
     except Exception as e:
@@ -182,9 +200,10 @@ def _template_skill(subject: str, task_type: str, node_name: str,
                     tool_calls: int, had_retry: bool, 
                     result_text: str, notes_text: str) -> str:
     """Generate a template-based SKILL.md without LLM."""
+    retry_note = "- Error recovery was needed — check retry logic" if had_retry else "- No errors encountered"
     return f"""---
 name: {_sanitize_name(subject)}
-description: Auto-generated from successful delegation. Trigger: {task_type} tasks similar to "{subject}".
+description: Auto-generated from successful delegation by {node_name}. Trigger: {task_type} tasks similar to "{subject}".
 ---
 
 # {_sanitize_name(subject)}
@@ -200,9 +219,11 @@ Auto-generated skill from a successful task execution by {node_name}.
 ## Steps
 
 1. Receive task with subject "{subject}"
-2. Analyze context and requirements
-3. Execute required operations
-4. Verify results
+2. Analyze context and requirements from task description
+3. Execute required operations (estimated {tool_calls} tool calls)
+4. {"Handle errors with retry/recovery logic" if had_retry else "Execute linearly"}
+5. Verify results match expected outcome
+6. Report completion
 
 ## Task Result
 ```
@@ -215,6 +236,8 @@ Auto-generated skill from a successful task execution by {node_name}.
 ```
 
 ## Pitfalls
+{retry_note}
 - This is an auto-generated skill — review and refine manually
-- Generated on {time.strftime("%Y-%m-%d %H:%M:%S")}
+- Generated on {time.strftime("%Y-%m-%d %H:%M:%S")} by {node_name}
+- Rate limit: {_daily_count}/{MAX_PER_DAY} skills today
 """

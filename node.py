@@ -1045,8 +1045,28 @@ class MeshNode:
             skill_name = await maybe_generate_skill(task_row, self.node_name)
             if skill_name:
                 log.info(f"🧠 Auto-skill generated: {skill_name}")
+                # Register in PG mesh_skills
+                if self._pg_pool:
+                    try:
+                        skill_id = "skill-" + self.node_name + "-" + skill_name
+                        async with self._pg_pool.acquire() as conn:
+                            await conn.execute(
+                                """INSERT INTO mesh.mesh_skills (skill_id, agent_name, skill_name, display_name, description, tags, status)
+                                   VALUES ($1, $2, $3, $4, $5, $6, 'active')
+                                   ON CONFLICT (skill_id) DO UPDATE SET updated_at = NOW()""",
+                                skill_id, self.node_name, skill_name,
+                                skill_name.replace('-', ' ').title(),
+                                "Auto-generated from delegation: " + task_row.get("subject", "")[:200],
+                                ["auto", "generated"]
+                            )
+                            log.info(f"🧠 Auto-skill registered in mesh: {skill_id}")
+                    except Exception as re:
+                        log.debug(f"Auto-skill PG register skipped: {re}")
                 # Broadcast to mesh so other nodes know about the new skill
-                await self._auto_advertise_skills()
+                try:
+                    await self._auto_advertise_skills()
+                except Exception:
+                    pass
         except Exception as e:
             log.debug(f"Auto-skill generation skipped: {e}")
 
@@ -4497,8 +4517,7 @@ echo "Status: ok"
                     try:
                         from .core.auto_skill import maybe_generate_skill
                         # Check recently completed tasks from Kanban
-                        kanban_mgr = getattr(self.dashboard, '_kanban_mgr', None) if hasattr(self, 'dashboard') else None
-                        if kanban_mgr and self._pg_pool and self._pg_pool.is_connected():
+                        if self._pg_pool:
                             async with self._pg_pool.acquire() as conn:
                                 rows = await conn.fetch(
                                     """SELECT * FROM shared_delegations
@@ -4510,6 +4529,26 @@ echo "Status: ok"
                                     skill_name = await maybe_generate_skill(task, self.node_name)
                                     if skill_name:
                                         log.info(f"[auto-skill] Generated: {skill_name}")
+                                        # Register in mesh_skills table
+                                        try:
+                                            skill_id = "skill-" + self.node_name + "-" + skill_name
+                                            await conn.execute(
+                                                """INSERT INTO mesh.mesh_skills (skill_id, agent_name, skill_name, display_name, description, tags, status)
+                                                   VALUES ($1, $2, $3, $4, $5, $6, 'active')
+                                                   ON CONFLICT (skill_id) DO UPDATE SET updated_at = NOW()""",
+                                                skill_id, self.node_name, skill_name,
+                                                skill_name.replace('-', ' ').title(),
+                                                "Auto-generated from delegation: " + task.get("subject", "")[:200],
+                                                ["auto", "generated"]
+                                            )
+                                            log.info(f"[auto-skill] Registered in mesh: {skill_id}")
+                                        except Exception as re:
+                                            log.debug(f"[auto-skill] PG register skipped: {re}")
+                                        # Broadcast to mesh
+                                        try:
+                                            await self._auto_advertise_skills()
+                                        except Exception:
+                                            pass
                     except Exception as e:
                         log.debug(f"[self-heal] Auto-skill check skipped: {e}")
                     _last_auto_skill = now_ts
