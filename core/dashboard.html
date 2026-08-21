@@ -3918,29 +3918,119 @@ function loadMarveenPage(page) {
       if (d.error) return errorBox(d.error);
       var skills = d.skills || [];
       if (!skills.length) return empty('Nincs skill');
-      var byNode = {};
+
+      // Stats bar
+      var totalActive = skills.length;
+      var agents = {};
+      skills.forEach(function(s) { agents[s.agent || s.node || '—'] = true; });
+      var agentCount = Object.keys(agents).length;
+      var avgSuccess = 0;
+      var avgLatency = 0;
       skills.forEach(function(s) {
-        var node = s.node || s.agent || '—';
-        (byNode[node] = byNode[node] || []).push(s);
+        avgSuccess += (s.success_rate || 1);
+        avgLatency += (s.avg_latency_ms || 0);
       });
+      avgSuccess = totalActive ? (avgSuccess / totalActive * 100).toFixed(0) : 100;
+      avgLatency = totalActive ? (avgLatency / totalActive).toFixed(0) : 0;
+
       var html = '';
-      Object.keys(byNode).forEach(function(node) {
-        html += '<h3 style="margin:0 0 8px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">🤖 ' + esc(node) + ' (' + byNode[node].length + ')</h3>';
-        byNode[node].forEach(function(s) {
-          var st = s.status || 'active';
-          var sc = st === 'active' ? 'var(--primary)' : 'var(--text3)';
-          var tags = (s.tags || []).join(', ');
-          var name = s.display_name || s.skill_name || s.skill || '—';
-          html += card(
-            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
-            '<strong style="font-size:13px;">' + esc(name) + '</strong>' +
-            badge(st, sc) + '</div>' +
-            (s.description ? '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">' + esc(s.description) + '</div>' : '') +
-            (tags ? '<div style="font-size:11px;color:var(--text2);">🏷️ ' + esc(tags) + '</div>' : '')
-          );
-        });
-        html += '<div style="margin-bottom:16px;"></div>';
+      // Toolbar: search + filter + actions
+      html += '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">' +
+        '<input type="text" id="skillSearch" placeholder="🔍 Keresés..." onkeyup="filterSkills()" style="flex:1;min-width:180px;padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;">' +
+        '<select id="skillFilterAgent" onchange="filterSkills()" style="padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;">' +
+        '<option value="">Összes node</option>' +
+        Object.keys(agents).sort().map(function(a) { return '<option value="' + esc(a) + '">' + esc(a) + '</option>'; }).join('') +
+        '</select>' +
+        '<select id="skillFilterTag" onchange="filterSkills()" style="padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;">' +
+        '<option value="">Összes címke</option>' +
+        _collectSkillTags(skills).map(function(t) { return '<option value="' + esc(t) + '">' + esc(t) + '</option>'; }).join('') +
+        '</select>' +
+        '<button onclick="syncSkills()" style="background:var(--primary);color:#fff;border:none;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;">🔄 Szinkron</button>' +
+        '</div>';
+
+      // Stats row
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">' +
+        '<div style="background:var(--surface2);border-radius:8px;padding:10px 16px;flex:1;min-width:120px;text-align:center;">' +
+        '<div style="font-size:24px;font-weight:700;color:var(--primary);">' + totalActive + '</div>' +
+        '<div style="font-size:11px;color:var(--text3);">Aktív skill</div></div>' +
+        '<div style="background:var(--surface2);border-radius:8px;padding:10px 16px;flex:1;min-width:120px;text-align:center;">' +
+        '<div style="font-size:24px;font-weight:700;color:var(--warning);">' + agentCount + '</div>' +
+        '<div style="font-size:11px;color:var(--text3);">Node</div></div>' +
+        '<div style="background:var(--surface2);border-radius:8px;padding:10px 16px;flex:1;min-width:120px;text-align:center;">' +
+        '<div style="font-size:24px;font-weight:700;color:#4ade80;">' + avgSuccess + '%</div>' +
+        '<div style="font-size:11px;color:var(--text3);">Átl. siker</div></div>' +
+        '<div style="background:var(--surface2);border-radius:8px;padding:10px 16px;flex:1;min-width:120px;text-align:center;">' +
+        '<div style="font-size:24px;font-weight:700;color:var(--text2);">' + avgLatency + 'ms</div>' +
+        '<div style="font-size:11px;color:var(--text3);">Átl. késleltetés</div></div>' +
+        '</div>';
+
+      // Skill cards container
+      html += '<div id="skillsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;">';
+
+      // Deduplicate by skill_name — show unique skills with agent list
+      var byName = {};
+      skills.forEach(function(s) {
+        var name = s.skill_name || s.skill || s.display_name || '—';
+        if (!byName[name]) byName[name] = [];
+        byName[name].push(s);
       });
+
+      Object.keys(byName).sort().forEach(function(name) {
+        var instances = byName[name];
+        var first = instances[0];
+        var agentList = instances.map(function(i) { return i.agent || i.node || '—'; });
+        var tags = first.tags || [];
+        var sr = first.success_rate || 1;
+        var srPct = (sr * 100).toFixed(0);
+        var srColor = sr >= 0.9 ? '#4ade80' : sr >= 0.7 ? 'var(--warning)' : 'var(--danger)';
+        var latency = first.avg_latency_ms || 0;
+        var cost = first.cost || 0;
+        var desc = first.description || '';
+        var skillId = first.skill_id || '';
+
+        html += '<div class="skill-card" data-name="' + esc(name.toLowerCase()) + '" data-agent="' + esc(agentList.join(' ').toLowerCase()) + '" data-tags="' + esc(tags.join(' ').toLowerCase()) + '" style="background:var(--surface2);border-radius:10px;padding:14px;border:1px solid var(--border);cursor:pointer;" onclick="showSkillDetail(\'' + esc(skillId) + '\',\'' + esc(name) + '\')">';
+        html += '<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">';
+        html += '<div style="flex:1;">';
+        html += '<strong style="font-size:13px;">' + esc(first.display_name || name) + '</strong>';
+        html += '<div style="font-size:11px;color:var(--text3);margin-top:2px;">' + esc(name) + '</div>';
+        html += '</div>';
+        html += '<div style="background:' + srColor + ';color:#000;border-radius:4px;padding:2px 6px;font-size:10px;font-weight:600;">' + srPct + '%</div>';
+        html += '</div>';
+
+        if (desc) {
+          html += '<div style="font-size:11px;color:var(--text2);line-height:1.4;margin-bottom:8px;">' + esc(desc.substring(0, 100)) + (desc.length > 100 ? '...' : '') + '</div>';
+        }
+
+        // Agent badges
+        html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">';
+        agentList.slice(0, 4).forEach(function(a) {
+          html += '<span style="background:rgba(79,140,255,.15);color:var(--primary);padding:2px 7px;border-radius:4px;font-size:10px;">🤖 ' + esc(a) + '</span>';
+        });
+        if (agentList.length > 4) html += '<span style="color:var(--text3);font-size:10px;">+' + (agentList.length - 4) + '</span>';
+        html += '</div>';
+
+        // Tags
+        if (tags.length) {
+          html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px;">';
+          tags.slice(0, 5).forEach(function(t) {
+            html += '<span style="background:var(--surface);color:var(--text3);padding:1px 6px;border-radius:3px;font-size:9px;">#' + esc(t) + '</span>';
+          });
+          html += '</div>';
+        }
+
+        // Metrics row
+        html += '<div style="display:flex;gap:12px;font-size:10px;color:var(--text3);border-top:1px solid var(--border);padding-top:6px;">';
+        html += '<span>⚡ ' + esc(latency) + 'ms</span>';
+        html += '<span>💰 $' + esc(cost.toFixed(4)) + '</span>';
+        html += '<span>📦 ' + esc(first.max_concurrent || 1) + ' concurrent</span>';
+        html += '</div>';
+
+        html += '</div>';
+      });
+
+      html += '</div>';
+      html += '<div id="skillsEmpty" style="display:none;text-align:center;padding:40px;color:var(--text3);">Nincs találat</div>';
+
       return html;
     },
 
@@ -4148,6 +4238,183 @@ window.loadConversationLog = function() {
     .catch(function(e) {
       container.innerHTML = '<div style="color:var(--danger);text-align:center;padding:20px;">Hiba: ' + e.message + '</div>';
     });
+};
+
+// ─── Ideas Board (Ötletláda) Functions ──────────────────────
+// ─── Skills Marketplace Functions ───────────────────────────
+function _collectSkillTags(skills) {
+  var tags = {};
+  skills.forEach(function(s) {
+    (s.tags || []).forEach(function(t) { tags[t] = true; });
+  });
+  return Object.keys(tags).sort();
+}
+
+window.filterSkills = function() {
+  var query = '';
+  var el = document.getElementById('skillSearch');
+  if (el) query = el.value.toLowerCase().trim();
+  var agentF = '';
+  var elA = document.getElementById('skillFilterAgent');
+  if (elA) agentF = elA.value.toLowerCase();
+  var tagF = '';
+  var elT = document.getElementById('skillFilterTag');
+  if (elT) tagF = elT.value.toLowerCase();
+  var cards = document.querySelectorAll('.skill-card');
+  var visible = 0;
+  cards.forEach(function(c) {
+    var name = c.getAttribute('data-name') || '';
+    var agent = c.getAttribute('data-agent') || '';
+    var tags = c.getAttribute('data-tags') || '';
+    var match = true;
+    if (query && name.indexOf(query) < 0 && tags.indexOf(query) < 0) match = false;
+    if (agentF && agent.indexOf(agentF) < 0) match = false;
+    if (tagF && tags.indexOf(tagF) < 0) match = false;
+    c.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  var empty = document.getElementById('skillsEmpty');
+  if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+};
+
+window.syncSkills = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var btn = event.target;
+  if (btn) { btn.disabled = true; btn.textContent = '🔄 Szinkron...'; }
+  fetch('/api/skills/auto-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: '{}'
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Szinkron'; }
+      if (d.ok || d.synced !== undefined) {
+        loadMarveenPage('skills');
+      } else {
+        alert('Szinkron hiba: ' + (d.error || 'ismeretlen'));
+      }
+    })
+    .catch(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 Szinkron'; }
+      alert('Szinkron hiba: ' + e.message);
+    });
+};
+
+window.showSkillDetail = function(skillId, skillName) {
+  var body = document.getElementById('marveenModalBody');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:40px;"><div style="font-size:32px;">⏳</div><p style="color:var(--text3);margin-top:8px;">Betöltés...</p></div>';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  // Fetch skill details
+  fetch('/api/skills/search?q=' + encodeURIComponent(skillName), {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      var skills = (d.skills || d.results || []).filter(function(s) {
+        return s.skill_name === skillName || s.skill_id === skillId;
+      });
+      if (!skills.length) {
+        body.innerHTML = '<div style="padding:20px;color:var(--text3);">Nem található: ' + esc(skillName) + '</div>';
+        return;
+      }
+      var s = skills[0];
+      var sr = (s.success_rate || 1) * 100;
+      var srColor = sr >= 90 ? '#4ade80' : sr >= 70 ? 'var(--warning)' : 'var(--danger)';
+      var html = '<div style="padding:16px;">';
+      // Header
+      html += '<div style="margin-bottom:16px;">';
+      html += '<h2 style="margin:0 0 4px;font-size:18px;">' + esc(s.display_name || s.skill_name || skillName) + '</h2>';
+      html += '<div style="font-size:12px;color:var(--text3);">' + esc(s.skill_name || '') + '</div>';
+      html += '</div>';
+      // Description
+      if (s.description) {
+        html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px;color:var(--text2);line-height:1.5;">' + esc(s.description) + '</div>';
+      }
+      // Metrics grid
+      html += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px;">';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:10px;color:var(--text3);">Siker ráta</div><div style="font-size:16px;font-weight:700;color:' + srColor + ';">' + sr.toFixed(0) + '%</div></div>';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:10px;color:var(--text3);">Késleltetés</div><div style="font-size:16px;font-weight:700;">' + esc(s.avg_latency_ms || 0) + 'ms</div></div>';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:10px;color:var(--text3);">Költség</div><div style="font-size:16px;font-weight:700;">$' + esc((s.cost || 0).toFixed(4)) + '</div></div>';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:10px;color:var(--text3);">Concurrent</div><div style="font-size:16px;font-weight:700;">' + esc(s.max_concurrent || 1) + '</div></div>';
+      html += '</div>';
+      // Agent
+      html += '<div style="margin-bottom:12px;"><div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Agent</div><span style="background:rgba(79,140,255,.15);color:var(--primary);padding:4px 10px;border-radius:6px;font-size:12px;">🤖 ' + esc(s.agent || s.node || '—') + '</span></div>';
+      // Tags
+      var tags = s.tags || [];
+      if (tags.length) {
+        html += '<div style="margin-bottom:16px;"><div style="font-size:10px;color:var(--text3);margin-bottom:4px;">Címkék</div><div style="display:flex;flex-wrap:wrap;gap:4px;">';
+        tags.forEach(function(t) {
+          html += '<span style="background:var(--surface);color:var(--text3);padding:2px 8px;border-radius:4px;font-size:11px;">#' + esc(t) + '</span>';
+        });
+        html += '</div></div>';
+      }
+      // Actions
+      html += '<div style="display:flex;gap:8px;border-top:1px solid var(--border);padding-top:16px;">';
+      html += '<button onclick="delegateToSkill(\'' + esc(s.skill_id || skillId) + '\',\'' + esc(skillName) + '\')" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13px;flex:1;">📤 Delegálás</button>';
+      html += '<button onclick="rateSkill(\'' + esc(s.skill_id || skillId) + '\')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13px;">⭐ Értékelés</button>';
+      html += '<button onclick="loadMarveenPage(\'skills\')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13px;">← Vissza</button>';
+      html += '</div>';
+      html += '</div>';
+      body.innerHTML = html;
+    })
+    .catch(function(e) {
+      body.innerHTML = '<div style="padding:20px;color:var(--danger);">Hiba: ' + esc(e.message) + '</div>';
+    });
+};
+
+window.delegateToSkill = function(skillId, skillName) {
+  var body = document.getElementById('marveenModalBody');
+  if (!body) return;
+  body.innerHTML = '<div style="padding:16px;">' +
+    '<h2 style="margin:0 0 16px;font-size:18px;">📤 Delegálás: ' + esc(skillName) + '</h2>' +
+    '<div style="margin-bottom:12px;"><label style="display:block;font-size:12px;color:var(--text3);margin-bottom:4px;">Feladat leírása *</label>' +
+    '<textarea id="delegateTaskDesc" placeholder="Mit kell csinálni?" style="width:100%;padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;min-height:80px;resize:vertical;"></textarea></div>' +
+    '<div style="margin-bottom:12px;"><label style="display:block;font-size:12px;color:var(--text3);margin-bottom:4px;">Prioritás</label>' +
+    '<select id="delegatePriority" style="width:100%;padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;">' +
+    '<option value="low">Alacsony</option><option value="normal" selected>Normál</option><option value="high">Magas</option></select></div>' +
+    '<div style="display:flex;gap:8px;">' +
+    '<button onclick="executeDelegate(\'' + esc(skillId) + '\')" style="background:var(--primary);color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;flex:1;">Delegálás</button>' +
+    '<button onclick="showSkillDetail(\'' + esc(skillId) + '\',\'' + esc(skillName) + '\')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;">Mégse</button>' +
+    '</div></div>';
+};
+
+window.executeDelegate = function(skillId) {
+  var desc = document.getElementById('delegateTaskDesc').value.trim();
+  if (!desc) { alert('Feladat leírása kötelező!'); return; }
+  var pri = document.getElementById('delegatePriority').value;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/skills/' + skillId + '/delegate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ task_description: desc, priority: pri })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok || d.task_id) {
+        alert('Delegálva! Task ID: ' + (d.task_id || 'OK'));
+        loadMarveenPage('skills');
+      } else {
+        alert('Hiba: ' + (d.error || 'ismeretlen'));
+      }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.rateSkill = function(skillId) {
+  var rating = prompt('Értékelés (1-5 csillag):', '5');
+  if (!rating) return;
+  var r = parseInt(rating, 10);
+  if (isNaN(r) || r < 1 || r > 5) { alert('1-5 közötti számot adj meg!'); return; }
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/skills/' + skillId + '/rate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ rating: r })
+  }).then(function(res) { return res.json(); })
+    .then(function(d) {
+      if (d.ok) { alert('Köszönöm az értékelést! ⭐' + r); }
+      else { alert('Hiba: ' + (d.error || 'ismeretlen')); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
 // ─── Ideas Board (Ötletláda) Functions ──────────────────────
