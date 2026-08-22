@@ -240,30 +240,30 @@ async def _analyze_skill_usage(pg_pool):
         return {"total": 0, "error": str(e)}
 
 
-    async def _analyze_cost(self, pg_pool=None):
-        """Analyze cost and token usage from CostOps ledger."""
-        try:
-            from .costops import get_monthly_summary
-            from .token_usage import get_summary as get_token_summary
-            cost_summary = get_monthly_summary()
-            token_summary = get_token_summary()
-            lines = []
-            if cost_summary["total_requests"] > 0:
-                lines.append(f"💰 **Költség (hó):** ${cost_summary['total_cost_usd']:.4f}")
-                lines.append(f"   Token: {cost_summary['total_input_tokens']:,} in / {cost_summary['total_output_tokens']:,} out")
-                for agent, cost in list(cost_summary["by_agent"].items())[:5]:
-                    lines.append(f"   {agent}: ${cost:.4f}")
-            else:
-                lines.append("💰 Nincs költség adat (még)")
-            
-            if token_summary["total_requests"] > 0:
-                lines.append(f"📊 Token használat: {token_summary['total_tokens']:,} total ({token_summary['total_requests']} kérés)")
-                for agent, usage in list(token_summary.get("by_agent", {}).items())[:5]:
-                    lines.append(f"   {agent}: {usage.get('input',0)+usage.get('output',0):,} tokens")
-            
-            return "\n".join(lines) if lines else "Nincs költség adat"
-        except Exception as e:
-            return f"Cost analysis error: {e}"
+async def _analyze_cost(pg_pool=None):
+    """Analyze cost and token usage from CostOps ledger."""
+    try:
+        from .costops import get_monthly_summary
+        from .token_usage import get_summary as get_token_summary
+        cost_summary = get_monthly_summary()
+        token_summary = get_token_summary()
+        lines = []
+        if cost_summary["total_requests"] > 0:
+            lines.append(f"💰 **Költség (hó):** ${cost_summary['total_cost_usd']:.4f}")
+            lines.append(f"   Token: {cost_summary['total_input_tokens']:,} in / {cost_summary['total_output_tokens']:,} out")
+            for agent, cost in list(cost_summary["by_agent"].items())[:5]:
+                lines.append(f"   {agent}: ${cost:.4f}")
+        else:
+            lines.append("💰 Nincs költség adat (még)")
+        
+        if token_summary["total_requests"] > 0:
+            lines.append(f"📊 Token használat: {token_summary['total_tokens']:,} total ({token_summary['total_requests']} kérés)")
+            for agent, usage in list(token_summary.get("by_agent", {}).items())[:5]:
+                lines.append(f"   {agent}: {usage.get('input',0)+usage.get('output',0):,} tokens")
+        
+        return "\n".join(lines) if lines else "Nincs költség adat"
+    except Exception as e:
+        return f"Cost analysis error: {e}"
 
 
 def _generate_dream_md(results):
