@@ -1039,6 +1039,34 @@ class MeshNode:
         except Exception as e:
             log.debug(f"Hindsight save skipped: {e}")
         
+        # ── Record token usage + cost ──
+        try:
+            from .core.token_usage import record_usage as _record_usage
+            # Extract token counts from result if available
+            result_str = str(result or "")
+            # Try to parse token info from result JSON
+            input_tokens = 0
+            output_tokens = 0
+            model = "unknown"
+            try:
+                import json as _json
+                # result may be JSON with token info, or plain text
+                result_data = _json.loads(result_str) if result_str.startswith("{") else {}
+                if isinstance(result_data, dict):
+                    usage = result_data.get("usage", {})
+                    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+                    output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+                    model = result_data.get("model", "unknown")
+            except Exception:
+                pass
+            # Fallback: estimate tokens from result length (rough: 1 token ≈ 4 chars)
+            if input_tokens == 0 and output_tokens == 0:
+                output_tokens = min(len(result_str) // 4, 50000)
+            _record_usage(assigned, model, input_tokens, output_tokens, task_id=str(task_row.get("id", "")))
+            log.debug(f"[costops] Recorded: {assigned} model={model} in={input_tokens} out={output_tokens}")
+        except Exception as e:
+            log.debug(f"[costops] Token usage recording skipped: {e}")
+        
         # ── Auto Skill-Factory ──
         try:
             from .core.auto_skill import maybe_generate_skill
@@ -3818,8 +3846,14 @@ echo "Status: ok"
                             # dict/bytes payload — wrapping them would break protocol parsing.
                             if msg.type in ("a2a_message", "agent_reply"):
                                 from .core.prompt_safety import wrap_trusted_peer
-                                original = msg.payload
-                                msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                trust = self._get_peer_trust_level(msg.sender)
+                                if trust == "full":
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                elif trust == "limited":
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload) + "\n\n⚠️ LIMITED TRUST — verify all claims."
+                                else:
+                                    log.warning(f"Rejected message from untrusted peer: {msg.sender}")
+                                    continue
                                 log.debug(f"Untrusted framing applied to {msg.type} {msg.id[:8]} from {msg.sender}")
 
                             result = await self.router.receive(msg, from_transport)
@@ -3893,6 +3927,14 @@ echo "Status: ok"
             except Exception as e:
                 log.error(f"Receive loop error: {e}")
                 await asyncio.sleep(1)
+
+    def _get_peer_trust_level(self, peer_name):
+        """Get trust level for a peer. Returns 'full', 'limited', or 'none'."""
+        try:
+            from .core.team_trust import get_trust_level
+            return get_trust_level(self.node_name, peer_name)
+        except Exception:
+            return "full"  # Default: full trust (mesh internal)
 
     async def _auto_advertise_skills(self):
         """Auto-advertise config skills to mesh_skills table on startup.
@@ -4335,6 +4377,8 @@ echo "Status: ok"
         _last_dream = 0
         _last_inbox_check = 0
         _last_context_gate = 0
+        _last_context_guard = 0
+        _last_precompact = 0
         _last_auto_skill = 0
         _last_cap_sync = 0
         _last_gw_watchdog = 0
@@ -4343,6 +4387,8 @@ echo "Status: ok"
         DREAM_INTERVAL = 21600  # 6 hours
         INBOX_CHECK_INTERVAL = 300  # 5 min
         CONTEXT_GATE_INTERVAL = 300  # 5 min
+        CONTEXT_GUARD_INTERVAL = 300  # 5 min
+        PRECOMPACT_INTERVAL = 1800  # 30 min
         AUTO_SKILL_INTERVAL = 600  # 10 min
         CAP_SYNC_INTERVAL = 600  # 10 min
 
@@ -4599,6 +4645,37 @@ echo "Status: ok"
                     except Exception as e:
                         log.debug(f"[self-heal] Gateway watchdog check skipped: {e}")
                     _last_gw_watchdog = now_ts
+
+                # 13. Context Guard — proactive agent context monitoring (5 min)
+                if now_ts - _last_context_guard > CONTEXT_GUARD_INTERVAL:
+                    try:
+                        from .core.context_guard import context_guard_tick
+                        guard_results = await context_guard_tick(self._pg_pool, node_name=self.node_name)
+                        for gr in guard_results:
+                            log.warning(f"[context-guard] {gr['message']}")
+                            if gr.get("action") in ("force_restart", "hard_restart") and hasattr(self, 'dashboard') and hasattr(self.dashboard, 'alert_manager'):
+                                try:
+                                    await self.dashboard.alert_manager.send_alert(
+                                        title=f"Context guard: {gr['agent']}",
+                                        body=gr["message"],
+                                        severity="critical" if gr["action"] == "force_restart" else "warning",
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        log.debug(f"[self-heal] Context guard tick skipped: {e}")
+                    _last_context_guard = now_ts
+
+                # 14. PreCompact Hook — audit context pressure, save critical info (30 min)
+                if now_ts - _last_precompact > PRECOMPACT_INTERVAL:
+                    try:
+                        from .core.precompact_hook import precompact_audit
+                        audit = await precompact_audit(self._pg_pool, node_name=self.node_name)
+                        if audit.get("total", 0) > 0:
+                            log.info(f"[precompact] {audit['total']} critical context saves in last 24h")
+                    except Exception as e:
+                        log.debug(f"[self-heal] PreCompact audit skipped: {e}")
+                    _last_precompact = now_ts
 
             except asyncio.CancelledError:
                 break
