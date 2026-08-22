@@ -4622,26 +4622,41 @@ echo "Status: ok"
                     _last_cap_sync = now_ts
 
                 # 12. Gateway Watchdog — check Hermes gateway health (every 2 min)
+                # Process check is PRIMARY. Health endpoint is SECONDARY.
+                # Only restart if BOTH are down (prevents false positives from
+                # mesh node being briefly slow during self-healing loop).
                 if now_ts - _last_gw_watchdog > 120:
                     try:
-                        import urllib.request as _urllib
-                        try:
-                            req = _urllib.request.Request("http://localhost:8650/api/health", method="GET")
-                            resp = _urllib.request.urlopen(req, timeout=10)
-                            gw_ok = resp.status == 200
-                        except Exception:
-                            gw_ok = False
-                        if not gw_ok:
-                            log.warning("[self-heal] Gateway watchdog: health endpoint down")
+                        from .core.gateway_watchdog import check_process as _gw_check_process
+                        gw_process_ok = _gw_check_process()
+                        if gw_process_ok:
+                            # Gateway process is running — it's healthy
+                            log.debug("[self-heal] Gateway watchdog: process running ✅")
+                        else:
+                            # No gateway process found — check health endpoint
+                            import urllib.request as _urllib
                             try:
-                                from .core.gateway_watchdog import check_cooldown, check_restart_rate, restart_gateway, record_restart
-                                if check_cooldown() and check_restart_rate():
-                                    success = restart_gateway(self.node_name)
-                                    if success:
-                                        record_restart()
-                                        log.info(f"[self-heal] Gateway restart dispatched for {self.node_name}")
-                            except Exception as gw_err:
-                                log.debug(f"[self-heal] Gateway watchdog restart failed: {gw_err}")
+                                req = _urllib.request.Request("http://localhost:8650/api/health", method="GET")
+                                resp = _urllib.request.urlopen(req, timeout=10)
+                                gw_ok = resp.status == 200
+                            except Exception:
+                                gw_ok = False
+                            if gw_ok:
+                                # Health endpoint responds but no process — probably
+                                # running inside desktop app (macOS) or as child process
+                                log.debug("[self-heal] Gateway watchdog: health OK but no separate process — likely inside desktop app")
+                            else:
+                                # BOTH down — actual gateway failure
+                                log.warning("[self-heal] Gateway watchdog: process AND health both down — restarting")
+                                try:
+                                    from .core.gateway_watchdog import check_cooldown, check_restart_rate, restart_gateway, record_restart
+                                    if check_cooldown() and check_restart_rate():
+                                        success = restart_gateway(self.node_name)
+                                        if success:
+                                            record_restart()
+                                            log.info(f"[self-heal] Gateway restart dispatched for {self.node_name}")
+                                except Exception as gw_err:
+                                    log.debug(f"[self-heal] Gateway watchdog restart failed: {gw_err}")
                     except Exception as e:
                         log.debug(f"[self-heal] Gateway watchdog check skipped: {e}")
                     _last_gw_watchdog = now_ts

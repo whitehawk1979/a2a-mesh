@@ -45,7 +45,13 @@ log = logging.getLogger("gateway_watchdog")
 
 
 def check_health_endpoint() -> bool:
-    """Check if the gateway health endpoint responds."""
+    """Check if the mesh node health endpoint responds.
+    
+    NOTE: This checks the MESH NODE (port 8650), NOT the Hermes gateway.
+    The mesh node health endpoint may be briefly unresponsive during
+    self-healing loop iterations, PG queries, or heavy load.
+    This should NOT be the sole indicator of gateway health.
+    """
     try:
         import urllib.request
         import urllib.error
@@ -57,14 +63,31 @@ def check_health_endpoint() -> bool:
 
 
 def check_process() -> bool:
-    """Check if a hermes gateway process is running."""
+    """Check if a hermes gateway process is running.
+    
+    This is the PRIMARY health indicator. If the process exists,
+    the gateway is running — even if the health endpoint is briefly slow.
+    """
     try:
+        # On macOS, the gateway may run inside the Hermes desktop app
+        # (no separate process). Check for both patterns.
         result = subprocess.run(
             ["pgrep", "-f", "hermes.*gateway"],
             capture_output=True,
             timeout=5,
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            return True
+        # Also check for Hermes desktop app on macOS (PID-based)
+        if platform.system() == "Darwin":
+            result2 = subprocess.run(
+                ["pgrep", "-f", "Hermes.app/Contents/MacOS/Hermes"],
+                capture_output=True,
+                timeout=5,
+            )
+            if result2.returncode == 0:
+                return True
+        return False
     except Exception:
         return False
 
@@ -189,13 +212,22 @@ def main():
     health_ok = check_health_endpoint()
     process_ok = check_process()
 
-    # Health endpoint is the primary indicator — if it's up, gateway is serving.
-    # Process check is secondary (on macOS the mesh node serves the health endpoint).
-    if health_ok:
-        log.info(f"[{args.node}] Gateway healthy (health=✅ process={'✅' if process_ok else '⚠️'})")
+    # Process check is PRIMARY — if the gateway process is running,
+    # the gateway is healthy. The health endpoint may be briefly slow
+    # during self-healing loop iterations or heavy load.
+    if process_ok:
+        log.info(f"[{args.node}] Gateway healthy (health={'✅' if health_ok else '⚠️'} process=✅)")
         return
 
-    log.warning(f"[{args.node}] Gateway unhealthy (health=❌ process={'✅' if process_ok else '❌'})")
+    # Only restart if BOTH process AND health are down
+    if health_ok and not process_ok:
+        # Health endpoint responds but no gateway process — mesh node is up
+        # but gateway isn't running. This is normal on macOS where the gateway
+        # runs inside the Hermes desktop app.
+        log.info(f"[{args.node}] Gateway not running as separate process (health=✅ process=❌) — may be running inside desktop app")
+        return
+
+    log.warning(f"[{args.node}] Gateway unhealthy (health=❌ process=❌)")
 
     if args.dry_run:
         log.info("Dry run — skipping restart")

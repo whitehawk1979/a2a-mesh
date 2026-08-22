@@ -1,0 +1,21 @@
+{
+  "total": {
+    "input": 0,
+    "output": 40,
+    "requests": 2
+  },
+  "by_agent": {
+    "runa": {
+      "input": 0,
+      "output": 40,
+      "requests": 2
+    }
+  },
+  "by_model": {
+    "unknown": {
+      "input": 0,
+      "output": 40,
+      "requests": 2
+    }
+  }
+}
