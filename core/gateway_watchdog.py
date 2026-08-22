@@ -2,8 +2,11 @@
 """A2A Mesh Gateway Watchdog — monitors Hermes gateway and restarts if down.
 
 Runs as a cron job on each mesh node. Checks:
-1. Gateway health endpoint (localhost:8650/health)
-2. Process existence (pgrep)
+1. Process existence (pgrep) — PRIMARY indicator
+2. Gateway health endpoint (localhost:8650/health) — SECONDARY indicator
+
+Only restarts if BOTH process AND health are down.
+Uses ProxyHandler({}) to bypass SOCKS5/HTTP proxies for localhost.
 
 If either fails, attempts restart via the node-appropriate method.
 Logs to ~/.hermes/logs/gateway_watchdog.log
@@ -45,49 +48,28 @@ log = logging.getLogger("gateway_watchdog")
 
 
 def check_health_endpoint() -> bool:
-    """Check if the mesh node health endpoint responds.
-    
-    NOTE: This checks the MESH NODE (port 8650), NOT the Hermes gateway.
-    The mesh node health endpoint may be briefly unresponsive during
-    self-healing loop iterations, PG queries, or heavy load.
-    This should NOT be the sole indicator of gateway health.
-    """
+    """Check if the gateway health endpoint responds.
+    Uses ProxyHandler({}) to bypass SOCKS5/HTTP proxies for localhost."""
     try:
         import urllib.request
         import urllib.error
         req = urllib.request.Request(HEALTH_URL, method="GET")
-        resp = urllib.request.urlopen(req, timeout=HEALTH_TIMEOUT)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        resp = opener.open(req, timeout=HEALTH_TIMEOUT)
         return resp.status == 200
     except Exception:
         return False
 
 
 def check_process() -> bool:
-    """Check if a hermes gateway process is running.
-    
-    This is the PRIMARY health indicator. If the process exists,
-    the gateway is running — even if the health endpoint is briefly slow.
-    """
+    """Check if a hermes gateway process is running."""
     try:
-        # On macOS, the gateway may run inside the Hermes desktop app
-        # (no separate process). Check for both patterns.
         result = subprocess.run(
             ["pgrep", "-f", "hermes.*gateway"],
             capture_output=True,
             timeout=5,
         )
-        if result.returncode == 0:
-            return True
-        # Also check for Hermes desktop app on macOS (PID-based)
-        if platform.system() == "Darwin":
-            result2 = subprocess.run(
-                ["pgrep", "-f", "Hermes.app/Contents/MacOS/Hermes"],
-                capture_output=True,
-                timeout=5,
-            )
-            if result2.returncode == 0:
-                return True
-        return False
+        return result.returncode == 0
     except Exception:
         return False
 
@@ -113,7 +95,7 @@ def restart_gateway(node: str) -> bool:
         # Linux (Morzsa/Runa) — systemctl --user
         # Use setsid to bypass lifecycle guard
         try:
-            script = f"""
+            script = """
 import subprocess, time, os
 time.sleep(2)
 subprocess.run(
@@ -212,22 +194,13 @@ def main():
     health_ok = check_health_endpoint()
     process_ok = check_process()
 
-    # Process check is PRIMARY — if the gateway process is running,
-    # the gateway is healthy. The health endpoint may be briefly slow
-    # during self-healing loop iterations or heavy load.
+    # Process check is PRIMARY — if the process is running, the gateway is alive.
+    # Health endpoint is SECONDARY — only restart if BOTH process AND health are down.
     if process_ok:
-        log.info(f"[{args.node}] Gateway healthy (health={'✅' if health_ok else '⚠️'} process=✅)")
+        log.info(f"[{args.node}] Gateway healthy (process=OK health={'OK' if health_ok else 'WARN'})")
         return
 
-    # Only restart if BOTH process AND health are down
-    if health_ok and not process_ok:
-        # Health endpoint responds but no gateway process — mesh node is up
-        # but gateway isn't running. This is normal on macOS where the gateway
-        # runs inside the Hermes desktop app.
-        log.info(f"[{args.node}] Gateway not running as separate process (health=✅ process=❌) — may be running inside desktop app")
-        return
-
-    log.warning(f"[{args.node}] Gateway unhealthy (health=❌ process=❌)")
+    log.warning(f"[{args.node}] Gateway unhealthy (process=DOWN health={'OK' if health_ok else 'DOWN'})")
 
     if args.dry_run:
         log.info("Dry run — skipping restart")
@@ -248,11 +221,11 @@ def main():
         # Wait and verify
         time.sleep(30)
         if check_health_endpoint() and check_process():
-            log.info(f"[{args.node}] ✅ Gateway recovered after restart")
+            log.info(f"[{args.node}] Gateway recovered after restart")
         else:
-            log.error(f"[{args.node}] ❌ Gateway still unhealthy after restart")
+            log.error(f"[{args.node}] Gateway still unhealthy after restart")
     else:
-        log.error(f"[{args.node}] ❌ Restart failed")
+        log.error(f"[{args.node}] Restart failed")
 
 
 if __name__ == "__main__":
