@@ -4230,9 +4230,10 @@ function loadMarveenPage(page) {
 
     migrate: function(d) {
       if (d.error) return errorBox(d.error);
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:12px;"><button onclick="trustAgent()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🛡️ Trust Agent</button><button onclick="fleetImport()" style="background:var(--warning);color:#000;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">📦 Fleet Import</button></div>';
       var nodes = (d.fleet_status && d.fleet_status.nodes) || d.nodes || [];
       var caps = d.capabilities || [];
-      var html = '';
       if (caps.length) {
         html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
         caps.forEach(function(c) { html += badge(c, 'var(--primary)'); });
@@ -4487,14 +4488,20 @@ function loadMarveenPage(page) {
     tasks: function(d) {
       if (d.error) return errorBox(d.error);
       var tasks = d.tasks || [];
-      if (!tasks.length) return empty('Nincs ütemezett feladat');
-      return table(['ID', 'Feladó', 'Címzett', 'Tárgy', 'Státusz', 'Prioritás', 'Típus', 'Létrehozva'], tasks.map(function(t) {
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:12px;">';
+      html += '<button onclick="showLlmBreakdownModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🧠 LLM Breakdown</button>';
+      html += '<button onclick="taskCleanup()" style="background:var(--warning);color:#000;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🧹 Cleanup</button>';
+      html += '</div>';
+      if (!tasks.length) return html + empty('Nincs ütemezett feladat');
+      html += table(['ID', 'Feladó', 'Címzett', 'Tárgy', 'Státusz', 'Prioritás', 'Típus', 'Létrehozva'], tasks.map(function(t) {
         var st = t.status || 'unknown';
         var sc = st === 'completed' ? 'var(--primary)' : st === 'running' || st === 'accepted' ? 'var(--warning)' : st === 'failed' || st === 'expired' ? 'var(--danger)' : 'var(--text3)';
         var pri = t.priority || 'normal';
         var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
         return [esc((t.id || '').toString().substring(0, 8)), esc(t.from_agent || '—'), esc(t.to_agent || '—'), esc(t.subject || '—'), badge(st, sc), badge(pri, pc), badge(t.task_type || '—'), fmtTime(t.created_at)];
       }));
+      return html;
     },
     'insights-cost': function(d) {
       if (d.error) return errorBox(d.error);
@@ -5843,6 +5850,55 @@ window.showCronAddModal = function() {
   fetch('/api/cron/add', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, schedule: schedule, prompt: prompt_text }) })
     .then(function(r) { return r.json(); })
     .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Cron task hozzáadva'); loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showLlmBreakdownModal = function() {
+  var task = prompt('Feladat leírása (mit bontsunk alfeladatokra?):');
+  if (!task) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/llm-breakdown', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ task: task }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); return; }
+      var subtasks = d.subtasks || [];
+      if (!subtasks.length) { alert('Nincs alfeladat'); return; }
+      var msg = subtasks.length + ' alfeladat:\n\n';
+      subtasks.forEach(function(s, i) {
+        msg += (i + 1) + '. ' + (s.title || '?') + ' — ' + (s.description || '') + '\n';
+        if (s.assignee) msg += '   → ' + s.assignee + '\n';
+      });
+      alert(msg);
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.taskCleanup = function() {
+  if (!confirm('Törli a lejárt/completed feladatokat?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/tasks/cleanup', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Cleanup: ' + JSON.stringify(d).substring(0, 200)); loadMarveenPage('tasks'); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.trustAgent = function() {
+  var agent = prompt('Agent neve:');
+  if (!agent) return;
+  var level = prompt('Trust level (trusted/untrusted/neutral):') || 'trusted';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/trust', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: agent, level: level }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Trust: ' + JSON.stringify(d).substring(0, 200)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.fleetImport = function() {
+  if (!confirm('Flotta import indítása?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/fleet/import', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Fleet import: ' + JSON.stringify(d).substring(0, 300)); })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 

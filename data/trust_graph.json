@@ -18,5 +18,8 @@
     "Nova": "full",
     "Morzsa": "full",
     "Runa": "full"
+  },
+  "": {
+    "": "trusted"
   }
 }

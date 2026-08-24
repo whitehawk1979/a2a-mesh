@@ -1,0 +1,13 @@
+{
+  "": {
+    "chain_position": 0,
+    "current_model": "glm-5.2:cloud",
+    "errors": [
+      {
+        "timestamp": 1787597629.499326,
+        "model": "",
+        "error_type": "unknown"
+      }
+    ]
+  }
+}
