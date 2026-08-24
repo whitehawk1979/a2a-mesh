@@ -1564,7 +1564,7 @@
         "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787583895.7973828,
-        "updated_at": 1787583986.082037,
+        "updated_at": 1787585572.862556,
         "created_by": "unknown",
         "delegation_task_id": "6b4f16f7-8da4-4417-b46e-2d92d1fcc2ca",
         "delegation_status": "completed",
@@ -1628,15 +1628,53 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787583986.08243
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787585566.449472
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787585567.08097
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git: TIMEOUT",
+            "timestamp": 1787585567.092072
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "c9dd8eca",
+            "timestamp": 1787585567.868591
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787585572.862967
           }
         ],
         "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git: TIMEOUT",
         "completed_at": "2026-08-24 15:05:16.063258+00:",
         "reviewer": "tor",
-        "review_task_id": "3502ab00-bfcc-4a65-abfe-d383e85d79c5",
+        "review_task_id": "c9dd8eca-dfbc-49e6-8852-978f961ff3a0",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787583986.082036
+        "reviewed_at": 1787585572.8625548
       },
       {
         "id": "card-1787583896104-58",
@@ -1647,7 +1685,7 @@
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787583896.104831,
-        "updated_at": 1787583985.726093,
+        "updated_at": 1787585572.775167,
         "created_by": "unknown",
         "delegation_task_id": "bbb68532-9d20-47a8-b289-ff958636ae11",
         "delegation_status": "completed",
@@ -1711,18 +1749,56 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787583985.726641
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787585566.293544
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787585566.435806
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+            "timestamp": 1787585567.1782668
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "1b7e35cc",
+            "timestamp": 1787585568.089052
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787585572.775594
           }
         ],
         "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
         "completed_at": "2026-08-24 15:05:15.004951+00:",
         "reviewer": "morzsa",
-        "review_task_id": "38bf7600-91d6-4aea-ba37-e9419bfe1a60",
+        "review_task_id": "1b7e35cc-1823-4aaf-b880-454c6fa0cf22",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787583985.726092
+        "reviewed_at": 1787585572.775166
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787583978.7272792
+    "updated_at": 1787585567.3811321
   }
 ]

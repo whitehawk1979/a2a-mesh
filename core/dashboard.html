@@ -446,6 +446,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span style="font-size:16px;">🔀</span>
       <span>Routing & Model</span>
     </div>
+      <div class="channel-item" onclick="loadMarveenPage('projects')">
+      <span style="font-size:16px;">📂</span>
+      <span>Projektek</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('network')">
+      <span style="font-size:16px;">🔌</span>
+      <span>P2P Hálózat</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('security')">
+      <span style="font-size:16px;">🛡️</span>
+      <span>Biztonság</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('sysinfo')">
+      <span style="font-size:16px;">⚙️</span>
+      <span>Rendszer Infó</span>
+    </div>
       <div class="channel-item" onclick="loadMarveenPage('docs')">
           <span class="icon">📚</span> Dokumentáció
         </div>
@@ -2949,7 +2965,11 @@ function loadMarveenPage(page) {
     'topology': '🕸️ Mesh Topológia',
     'governance': '⚖️ Governance',
     'watchers': '👁️ Watcherek',
-    'routing': '🔀 Routing & Model'
+    'routing': '🔀 Routing & Model',
+    'projects': '📂 Projektek',
+    'network': '🔌 P2P Hálózat',
+    'security': '🛡️ Biztonság',
+    'sysinfo': '⚙️ Rendszer Infó'
   };
 
   var apiMap = {
@@ -2985,7 +3005,11 @@ function loadMarveenPage(page) {
     'topology': '/api/mesh/topology',
     'governance': '/api/governance/rules',
     'watchers': '/api/stuck-watcher',
-    'routing': '/api/router/stats'
+    'routing': '/api/router/stats',
+    'projects': '/api/projects',
+    'network': '/api/p2p/status',
+    'security': '/api/context-guard',
+    'sysinfo': '/api/tool-timeouts'
   };
 
   var title = titleMap[page] || page;
@@ -4598,6 +4622,123 @@ function loadMarveenPage(page) {
       html += '</div>';
       return html;
     },
+    'projects': function(d) {
+      if (d.error) return errorBox(d.error);
+      var projects = d.projects || [];
+      var count = d.count || projects.length;
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--primary);">' + count + '</div><div style="font-size:10px;color:var(--text3);">Projektek</div></div>';
+      html += '</div>';
+      if (!projects.length) return html + empty('Nincs projekt');
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      projects.forEach(function(p) {
+        var statusColor = p.status === 'up' ? 'var(--success)' : p.status === 'down' ? 'var(--danger)' : 'var(--text3)';
+        html += card('<div style="display:flex;align-items:flex-start;gap:8px;">' +
+          '<span style="font-size:20px;flex-shrink:0;">' + esc(p.icon || '📦') + '</span>' +
+          '<div style="flex:1;"><strong style="font-size:13px;">' + esc(p.title || p.id || '—') + '</strong>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(p.description || '') + '</div>' +
+          '<div style="display:flex;gap:6px;margin-top:4px;">' +
+          '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + statusColor + '22;color:' + statusColor + ';">' + esc(p.status || '?') + '</span>' +
+          '<span style="font-size:9px;color:var(--text3);">URL: ' + esc(p.url || '—') + '</span>' +
+          '</div></div></div>');
+      });
+      html += '</div>';
+      // Team section (loaded via JS)
+      html += '<div id="projects-team-section" style="margin-top:16px;"></div>';
+      // Workflows section
+      html += '<div id="projects-workflows-section" style="margin-top:16px;"></div>';
+      return html;
+    },
+    'network': function(d) {
+      if (d.error) return errorBox(d.error);
+      var running = d.running;
+      var listenPort = d.listen_port || '?';
+      var tlsEnabled = d.tls_enabled;
+      var peers = d.peers || [];
+      var peerCount = d.peer_count || 0;
+      var backoffPeers = d.backoff_peers || [];
+      var html = '';
+      // P2P status
+      var statusColor = running ? 'var(--success)' : 'var(--danger)';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:16px;border-left:4px solid ' + statusColor + ';">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+      html += '<div style="width:10px;height:10px;border-radius:50%;background:' + statusColor + ';"></div>';
+      html += '<strong style="font-size:14px;color:' + statusColor + ';">' + (running ? 'P2P Aktív' : 'P2P Leállt') + '</strong>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:16px;font-size:11px;color:var(--text3);">';
+      html += '<span>Port: <strong>' + esc(listenPort) + '</strong></span>';
+      html += '<span>TLS: <strong>' + (tlsEnabled ? 'Igen' : 'Nem') + '</strong></span>';
+      html += '<span>Peers: <strong>' + peerCount + '</strong></span>';
+      html += '</div></div>';
+      // Peers
+      if (peers.length) {
+        html += '<h3 style="margin:0 0 8px;font-size:13px;">🔗 Peer-ek (' + peers.length + ')</h3>';
+        peers.forEach(function(p) {
+          html += card('<div style="display:flex;align-items:center;gap:8px;"><div style="width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0;"></div><strong style="font-size:12px;flex:1;">' + esc(p) + '</strong></div>');
+        });
+      }
+      // Backoff peers
+      if (backoffPeers && backoffPeers.length) {
+        html += '<h3 style="margin:16px 0 8px;font-size:13px;color:var(--warning);">⚠️ Backoff peer-ek (' + backoffPeers.length + ')</h3>';
+        backoffPeers.forEach(function(p) {
+          html += card('<div style="display:flex;align-items:center;gap:8px;"><div style="width:8px;height:8px;border-radius:50%;background:var(--warning);flex-shrink:0;"></div><strong style="font-size:12px;flex:1;">' + esc(typeof p === 'string' ? p : (p.name || p.peer || '?')) + '</strong></div>');
+        });
+      }
+      // Extra sections loaded via JS
+      html += '<div id="network-watchdog-section" style="margin-top:16px;"></div>';
+      html += '<div id="network-desired-section" style="margin-top:16px;"></div>';
+      html += '<div id="network-channel-section" style="margin-top:16px;"></div>';
+      return html;
+    },
+    'security': function(d) {
+      if (d.error) return errorBox(d.error);
+      var checks = d.checks || [];
+      var html = '';
+      html += '<h3 style="margin:0 0 8px;font-size:13px;">🛡️ Context Guard ellenőrzések</h3>';
+      if (!checks.length) {
+        html += card('<div style="text-align:center;color:var(--text3);font-size:12px;padding:12px;">✅ Nincs aktív kontextus probléma</div>');
+      } else {
+        checks.forEach(function(c) {
+          var sevColor = c.severity === 'critical' ? 'var(--danger)' : c.severity === 'warning' ? 'var(--warning)' : 'var(--text3)';
+          html += card('<div style="display:flex;align-items:flex-start;gap:8px;"><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + sevColor + ';color:#fff;font-weight:600;flex-shrink:0;">' + esc(c.severity || 'info') + '</span><div style="flex:1;"><strong style="font-size:12px;">' + esc(c.name || c.check || '—') + '</strong><div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(c.message || c.detail || '') + '</div></div></div>');
+        });
+      }
+      // Extra sections
+      html += '<div id="security-memory-section" style="margin-top:16px;"></div>';
+      html += '<div id="security-throttle-section" style="margin-top:16px;"></div>';
+      html += '<div id="security-lock-section" style="margin-top:16px;"></div>';
+      html += '<div id="security-recovery-section" style="margin-top:16px;"></div>';
+      return html;
+    },
+    'sysinfo': function(d) {
+      if (d.error) return errorBox(d.error);
+      var timeouts = d.timeouts || {};
+      var categories = d.categories || [];
+      var html = '';
+      // Tool timeouts
+      html += '<h3 style="margin:0 0 8px;font-size:13px;">⏱️ Tool Timeout-ok</h3>';
+      var timeoutItems = Object.keys(timeouts);
+      if (timeoutItems.length) {
+        html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+        timeoutItems.forEach(function(key) {
+          html += card('<div style="display:flex;align-items:center;gap:8px;"><strong style="font-size:11px;flex:1;">' + esc(key) + '</strong><span style="font-size:12px;font-weight:700;color:var(--primary);">' + esc(timeouts[key]) + 's</span></div>');
+        });
+        html += '</div>';
+      } else {
+        html += empty('Nincs timeout beállítás');
+      }
+      // Extra sections
+      html += '<div id="sysinfo-queue-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-retries-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-store-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-workers-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-model-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-db-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-labels-section" style="margin-top:16px;"></div>';
+      html += '<div id="sysinfo-voice-section" style="margin-top:16px;"></div>';
+      return html;
+    },
     'topology': function(d) {
       if (d.error) return errorBox(d.error);
       var nodes = d.nodes || [];
@@ -5424,6 +5565,246 @@ window.meshDeployAll = function() {
     })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
+
+// ─── Multi-API section loaders (for projects, network, security, sysinfo)
+window._fetchSection = function(url, targetId, renderFn) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById(targetId);
+      if (el) el.innerHTML = renderFn(d);
+    })
+    .catch(function(e) {
+      var el = document.getElementById(targetId);
+      if (el) el.innerHTML = '<div style="color:var(--text3);font-size:10px;">Hiba: ' + e.message + '</div>';
+    });
+};
+
+// Projects: team + workflows
+window._loadProjectsExtras = function() {
+  window._fetchSection('/api/team', 'projects-team-section', function(d) {
+    var nodes = d.nodes || [];
+    if (!nodes.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">👥 Team</h3>';
+    nodes.forEach(function(n) {
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><strong style="font-size:12px;">' + esc(n.name || '?') + '</strong>';
+      h += '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:var(--primary)22;color:var(--primary);">' + esc(n.role || '?') + '</span></div>';
+      if (n.delegates_to && n.delegates_to.length) h += '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Delegál: ' + esc(n.delegates_to.join(', ')) + '</div>';
+      if (n.reports_to) h += '<div style="font-size:10px;color:var(--text3);">Jelent: ' + esc(n.reports_to) + '</div>';
+      h += '</div>';
+    });
+    return h;
+  });
+  window._fetchSection('/api/workflows', 'projects-workflows-section', function(d) {
+    var wfs = d.workflows || [];
+    if (!wfs.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">📋 Workflow-k (' + (d.total || wfs.length) + ')</h3>';
+    wfs.slice(0, 10).forEach(function(w) {
+      var stColor = w.status === 'completed' ? 'var(--success)' : w.status === 'running' ? 'var(--primary)' : 'var(--text3)';
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + stColor + '22;color:' + stColor + ';">' + esc(w.status || '?') + '</span><strong style="font-size:12px;flex:1;">' + esc(w.name || w.id) + '</strong><span style="font-size:10px;color:var(--text3);">' + esc(w.tasks || 0) + ' feladat</span></div>';
+      h += '</div>';
+    });
+    return h;
+  });
+};
+
+// Network: watchdog + desired-state + channel-health
+window._loadNetworkExtras = function() {
+  window._fetchSection('/api/watchdog/status', 'network-watchdog-section', function(d) {
+    var nodes = d.monitored_nodes || [];
+    var th = d.thresholds || {};
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🐕 Watchdog</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;font-size:10px;color:var(--text3);">';
+    h += 'Warning: ' + esc(th.warning_s || '?') + 's • Busy: ' + esc(th.busy_s || '?') + 's • Stuck: ' + esc(th.stuck_s || '?') + 's • Dead: ' + esc(th.dead_s || '?') + 's';
+    h += '</div>';
+    if (nodes.length) {
+      nodes.forEach(function(n) {
+        var stColor = n.state === 'ok' ? 'var(--success)' : n.state === 'stuck' ? 'var(--danger)' : 'var(--warning)';
+        h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px;"><div style="width:8px;height:8px;border-radius:50%;background:' + stColor + ';"></div><strong style="font-size:12px;flex:1;">' + esc(n.name || n.node || '?') + '</strong><span style="font-size:10px;color:var(--text3);">' + esc(n.state || '?') + '</span></div>';
+      });
+    } else {
+      h += '<div style="color:var(--text3);font-size:10px;text-align:center;padding:8px;">Nincs monitorozott node</div>';
+    }
+    return h;
+  });
+  window._fetchSection('/api/desired-state', 'network-desired-section', function(d) {
+    var dn = d.desired_nodes || {};
+    var keys = Object.keys(dn);
+    if (!keys.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🎯 Desired State</h3>';
+    keys.forEach(function(k) {
+      var n = dn[k];
+      var enColor = n.enabled ? 'var(--success)' : 'var(--text3)';
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px;"><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + enColor + '22;color:' + enColor + ';">' + (n.enabled ? 'ON' : 'OFF') + '</span><strong style="font-size:12px;flex:1;">' + esc(k) + '</strong></div>';
+    });
+    return h;
+  });
+  window._fetchSection('/api/channel-health', 'network-channel-section', function(d) {
+    var channels = d.channels || {};
+    var keys = Object.keys(channels);
+    if (!keys.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">📡 Channel Health</h3>';
+    keys.forEach(function(k) {
+      var c = channels[k];
+      var stColor = c.status === 'ok' ? 'var(--success)' : c.status === 'error' ? 'var(--danger)' : 'var(--text3)';
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px;"><div style="width:8px;height:8px;border-radius:50%;background:' + stColor + ';"></div><strong style="font-size:12px;flex:1;">' + esc(k) + '</strong></div>';
+    });
+    return h;
+  });
+};
+
+// Security: memory-boundary + login-throttle + process-lock + recovery-notes
+window._loadSecurityExtras = function() {
+  window._fetchSection('/api/memory-boundary', 'security-memory-section', function(d) {
+    var nodes = d.nodes || [];
+    if (!nodes.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🧠 Memory Boundary</h3>';
+    nodes.forEach(function(n) {
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><strong style="font-size:12px;flex:1;">' + esc(n.name || '?') + '</strong><span style="font-size:10px;color:var(--text3);">' + esc(n.shared_count || 0) + ' shared</span></div>';
+      if (n.shared && n.shared.length) h += '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(n.shared.join(', ')) + '</div>';
+      h += '</div>';
+    });
+    return h;
+  });
+  window._fetchSection('/api/login-throttle', 'security-throttle-section', function(d) {
+    var locked = d.locked_users || [];
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🔐 Login Throttle</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;font-size:11px;color:var(--text3);">';
+    h += 'Failures/hour: <strong style="color:var(--text);">' + esc(d.global_failures_hour || 0) + '</strong> / ' + esc(d.global_threshold || 50) + ' • Max/user: ' + esc(d.max_failures_per_user || 5);
+    h += '</div>';
+    if (locked.length) {
+      h += '<div style="color:var(--danger);font-size:11px;">Zárolt: ' + esc(locked.join(', ')) + '</div>';
+    } else {
+      h += '<div style="color:var(--success);font-size:10px;text-align:center;padding:4px;">✅ Nincs zárolt felhasználó</div>';
+    }
+    return h;
+  });
+  window._fetchSection('/api/process-lock', 'security-lock-section', function(d) {
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🔒 Process Lock</h3>';
+    var acqColor = d.acquired ? 'var(--success)' : 'var(--text3)';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text3);">';
+    h += 'Acquired: <strong style="color:' + acqColor + ';">' + (d.acquired ? 'Igen' : 'Nem') + '</strong> • Port: ' + esc(d.port || '—') + ' • PID: ' + esc(d.pid || '—');
+    h += '</div>';
+    return h;
+  });
+  window._fetchSection('/api/recovery-notes', 'security-recovery-section', function(d) {
+    var notes = d.notes || [];
+    if (!notes.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">📝 Recovery Notes</h3>';
+    notes.slice(0, 10).forEach(function(n) {
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;">';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><strong style="font-size:11px;">' + esc(n.target_node || '?') + '</strong><span style="font-size:9px;color:var(--text3);">' + esc(n.author || '?') + '</span></div>';
+      h += '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc((n.note || '').substring(0, 120)) + '</div>';
+      h += '</div>';
+    });
+    return h;
+  });
+};
+
+// SysInfo: queue + retries + store + workers + model + db + labels + voice
+window._loadSysinfoExtras = function() {
+  window._fetchSection('/api/queue/stats', 'sysinfo-queue-section', function(d) {
+    var ls = d.local_store || {};
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">📬 Queue Stats</h3>';
+    h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+    var items = [
+      {l: 'Outbound pending', v: ls.outbound_pending || 0, c: 'var(--warning)'},
+      {l: 'Outbound synced', v: ls.outbound_synced || 0, c: 'var(--success)'},
+      {l: 'Inbound unprocessed', v: ls.inbound_unprocessed || 0, c: 'var(--danger)'},
+      {l: 'Files pending', v: ls.files_pending || 0, c: 'var(--text3)'}
+    ];
+    items.forEach(function(s) {
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;text-align:center;min-width:80px;"><div style="font-size:14px;font-weight:700;color:' + s.c + ';">' + esc(s.v) + '</div><div style="font-size:9px;color:var(--text3);">' + esc(s.l) + '</div></div>';
+    });
+    h += '</div>';
+    return h;
+  });
+  window._fetchSection('/api/pending-retries', 'sysinfo-retries-section', function(d) {
+    var stats = d.stats || {};
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🔄 Pending Retries</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text3);">';
+    h += 'Total: <strong style="color:var(--text);">' + esc(stats.total || 0) + '</strong> • Pending: ' + esc(stats.pending || 0) + ' • Alerting: ' + esc(stats.alerting || 0);
+    h += '</div>';
+    return h;
+  });
+  window._fetchSection('/api/store-watcher', 'sysinfo-store-section', function(d) {
+    var inv = d.inventory || {};
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">📦 Store Watcher</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text3);">';
+    h += 'Files: <strong style="color:var(--text);">' + esc(inv.total_files || 0) + '</strong> • Size: ' + esc(Math.round((inv.total_size_bytes || 0) / 1024)) + 'KB • Agent: ' + esc(inv.agent_files || 0) + ' • System: ' + esc(inv.system_files || 0);
+    h += '</div>';
+    return h;
+  });
+  window._fetchSection('/api/worker-liveness', 'sysinfo-workers-section', function(d) {
+    var workers = d.workers || [];
+    var issues = d.issues || [];
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">👷 Worker Liveness</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text3);">';
+    h += 'Workers: <strong style="color:var(--text);">' + esc(d.count || workers.length) + '</strong> • Issues: ' + esc(issues.length);
+    h += '</div>';
+    return h;
+  });
+  window._fetchSection('/api/model-fallback/nova', 'sysinfo-model-section', function(d) {
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🤖 Model Fallback</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;">';
+    h += '<div style="font-size:12px;"><strong>Current:</strong> ' + esc(d.current_model || '?') + ' • Position: ' + esc(d.chain_position || 0) + '</div>';
+    if (d.chain && d.chain.length) {
+      h += '<div style="font-size:10px;color:var(--text3);margin-top:4px;">Chain: ' + esc(d.chain.join(' → ')) + '</div>';
+    }
+    if (d.total_errors > 0) {
+      h += '<div style="font-size:10px;color:var(--danger);margin-top:4px;">Errors: ' + esc(d.total_errors) + '</div>';
+    }
+    h += '</div>';
+    return h;
+  });
+  window._fetchSection('/api/marveen-db/status', 'sysinfo-db-section', function(d) {
+    var tables = d.tables || {};
+    var keys = Object.keys(tables);
+    if (!keys.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🗄️ Marveen DB (' + esc(d.total_tables || keys.length) + ' tables)</h3>';
+    keys.forEach(function(k) {
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;margin-bottom:3px;display:flex;align-items:center;gap:6px;"><strong style="font-size:11px;flex:1;">' + esc(k) + '</strong><span style="font-size:12px;font-weight:700;color:var(--primary);">' + esc(tables[k]) + '</span></div>';
+    });
+    return h;
+  });
+  window._fetchSection('/api/labels', 'sysinfo-labels-section', function(d) {
+    var labels = d.labels || [];
+    if (!labels.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🏷️ Labels</h3>';
+    labels.forEach(function(l) {
+      h += '<span style="display:inline-block;font-size:10px;padding:3px 8px;border-radius:4px;background:' + esc(l.color || 'var(--primary)') + '22;color:' + esc(l.color || 'var(--primary)') + ';margin:2px;">' + esc(l.name || '?') + '</span>';
+    });
+    return h;
+  });
+  window._fetchSection('/api/voice', 'sysinfo-voice-section', function(d) {
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🎤 Voice</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text3);">';
+    h += 'Enabled: <strong style="color:' + (d.enabled ? 'var(--success)' : 'var(--text3)') + ';">' + (d.enabled ? 'Igen' : 'Nem') + '</strong> • Languages: ' + esc((d.languages || []).join(', ')) + ' • Directives: ' + esc(d.directive_count || 0);
+    h += '</div>';
+    return h;
+  });
+};
+
+// Hook into page loader to trigger extras
+(function() {
+  var origLoad = window.loadMarveenPage;
+  if (origLoad && !origLoad._hooked) {
+    window.loadMarveenPage = function(page) {
+      origLoad(page);
+      setTimeout(function() {
+        if (page === 'projects') window._loadProjectsExtras();
+        else if (page === 'network') window._loadNetworkExtras();
+        else if (page === 'security') window._loadSecurityExtras();
+        else if (page === 'sysinfo') window._loadSysinfoExtras();
+      }, 100);
+    };
+    window.loadMarveenPage._hooked = true;
+  }
+})();
 
 // ─── Settings Functions ──────────────────────────────────
 function showSettings() {
