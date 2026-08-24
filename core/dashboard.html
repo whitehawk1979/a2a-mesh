@@ -4050,12 +4050,20 @@ function loadMarveenPage(page) {
     },
 
     vault: function(d) {
-      var items = d.items || d.secrets || d.entries || [];
-      if (!items.length && !d.error) return empty('Nincs vault adat');
       if (d.error) return errorBox(d.error);
-      return table(['Kulcs', 'Létrehozva', 'Utolsó módosítás'], items.map(function(i) {
-        return [esc(i.key || i.name || i.id), fmtTime(i.created_at), fmtTime(i.updated_at || i.modified_at)];
-      }));
+      var items = d.items || d.secrets || d.entries || [];
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
+      html += '<button onclick="showVaultAddModal()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">➕ Új Vault Entry</button>';
+      html += '</div>';
+      if (!items.length) return html + empty('Nincs vault adat');
+      html += '<div style="display:flex;flex-direction:column;gap:6px;">';
+      items.forEach(function(i) {
+        var iid = i.id || i.key || i.name || '';
+        html += card('<div style="display:flex;align-items:center;gap:8px;"><strong style="font-size:12px;flex:1;">' + esc(i.key || i.name || '?') + '</strong><span style="font-size:10px;color:var(--text3);">' + fmtTime(i.created_at) + '</span><button onclick="vaultDelete(\'' + esc(iid) + '\')" style="font-size:10px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button></div>');
+      });
+      html += '</div>';
+      return html;
     },
 
     connectors: function(d) {
@@ -5566,6 +5574,80 @@ window.meshDeployAll = function() {
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
+window.sysinfoQueueAction = function(action) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  if (!confirm(action === 'flush' ? 'Biztosan kiüríted a queue-t?' : 'Biztosan megtisztítod a queue-t?')) return;
+  fetch('/api/queue/' + action, { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert(action + ': ' + (d.ok ? 'OK' : JSON.stringify(d))); window._loadSysinfoExtras(); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showVaultAddModal = function() {
+  var key = prompt('Vault entry kulcs:');
+  if (!key) return;
+  var value = prompt('Vault entry érték:');
+  if (!value) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/vault/store', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ key: key, value: value }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Vault entry mentve'); loadMarveenPage('vault'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.vaultDelete = function(id) {
+  if (!confirm('Biztosan törlöd: ' + id + '?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/vault/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Törölve'); loadMarveenPage('vault'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showRecoveryNoteModal = function() {
+  var node = prompt('Target node:');
+  if (!node) return;
+  var note = prompt('Jegyzet szövege:');
+  if (!note) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/recovery-notes', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ target_node: node, note: note }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Recovery note mentve'); window._loadSecurityExtras(); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.recoveryNoteRead = function(id) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/recovery-notes/' + id + '/read', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { window._loadSecurityExtras(); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.onboardScan = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/onboard/scan', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Scan: ' + JSON.stringify(d).substring(0, 300)); loadMarveenPage('agents'); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.wakeAgent = function(name) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/wake-agent', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: name }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Wake ' + name + ': ' + (d.ok ? 'OK' : JSON.stringify(d))); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.dailySummaryGenerate = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/daily-summary/generate', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Daily summary: ' + (d.ok ? 'generálva' : JSON.stringify(d))); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -5693,11 +5775,19 @@ window._loadSecurityExtras = function() {
   });
   window._fetchSection('/api/recovery-notes', 'security-recovery-section', function(d) {
     var notes = d.notes || [];
-    if (!notes.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">📝 Recovery Notes</h3>';
+    h += '<div style="margin-bottom:8px;"><button onclick="showRecoveryNoteModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új jegyzet</button></div>';
+    if (!notes.length) {
+      h += '<div style="color:var(--text3);font-size:10px;text-align:center;padding:8px;">Nincs recovery note</div>';
+      return h;
+    }
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">📝 Recovery Notes</h3>';
     notes.slice(0, 10).forEach(function(n) {
+      var nid = n.id || '';
       h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;">';
-      h += '<div style="display:flex;align-items:center;gap:6px;"><strong style="font-size:11px;">' + esc(n.target_node || '?') + '</strong><span style="font-size:9px;color:var(--text3);">' + esc(n.author || '?') + '</span></div>';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><strong style="font-size:11px;">' + esc(n.target_node || '?') + '</strong><span style="font-size:9px;color:var(--text3);">' + esc(n.author || '?') + '</span>';
+      if (!n.read) h += '<button onclick="recoveryNoteRead(' + esc(nid) + ')" style="font-size:9px;background:var(--surface2);border:1px solid var(--border);padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:auto;">✓ Olvasva</button>';
+      h += '</div>';
       h += '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc((n.note || '').substring(0, 120)) + '</div>';
       h += '</div>';
     });
@@ -5710,6 +5800,7 @@ window._loadSysinfoExtras = function() {
   window._fetchSection('/api/queue/stats', 'sysinfo-queue-section', function(d) {
     var ls = d.local_store || {};
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">📬 Queue Stats</h3>';
+    h += '<div style="display:flex;gap:6px;margin-bottom:8px;"><button onclick="sysinfoQueueAction(\'flush\')" style="background:var(--warning);color:#000;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">.Flush</button><button onclick="sysinfoQueueAction(\'cleanup\')" style="background:var(--danger);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">🧹 Cleanup</button></div>';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     var items = [
       {l: 'Outbound pending', v: ls.outbound_pending || 0, c: 'var(--warning)'},
