@@ -4753,6 +4753,7 @@ function loadMarveenPage(page) {
       html += '<div id="sysinfo-db-section" style="margin-top:16px;"></div>';
       html += '<div id="sysinfo-labels-section" style="margin-top:16px;"></div>';
       html += '<div id="sysinfo-voice-section" style="margin-top:16px;"></div>';
+      html += '<div style="margin-top:16px;display:flex;gap:8px;"><button onclick="authSync()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔐 Auth Sync</button><button onclick="webhookDeploy()" style="background:var(--warning);color:#000;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🪝 Webhook Deploy</button></div>';
       return html;
     },
     'topology': function(d) {
@@ -5753,6 +5754,63 @@ window.teamUpdate = function() {
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
+window.showWorkflowCreateModal = function() {
+  var name = prompt('Workflow neve:');
+  if (!name) return;
+  var consensus = prompt('Consensus (all/majority/any):') || 'all';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/workflow', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, consensus: consensus, tasks: [] }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Workflow létrehozva'); window._loadProjectsExtras(); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.workflowDelete = function(wid) {
+  if (!wid || !confirm('Törlöd: ' + wid + '?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/workflow/' + wid, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { window._loadProjectsExtras(); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.authSync = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/auth/sync', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Auth sync: ' + JSON.stringify(d).substring(0, 200)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.voiceParse = function() {
+  var text = prompt('Szöveg a voice parsernek:');
+  if (!text) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/voice/parse', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Voice parse: ' + JSON.stringify(d).substring(0, 300)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.promptSafetyCheck = function() {
+  var text = prompt('Ellenőrizendő szöveg:');
+  if (!text) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/prompt-safety/check', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ text: text }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Safety: ' + JSON.stringify(d).substring(0, 300)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.webhookDeploy = function() {
+  if (!confirm('Webhook deploy trigger?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/webhook/deploy', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Webhook deploy: ' + JSON.stringify(d).substring(0, 200)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -5786,12 +5844,14 @@ window._loadProjectsExtras = function() {
   });
   window._fetchSection('/api/workflows', 'projects-workflows-section', function(d) {
     var wfs = d.workflows || [];
-    if (!wfs.length) return '';
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">📋 Workflow-k (' + (d.total || wfs.length) + ')</h3>';
+    h += '<div style="margin-bottom:6px;"><button onclick="showWorkflowCreateModal()" style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">➕ Új workflow</button></div>';
+    if (!wfs.length) { h += '<div style="color:var(--text3);font-size:10px;">Nincs workflow</div>'; return h; }
     wfs.slice(0, 10).forEach(function(w) {
       var stColor = w.status === 'completed' ? 'var(--success)' : w.status === 'running' ? 'var(--primary)' : 'var(--text3)';
+      var wid = w.id || w._id || '';
       h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;">';
-      h += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + stColor + '22;color:' + stColor + ';">' + esc(w.status || '?') + '</span><strong style="font-size:12px;flex:1;">' + esc(w.name || w.id) + '</strong><span style="font-size:10px;color:var(--text3);">' + esc(w.tasks || 0) + ' feladat</span></div>';
+      h += '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + stColor + '22;color:' + stColor + ';">' + esc(w.status || '?') + '</span><strong style="font-size:12px;flex:1;">' + esc(w.name || w.id) + '</strong><span style="font-size:10px;color:var(--text3);">' + esc(w.tasks || 0) + ' feladat</span><button onclick="workflowDelete(\'' + esc(wid) + '\')" style="font-size:9px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:2px 6px;border-radius:4px;cursor:pointer;">🗑️</button></div>';
       h += '</div>';
     });
     return h;
@@ -5981,6 +6041,7 @@ window._loadSysinfoExtras = function() {
   });
   window._fetchSection('/api/voice', 'sysinfo-voice-section', function(d) {
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">🎤 Voice</h3>';
+    h += '<div style="display:flex;gap:6px;margin-bottom:6px;"><button onclick="voiceParse()" style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;">🎤 Parse</button><button onclick="promptSafetyCheck()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;">🛡️ Safety Check</button></div>';
     h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text3);">';
     h += 'Enabled: <strong style="color:' + (d.enabled ? 'var(--success)' : 'var(--text3)') + ';">' + (d.enabled ? 'Igen' : 'Nem') + '</strong> • Languages: ' + esc((d.languages || []).join(', ')) + ' • Directives: ' + esc(d.directive_count || 0);
     h += '</div>';
