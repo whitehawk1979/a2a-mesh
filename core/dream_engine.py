@@ -263,7 +263,7 @@ async def _analyze_cost(pg_pool=None):
         
         return "\n".join(lines) if lines else "Nincs költség adat"
     except Exception as e:
-        return f"Cost analysis error: {e}"
+        return {"error":str(e)}
 
 
 def _generate_dream_md(results):
@@ -347,10 +347,19 @@ def _generate_dream_md(results):
     # Bucket 7: Cost
     lines.extend(["", "## 💰 Bucket 7 — Költség", ""])
     cost = b.get("cost", {})
-    lines.append(f"- Ma: ${cost.get('today', 0)}")
-    lines.append(f"- Tegnap: ${cost.get('yesterday', 0)}")
-    trend_icon = "📈" if cost.get("trend") == "up" else "📉" if cost.get("trend") == "down" else "➡️"
-    lines.append(f"- Trend: {trend_icon} {cost.get('trend', 'unknown')}")
+    if not isinstance(cost, dict):
+        lines.append(f"- WARNING: cost bucket returned non-dict: {str(cost)[:200]}")
+    elif cost.get("error"):
+        lines.append(f"- WARNING: {cost["error"]}")
+    else:
+        lines.append(f"- Monthly total: ${cost.get("month_total", 0):.4f} ({cost.get("total_requests", 0)} reqs)")
+        lines.append(f"- Tokens: {cost.get("total_input_tokens", 0):,} in / {cost.get("total_output_tokens", 0):,} out")
+        if cost.get("by_agent"):
+            lines.append("- Top agents:")
+            for agent, c in list(cost["by_agent"].items())[:5]:
+                lines.append(f"  - {agent}: ${c:.4f}")
+        if cost.get("total_tokens"):
+            lines.append(f"- Token usage: {cost["total_tokens"]:,} total ({cost.get("token_requests", 0)} reqs)")
 
     lines.extend([
         "",
