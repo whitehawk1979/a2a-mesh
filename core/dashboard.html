@@ -3258,6 +3258,120 @@ function loadMarveenPage(page) {
       .catch(function(e) { alert('Export hiba: ' + e.message); });
   };
 
+  // ─── Message compose + detail (exposed to global scope) ───
+  window.showComposeMessage = function(replyTo, prefillRecipient) {
+    var body = document.getElementById('marveenModalBody');
+    if (!body) return;
+    var title = document.getElementById('marveenModalTitle');
+    if (title) title.textContent = replyTo ? '↩️ Válasz üzenet' : '✏️ Új üzenet küldése';
+    var peers = ['broadcast','nova','morzsa','runa','tor'];
+    var types = ['a2a_message','chat','directive','delegation','diagnostic_report'];
+    var html = '<div style="padding:4px;">';
+    // Recipient
+    html += '<label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text3);">Címzett</label>';
+    html += '<select id="composeRecipient" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;margin-bottom:12px;">';
+    for (var i = 0; i < peers.length; i++) {
+      html += '<option value="' + peers[i] + '"' + (prefillRecipient === peers[i] ? ' selected' : '') + '>' + (peers[i] === 'broadcast' ? '📡 Broadcast (minden node)' : '🤖 ' + peers[i]) + '</option>';
+    }
+    html += '</select>';
+    // Message type
+    html += '<label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text3);">Üzenet típus</label>';
+    html += '<select id="composeType" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;margin-bottom:12px;">';
+    for (var j = 0; j < types.length; j++) {
+      html += '<option value="' + types[j] + '">' + types[j] + '</option>';
+    }
+    html += '</select>';
+    // Priority
+    html += '<label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text3);">Prioritás</label>';
+    html += '<select id="composePriority" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;margin-bottom:12px;">';
+    html += '<option value="5">Normál (5)</option>';
+    html += '<option value="1">Magas (1)</option>';
+    html += '<option value="9">Alacsony (9)</option>';
+    html += '</select>';
+    // Message text
+    html += '<label style="display:block;margin-bottom:6px;font-size:12px;color:var(--text3);">Üzenet szövege</label>';
+    html += '<textarea id="composeText" rows="4" placeholder="Írd be az üzenetet..." style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;margin-bottom:12px;resize:vertical;font-family:inherit;"></textarea>';
+    // Buttons
+    html += '<div style="display:flex;gap:8px;">';
+    html += '<button onclick="sendMessage()" style="background:var(--primary);color:#fff;border:none;padding:8px 24px;border-radius:10px;font-size:13px;cursor:pointer;font-weight:600;">📤 Küldés</button>';
+    html += '<button onclick="loadMarveenPage(\'messages\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:8px 24px;border-radius:10px;font-size:13px;cursor:pointer;">Mégse</button>';
+    html += '</div>';
+    html += '</div>';
+    body.innerHTML = html;
+  };
+
+  window.sendMessage = function() {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var recipient = document.getElementById('composeRecipient').value;
+    var msgType = document.getElementById('composeType').value;
+    var priority = parseInt(document.getElementById('composePriority').value, 10);
+    var text = document.getElementById('composeText').value.trim();
+    if (!text) { alert('Az üzenet szövege nem lehet üres!'); return; }
+    var btn = event.target;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Küldés...'; }
+    fetch('/api/send', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient: recipient, msg_type: msgType, text: text, priority: priority })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok) {
+          alert('✅ Üzenet elküldve! (' + recipient + ')');
+          loadMarveenPage('messages');
+        } else {
+          alert('❌ Hiba: ' + (d.error || 'ismeretlen'));
+          if (btn) { btn.disabled = false; btn.textContent = '📤 Küldés'; }
+        }
+      })
+      .catch(function(e) {
+        alert('❌ Hiba: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '📤 Küldés'; }
+      });
+  };
+
+  window.showMessageDetail = function(msgId) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var body = document.getElementById('marveenModalBody');
+    if (!body) return;
+    var title = document.getElementById('marveenModalTitle');
+    if (title) title.textContent = '📨 Üzenet részletek';
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">⏳ Betöltés...</div>';
+    fetch('/api/messages/detail/' + encodeURIComponent(msgId), { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var m = d.message;
+        if (!m) { body.innerHTML = errorBox('Üzenet nem található'); return; }
+        var payload = m.payload || {};
+        if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e) {} }
+        var payloadStr = '';
+        try { payloadStr = JSON.stringify(payload, null, 2); } catch(e) { payloadStr = String(payload); }
+        var fields = [
+          ['ID', m.id],
+          ['Feladó', m.sender],
+          ['Címzett', m.recipient],
+          ['Típus', m.msg_type],
+          ['Prioritás', m.priority],
+          ['Státusz', m.status],
+          ['Idő', fmtTime(m.created_at)]
+        ];
+        var html = '';
+        fields.forEach(function(f) {
+          html += '<div style="display:flex;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);"><span style="color:var(--text3);min-width:100px;font-size:12px;">' + esc(f[0]) + '</span><span style="color:var(--text);font-size:13px;word-break:break-all;">' + esc(String(f[1] || '—')) + '</span></div>';
+        });
+        // Payload
+        html += '<div style="margin-top:12px;margin-bottom:6px;font-size:12px;color:var(--text3);">Payload</div>';
+        html += '<pre style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;">' + esc(payloadStr) + '</pre>';
+        // Reply button
+        html += '<div style="margin-top:12px;">';
+        html += '<button onclick="showComposeMessage(true,\'' + esc(m.sender || '') + '\')" style="background:var(--primary);color:#fff;border:none;padding:8px 20px;border-radius:10px;font-size:13px;cursor:pointer;font-weight:600;">↩️ Válasz</button>';
+        html += '<button onclick="loadMarveenPage(\'messages\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:8px 20px;border-radius:10px;font-size:13px;cursor:pointer;margin-left:8px;">◀ Vissza</button>';
+        html += '</div>';
+        body.innerHTML = html;
+      })
+      .catch(function(e) { body.innerHTML = errorBox(e.message); });
+  };
+
   // ─── Federation actions (exposed to global scope) ───
   window.federationAction = function(action, name) {
     var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -4009,20 +4123,35 @@ function loadMarveenPage(page) {
       var msgs = d.messages || [];
       var counts = d.type_counts || [];
       var html = '';
+      // Compose button
+      html += '<div style="margin-bottom:12px;">';
+      html += '<button onclick="showComposeMessage()" style="background:var(--primary);color:#fff;border:none;padding:8px 20px;border-radius:10px;font-size:13px;cursor:pointer;font-weight:600;">✏️ Új üzenet</button>';
+      html += '</div>';
       // Type summary
       if (counts.length) {
-        html += '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">';
+        html += '<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">';
         counts.forEach(function(c) {
           html += badge(c.msg_type + ': ' + c.c, 'var(--surface2)');
         });
         html += '</div>';
       }
       if (!msgs.length) return html + empty('Nincs üzenet');
-      html += table(['ID', 'Feladó', 'Címzett', 'Típus', 'Prioritás', 'Státusz', 'Idő'], msgs.map(function(m) {
+      // Message list — clickable cards
+      msgs.forEach(function(m) {
         var pri = m.priority || 'normal';
-        var pc = pri === 'high' ? 'var(--danger)' : 'var(--text3)';
-        return [esc((m.id || '').toString().substring(0, 8)), esc(m.sender), esc(m.recipient), badge(m.msg_type || 'msg'), badge(pri, pc), badge(m.status || '—'), fmtTime(m.created_at)];
-      }));
+        var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
+        var mid = esc((m.id || '').toString());
+        var typeIcon = {'a2a_message':'💬','delegation':'📋','heartbeat':'💓','skills_announcement':'⭐','agent_reply':'↩️','task_result':'✅','ack':'✓','chat':'💬','directive':'📢','diagnostic_report':'🔧','peer_online':'🟢','peer_offline':'🔴'}[m.msg_type] || '📨';
+        html += '<div onclick="showMessageDetail(\'' + mid + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:6px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
+        html += '<div style="display:flex;align-items:center;gap:8px;">';
+        html += '<span style="font-size:16px;">' + typeIcon + '</span>';
+        html += '<strong style="font-size:12px;color:var(--text2);flex:1;">' + esc(m.sender || '?') + ' → ' + esc(m.recipient || 'broadcast') + '</strong>';
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + pc + ';color:#fff;font-weight:600;">' + esc(m.msg_type || 'msg') + '</span>';
+        html += '<span style="font-size:10px;color:var(--text3);">' + fmtTime(m.created_at) + '</span>';
+        html += '</div>';
+        html += '<div style="margin-top:4px;font-size:11px;color:var(--text3);">ID: ' + esc((m.id || '').toString().substring(0, 8)) + ' · ' + badge(m.status || '—') + '</div>';
+        html += '</div>';
+      });
       return html;
     },
 

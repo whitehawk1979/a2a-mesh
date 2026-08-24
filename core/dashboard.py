@@ -480,6 +480,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/overview", self._api_overview)
         app.router.add_get("/api/agents-page", self._api_agents_page)
         app.router.add_get("/api/messages-page", self._api_messages_page)
+        app.router.add_get("/api/messages/detail/{id}", self._api_message_detail)
         app.router.add_get("/api/tasks", self._api_tasks)
         app.router.add_get("/api/memory-page", self._api_memory_page)
         app.router.add_get("/api/logs-page", self._api_logs_page)
@@ -957,6 +958,80 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     result["type_counts"] = _serialize_pg_rows(counts)
                 except Exception:
                     pass
+            else:
+                result["error"] = "PG pool not available"
+        except Exception as e:
+            result["error"] = str(e)
+        return web.json_response(result)
+
+    async def _api_send(self, request):
+        """Send an A2A message to a peer or broadcast."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            recipient = data.get("recipient", "broadcast")
+            msg_type = data.get("msg_type", "a2a_message")
+            text = data.get("text", "")
+            priority = int(data.get("priority", 5))
+            if not text:
+                return web.json_response({"error": "text is required"}, status=400)
+            payload = {"text": text, "subject": data.get("subject", text[:80])}
+            if recipient == "broadcast":
+                result = await self.node.broadcast(msg_type, payload, priority=priority)
+            else:
+                result = await self.node.send_direct(recipient, msg_type, payload, priority=priority)
+            return web.json_response({
+                "ok": True,
+                "message_id": getattr(result, "message_id", ""),
+                "recipient": recipient,
+                "status": str(getattr(result, "status", "sent"))
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_send_file(self, request):
+        """Send a file to a peer via A2A file transfer."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            file_path = data.get("file_path", "")
+            recipient = data.get("recipient", "broadcast")
+            if not file_path:
+                return web.json_response({"error": "file_path is required"}, status=400)
+            result, file_id = await self.node.send_file(file_path, recipient)
+            return web.json_response({
+                "ok": True,
+                "file_id": file_id,
+                "recipient": recipient,
+                "status": str(getattr(result, "status", "sent"))
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_message_detail(self, request):
+        """Get full message detail by ID (including payload)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        msg_id = request.match_info.get("id", "")
+        result = {"message": None}
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pool:
+                row = await pool.fetchrow(
+                    "SELECT id, sender, recipient, msg_type, priority, status, "
+                    "payload, created_at FROM mesh.mesh_messages WHERE id = $1",
+                    msg_id
+                )
+                if row:
+                    result["message"] = _serialize_pg_rows([row])[0]
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
