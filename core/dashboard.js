@@ -4382,6 +4382,60 @@ window.fleetImport = function() {
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
+window.debugLog = function() {
+  var level = prompt('Log level (INFO/WARN/ERROR):', 'INFO');
+  if (!level) return;
+  var msg = prompt('Log message:', '');
+  if (!msg) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/debug/log', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ level: level, message: msg, category: 'dashboard' }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Log: ' + JSON.stringify(d)); })
+    .catch(function(e) { alert('Error: ' + e); });
+};
+
+window.modelFallbackError = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/model-fallback/error', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'manual test error', model: 'test' }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Model fallback: ' + JSON.stringify(d)); })
+    .catch(function(e) { alert('Error: ' + e); });
+};
+
+window.sendAgentMessage = function() {
+  var recipient = prompt('Címzett agent:', 'morzsa');
+  if (!recipient) return;
+  var text = prompt('Üzenet:', '');
+  if (!text) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/agent-message', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ recipient: recipient, text: text, msg_type: 'a2a_message' }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Message: ' + JSON.stringify(d)); })
+    .catch(function(e) { alert('Error: ' + e); });
+};
+
+window.agentReply = function() {
+  var msgId = prompt('Eredeti üzenet ID:', '');
+  if (!msgId) return;
+  var text = prompt('Válasz:', '');
+  if (!text) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/agent-reply', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ message_id: msgId, text: text }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Reply: ' + JSON.stringify(d)); })
+    .catch(function(e) { alert('Error: ' + e); });
+};
+
+window.routeCalc = function() {
+  var caps = prompt('Képességek (vesszővel elválasztva):', 'code,analysis');
+  if (!caps) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/route', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ capabilities: caps.split(',').map(function(s) { return s.trim(); }) }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Route: ' + JSON.stringify(d).substring(0, 500)); })
+    .catch(function(e) { alert('Error: ' + e); });
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -4537,7 +4591,15 @@ window._loadSysinfoExtras = function() {
   window._fetchSection('/api/queue/stats', 'sysinfo-queue-section', function(d) {
     var ls = d.local_store || {};
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">📬 Queue Stats</h3>';
-    h += '<div style="display:flex;gap:6px;margin-bottom:8px;"><button onclick="sysinfoQueueAction(\'flush\')" style="background:var(--warning);color:#000;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">.Flush</button><button onclick="sysinfoQueueAction(\'cleanup\')" style="background:var(--danger);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">🧹 Cleanup</button></div>';
+      html += '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">';
+      html += '<button onclick="sysinfoQueueAction(\'flush\')" style="background:var(--warning);color:#000;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🗑️ Flush</button>';
+      html += '<button onclick="sysinfoQueueAction(\'cleanup\')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🧹 Cleanup</button>';
+      html += '<button onclick="debugLog()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">📝 Debug Log</button>';
+      html += '<button onclick="modelFallbackError()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">⚠️ Model Error</button>';
+      html += '<button onclick="routeCalc()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔀 Route Calc</button>';
+      html += '<button onclick="sendAgentMessage()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">📤 Agent Msg</button>';
+      html += '<button onclick="agentReply()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">↩️ Agent Reply</button>';
+      html += '</div>';';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     var items = [
       {l: 'Outbound pending', v: ls.outbound_pending || 0, c: 'var(--warning)'},
