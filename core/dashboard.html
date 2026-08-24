@@ -430,6 +430,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span style="font-size:16px;">❤️</span>
       <span>Egészség</span>
     </div>
+      <div class="channel-item" onclick="loadMarveenPage('topology')">
+      <span style="font-size:16px;">🕸️</span>
+      <span>Mesh Topológia</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('governance')">
+      <span style="font-size:16px;">⚖️</span>
+      <span>Governance</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('watchers')">
+      <span style="font-size:16px;">👁️</span>
+      <span>Watcherek</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('routing')">
+      <span style="font-size:16px;">🔀</span>
+      <span>Routing & Model</span>
+    </div>
       <div class="channel-item" onclick="loadMarveenPage('docs')">
           <span class="icon">📚</span> Dokumentáció
         </div>
@@ -2929,7 +2945,11 @@ function loadMarveenPage(page) {
     'diagnostics': '🔧 Diagnosztika',
     'delegations': '📋 Delegációk',
     'alerts': '🔔 Riasztások',
-    'health': '❤️ Egészség'
+    'health': '❤️ Egészség',
+    'topology': '🕸️ Mesh Topológia',
+    'governance': '⚖️ Governance',
+    'watchers': '👁️ Watcherek',
+    'routing': '🔀 Routing & Model'
   };
 
   var apiMap = {
@@ -2961,7 +2981,11 @@ function loadMarveenPage(page) {
     'diagnostics': '/api/diagnostics',
     'delegations': '/api/delegations',
     'alerts': '/api/alerts',
-    'health': '/api/health/scores'
+    'health': '/api/health/scores',
+    'topology': '/api/mesh/topology',
+    'governance': '/api/governance/rules',
+    'watchers': '/api/stuck-watcher',
+    'routing': '/api/router/stats'
   };
 
   var title = titleMap[page] || page;
@@ -4572,6 +4596,127 @@ function loadMarveenPage(page) {
           '</div></div>';
       });
       html += '</div>';
+      return html;
+    },
+    'topology': function(d) {
+      if (d.error) return errorBox(d.error);
+      var nodes = d.nodes || [];
+      var conns = d.connections || [];
+      var localNode = d.local_node || '?';
+      var html = '';
+      // Local node badge
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px;border-left:4px solid var(--primary);">';
+      html += '<div style="font-size:13px;"><strong>📍 Helyi node:</strong> ' + esc(localNode) + '</div>';
+      html += '<div style="font-size:11px;color:var(--text3);margin-top:4px;">Node-ok: ' + nodes.length + ' • Kapcsolatok: ' + conns.length + '</div>';
+      html += '</div>';
+      // Nodes list
+      if (nodes.length) {
+        html += '<h3 style="margin:0 0 8px;font-size:13px;">🔗 Node-ok (' + nodes.length + ')</h3>';
+        nodes.forEach(function(n) {
+          var online = n.status === 'active' || n.status === 'online';
+          var dotColor = online ? 'var(--success)' : 'var(--danger)';
+          html += card('<div style="display:flex;align-items:center;gap:8px;">' +
+            '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';flex-shrink:0;"></div>' +
+            '<strong style="font-size:13px;flex:1;">' + esc(n.name || n.node_name || '?') + '</strong>' +
+            '<span style="font-size:10px;color:var(--text3);">' + esc(n.host || '') + ':' + esc(n.port || '') + '</span>' +
+            '</div>');
+        });
+      }
+      // Connections
+      if (conns.length) {
+        html += '<h3 style="margin:16px 0 8px;font-size:13px;">⚡ Kapcsolatok (' + conns.length + ')</h3>';
+        conns.forEach(function(c) {
+          html += card('<div style="display:flex;align-items:center;gap:6px;font-size:11px;">' +
+            '<span style="color:var(--primary);">' + esc(c.from || c.source || '?') + '</span>' +
+            '<span style="color:var(--text3);">→</span>' +
+            '<span style="color:var(--primary);">' + esc(c.to || c.target || '?') + '</span>' +
+            '<span style="margin-left:auto;color:var(--text3);">' + esc(c.type || c.transport || '') + '</span>' +
+            '</div>');
+        });
+      }
+      return html || empty('Nincs topológia adat');
+    },
+    'governance': function(d) {
+      if (d.error) return errorBox(d.error);
+      var rules = d.rules || [];
+      var html = '';
+      if (!rules.length) return empty('Nincs governance szabály');
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      rules.forEach(function(r) {
+        var enabled = r.enabled !== false;
+        var enColor = enabled ? 'var(--success)' : 'var(--text3)';
+        html += card('<div style="display:flex;align-items:flex-start;gap:8px;">' +
+          '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + enColor + '22;color:' + enColor + ';font-weight:600;flex-shrink:0;">' + (enabled ? 'ON' : 'OFF') + '</span>' +
+          '<div style="flex:1;"><strong style="font-size:12px;">' + esc(r.name || r.id || '—') + '</strong>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(r.description || '') + '</div>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Kategória: ' + esc(r.category || '—') + '</div>' +
+          '</div></div>');
+      });
+      html += '</div>';
+      return html;
+    },
+    'watchers': function(d) {
+      if (d.error) return errorBox(d.error);
+      var issues = d.issues || [];
+      var html = '';
+      // Stats
+      var issueCount = issues.length;
+      var statColor = issueCount === 0 ? 'var(--success)' : 'var(--warning)';
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px;border-left:4px solid ' + statColor + ';">';
+      html += '<div style="font-size:14px;font-weight:600;color:' + statColor + ';">' + (issueCount === 0 ? '✅ Nincs elakadt feladat' : '⚠️ ' + issueCount + ' elakadt feladat') + '</div>';
+      html += '</div>';
+      if (!issues.length) return html;
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      issues.forEach(function(i) {
+        var sevColor = i.severity === 'critical' ? 'var(--danger)' : i.severity === 'high' ? 'var(--warning)' : 'var(--text3)';
+        html += card('<div style="display:flex;align-items:flex-start;gap:8px;">' +
+          '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + sevColor + ';color:#fff;font-weight:600;flex-shrink:0;">' + esc(i.severity || 'medium') + '</span>' +
+          '<div style="flex:1;"><strong style="font-size:12px;">' + esc(i.title || i.task_id || '—') + '</strong>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(i.description || i.reason || '') + '</div>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Agent: ' + esc(i.agent || '?') + ' • Vár: ' + esc(i.waiting_for || '') + '</div>' +
+          '</div></div>');
+      });
+      html += '</div>';
+      return html;
+    },
+    'routing': function(d) {
+      if (d.error) return errorBox(d.error);
+      var sent = d.sent || 0;
+      var received = d.received || 0;
+      var forwarded = d.forwarded || 0;
+      var duplicates = d.duplicates || 0;
+      var errors = d.errors || 0;
+      var dedup = d.dedup || {};
+      var html = '';
+      // Router stats
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      var stats = [
+        {label: 'Küldött', val: sent, color: 'var(--primary)'},
+        {label: 'Fogadott', val: received, color: 'var(--success)'},
+        {label: 'Továbbítva', val: forwarded, color: 'var(--warning)'},
+        {label: 'Duplikátum', val: duplicates, color: 'var(--text3)'},
+        {label: 'Hibák', val: errors, color: 'var(--danger)'}
+      ];
+      stats.forEach(function(s) {
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:' + s.color + ';">' + esc(s.val) + '</div><div style="font-size:10px;color:var(--text3);">' + esc(s.label) + '</div></div>';
+      });
+      html += '</div>';
+      // Protocol info
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px;">';
+      html += '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Protokoll: <strong style="color:var(--text);">' + esc(d.protocol_version || '?') + '</strong></div>';
+      html += '<div style="font-size:11px;color:var(--text3);">Transports: <strong style="color:var(--text);">' + esc((d.transports || []).join(', ')) + '</strong></div>';
+      if (d.degraded_mode) {
+        html += '<div style="font-size:11px;color:var(--warning);margin-top:4px;">⚠️ Degradált mód aktív</div>';
+      }
+      html += '</div>';
+      // Circuit breakers
+      if (d.circuit_breakers && d.circuit_breakers.length) {
+        html += '<h3 style="margin:0 0 8px;font-size:13px;">⚡ Circuit Breakerek</h3>';
+        d.circuit_breakers.forEach(function(cb) {
+          var cbColor = cb.state === 'closed' ? 'var(--success)' : cb.state === 'open' ? 'var(--danger)' : 'var(--warning)';
+          html += card('<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + cbColor + '22;color:' + cbColor + ';">' + esc(cb.state || '?') + '</span><strong style="font-size:12px;flex:1;">' + esc(cb.name || cb.target || '?') + '</strong><span style="font-size:10px;color:var(--text3);">Failures: ' + esc(cb.failures || 0) + '</span></div>');
+        });
+      }
       return html;
     },
     'delegations': function(d) {
