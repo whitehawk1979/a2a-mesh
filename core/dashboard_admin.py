@@ -4041,8 +4041,10 @@ class DashboardAdminMixin:
             pool = self._get_pg_pool()
             if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
-            # Get all pending suggestions
-            suggestions = diagnostics.get_suggestions(status="pending")
+            # Get all suggestions (get_suggestions doesn't support status filter)
+            suggestions = diagnostics.get_suggestions(limit=200)
+            # Filter to pending only
+            suggestions = [s for s in suggestions if s.status == "pending"]
             imported = []
             for s in suggestions:
                 # Check if idea already exists with this title
