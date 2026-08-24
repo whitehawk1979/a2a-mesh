@@ -3,10 +3,12 @@
 # Cleans up old data from mesh DB to prevent unbounded growth
 #
 # Retention policy:
-#   mesh_messages:   7 days (delivered/read/acknowledged/sent)
-#   mesh_debug_logs:  3 days (all levels)
-#   mesh_suggestions: 7 days (superseded status only)
-#   shared_dlq:       7 days (processed entries)
+#   mesh_messages:       7 days (delivered/read/acknowledged/sent)
+#   mesh_debug_logs:     3 days (all levels)
+#   mesh_suggestions:    7 days (superseded status only)
+#   shared_dlq:          7 days (processed entries)
+#   shared_a2a_memory:   7 days (read/acknowledged/sent/delivered/archived)
+#   mesh_health_history: 7 days (all entries)
 #
 # Usage: bash scripts/db_retention.sh
 # Cron:  0 4 * * * bash ~/.hermes/scripts/a2a_mesh/scripts/db_retention.sh >> ~/.hermes/logs/mesh_retention.log 2>&1
@@ -69,9 +71,28 @@ DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
 " 2>&1 | head -1)
 log "  shared_context: $DELETED rows deleted"
 
+# 5b. Delete old shared_a2a_memory (>7 days, read/acknowledged/sent/delivered/archived)
+log "Cleaning shared_a2a_memory (>7 days)..."
+DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
+    DELETE FROM shared_a2a_memory 
+    WHERE created_at < now() - interval '7 days'
+    AND status IN ('sent', 'delivered', 'read', 'acknowledged', 'archived');
+" 2>&1 | head -1)
+log "  shared_a2a_memory: $DELETED rows deleted"
+
+# 5c. Delete old mesh_health_history (>7 days)
+log "Cleaning mesh_health_history (>7 days)..."
+DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
+    DELETE FROM mesh.mesh_health_history 
+    WHERE recorded_at < now() - interval '7 days';
+" 2>&1 | head -1)
+log "  mesh_health_history: $DELETED rows deleted"
+
 # 6. Vacuum analyze (non-blocking, doesn't lock table)
-log "Running VACUUM ANALYZE on mesh_messages..."
+log "Running VACUUM ANALYZE..."
 psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "VACUUM ANALYZE mesh.mesh_messages;" 2>&1 | head -1
+psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "VACUUM ANALYZE shared_a2a_memory;" 2>&1 | head -1
+psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "VACUUM ANALYZE mesh.mesh_health_history;" 2>&1 | head -1
 log "  VACUUM ANALYZE done"
 
 # 7. Report table sizes
