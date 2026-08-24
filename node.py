@@ -3763,6 +3763,7 @@ echo "Status: ok"
             try:
                 from core.provider_health import check_provider_health
                 provider_status = check_provider_health(self.node_name)
+                log.info(f"Provider health (PG) via import: {provider_status}")
             except ImportError:
                 import importlib.util as _ilu
                 # Try relative to this file
@@ -3776,8 +3777,12 @@ echo "Status: ok"
                     _mod = _ilu.module_from_spec(_spec)
                     _spec.loader.exec_module(_mod)
                     provider_status = _mod.check_provider_health(self.node_name)
+                    log.info(f"Provider health (PG) via importlib: {provider_status}")
+            else:
+                if not isinstance(provider_status, dict) or "primary" not in provider_status:
+                    log.warning(f"Provider health returned unexpected: {provider_status}")
         except Exception as e:
-            log.debug(f"Provider health check (PG) failed: {e}")
+            log.error(f"Provider health check (PG) failed: {e}", exc_info=True)
 
         try:
             await self._pg_pool.execute("""
@@ -4032,6 +4037,7 @@ echo "Status: ok"
                     try:
                         from core.provider_health import check_provider_health
                         provider_status = check_provider_health(self.node_name)
+                        log.info(f"Provider health (heartbeat) via import: {provider_status}")
                     except ImportError:
                         import importlib.util as _ilu
                         _this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -4041,8 +4047,9 @@ echo "Status: ok"
                             _mod = _ilu.module_from_spec(_spec)
                             _spec.loader.exec_module(_mod)
                             provider_status = _mod.check_provider_health(self.node_name)
+                            log.info(f"Provider health (heartbeat) via importlib: {provider_status}")
                 except Exception as e:
-                    log.debug(f"Provider health check failed: {e}")
+                    log.error(f"Provider health check failed: {e}", exc_info=True)
 
                 msg = A2AMessage.create(
                     sender=self.node_name,
