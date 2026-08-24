@@ -134,6 +134,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         """Register dashboard routes on an existing aiohttp app."""
         app.router.add_get("/", self._dashboard_page)
         app.router.add_get("/dashboard", self._dashboard_page)
+        app.router.add_get("/dashboard.js", self._serve_dashboard_js)
         app.router.add_get("/api/status", self._api_status)
         app.router.add_get("/api/messages", self._api_messages)
         app.router.add_get("/api/chat/messages", self._api_messages)  # alias for frontend
@@ -525,6 +526,25 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 "Expires": "0",
             },
         )
+
+    async def _serve_dashboard_js(self, request):
+        """Serve the dashboard JS file (cacheable)."""
+        from aiohttp import web
+        import os as _os
+        js_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dashboard.js")
+        try:
+            with open(js_path, "r", encoding="utf-8") as f:
+                js = f.read()
+            return web.Response(
+                text=js,
+                content_type="application/javascript",
+                headers={
+                    "Cache-Control": "public, max-age=3600",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+        except FileNotFoundError:
+            return web.Response(text="// JS file not found", status=404)
 
     async def _api_status(self, request):
         """Return full mesh status."""

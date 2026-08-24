@@ -1,8 +1,8 @@
 {
   "total": {
     "input": 0,
-    "output": 1022,
-    "requests": 40
+    "output": 1067,
+    "requests": 42
   },
   "by_agent": {
     "runa": {
@@ -12,8 +12,8 @@
     },
     "morzsa": {
       "input": 0,
-      "output": 552,
-      "requests": 21
+      "output": 597,
+      "requests": 23
     },
     "tor": {
       "input": 0,
@@ -24,8 +24,8 @@
   "by_model": {
     "unknown": {
       "input": 0,
-      "output": 1022,
-      "requests": 40
+      "output": 1067,
+      "requests": 42
     }
   }
 }

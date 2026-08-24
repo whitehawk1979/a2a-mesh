@@ -1808,9 +1808,85 @@
         "created_at": 1787598507.927215,
         "updated_at": 1787598507.927216,
         "created_by": "unknown"
+      },
+      {
+        "id": "card-1787598795656-60",
+        "title": "Teszt delegáció",
+        "description": "Teszt",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787598795.656995,
+        "updated_at": 1787598795.676061,
+        "created_by": "unknown",
+        "delegation_task_id": "37887372-b77a-4c1e-a067-57e4e295d6ce",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787598795.676058
+          }
+        ]
+      },
+      {
+        "id": "card-1787598795816-61",
+        "title": "Teszt delegáció",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787598795.8167648,
+        "updated_at": 1787598808.219258,
+        "delegation_task_id": "37887372-b77a-4c1e-a067-57e4e295d6ce",
+        "description": "Teszt",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787598795.816782
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] Acknowledged task 'Teszt delegacio' at 2026-08-24T19:13:[PHONE REDACTED]+00:00",
+            "timestamp": 1787598802.56763
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "ffd7ff93",
+            "timestamp": 1787598803.028929
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787598808.219638
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] Acknowledged task 'Teszt delegacio' at 2026-08-24T19:13:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-08-24 19:13:20.995588+00:",
+        "reviewer": "tor",
+        "review_task_id": "ffd7ff93-42f5-41d3-9645-f7c2f01ecdf4",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787598808.219257
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787598507.927222
+    "updated_at": 1787598802.735271
   }
 ]

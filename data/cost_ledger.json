@@ -399,6 +399,26 @@
       "cost_usd": 2e-06,
       "task_id": "8ee5fe7f-9149-4573-9f56-8773ae3ef676",
       "node": ""
+    },
+    {
+      "timestamp": "2026-08-24T19:13:22.720940+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 21,
+      "cost_usd": 1e-06,
+      "task_id": "e9a5500f-ba0f-4f54-9aa0-8332012d9120",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-24T19:13:28.207836+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 24,
+      "cost_usd": 2e-06,
+      "task_id": "26c0f88c-7aa6-4acf-adba-1283559c6ede",
+      "node": ""
     }
   ],
   "budgets": {},
