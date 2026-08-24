@@ -338,6 +338,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/cron/add", self._api_cron_add)
         # Update Checker
         app.router.add_get("/api/update-checker", self._api_update_checker)
+        app.router.add_post("/api/update-pull", self._api_update_pull)
         # Network Info
         app.router.add_get("/api/network-info", self._api_network_info)
         # Password Hash

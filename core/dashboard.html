@@ -418,6 +418,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span style="font-size:16px;">🔧</span>
       <span>Diagnosztika</span>
     </div>
+      <div class="channel-item" onclick="loadMarveenPage('delegations')">
+      <span style="font-size:16px;">📋</span>
+      <span>Delegációk</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('alerts')">
+      <span style="font-size:16px;">🔔</span>
+      <span>Riasztások</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('health')">
+      <span style="font-size:16px;">❤️</span>
+      <span>Egészség</span>
+    </div>
       <div class="channel-item" onclick="loadMarveenPage('docs')">
           <span class="icon">📚</span> Dokumentáció
         </div>
@@ -2914,7 +2926,10 @@ function loadMarveenPage(page) {
     'insights-context-gate': '🧠 Kontextus Kapu',
     'insights-conversations': '💬 Beszélgetések',
     'insights-dream': '🌙 Dream Engine',
-    'diagnostics': '🔧 Diagnosztika'
+    'diagnostics': '🔧 Diagnosztika',
+    'delegations': '📋 Delegációk',
+    'alerts': '🔔 Riasztások',
+    'health': '❤️ Egészség'
   };
 
   var apiMap = {
@@ -2943,7 +2958,10 @@ function loadMarveenPage(page) {
     'insights-context-gate': '/api/insights/context-gate',
     'insights-conversations': 'none',
     'insights-dream': '/api/insights/dream',
-    'diagnostics': '/api/diagnostics'
+    'diagnostics': '/api/diagnostics',
+    'delegations': '/api/delegations',
+    'alerts': '/api/alerts',
+    'health': '/api/health/scores'
   };
 
   var title = titleMap[page] || page;
@@ -3932,20 +3950,54 @@ function loadMarveenPage(page) {
 
     updates: function(d) {
       if (d.error) return errorBox(d.error);
-      var updates = d.updates || d.available || d.entries || [];
-      if (!updates.length) {
-        return card('<div style="text-align:center;padding:20px;">' +
-          '<div style="font-size:32px;margin-bottom:8px;">✅</div>' +
-          '<div style="color:var(--text2);">Minden naprakész</div></div>');
-      }
+      var upToDate = d.up_to_date;
+      var pendingCount = d.pending_count || 0;
+      var pendingCommits = d.pending_commits || [];
+      var recentCommits = d.recent_commits || [];
+      var branch = d.branch || 'main';
+      var localHead = d.local_head || '?';
+      var remoteHead = d.remote_head || '?';
+      var updateAvail = d.update_available;
       var html = '';
-      updates.forEach(function(u) {
-        html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-          '<strong>' + esc(u.name || u.component || '—') + '</strong>' +
-          badge(u.current ? 'v' + u.current : '', 'var(--text3)') +
-          badge('→ v' + (u.latest || u.version || '?'), 'var(--primary)') + '</div>' +
-          '<div style="font-size:12px;color:var(--text3);">' + esc(u.description || u.notes || '') + '</div>');
-      });
+      // Status card
+      var statusColor = upToDate ? 'var(--success)' : 'var(--warning)';
+      var statusIcon = upToDate ? '✅' : '⬆️';
+      var statusText = upToDate ? 'Naprakész' : (pendingCount + ' frissítés érhető el');
+      html += '<div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:16px;border-left:4px solid ' + statusColor + ';">';
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+      html += '<span style="font-size:20px;">' + statusIcon + '</span>';
+      html += '<strong style="font-size:14px;color:' + statusColor + ';">' + esc(statusText) + '</strong>';
+      html += '</div>';
+      html += '<div style="display:flex;gap:16px;font-size:11px;color:var(--text3);">';
+      html += '<span>Branch: <strong>' + esc(branch) + '</strong></span>';
+      html += '<span>Local: <code>' + esc(localHead) + '</code></span>';
+      html += '<span>Remote: <code>' + esc(remoteHead) + '</code></span>';
+      html += '</div>';
+      html += '</div>';
+      // Action buttons
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
+      if (updateAvail) {
+        html += '<button onclick="meshUpdatePull()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">⬇️ Pull + Deploy</button>';
+        html += '<button onclick="meshUpdateCheck()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">🔄 Ellenőriz</button>';
+      } else {
+        html += '<button onclick="meshUpdateCheck()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">🔄 Ellenőriz</button>';
+        html += '<button onclick="meshDeployAll()" style="background:var(--warning);color:#000;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">🚀 Deploy minden node-ra</button>';
+      }
+      html += '</div>';
+      // Pending commits
+      if (pendingCommits.length) {
+        html += '<h3 style="margin:0 0 8px;font-size:13px;color:var(--warning);">⬆️ Várakozó frissítések (' + pendingCommits.length + ')</h3>';
+        pendingCommits.forEach(function(c) {
+          html += card('<div style="font-size:11px;font-family:monospace;color:var(--text2);">' + esc(c) + '</div>');
+        });
+      }
+      // Recent commits
+      if (recentCommits.length) {
+        html += '<h3 style="margin:16px 0 8px;font-size:13px;color:var(--text3);">📋 Legutóbbi commitok</h3>';
+        recentCommits.forEach(function(c) {
+          html += card('<div style="font-size:11px;font-family:monospace;color:var(--text2);">' + esc(c) + '</div>');
+        });
+      }
       return html;
     },
 
@@ -4518,6 +4570,80 @@ function loadMarveenPage(page) {
           '<div>' + esc(m.content) + '</div>' + 
           '<div style=\"font-size:10px;opacity:.6;margin-top:4px;text-align:right;\">' + fmtTime(m.timestamp) + '</div>' + 
           '</div></div>';
+      });
+      html += '</div>';
+      return html;
+    },
+    'delegations': function(d) {
+      if (d.error) return errorBox(d.error);
+      var delegations = d.delegations || [];
+      var count = d.count || 0;
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--primary);">' + count + '</div><div style="font-size:10px;color:var(--text3);">Összes</div></div>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--success);">' + delegations.filter(function(x) { return x.status === 'completed'; }).length + '</div><div style="font-size:10px;color:var(--text3);">Kész</div></div>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--warning);">' + delegations.filter(function(x) { return x.status === 'available' || x.status === 'pending'; }).length + '</div><div style="font-size:10px;color:var(--text3);">Függő</div></div>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--danger);">' + delegations.filter(function(x) { return x.status === 'expired' || x.status === 'failed'; }).length + '</div><div style="font-size:10px;color:var(--text3);">Hibás</div></div>';
+      html += '</div>';
+      if (!delegations.length) return html + empty('Nincs delegáció');
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      delegations.slice(0, 30).forEach(function(t) {
+        var stColor = t.status === 'completed' ? 'var(--success)' : t.status === 'available' ? 'var(--warning)' : t.status === 'expired' || t.status === 'failed' ? 'var(--danger)' : 'var(--text3)';
+        html += card('<div style="display:flex;align-items:flex-start;gap:8px;">' +
+          '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + stColor + '22;color:' + stColor + ';font-weight:600;flex-shrink:0;">' + esc(t.status || '?') + '</span>' +
+          '<div style="flex:1;"><strong style="font-size:12px;">' + esc(t.subject || t.task_id || '—') + '</strong>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(t.from_agent || '?') + ' → ' + esc(t.to_agent || '?') + ' • ' + fmtTime(t.created_at) + '</div>' +
+          (t.description ? '<div style="font-size:10px;color:var(--text3);margin-top:4px;">' + esc((t.description || '').substring(0, 100)) + '</div>' : '') +
+          '</div></div>');
+      });
+      html += '</div>';
+      return html;
+    },
+    'alerts': function(d) {
+      if (d.error) return errorBox(d.error);
+      var running = d.running;
+      var totalRules = d.total_rules || 0;
+      var firing = d.firing || 0;
+      var rules = d.rules || [];
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:' + (running ? 'var(--success)' : 'var(--danger)') + ';">' + (running ? 'Aktív' : 'Leállt') + '</div><div style="font-size:10px;color:var(--text3);">Státusz</div></div>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--primary);">' + totalRules + '</div><div style="font-size:10px;color:var(--text3);">Szabályok</div></div>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--danger);">' + firing + '</div><div style="font-size:10px;color:var(--text3);">Aktív riasztás</div></div>';
+      html += '</div>';
+      if (!rules.length) return html + empty('Nincs riasztási szabály');
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      rules.forEach(function(r) {
+        var enabled = r.enabled !== false;
+        var enColor = enabled ? 'var(--success)' : 'var(--text3)';
+        html += card('<div style="display:flex;align-items:flex-start;gap:8px;">' +
+          '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + enColor + '22;color:' + enColor + ';font-weight:600;flex-shrink:0;">' + (enabled ? 'ON' : 'OFF') + '</span>' +
+          '<div style="flex:1;"><strong style="font-size:12px;">' + esc(r.name || r.id || '—') + '</strong>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(r.description || r.condition || '') + '</div>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Kategória: ' + esc(r.category || '—') + ' • Prioritás: ' + esc(r.priority || '—') + '</div>' +
+          '</div></div>');
+      });
+      html += '</div>';
+      return html;
+    },
+    'health': function(d) {
+      if (d.error) return errorBox(d.error);
+      var agents = d.agents || [];
+      var agentCount = d.agent_count || agents.length;
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--primary);">' + agentCount + '</div><div style="font-size:10px;color:var(--text3);">Agentek</div></div>';
+      html += '</div>';
+      if (!agents.length) return html + empty('Nincs egészség adat');
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      agents.forEach(function(a) {
+        var score = a.score || a.health_score || 0;
+        var scoreColor = score >= 80 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--danger)';
+        html += card('<div style="display:flex;align-items:center;gap:8px;">' +
+          '<div style="width:40px;height:40px;border-radius:50%;background:' + scoreColor + ';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;">' + esc(Math.round(score)) + '</div>' +
+          '<div style="flex:1;"><strong style="font-size:13px;">' + esc(a.name || a.agent || '—') + '</strong>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Sikeres: ' + esc(a.successes || 0) + ' • Hibás: ' + esc(a.failures || 0) + ' • Utolsó: ' + fmtTime(a.last_seen || a.last_success) + '</div>' +
+          '</div></div>');
       });
       html += '</div>';
       return html;
@@ -5116,6 +5242,40 @@ window.autoImplementSuggestions = function() {
     .then(function(d) {
       if (d.error) { alert('Hiba: ' + d.error); }
       else { alert('Implementálva: ' + (d.implemented || 0) + ' javaslat'); loadMarveenPage('diagnostics'); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.meshUpdateCheck = function() {
+  loadMarveenPage('updates');
+};
+
+window.meshUpdatePull = function() {
+  if (!confirm('Biztosan pull + deploy + restart? Ez leállítja a node-okat!')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/update-pull', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); }
+      else { alert('Pull: ' + (d.ok ? 'OK' : 'FAIL') + '\n' + (d.pull_output || '') + '\nDeploy: ' + JSON.stringify(d.deploy || {}) + '\nRestart: ' + d.restart); setTimeout(function() { loadMarveenPage('updates'); }, 3000); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.meshDeployAll = function() {
+  if (!confirm('Deploy az összes peer node-ra?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/deploy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); }
+      else { alert('Deploy indítva: ' + (d.total || 0) + ' node'); }
     })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };

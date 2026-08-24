@@ -2630,6 +2630,59 @@ class DashboardAdminMixin:
         from .update_checker import get_update_status
         return web.json_response(get_update_status())
 
+    async def _api_update_pull(self, request):
+        """POST /api/update-pull — Pull latest from git, deploy to peers, restart."""
+        from aiohttp import web
+        import subprocess, os
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            mesh_dir = os.path.expanduser("~/.hermes/scripts/a2a_mesh")
+            # Step 1: git stash local changes
+            subprocess.run(["git", "stash"], cwd=mesh_dir, capture_output=True, text=True, timeout=10)
+            # Step 2: git pull
+            result = subprocess.run(["git", "pull", "origin", "main"], cwd=mesh_dir, capture_output=True, text=True, timeout=30)
+            pull_ok = result.returncode == 0
+            pull_output = result.stdout + result.stderr
+            # Step 3: Deploy to peers via existing deploy API
+            deploy_result = None
+            if pull_ok and self.node and hasattr(self.node, 'delegation'):
+                try:
+                    peers = self.node.peer_discovery.get_all_peers() if hasattr(self.node, 'peer_discovery') else []
+                    target_nodes = [p for p in peers if p != self.node.node_name]
+                    deploy_results = []
+                    for peer_name in target_nodes:
+                        remote = "gitea" if peer_name == "morzsa" else "origin"
+                        deploy_desc = {"remote": remote, "branch": "main", "action": "pull_restart"}
+                        await self.node.delegation.delegate_task(
+                            to_agent=peer_name,
+                            subject=f"[DEPLOY] git pull + restart",
+                            description=deploy_desc,
+                            task_type="deploy",
+                            priority=8,
+                            available=True,
+                        )
+                        deploy_results.append({"node": peer_name, "status": "delegated"})
+                    deploy_result = deploy_results
+                except Exception as e:
+                    deploy_result = {"error": str(e)}
+            # Step 4: Restart Nova
+            import platform
+            if platform.system() == "Darwin":
+                subprocess.run(["launchctl", "stop", "com.hermes.a2a-mesh-node"], capture_output=True, timeout=5)
+                subprocess.run(["launchctl", "start", "com.hermes.a2a-mesh-node"], capture_output=True, timeout=5)
+            else:
+                subprocess.run(["systemctl", "--user", "restart", "a2a-mesh"], capture_output=True, timeout=10)
+            return web.json_response({
+                "ok": pull_ok,
+                "pull_output": pull_output[:500],
+                "deploy": deploy_result,
+                "restart": "initiated",
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _api_network_info(self, request):
         """GET /api/network-info — Network info."""
         from aiohttp import web
