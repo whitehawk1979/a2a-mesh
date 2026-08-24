@@ -1293,9 +1293,21 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787406196.7720802
+      },
+      {
+        "id": "card-1787553820189-53",
+        "title": "[feature] Test comment+promote flow",
+        "description": "Komment és agent promotion teszt",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787553820.1897879,
+        "updated_at": 1787553820.1897888,
+        "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787552095.682339
+    "updated_at": 1787553820.189793
   }
 ]

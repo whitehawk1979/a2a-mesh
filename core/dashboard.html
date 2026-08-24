@@ -414,7 +414,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="channel-item" onclick="loadMarveenPage('migrate')">
           <span class="icon">📦</span> Költöztetés
         </div>
-        <div class="channel-item" onclick="loadMarveenPage('docs')">
+        <div class="channel-item" onclick="loadMarveenPage('diagnostics')">
+      <span style="font-size:16px;">🔧</span>
+      <span>Diagnosztika</span>
+    </div>
+      <div class="channel-item" onclick="loadMarveenPage('docs')">
           <span class="icon">📚</span> Dokumentáció
         </div>
       </div>
@@ -2909,7 +2913,8 @@ function loadMarveenPage(page) {
     'insights-inbox': '📥 Beérkező',
     'insights-context-gate': '🧠 Kontextus Kapu',
     'insights-conversations': '💬 Beszélgetések',
-    'insights-dream': '🌙 Dream Engine'
+    'insights-dream': '🌙 Dream Engine',
+    'diagnostics': '🔧 Diagnosztika'
   };
 
   var apiMap = {
@@ -2937,7 +2942,8 @@ function loadMarveenPage(page) {
     'insights-inbox': '/api/insights/inbox',
     'insights-context-gate': '/api/insights/context-gate',
     'insights-conversations': 'none',
-    'insights-dream': '/api/insights/dream'
+    'insights-dream': '/api/insights/dream',
+    'diagnostics': '/api/diagnostics'
   };
 
   var title = titleMap[page] || page;
@@ -5021,6 +5027,35 @@ window.importDiagnosticsAsIdeas = function() {
       } else {
         alert('Hiba: ' + (d.error || 'ismeretlen'));
       }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.generateDiagnosticReport = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/diagnostics/report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ report_type: 'on_demand' })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); }
+      else { alert('Jelentés generálva: ' + (d.report_id || 'ok')); loadMarveenPage('diagnostics'); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.autoImplementSuggestions = function() {
+  if (!confirm('Auto-implementálod az összes pending javaslatot?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/diagnostics/auto-implement', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); }
+      else { alert('Implementálva: ' + (d.implemented || 0) + ' javaslat'); loadMarveenPage('diagnostics'); }
     })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
