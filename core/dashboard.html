@@ -3372,6 +3372,60 @@ function loadMarveenPage(page) {
       .catch(function(e) { body.innerHTML = errorBox(e.message); });
   };
 
+  // ─── Kanban card actions (exposed to global scope) ───
+  window.moveKanbanCard = function(boardId, cardId, newCol) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    fetch('/api/kanban/' + boardId + '/cards/' + cardId, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ column: newCol })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } loadMarveenPage('kanban'); })
+      .catch(function(e) { alert('Hiba: ' + e.message); });
+  };
+
+  window.addKanbanCard = function(boardId) {
+    var title = prompt('Kártya címe:');
+    if (!title) return;
+    var desc = prompt('Leírás (opcionális):') || '';
+    var pri = prompt('Prioritás (low/medium/high):', 'medium') || 'medium';
+    var assignee = prompt('Hozzárendelt agent (opcionális):') || '';
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    fetch('/api/kanban/' + boardId + '/cards', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title, description: desc, priority: pri, assigned_to: assignee, column: 'todo' })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } loadMarveenPage('kanban'); })
+      .catch(function(e) { alert('Hiba: ' + e.message); });
+  };
+
+  window.deleteKanbanCard = function(boardId, cardId) {
+    if (!confirm('Biztosan törlöd ezt a kártyát?')) return;
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    fetch('/api/kanban/' + boardId + '/cards/' + cardId, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { loadMarveenPage('kanban'); })
+      .catch(function(e) { alert('Hiba: ' + e.message); });
+  };
+
+  window.approveKanbanCard = function(boardId, cardId) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    fetch('/api/kanban/' + boardId + '/cards/' + cardId + '/approve', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approved: true })
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } loadMarveenPage('kanban'); })
+      .catch(function(e) { alert('Hiba: ' + e.message); });
+  };
+
   // ─── Federation actions (exposed to global scope) ───
   window.federationAction = function(action, name) {
     var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -3518,29 +3572,58 @@ function loadMarveenPage(page) {
 
   var renderers = {
     kanban: function(d) {
-      if (!d || (!d.boards && !d.cards)) return empty('Nincs kanban adat');
+      if (!d || !d.boards) return empty('Nincs kanban adat');
+      var boards = d.boards || [];
+      if (!boards.length) return empty('Nincs kanban tábla');
       var html = '';
-      if (d.boards && d.boards.length) {
-        html += '<h3 style="margin:0 0 12px;font-size:15px;">📋 Táblák (' + d.boards.length + ')</h3>';
-        d.boards.forEach(function(b) {
-          html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-            '<strong style="font-size:14px;">' + esc(b.name || b.title || b.id) + '</strong>' +
-            badge(b.status || 'active') + '</div>' +
-            '<div style="color:var(--text3);font-size:12px;">' + esc(b.description || '') + '</div>');
+      boards.forEach(function(b) {
+        var bid = esc(b.id || '');
+        var cols = b.columns || ['todo','in_progress','review','done'];
+        var cards = b.cards || [];
+        var colLabels = {'todo':'📋 Teendő','in_progress':'🔄 Folyamatban','review':'👀 Felülvizsgálat','done':'✅ Kész'};
+        var colColors = {'todo':'var(--text3)','in_progress':'var(--warning)','review':'var(--primary)','done':'var(--success)'};
+        html += '<div style="margin-bottom:20px;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">';
+        html += '<h3 style="margin:0;font-size:15px;">' + esc(b.title || b.id) + '</h3>';
+        html += badge(cards.length + ' kártya', 'var(--surface2)');
+        html += '<button onclick="addKanbanCard(\'' + bid + '\')" style="background:var(--primary);color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:11px;cursor:pointer;margin-left:auto;">+ Kártya</button>';
+        html += '</div>';
+        // Column board
+        html += '<div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;">';
+        cols.forEach(function(col) {
+          var colCards = cards.filter(function(c) { return (c.column || 'todo') === col; });
+          var cl = colLabels[col] || col;
+          var cc = colColors[col] || 'var(--text3)';
+          html += '<div style="flex:1;min-width:180px;background:var(--surface);border-radius:10px;padding:8px;">';
+          html += '<div style="font-size:11px;font-weight:600;color:' + cc + ';margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">' + esc(cl) + ' (' + colCards.length + ')</div>';
+          colCards.forEach(function(c) {
+            var cid = esc(c.id || '');
+            var pri = c.priority || 'medium';
+            var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--warning)';
+            var approvable = c.requires_approval || c.approval_status === 'pending';
+            html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;">';
+            html += '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">' + esc(c.title || '—') + '</div>';
+            if (c.description) html += '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">' + esc(c.description.substring(0,80)) + '</div>';
+            html += '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">';
+            html += '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + pc + ';color:#fff;font-weight:600;">' + esc(pri) + '</span>';
+            if (c.assigned_to) html += '<span style="font-size:9px;color:var(--text2);">👤 ' + esc(c.assigned_to) + '</span>';
+            html += '</div>';
+            // Action buttons
+            html += '<div style="display:flex;gap:4px;margin-top:6px;">';
+            var colIdx = cols.indexOf(col);
+            if (colIdx > 0) html += '<button onclick="moveKanbanCard(\'' + bid + '\',\'' + cid + '\',\'' + cols[colIdx-1] + '\')" style="background:var(--surface);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:var(--text2);">◀</button>';
+            if (colIdx < cols.length-1) html += '<button onclick="moveKanbanCard(\'' + bid + '\',\'' + cid + '\',\'' + cols[colIdx+1] + '\')" style="background:var(--surface);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:var(--text2);">▶</button>';
+            if (approvable) html += '<button onclick="approveKanbanCard(\'' + bid + '\',\'' + cid + '\')" style="background:var(--success);border:none;padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:#fff;">✓</button>';
+            html += '<button onclick="deleteKanbanCard(\'' + bid + '\',\'' + cid + '\')" style="background:var(--surface);border:1px solid var(--danger);padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:var(--danger);margin-left:auto;">✕</button>';
+            html += '</div>';
+            html += '</div>';
+          });
+          html += '</div>';
         });
-      }
-      if (d.cards && d.cards.length) {
-        html += '<h3 style="margin:20px 0 12px;font-size:15px;">🎫 Kártyák (' + d.cards.length + ')</h3>';
-        d.cards.forEach(function(c) {
-          var pri = c.priority || 'normal';
-          var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
-          html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-            '<strong>' + esc(c.title || c.name || '—') + '</strong>' + badge(pri, pc) +
-            '<span style="margin-left:auto;color:var(--text3);font-size:11px;">' + fmtTime(c.created_at) + '</span></div>' +
-            '<div style="color:var(--text3);font-size:12px;">Assignee: ' + esc(c.assignee || '—') + ' • Status: ' + esc(c.status || '—') + '</div>');
-        });
-      }
-      return html || empty('Nincs kanban adat');
+        html += '</div>';
+        html += '</div>';
+      });
+      return html;
     },
 
     approvals: function(d) {
