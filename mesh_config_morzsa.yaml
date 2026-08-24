@@ -182,7 +182,7 @@ mesh:
       tls_cert: ~/.hermes/scripts/a2a_mesh/certs/morzsa.crt
       tls_enabled: true
       tls_key: ~/.hermes/scripts/a2a_mesh/certs/morzsa.key
-      tls_verify_peer: false
+      tls_verify_peer: true
     pg_notify:
       channels:
       - a2a_channel

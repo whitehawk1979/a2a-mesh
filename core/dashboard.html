@@ -3181,6 +3181,83 @@ function loadMarveenPage(page) {
     if (title) title.textContent = '📋 Napló bejegyzés';
   }
 
+  // ─── Log filtering + export (exposed to global scope) ───
+  window.filterLogs = function(type) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var params = 'type=' + type + '&limit=50';
+    var searchEl = document.getElementById('logSearchInput');
+    var nodeEl = document.getElementById('logNodeFilter');
+    var statusEl = document.getElementById('logStatusFilter');
+    var fromEl = document.getElementById('logDateFrom');
+    var toEl = document.getElementById('logDateTo');
+    if (searchEl && searchEl.value) params += '&q=' + encodeURIComponent(searchEl.value);
+    if (nodeEl && nodeEl.value) params += '&node=' + encodeURIComponent(nodeEl.value);
+    if (statusEl && statusEl.value) params += '&status=' + encodeURIComponent(statusEl.value);
+    if (fromEl && fromEl.value) params += '&from=' + encodeURIComponent(fromEl.value);
+    if (toEl && toEl.value) params += '&to=' + encodeURIComponent(toEl.value);
+    fetch('/api/logs-page?' + params, { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var body = document.getElementById('marveenModalBody');
+        if (body) {
+          var renderer = renderers['naplo'];
+          if (renderer) body.innerHTML = renderer(d);
+        }
+      })
+      .catch(function(e) { alert('Hiba: ' + e.message); });
+  };
+
+  window.applyLogFilters = function() {
+    // Read current filter type from active button (default: all)
+    var type = 'all';
+    var activeBtn = document.querySelector('#marveenModalBody span[style*="var(--primary)"]');
+    if (activeBtn) {
+      var onclick = activeBtn.getAttribute('onclick') || '';
+      var m = onclick.match(/filterLogs\('(\w+)'\)/);
+      if (m) type = m[1];
+    }
+    window.filterLogs(type);
+  };
+
+  window.clearLogFilters = function() {
+    var els = ['logSearchInput','logNodeFilter','logStatusFilter','logDateFrom','logDateTo'];
+    for (var i = 0; i < els.length; i++) {
+      var el = document.getElementById(els[i]);
+      if (el) el.value = '';
+    }
+    window.filterLogs('all');
+  };
+
+  window.exportLogs = function(format) {
+    var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+    var params = 'export=' + format + '&limit=500';
+    var searchEl = document.getElementById('logSearchInput');
+    var nodeEl = document.getElementById('logNodeFilter');
+    var statusEl = document.getElementById('logStatusFilter');
+    var fromEl = document.getElementById('logDateFrom');
+    var toEl = document.getElementById('logDateTo');
+    if (searchEl && searchEl.value) params += '&q=' + encodeURIComponent(searchEl.value);
+    if (nodeEl && nodeEl.value) params += '&node=' + encodeURIComponent(nodeEl.value);
+    if (statusEl && statusEl.value) params += '&status=' + encodeURIComponent(statusEl.value);
+    if (fromEl && fromEl.value) params += '&from=' + encodeURIComponent(fromEl.value);
+    if (toEl && toEl.value) params += '&to=' + encodeURIComponent(toEl.value);
+    var url = '/api/logs-page?' + params;
+    fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.blob ? r.blob() : r.text(); })
+      .then(function(blob) {
+        var filename = format === 'csv' ? 'mesh_logs.csv' : 'mesh_logs.json';
+        var blobObj = blob instanceof Blob ? blob : new Blob([blob], { type: format === 'csv' ? 'text/csv' : 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blobObj);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(function(e) { alert('Export hiba: ' + e.message); });
+  };
+
   // ─── Federation actions (exposed to global scope) ───
   window.federationAction = function(action, name) {
     var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -3448,13 +3525,48 @@ function loadMarveenPage(page) {
     naplo: function(d) {
       if (d.error) return errorBox(d.error);
       var logs = d.logs || [];
-      if (!logs.length) return empty('Nincs napló bejegyzés');
+      var filters = d.filters || {};
+      var total = d.total || 0;
+      // Filter bar
+      var html = '<div style="margin-bottom:12px;">';
       // Type filter buttons
-      var html = '<div style="margin-bottom:12px;display:flex;gap:6px;flex-wrap:wrap;">';
-      html += '<span onclick="loadMarveenPage(\'naplo\')" style="background:var(--primary);color:#fff;padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;">Összes (' + logs.length + ')</span>';
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">';
+      var typeAll = (!filters.type || filters.type === 'all');
+      html += '<span onclick="filterLogs(\'all\')" style="background:' + (typeAll ? 'var(--primary)' : 'var(--surface2)') + ';color:' + (typeAll ? '#fff' : 'var(--text2)') + ';border:1px solid var(--border);padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;">Összes (' + total + ')</span>';
       html += '<span onclick="filterLogs(\'delegation\')" style="background:var(--surface2);border:1px solid var(--border);padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;">📋 Delegációk</span>';
       html += '<span onclick="filterLogs(\'health\')" style="background:var(--surface2);border:1px solid var(--border);padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;">💊 Health</span>';
       html += '</div>';
+      // Search + node filter row
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">';
+      html += '<input id="logSearchInput" type="text" placeholder="🔍 Keresés tárgyban..." value="' + esc(filters.q || '') + '" onkeyup="if(event.key===\'Enter\')applyLogFilters()" style="flex:1;min-width:150px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;" />';
+      html += '<select id="logNodeFilter" onchange="applyLogFilters()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;">';
+      html += '<option value="">All Nodes</option>';
+      var nodes = ['nova','morzsa','runa','tor'];
+      for (var i = 0; i < nodes.length; i++) {
+        html += '<option value="' + nodes[i] + '"' + (filters.node === nodes[i] ? ' selected' : '') + '>' + nodes[i] + '</option>';
+      }
+      html += '</select>';
+      html += '<select id="logStatusFilter" onchange="applyLogFilters()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;">';
+      html += '<option value="">All Status</option>';
+      var statuses = ['completed','failed','available','pending','in_progress'];
+      for (var j = 0; j < statuses.length; j++) {
+        html += '<option value="' + statuses[j] + '"' + (filters.status === statuses[j] ? ' selected' : '') + '>' + statuses[j] + '</option>';
+      }
+      html += '</select>';
+      // Date range
+      html += '<input id="logDateFrom" type="date" value="' + esc(filters.from || '') + '" onchange="applyLogFilters()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;" />';
+      html += '<input id="logDateTo" type="date" value="' + esc(filters.to || '') + '" onchange="applyLogFilters()" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;" />';
+      html += '</div>';
+      // Action buttons
+      html += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
+      html += '<button onclick="applyLogFilters()" style="background:var(--primary);color:#fff;border:none;padding:6px 16px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;">Szűrés</button>';
+      html += '<button onclick="clearLogFilters()" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:6px 16px;border-radius:8px;font-size:12px;cursor:pointer;">Törlés</button>';
+      html += '<button onclick="exportLogs(\'csv\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:6px 16px;border-radius:8px;font-size:12px;cursor:pointer;margin-left:auto;">⬇ CSV</button>';
+      html += '<button onclick="exportLogs(\'json\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:6px 16px;border-radius:8px;font-size:12px;cursor:pointer;">⬇ JSON</button>';
+      html += '</div>';
+      html += '</div>';
+      if (!logs.length) return html + empty('Nincs napló bejegyzés a szűrőfeltételeknek megfelelően');
+      // Log entries
       logs.forEach(function(l) {
         var lt = l.log_type || 'delegation';
         var typeIcon = lt === 'health' ? '💊' : '📋';
@@ -3465,7 +3577,6 @@ function loadMarveenPage(page) {
         var fromA = esc(l.from_agent || '');
         var toA = esc(l.to_agent || l.assigned_agent || '');
         var lid = esc(l.id || l.task_id || '');
-        // Build detail JSON for the modal — escape only single quotes for HTML attribute
         var detailJson = JSON.stringify(l).replace(/'/g, "\\'").replace(/"/g, '&quot;');
         html += '<div onclick="showLogDetail(\'' + lid + '\', \'' + detailJson + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:6px;cursor:pointer;transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'">';
         html += '<div style="display:flex;align-items:center;gap:8px;">';

@@ -2,13 +2,11 @@
 # meshctl — Helper for A2A Mesh systemd services
 # Usage: meshctl {start|stop|restart|status|log|follow|enable|disable|list} [morzsa|runa|all]
 
-set -euo pipefail
+set -eo pipefail
 
-# Service name mapping
-declare -A SVC_MAP=(
-    [morzsa]="a2a-mesh.service"
-    [runa]="a2a-mesh-runa.service"
-)
+# Service name mapping (no associative arrays for bash 3.2 compat)
+SVC_MAP_MORZSA="a2a-mesh.service"
+SVC_MAP_RUNA="a2a-mesh-runa.service"
 NODES=("morzsa" "runa")
 
 RED='\033[0;31m'
@@ -33,7 +31,7 @@ get_nodes() {
     fi
 }
 
-svc_name() { echo "${SVC_MAP[$1]}"; }
+# svc_name removed — inline case above
 
 cmd_start() {
     local target="${1:-all}"
@@ -67,7 +65,11 @@ cmd_status() {
     local target="${1:-all}"
     for node in $(get_nodes "$target"); do
         local svc
-        svc="$(svc_name "$node")"
+        case "$node" in
+        morzsa) svc="$SVC_MAP_MORZSA" ;;
+        runa) svc="$SVC_MAP_RUNA" ;;
+        *) svc="unknown" ;;
+      esac
         local state pid since
         state=$(systemctl --user is-active "$svc" 2>/dev/null || echo "unknown")
         

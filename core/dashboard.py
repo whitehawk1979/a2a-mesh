@@ -1067,36 +1067,91 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response(result)
 
     async def _api_logs_page(self, request):
-        """Logs page — delegation history + node health, clickable entries."""
+        """Logs page — delegation history + node health, with filtering + export."""
         from aiohttp import web
         user, err = self._require_auth(request)
         if err:
             return err
         log_type = request.query.get("type", "all")
-        limit = min(int(request.query.get("limit", "50")), 200)
-        result = {"logs": [], "total": 0, "type": log_type}
+        node_filter = request.query.get("node", "").strip()
+        status_filter = request.query.get("status", "").strip()
+        search_query = request.query.get("q", "").strip()
+        date_from = request.query.get("from", "").strip()  # ISO date
+        date_to = request.query.get("to", "").strip()
+        export = request.query.get("export", "")  # "csv" or "json"
+        limit = min(int(request.query.get("limit", "50")), 500)
+        result = {"logs": [], "total": 0, "type": log_type, "filters": {
+            "node": node_filter, "status": status_filter, "q": search_query,
+            "from": date_from, "to": date_to
+        }}
         try:
             pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
             if pool:
                 entries = []
+                # Build delegation query with filters
                 if log_type in ("delegation", "all"):
-                    rows = await pool.fetch(
-                        "SELECT id, from_agent, to_agent, subject, status, priority, "
-                        "retry_count, assigned_agent, created_at, completed_at, task_type "
-                        "FROM shared_delegations ORDER BY created_at DESC LIMIT $1",
-                        limit
-                    )
+                    conditions = []
+                    params = []
+                    idx = 1
+                    if node_filter:
+                        conditions.append("(from_agent = $" + str(idx) + " OR to_agent = $" + str(idx) + " OR assigned_agent = $" + str(idx) + ")")
+                        params.append(node_filter)
+                        idx += 1
+                    if status_filter:
+                        conditions.append("status = $" + str(idx))
+                        params.append(status_filter)
+                        idx += 1
+                    if search_query:
+                        conditions.append("subject ILIKE $" + str(idx))
+                        params.append("%" + search_query + "%")
+                        idx += 1
+                    if date_from:
+                        conditions.append("created_at >= $" + str(idx))
+                        params.append(date_from)
+                        idx += 1
+                    if date_to:
+                        conditions.append("created_at <= $" + str(idx))
+                        params.append(date_to + " 23:59:59")
+                        idx += 1
+                    where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+                    params.append(limit)
+                    sql = ("SELECT id, from_agent, to_agent, subject, status, priority, "
+                           "retry_count, assigned_agent, created_at, completed_at, task_type "
+                           "FROM shared_delegations" + where_clause +
+                           " ORDER BY created_at DESC LIMIT $" + str(idx))
+                    rows = await pool.fetch(sql, *params)
                     for r in _serialize_pg_rows(rows):
                         r["log_type"] = "delegation"
                         entries.append(r)
+                # Build health query with filters
                 if log_type in ("health", "all"):
                     try:
-                        rows = await pool.fetch(
-                            "SELECT node_name, status, cpu_pct, memory_pct, disk_pct, "
-                            "last_seen, updated_at "
-                            "FROM mesh_node_health ORDER BY updated_at DESC LIMIT $1",
-                            limit
-                        )
+                        conditions = []
+                        params = []
+                        idx = 1
+                        if node_filter:
+                            conditions.append("node_name = $" + str(idx))
+                            params.append(node_filter)
+                            idx += 1
+                        if status_filter:
+                            conditions.append("status = $" + str(idx))
+                            params.append(status_filter)
+                            idx += 1
+                        if date_from:
+                            conditions.append("updated_at >= $" + str(idx))
+                            params.append(date_from)
+                            idx += 1
+                        if date_to:
+                            conditions.append("updated_at <= $" + str(idx))
+                            params.append(date_to + " 23:59:59")
+                            idx += 1
+                        where_clause = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+                        params.append(limit)
+                        sql = ("SELECT node_name, status, cpu_pct, memory_pct, disk_pct, "
+                               "last_seen, updated_at "
+                               "FROM mesh_node_health" + where_clause +
+                               " ORDER BY updated_at DESC LIMIT $" + str(idx))
+                        rows = await pool.fetch(sql, *params)
                         for r in _serialize_pg_rows(rows):
                             r["log_type"] = "health"
                             entries.append(r)
@@ -1104,8 +1159,35 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                         pass  # mesh_node_health may not exist
                 # Sort by created_at/updated_at descending
                 entries.sort(key=lambda x: x.get("created_at") or x.get("updated_at") or "", reverse=True)
+                # If node_filter applied to health but not delegation, filter mixed results
+                if node_filter and log_type == "all":
+                    entries = [e for e in entries if e.get("log_type") == "delegation" or e.get("node_name") == node_filter]
                 result["logs"] = entries[:limit]
                 result["total"] = len(result["logs"])
+                # Export
+                if export == "csv":
+                    import csv, io
+                    buf = io.StringIO()
+                    writer = csv.writer(buf)
+                    writer.writerow(["type", "id", "from", "to", "subject", "status", "priority", "created_at", "completed_at"])
+                    for e in result["logs"]:
+                        writer.writerow([
+                            e.get("log_type", ""),
+                            e.get("id", e.get("node_name", "")),
+                            e.get("from_agent", ""),
+                            e.get("to_agent", e.get("node_name", "")),
+                            e.get("subject", ""),
+                            e.get("status", ""),
+                            e.get("priority", ""),
+                            e.get("created_at", e.get("updated_at", "")),
+                            e.get("completed_at", "")
+                        ])
+                    return web.Response(text=buf.getvalue(), content_type="text/csv",
+                                         headers={"Content-Disposition": "attachment; filename=mesh_logs.csv"})
+                elif export == "json":
+                    return web.json_response(result, headers={
+                        "Content-Disposition": "attachment; filename=mesh_logs.json"
+                    })
             else:
                 result["error"] = "PG pool not available"
         except Exception as e:
