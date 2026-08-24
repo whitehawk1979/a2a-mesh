@@ -3730,9 +3730,10 @@ function loadMarveenPage(page) {
 
     bgTasks: function(d) {
       var jobs = d.jobs || d.tasks || d.cron_jobs || [];
-      if (!jobs.length && !d.error) return empty('Nincs háttér feladat');
       if (d.error) return errorBox(d.error);
-      return table(['Név', 'Ütemezés', 'Státusz', 'Utolsó futás'], jobs.map(function(j) {
+      var html = '<div style="margin-bottom:12px;"><button onclick="showCronAddModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új cron task</button></div>';
+      if (!jobs.length) return html + empty('Nincs háttér feladat');
+      return html + table(['Név', 'Ütemezés', 'Státusz', 'Utolsó futás'], jobs.map(function(j) {
         return [esc(j.name || j.id), esc(j.schedule || j.cron || '—'), badge(j.status || 'active'), fmtTime(j.last_run || j.last_execution)];
       }));
     },
@@ -4609,7 +4610,9 @@ function loadMarveenPage(page) {
         html += '</div>';
       });
 
-      html += '</div>';
+      html += '</div>';      // Context CRUD
+      html += '<div style="margin-top:16px;display:flex;gap:8px;"><button onclick="showContextAddModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Context set</button></div>';
+
       return html;
     },
     'insights-conversations-log': function(d) {
@@ -5808,6 +5811,38 @@ window.webhookDeploy = function() {
   fetch('/api/webhook/deploy', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
     .then(function(r) { return r.json(); })
     .then(function(d) { alert('Webhook deploy: ' + JSON.stringify(d).substring(0, 200)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showContextAddModal = function() {
+  var key = prompt('Context kulcs:');
+  if (!key) return;
+  var value = prompt('Context érték:') || '';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/context', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ key: key, value: value }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Context mentve'); loadMarveenPage('insights-context-gate'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.contextDelete = function(key) {
+  if (!confirm('Törlöd: ' + key + '?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/context/' + key, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { loadMarveenPage('insights-context-gate'); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showCronAddModal = function() {
+  var name = prompt('Cron task neve:');
+  if (!name) return;
+  var schedule = prompt('Schedule (pl. 30m, every 2h, 0 9 * * *):') || '30m';
+  var prompt_text = prompt('Prompt/parancs:') || '';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/cron/add', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, schedule: schedule, prompt: prompt_text }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Cron task hozzáadva'); loadMarveenPage('bgTasks'); } })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
