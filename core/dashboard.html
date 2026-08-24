@@ -3968,6 +3968,8 @@ function loadMarveenPage(page) {
 
     costs: function(d) {
       if (d.error) return errorBox(d.error);
+      var html = '';
+      html += '<div style="display:flex;gap:8px;margin-bottom:12px;"><button onclick="showBudgetModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">💰 Budget beállítás</button></div>';
       var total = d.total_cost || d.total || 0;
       var html = card('<div style="text-align:center;padding:10px;">' +
         '<div style="font-size:28px;font-weight:700;color:var(--primary);">$' + esc(total.toFixed ? total.toFixed(2) : total) + '</div>' +
@@ -4649,8 +4651,14 @@ function loadMarveenPage(page) {
           '<div style="display:flex;gap:6px;margin-top:4px;">' +
           '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + statusColor + '22;color:' + statusColor + ';">' + esc(p.status || '?') + '</span>' +
           '<span style="font-size:9px;color:var(--text3);">URL: ' + esc(p.url || '—') + '</span>' +
+          '<button onclick="projectDelete(\'' + esc(p.id || p._id || '') + '\')" style="font-size:9px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:2px 6px;border-radius:4px;cursor:pointer;margin-left:4px;">🗑️</button>' +
           '</div></div></div>');
       });
+      html += '</div>';
+      // Action buttons
+      html += '<div style="display:flex;gap:8px;margin-bottom:8px;">';
+      html += '<button onclick="showProjectAddModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új projekt</button>';
+      html += '<button onclick="projectSync()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔄 Sync</button>';
       html += '</div>';
       // Team section (loaded via JS)
       html += '<div id="projects-team-section" style="margin-top:16px;"></div>';
@@ -5648,6 +5656,103 @@ window.dailySummaryGenerate = function() {
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
+window.showProjectAddModal = function() {
+  var title = prompt('Projekt címe:');
+  if (!title) return;
+  var url = prompt('Projekt URL (opcionális):') || '';
+  var desc = prompt('Leírás (opcionális):') || '';
+  var icon = prompt('Icon (emoji, opcionális):') || '📦';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/projects', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title, url: url, description: desc, icon: icon }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Projekt létrehozva'); loadMarveenPage('projects'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.projectDelete = function(pid) {
+  if (!pid || !confirm('Biztosan törlöd: ' + pid + '?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/projects/' + pid, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Törölve'); loadMarveenPage('projects'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.projectSync = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/projects/sync', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Sync: ' + JSON.stringify(d).substring(0, 200)); loadMarveenPage('projects'); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showLabelAddModal = function() {
+  var name = prompt('Label neve:');
+  if (!name) return;
+  var color = prompt('Szín (hex, pl. #ef4444):') || '#3b82f6';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/labels', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, color: color }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { window._loadSysinfoExtras(); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showDesiredStateModal = function() {
+  var node = prompt('Node neve:');
+  if (!node) return;
+  var ssh = prompt('SSH target (opcionális):') || '';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/desired-state/add', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ node: node, ssh_target: ssh }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { window._loadNetworkExtras(); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.desiredStateRemove = function(node) {
+  if (!confirm('Eltávolítod: ' + node + '?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/desired-state/remove', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ node: node }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { window._loadNetworkExtras(); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.onboardReject = function() {
+  var node = prompt('Rejectelendő node neve:');
+  if (!node) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/onboard/reject', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ node: node }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Reject: ' + JSON.stringify(d).substring(0, 200)); loadMarveenPage('agents'); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showBudgetModal = function() {
+  var budget = prompt('Havi budget ($):');
+  if (!budget) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/costops/budget', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ monthly_budget: parseFloat(budget) }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Budget beállítva'); loadMarveenPage('costs'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.codeReview = function(taskId) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/code-review', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ task_id: taskId }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Code review: ' + JSON.stringify(d).substring(0, 300)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.teamUpdate = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/team/update', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert('Team update: ' + JSON.stringify(d).substring(0, 200)); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -5717,10 +5822,11 @@ window._loadNetworkExtras = function() {
     var keys = Object.keys(dn);
     if (!keys.length) return '';
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">🎯 Desired State</h3>';
+    h += '<div style="display:flex;gap:6px;margin-bottom:6px;"><button onclick="showDesiredStateModal()" style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;">➕ Add</button></div>';
     keys.forEach(function(k) {
       var n = dn[k];
       var enColor = n.enabled ? 'var(--success)' : 'var(--text3)';
-      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px;"><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + enColor + '22;color:' + enColor + ';">' + (n.enabled ? 'ON' : 'OFF') + '</span><strong style="font-size:12px;flex:1;">' + esc(k) + '</strong></div>';
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:4px;display:flex;align-items:center;gap:6px;"><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + enColor + '22;color:' + enColor + ';">' + (n.enabled ? 'ON' : 'OFF') + '</span><strong style="font-size:12px;flex:1;">' + esc(k) + '</strong><button onclick="desiredStateRemove(\'' + esc(k) + '\')" style="font-size:9px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:2px 6px;border-radius:4px;cursor:pointer;">✕</button></div>';
     });
     return h;
   });
@@ -5864,7 +5970,9 @@ window._loadSysinfoExtras = function() {
   });
   window._fetchSection('/api/labels', 'sysinfo-labels-section', function(d) {
     var labels = d.labels || [];
-    if (!labels.length) return '';
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;">🏷️ Labels</h3>';
+    h += '<div style="margin-bottom:6px;"><button onclick="showLabelAddModal()" style="background:var(--primary);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;">➕ Új label</button></div>';
+    if (!labels.length) { h += '<div style="color:var(--text3);font-size:10px;">Nincs label</div>'; return h; }
     var h = '<h3 style="margin:0 0 8px;font-size:13px;">🏷️ Labels</h3>';
     labels.forEach(function(l) {
       h += '<span style="display:inline-block;font-size:10px;padding:3px 8px;border-radius:4px;background:' + esc(l.color || 'var(--primary)') + '22;color:' + esc(l.color || 'var(--primary)') + ';margin:2px;">' + esc(l.name || '?') + '</span>';
