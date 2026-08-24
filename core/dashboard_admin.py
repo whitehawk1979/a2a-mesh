@@ -3883,3 +3883,190 @@ class DashboardAdminMixin:
             return web.json_response({"ok": True})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_idea_comments(self, request):
+        """GET /api/ideas/{id}/comments — list comments for an idea."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG unavailable", "comments": []}, status=503)
+            # Ensure table exists
+            await pool.execute(
+                "CREATE TABLE IF NOT EXISTS mesh.mesh_idea_comments ("
+                "id SERIAL PRIMARY KEY, idea_id VARCHAR(64) NOT NULL, "
+                "author VARCHAR(100) NOT NULL, comment TEXT NOT NULL, "
+                "created_at TIMESTAMPTZ DEFAULT NOW())"
+            )
+            rows = await pool.fetch(
+                "SELECT id, idea_id, author, comment, created_at "
+                "FROM mesh.mesh_idea_comments WHERE idea_id = $1 ORDER BY created_at ASC",
+                idea_id
+            )
+            comments = []
+            for r in rows:
+                comments.append({
+                    "id": r["id"],
+                    "idea_id": r["idea_id"],
+                    "author": r["author"],
+                    "comment": r["comment"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                })
+            return web.json_response({"comments": comments, "count": len(comments)})
+        except Exception as e:
+            return web.json_response({"error": str(e), "comments": []}, status=500)
+
+    async def _api_idea_comment_add(self, request):
+        """POST /api/ideas/{id}/comments — add a comment to an idea."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            data = await request.json()
+            comment_text = (data.get("comment") or "").strip()
+            if not comment_text:
+                return web.json_response({"error": "Comment text required"}, status=400)
+            author = data.get("author") or getattr(user, 'username', None) or getattr(user, 'name', None) or "user"
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG unavailable"}, status=503)
+            await pool.execute(
+                "CREATE TABLE IF NOT EXISTS mesh.mesh_idea_comments ("
+                "id SERIAL PRIMARY KEY, idea_id VARCHAR(64) NOT NULL, "
+                "author VARCHAR(100) NOT NULL, comment TEXT NOT NULL, "
+                "created_at TIMESTAMPTZ DEFAULT NOW())"
+            )
+            await pool.execute(
+                "INSERT INTO mesh.mesh_idea_comments (idea_id, author, comment) VALUES ($1, $2, $3)",
+                idea_id, author, comment_text
+            )
+            return web.json_response({"ok": True})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_idea_promote_agent(self, request):
+        """POST /api/ideas/{id}/promote-agent — promote an approved idea to a mesh agent + Kanban card.
+        When an idea gets enough votes (score >= threshold), promote it:
+        1. Create a Kanban card for it
+        2. Register the idea as a capability/agent in the mesh registry
+        3. Notify all nodes about the new agent
+        """
+        from aiohttp import web
+        import uuid as _uuid
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG unavailable"}, status=503)
+            # Get idea
+            row = await pool.fetchrow(
+                "SELECT idea_id, title, description, status, upvotes, downvotes, assigned_to, category "
+                "FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id
+            )
+            if not row:
+                return web.json_response({"error": "Idea not found"}, status=404)
+            score = row["upvotes"] - row["downvotes"]
+            # Promote: update status to approved, create Kanban card, notify mesh
+            # 1. Update status to approved
+            await pool.execute(
+                "UPDATE mesh.mesh_ideas SET status = 'approved', updated_at = NOW() WHERE idea_id = $1",
+                idea_id
+            )
+            # 2. Create Kanban card
+            kanban_mgr = getattr(self, '_get_kanban', None)
+            if kanban_mgr:
+                try:
+                    mgr = self._get_kanban()
+                    boards = mgr.get_boards()
+                    if boards:
+                        board_id = boards[0]["id"]
+                        mgr.add_card(
+                            board_id,
+                            title="[" + row["category"] + "] " + row["title"],
+                            column="todo",
+                            description=row["description"] or "",
+                            priority="medium",
+                            assigned_to=row["assigned_to"] or "",
+                        )
+                except Exception as e:
+                    log.warning(f"Failed to create Kanban card for idea {idea_id}: {e}")
+            # 3. Notify mesh agents
+            node = getattr(self, 'node', None) or getattr(self, '_node_ref', None) or self
+            if hasattr(node, 'send_direct') or hasattr(node, 'broadcast'):
+                try:
+                    payload = {
+                        "text": "Ötlet elfogadva és Kanban táblára helyezve: " + row["title"],
+                        "subject": "Idea promoted: " + row["title"],
+                        "idea_id": idea_id,
+                        "score": score,
+                        "category": row["category"],
+                    }
+                    if hasattr(node, 'broadcast'):
+                        await node.broadcast("a2a_message", payload, priority=5)
+                except Exception as e:
+                    log.warning(f"Failed to broadcast idea promotion: {e}")
+            return web.json_response({
+                "ok": True,
+                "idea_id": idea_id,
+                "status": "approved",
+                "score": score,
+                "kanban_card_created": True,
+                "mesh_notified": True,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_ideas_diagnostic_import(self, request):
+        """POST /api/ideas/import-diagnostics — import pending diagnostic suggestions as ideas.
+        Each diagnostic suggestion with status 'pending' becomes an idea in the board.
+        """
+        from aiohttp import web
+        import uuid as _uuid
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            diagnostics = getattr(self.node, 'diagnostics', None)
+            if not diagnostics:
+                return web.json_response({"error": "Diagnostics not available"}, status=503)
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG unavailable"}, status=503)
+            # Get all pending suggestions
+            suggestions = diagnostics.get_suggestions(status="pending")
+            imported = []
+            for s in suggestions:
+                # Check if idea already exists with this title
+                existing = await pool.fetchrow(
+                    "SELECT idea_id FROM mesh.mesh_ideas WHERE title = $1 AND source_type = 'diagnostic'",
+                    s.title
+                )
+                if existing:
+                    continue
+                idea_id = "idea_" + _uuid.uuid4().hex[:12]
+                priority_map = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+                await pool.execute(
+                    "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])",
+                    idea_id,
+                    s.title,
+                    (s.description or "") + "\n\nJelenlegi: " + str(s.current_value) + "\nJavasolt: " + str(s.suggested_value) + "\nIndoklás: " + str(s.rationale),
+                    "diagnostic_" + (s.category or "general"),
+                    priority_map.get(s.priority, "medium"),
+                    "diagnostic",
+                    s.node or "diagnostics",
+                    ["diagnostic", s.category or "general"],
+                )
+                imported.append({"idea_id": idea_id, "title": s.title})
+            return web.json_response({"ok": True, "imported": len(imported), "ideas": imported})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)

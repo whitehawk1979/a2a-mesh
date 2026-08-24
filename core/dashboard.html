@@ -3823,7 +3823,10 @@ function loadMarveenPage(page) {
       html += '</div>';
 
       // Submit button
-      html += '<button onclick="showIdeaSubmitForm()" style="background:var(--primary);color:#fff;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;margin-bottom:16px;">+ Új ötlet beküldése</button>';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
+      html += '<button onclick="showIdeaSubmitForm()" style="background:var(--primary);color:#fff;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;">+ Új ötlet beküldése</button>';
+      html += '<button onclick="importDiagnosticsAsIdeas()" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;">🔧 Diagnosztika importálása</button>';
+      html += '</div>';
 
       // Kanban columns
       var columns = [
@@ -3874,6 +3877,12 @@ function loadMarveenPage(page) {
             '</select>';
           // Delete button
           html += '<button onclick="deleteIdea(\'' + esc(idea.id) + '\')" style="width:100%;margin-top:4px;padding:3px;font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;">🗑️ Törlés</button>';
+          // Comment button
+          html += '<button onclick="showIdeaComments(\'' + esc(idea.id) + '\')" style="width:100%;margin-top:4px;padding:3px;font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;">💬 Kommentek</button>';
+          // Promote to agent button (only if score >= 2 and not already approved)
+          if (idea.score >= 2 && idea.status === 'idea') {
+            html += '<button onclick="promoteIdeaToAgent(\'' + esc(idea.id) + '\')" style="width:100%;margin-top:4px;padding:4px;font-size:11px;background:var(--success);border:none;border-radius:4px;color:#fff;cursor:pointer;font-weight:600;">🚀 Elfogadás & Agent felvétel</button>';
+          }
           html += '</div>';
         });
         if (!colIdeas.length) {
@@ -4925,6 +4934,95 @@ window.deleteIdea = function(id) {
       else { console.error('Delete error:', d.error); }
     })
     .catch(function(e) { console.error('Delete failed:', e); });
+};
+
+window.showIdeaComments = function(id) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/ideas/' + id + '/comments', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var body = document.getElementById('marveenModalBody');
+      if (!body) return;
+      var html = '<div style="padding:16px;">';
+      html += '<button onclick="loadMarveenPage(\'research\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;margin-bottom:12px;">← Vissza</button>';
+      html += '<h3 style="margin:0 0 12px;font-size:15px;">💬 Kommentek</h3>';
+      var comments = d.comments || [];
+      if (comments.length) {
+        comments.forEach(function(c) {
+          html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px;">';
+          html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">';
+          html += '<strong style="font-size:12px;color:var(--text2);">' + esc(c.author) + '</strong>';
+          html += '<span style="font-size:10px;color:var(--text3);margin-left:auto;">' + fmtTime(c.created_at) + '</span>';
+          html += '</div>';
+          html += '<div style="font-size:13px;color:var(--text);">' + esc(c.comment) + '</div>';
+          html += '</div>';
+        });
+      } else {
+        html += '<div style="text-align:center;padding:20px;color:var(--text3);">Még nincs komment</div>';
+      }
+      // Add comment form
+      html += '<div style="margin-top:16px;">';
+      html += '<textarea id="ideaCommentText" placeholder="Írj kommentet..." style="width:100%;padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:13px;min-height:60px;resize:vertical;"></textarea>';
+      html += '<button onclick="addIdeaComment(\'' + id + '\')" style="margin-top:8px;background:var(--primary);color:#fff;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:13px;">Komment küldése</button>';
+      html += '</div>';
+      html += '</div>';
+      body.innerHTML = html;
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.addIdeaComment = function(id) {
+  var text = document.getElementById('ideaCommentText').value.trim();
+  if (!text) { alert('Komment szöveg kötelező!'); return; }
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/ideas/' + id + '/comments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ comment: text })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { showIdeaComments(id); }
+      else { alert('Hiba: ' + (d.error || 'ismeretlen')); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.promoteIdeaToAgent = function(id) {
+  if (!confirm('Elfogadod ezt az ötletet és felveszed mesh agentként + Kanban kártyát készítesz?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/ideas/' + id + '/promote-agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        alert('Ötlet elfogadva! Kanban kártya létrehozva, mesh értesítve. Score: ' + d.score);
+        loadMarveenPage('research');
+      } else {
+        alert('Hiba: ' + (d.error || 'ismeretlen'));
+      }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.importDiagnosticsAsIdeas = function() {
+  if (!confirm('Diagnosztikai javaslatok importálása az ötletládába?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/ideas/import-diagnostics', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        alert(d.imported + ' diagnosztikai javaslat importálva!');
+        loadMarveenPage('research');
+      } else {
+        alert('Hiba: ' + (d.error || 'ismeretlen'));
+      }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
 // ─── Settings Functions ──────────────────────────────────
