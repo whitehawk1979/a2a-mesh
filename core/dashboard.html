@@ -4522,6 +4522,66 @@ function loadMarveenPage(page) {
       html += '</div>';
       return html;
     },
+    'diagnostics': function(d) {
+      if (d.error) return errorBox(d.error);
+      var status = d.status || {};
+      var reports = d.recent_reports || [];
+      var suggestions = d.recent_suggestions || [];
+      var html = '';
+      // Status bar
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      var statItems = [
+        {label: 'Engedélyezett', val: status.enabled ? 'Igen' : 'Nem', color: status.enabled ? 'var(--success)' : 'var(--danger)'},
+        {label: 'Reportok', val: status.reports_stored || 0, color: 'var(--primary)'},
+        {label: 'Javaslatok', val: status.suggestions_stored || 0, color: 'var(--warning)'},
+        {label: 'Developer node', val: (status.developer_nodes || []).join(', ') || 'nincs', color: '#c084fc'}
+      ];
+      statItems.forEach(function(s) {
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:100px;">' +
+          '<div style="font-size:16px;font-weight:700;color:' + s.color + ';">' + esc(s.val) + '</div>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(s.label) + '</div></div>';
+      });
+      html += '</div>';
+      // Action buttons
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
+      html += '<button onclick="generateDiagnosticReport()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">🔧 Jelentés generálása</button>';
+      html += '<button onclick="autoImplementSuggestions()" style="background:var(--success);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">⚡ Auto-implement</button>';
+      html += '<button onclick="importDiagnosticsAsIdeas()" style="background:var(--warning);color:#000;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">💡 Import ötletládába</button>';
+      html += '</div>';
+      // Reports section
+      if (reports.length) {
+        html += '<h3 style="margin:0 0 10px;font-size:14px;">📋 Jelentések (' + reports.length + ')</h3>';
+        reports.forEach(function(r) {
+          var sevColor = r.severity === 'critical' ? 'var(--danger)' : r.severity === 'warning' ? 'var(--warning)' : 'var(--text3)';
+          html += card('<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+            '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + sevColor + ';color:#fff;font-weight:600;">' + esc(r.severity || 'info') + '</span>' +
+            '<strong style="font-size:13px;flex:1;">' + esc(r.node || '?') + ' — ' + esc(r.report_type || 'on_demand') + '</strong>' +
+            '<span style="font-size:10px;color:var(--text3);">' + fmtTime(r.timestamp) + '</span></div>' +
+            '<div style="font-size:11px;color:var(--text2);margin-bottom:6px;">' + esc(r.summary || '') + '</div>');
+        });
+      }
+      // Suggestions section
+      if (suggestions.length) {
+        html += '<h3 style="margin:20px 0 10px;font-size:14px;">💡 Javaslatok (' + suggestions.length + ')</h3>';
+        suggestions.slice(0, 20).forEach(function(s) {
+          var priColor = s.priority === 'critical' ? 'var(--danger)' : s.priority === 'high' ? 'var(--warning)' : s.priority === 'medium' ? 'var(--primary)' : 'var(--text3)';
+          var stColor = s.status === 'accepted' ? 'var(--success)' : s.status === 'rejected' ? 'var(--danger)' : 'var(--text3)';
+          html += card('<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px;">' +
+            '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + priColor + ';color:#fff;font-weight:600;flex-shrink:0;">' + esc(s.priority) + '</span>' +
+            '<div style="flex:1;"><strong style="font-size:13px;">' + esc(s.title || '') + '</strong>' +
+            '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + esc(s.description || '') + '</div>' +
+            '<div style="display:flex;gap:6px;margin-top:6px;align-items:center;">' +
+            '<span style="font-size:9px;color:var(--text3);">📂 ' + esc(s.category || '') + '</span>' +
+            '<span style="font-size:9px;color:var(--text3);">📍 ' + esc(s.node || '') + '</span>' +
+            '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + stColor + '22;color:' + stColor + ';">' + esc(s.status || 'pending') + '</span>' +
+            '</div></div></div>');
+        });
+        if (suggestions.length > 20) {
+          html += '<div style="text-align:center;color:var(--text3);font-size:11px;padding:8px;">+ ' + (suggestions.length - 20) + ' további javaslat...</div>';
+        }
+      }
+      return html || empty('Nincs diagnosztikai adat');
+    },
     'insights-dream': function(d) {
       if (d.error) return errorBox(d.error);
       var html = '<div style="padding:16px;">';
