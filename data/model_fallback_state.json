@@ -7,6 +7,11 @@
         "timestamp": 1787597629.499326,
         "model": "",
         "error_type": "unknown"
+      },
+      {
+        "timestamp": 1787599088.2220821,
+        "model": "test",
+        "error_type": "unknown"
       }
     ]
   }

@@ -1840,7 +1840,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787598795.8167648,
-        "updated_at": 1787598997.358347,
+        "updated_at": 1787599085.635894,
         "delegation_task_id": "37887372-b77a-4c1e-a067-57e4e295d6ce",
         "description": "Teszt",
         "task_type": "generic",
@@ -1904,19 +1904,57 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787598997.358759
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787599079.3040042
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] Acknowledged task 'Teszt delegacio' at 2026-08-24T19:13:[PHONE REDACTED]+00:00",
+            "timestamp": 1787599080.0084019
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787599080.0231192
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "def371a6",
+            "timestamp": 1787599080.510433
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787599085.636462
           }
         ],
         "delegation_status": "completed",
         "delegation_result": "[morzsa] Acknowledged task 'Teszt delegacio' at 2026-08-24T19:13:[PHONE REDACTED]+00:00",
         "completed_at": "2026-08-24 19:13:20.995588+00:",
         "reviewer": "tor",
-        "review_task_id": "641f9272-7b56-413e-8ae9-0aeca9afa83d",
+        "review_task_id": "def371a6-cdd0-4136-a5b3-68b16b70c5b3",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787598997.358346
+        "reviewed_at": 1787599085.635893
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787598991.182522
+    "updated_at": 1787599080.1986518
   }
 ]

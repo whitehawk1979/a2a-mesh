@@ -2465,7 +2465,8 @@ function loadMarveenPage(page) {
     },
 
     tokenUsage: function(d) {
-      if (d.error) return errorBox(d.error);
+      if (d.error) html += '<canvas id="tokenChartCanvas" style="width:100%;height:200px;margin-top:12px;border-radius:8px;"></canvas>';
+      return errorBox(d.error);
       var total = d.total_tokens || d.total || 0;
       var html = card('<div style="text-align:center;padding:10px;">' +
         '<div style="font-size:28px;font-weight:700;color:var(--primary);">' + esc(total.toLocaleString ? total.toLocaleString() : total) + '</div>' +
@@ -2984,6 +2985,7 @@ function loadMarveenPage(page) {
       return html;
     },
     'insights-cost': function(d) {
+      setTimeout(function() { window.loadCostChart && window.loadCostChart(); }, 50);
       if (d.error) return errorBox(d.error);
       var html = '';
       var summary = d.summary || [];
@@ -3001,6 +3003,7 @@ function loadMarveenPage(page) {
           html += card('<div style=\"display:flex;align-items:center;gap:8px\">' + badge(a.level.toUpperCase(), c) + '<span>' + esc(a.message) + '</span></div>');
         });
       }
+      html += '<canvas id="costChartCanvas" style="width:100%;height:200px;margin-top:12px;border-radius:8px;"></canvas>';
       return html || empty('Nincs költség adat');
     },
     'insights-inbox': function(d) {
@@ -3393,6 +3396,8 @@ function loadMarveenPage(page) {
       return html;
     },
     'alerts': function(d) {
+      var html = '';
+      html += '<div style="margin-bottom:12px;"><button onclick="showAlertRuleEditor()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új szabály</button></div>';
       if (d.error) return errorBox(d.error);
       var running = d.running;
       var totalRules = d.total_rules || 0;
@@ -4436,6 +4441,190 @@ window.routeCalc = function() {
     .catch(function(e) { alert('Error: ' + e); });
 };
 
+// ─── Cost Chart ──
+window.renderCostChart = function(canvasId, data) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width = canvas.offsetWidth || 400;
+  var h = canvas.height = 200;
+  ctx.clearRect(0, 0, w, h);
+  
+  var summary = data.summary || {};
+  var byAgent = summary.by_agent || {};
+  var agents = Object.keys(byAgent);
+  var costs = agents.map(function(a) { return byAgent[a] || 0; });
+  var maxCost = Math.max.apply(null, costs.concat([0.01]));
+  
+  // Background
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (var g = 0; g < 4; g++) {
+    var gy = h - (g + 1) * h / 4;
+    ctx.beginPath();
+    ctx.moveTo(40, gy);
+    ctx.lineTo(w - 10, gy);
+    ctx.stroke();
+  }
+  
+  // Bars
+  var colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+  var barW = agents.length > 0 ? Math.min(60, (w - 60) / agents.length) : 0;
+  for (var i = 0; i < agents.length; i++) {
+    var barH = maxCost > 0 ? (costs[i] / maxCost) * (h - 40) : 0;
+    var x = 50 + i * (barW + 10);
+    var y = h - 20 - barH;
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(x, y, barW, barH);
+    // Label
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(agents[i].substring(0, 6), x + barW/2, h - 5);
+    ctx.fillText('$' + costs[i].toFixed(4), x + barW/2, y - 5);
+  }
+  
+  // Title
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Költség agentenként ($' + (summary.total_cost_usd || 0).toFixed(4) + ')', 10, 15);
+};
+
+window.loadCostChart = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/insights/cost', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      window.renderCostChart('costChartCanvas', d);
+    })
+    .catch(function(e) { console.error('Cost chart error:', e); });
+};
+
+// ─── Token Usage Chart ──
+window.renderTokenChart = function(canvasId, data) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width = canvas.offsetWidth || 400;
+  var h = canvas.height = 200;
+  ctx.clearRect(0, 0, w, h);
+  
+  var byAgent = data.by_agent || {};
+  var agents = Object.keys(byAgent);
+  if (!agents.length) {
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Nincs token adat', w/2, h/2);
+    return;
+  }
+  
+  var totals = agents.map(function(a) {
+    var d = byAgent[a] || {};
+    return (d.input || 0) + (d.output || 0);
+  });
+  var maxT = Math.max.apply(null, totals.concat([1]));
+  
+  // Background
+  ctx.fillStyle = 'rgba(255,255,255,0.03)';
+  ctx.fillRect(0, 0, w, h);
+  
+  // Stacked bars (input + output)
+  var colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+  var barW = agents.length > 0 ? Math.min(60, (w - 60) / agents.length) : 0;
+  for (var i = 0; i < agents.length; i++) {
+    var d = byAgent[agents[i]] || {};
+    var inT = d.input || 0;
+    var outT = d.output || 0;
+    var inH = maxT > 0 ? (inT / maxT) * (h - 40) : 0;
+    var outH = maxT > 0 ? (outT / maxT) * (h - 40) : 0;
+    var x = 50 + i * (barW + 10);
+    var yOut = h - 20 - outH;
+    var yIn = yOut - inH;
+    
+    // Output (bottom)
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fillRect(x, yOut, barW, outH);
+    // Input (top)
+    ctx.fillStyle = colors[(i + 2) % colors.length];
+    ctx.fillRect(x, yIn, barW, inH);
+    
+    // Labels
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(agents[i].substring(0, 6), x + barW/2, h - 5);
+    ctx.fillText(String(totals[i]), x + barW/2, yIn - 5);
+  }
+  
+  // Title
+  ctx.fillStyle = 'rgba(255,255,255,0.8)';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('Token használat (' + (data.total_tokens || 0) + ' total)', 10, 15);
+};
+
+window.loadTokenChart = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/token-usage', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      window.renderTokenChart('tokenChartCanvas', d);
+    })
+    .catch(function(e) { console.error('Token chart error:', e); });
+};
+
+// ─── Alert Rule Editor ──
+window.showAlertRuleEditor = function(ruleId) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/alerts', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var rules = d.rules || [];
+      var rule = ruleId ? rules.filter(function(r) { return r.id === ruleId; })[0] : null;
+      var html = '<div style="padding:16px;">';
+      html += '<h3 style="margin:0 0 12px;">' + (rule ? 'Szabály szerkesztése' : 'Új riasztási szabály') + '</h3>';
+      html += '<label style="display:block;margin-bottom:8px;">Név:<br><input id="arName" type="text" value="' + (rule ? (rule.name || '') : '') + '" style="width:100%;padding:6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);"></label>';
+      html += '<label style="display:block;margin-bottom:8px;">Leírás:<br><input id="arDesc" type="text" value="' + (rule ? (rule.description || '') : '') + '" style="width:100%;padding:6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);"></label>';
+      html += '<label style="display:block;margin-bottom:8px;">Kategória:<br><select id="arCat" style="width:100%;padding:6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);"><option value="connectivity">Kapcsolat</option><option value="performance">Teljesítmény</option><option value="security">Biztonság</option><option value="cost">Költség</option></select></label>';
+      html += '<label style="display:block;margin-bottom:8px;">Prioritás:<br><select id="arPri" style="width:100%;padding:6px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);"><option value="low">Alacsony</option><option value="medium" selected>Közepes</option><option value="high">Magas</option><option value="critical">Kritikus</option></select></label>';
+      html += '<div style="display:flex;gap:8px;margin-top:12px;">';
+      html += '<button onclick="saveAlertRule(\'' + (ruleId || '') + '\')" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">Mentés</button>';
+      html += '<button onclick="document.getElementById(\'marveenModal\').style.display=\'none\'" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:6px;cursor:pointer;">Mégse</button>';
+      html += '</div></div>';
+      var modal = document.getElementById('marveenModal');
+      if (modal) {
+        modal.querySelector('.file-modal').innerHTML = html;
+        modal.style.display = 'flex';
+      }
+    });
+};
+
+window.saveAlertRule = function(ruleId) {
+  var name = document.getElementById('arName').value;
+  var desc = document.getElementById('arDesc').value;
+  var cat = document.getElementById('arCat').value;
+  var pri = document.getElementById('arPri').value;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/alerts/rules/' + (ruleId || 'new'), {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, description: desc, category: cat, priority: pri, enabled: true })
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      alert('Szabály mentve: ' + JSON.stringify(d));
+      loadMarveenPage('alerts');
+      document.getElementById('marveenModal').style.display = 'none';
+    })
+    .catch(function(e) { alert('Hiba: ' + e); });
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -4599,7 +4788,7 @@ window._loadSysinfoExtras = function() {
       html += '<button onclick="routeCalc()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔀 Route Calc</button>';
       html += '<button onclick="sendAgentMessage()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">📤 Agent Msg</button>';
       html += '<button onclick="agentReply()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">↩️ Agent Reply</button>';
-      html += '</div>';';
+      html += '</div>';
     h += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
     var items = [
       {l: 'Outbound pending', v: ls.outbound_pending || 0, c: 'var(--warning)'},
