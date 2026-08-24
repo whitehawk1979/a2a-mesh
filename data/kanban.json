@@ -1796,9 +1796,21 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787585572.775166
+      },
+      {
+        "id": "card-1787598507927-59",
+        "title": "API Test Card",
+        "description": "Teszt",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787598507.927215,
+        "updated_at": 1787598507.927216,
+        "created_by": "unknown"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787585567.3811321
+    "updated_at": 1787598507.927222
   }
 ]

@@ -3837,14 +3837,24 @@ class DashboardAdminMixin:
 
             idea_id = "idea_" + _uuid.uuid4().hex[:12]
             pool = self._get_pg_pool()
-            if not pool:
-                return web.json_response({"error": "PG unavailable"}, status=503)
-
-            await pool.execute(
-                "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])",
-                idea_id, title, description, category, priority, source_type, submitted_by, tags
-            )
+            if pool:
+                await pool.execute(
+                    "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])",
+                    idea_id, title, description, category, priority, source_type, submitted_by, tags
+                )
+            else:
+                # JSON file fallback when PG unavailable
+                import os as _os, json as _json
+                ideas_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "data", "ideas.json")
+                ideas = []
+                if _os.path.exists(ideas_path):
+                    with open(ideas_path, "r") as _f:
+                        try: ideas = _json.loads(_f.read())
+                        except: ideas = []
+                ideas.append({"id": idea_id, "title": title, "description": description, "category": category, "priority": priority, "source_type": source_type, "submitted_by": submitted_by, "tags": tags, "votes": 0, "status": "open", "created_at": __import__("time").time()})
+                with open(ideas_path, "w") as _f:
+                    _f.write(_json.dumps(ideas, indent=2))
             return web.json_response({"ok": True, "id": idea_id})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
