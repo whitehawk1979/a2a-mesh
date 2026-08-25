@@ -1,31 +1,36 @@
 {
   "total": {
     "input": 0,
-    "output": 1589,
-    "requests": 58
+    "output": 1874,
+    "requests": 65
   },
   "by_agent": {
     "runa": {
       "input": 0,
-      "output": 567,
-      "requests": 22
+      "output": 708,
+      "requests": 24
     },
     "morzsa": {
       "input": 0,
-      "output": 848,
-      "requests": 32
+      "output": 955,
+      "requests": 35
     },
     "tor": {
       "input": 0,
-      "output": 174,
-      "requests": 4
+      "output": 203,
+      "requests": 5
+    },
+    "null": {
+      "input": 0,
+      "output": 8,
+      "requests": 1
     }
   },
   "by_model": {
     "unknown": {
       "input": 0,
-      "output": 1589,
-      "requests": 58
+      "output": 1874,
+      "requests": 65
     }
   }
 }

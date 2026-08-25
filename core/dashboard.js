@@ -4625,6 +4625,135 @@ window.saveAlertRule = function(ruleId) {
     .catch(function(e) { alert('Hiba: ' + e); });
 };
 
+// ─── Toast Notifications ──
+window.showToast = function(msg, type) {
+  type = type || 'info';
+  var toast = document.createElement('div');
+  var colors = { info: 'var(--primary)', success: 'var(--success)', warning: 'var(--warning)', error: 'var(--danger)' };
+  var icons = { info: 'ℹ️', success: '✅', warning: '⚠️', error: '❌' };
+  toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--surface);border:1px solid ' + (colors[type] || colors.info) + ';border-radius:8px;padding:12px 16px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-size:13px;max-width:350px;display:flex;align-items:center;gap:8px;transition:opacity 0.3s,transform 0.3s;opacity:0;transform:translateY(20px);';
+  toast.innerHTML = '<span>' + (icons[type] || icons.info) + '</span><span style="flex:1;color:var(--text);">' + esc(msg) + '</span>';
+  document.body.appendChild(toast);
+  setTimeout(function() { toast.style.opacity = '1'; toast.style.transform = 'translateY(0)'; }, 10);
+  setTimeout(function() {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(20px)';
+    setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+  }, 4000);
+};
+
+// ─── Loading Spinner ──
+window.showLoading = function() {
+  var existing = document.getElementById('loadingOverlay');
+  if (existing) return;
+  var overlay = document.createElement('div');
+  overlay.id = 'loadingOverlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.3);z-index:99998;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = '<div style="width:40px;height:40px;border:3px solid var(--surface2);border-top:3px solid var(--primary);border-radius:50%;animation:spin 1s linear infinite;"></div><style>@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}</style>';
+  document.body.appendChild(overlay);
+};
+
+window.hideLoading = function() {
+  var overlay = document.getElementById('loadingOverlay');
+  if (overlay) overlay.parentNode.removeChild(overlay);
+};
+
+// ─── Export CSV/JSON ──
+window.exportData = function(data, filename, format) {
+  format = format || 'json';
+  var content, mime;
+  if (format === 'csv') {
+    var keys = Object.keys(data[0] || {});
+    var rows = [keys.join(',')];
+    data.forEach(function(item) {
+      rows.push(keys.map(function(k) { return '"' + String(item[k] || '').replace(/"/g, '\"') + '"'; }).join(','));
+    });
+    content = rows.join('\n');
+    mime = 'text/csv';
+  } else {
+    content = JSON.stringify(data, null, 2);
+    mime = 'application/json';
+  }
+  var blob = new Blob([content], { type: mime });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = filename || ('export_' + Date.now() + '.' + format);
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Exportálva: ' + (filename || 'export'), 'success');
+};
+
+window.exportCurrentPage = function() {
+  var page = currentPage || '';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var apiUrl = apiMap[page];
+  if (!apiUrl) { showToast('Nem exportálható oldal', 'warning'); return; }
+  fetch(apiUrl, { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var data = d.nodes || d.agents || d.tasks || d.entries || d.items || d.rules || d.boards || d.ideas || [d];
+      if (!Array.isArray(data)) data = [data];
+      exportData(data, page + '_export_' + Date.now() + '.json', 'json');
+    })
+    .catch(function(e) { showToast('Export hiba: ' + e, 'error'); });
+};
+
+// ─── Global Search ──
+window.globalSearch = function(query) {
+  if (!query || query.length < 2) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var results = [];
+  var pages = ['nodes', 'agents', 'delegations', 'tasks', 'kanban', 'ideas', 'labels', 'vault'];
+  var pending = pages.length;
+  pages.forEach(function(page) {
+    var apiUrl = apiMap[page];
+    if (!apiUrl) { pending--; return; }
+    fetch(apiUrl, { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        var items = d.nodes || d.agents || d.tasks || d.boards || d.ideas || d.entries || d.items || d.labels || [];
+        if (Array.isArray(items)) {
+          items.forEach(function(item) {
+            var str = JSON.stringify(item).toLowerCase();
+            if (str.indexOf(query.toLowerCase()) >= 0) {
+              results.push({ page: page, item: item });
+            }
+          });
+        }
+        pending--;
+        if (pending === 0) {
+          showSearchResults(results, query);
+        }
+      })
+      .catch(function() { pending--; if (pending === 0) showSearchResults(results, query); });
+  });
+};
+
+window.showSearchResults = function(results, query) {
+  var html = '<div style="padding:16px;">';
+  html += '<h3 style="margin:0 0 12px;">🔍 Keresés: "' + esc(query) + '" — ' + results.length + ' találat</h3>';
+  if (!results.length) {
+    html += '<p style="color:var(--text3);">Nincs találat</p>';
+  } else {
+    results.forEach(function(r) {
+      var name = r.item.node_name || r.item.name || r.item.title || r.item.subject || r.item.key || r.item.id || '?';
+      html += '<div style="background:var(--surface2);padding:8px 12px;border-radius:6px;margin-bottom:4px;cursor:pointer;" onclick="loadMarveenPage(\'' + r.page + '\'); document.getElementById(\'marveenModal\').style.display=\'none\';">';
+      html += '<span style="font-size:11px;color:var(--text3);">[' + r.page + ']</span> ';
+      html += '<span style="font-size:13px;">' + esc(String(name)) + '</span>';
+      html += '</div>';
+    });
+  }
+  html += '</div>';
+  var modal = document.getElementById('marveenModal');
+  if (modal) {
+    modal.querySelector('.file-modal').innerHTML = html;
+    modal.style.display = 'flex';
+  }
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';

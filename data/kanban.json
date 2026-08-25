@@ -2104,9 +2104,142 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787600720.5842419
+      },
+      {
+        "id": "card-1787632254854-64",
+        "title": "[DEPLOY] git pull + restart",
+        "description": "{'remote': 'gitea', 'branch': 'main', 'action': 'pull_restart'}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787632254.8543491,
+        "updated_at": 1787632314.4968581,
+        "created_by": "unknown",
+        "delegation_task_id": "a6b56957-6528-41fb-b85f-118adf3a9e02",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787632254.868701
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK \\u2014 74325d8 fix: os import missing in dashboard_files.py \\u2014 /api/files 500 root cause\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete \\u2014 node will restart shortly",
+            "timestamp": 1787632297.805641
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "4e057436",
+            "timestamp": 1787632298.2932348
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "All deployment steps completed: fetch OK, merge OK with commit info, restart scheduled, deploy marked complete.",
+            "timestamp": 1787632314.497277
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK \\u2014 74325d8 fix: os import missing in dashboard_files.py \\u2014 /api/files 500 root cause\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete \\u2014 node will restart shortly",
+        "completed_at": "2026-08-25 04:31:01.934988+00:",
+        "reviewer": "tor",
+        "review_task_id": "4e057436-d420-4672-937f-dda7d6836889",
+        "review_status": "accept",
+        "review_reason": "All deployment steps completed: fetch OK, merge OK with commit info, restart scheduled, deploy marked complete.",
+        "reviewed_at": 1787632314.496855
+      },
+      {
+        "id": "card-1787632255537-65",
+        "title": "[DEPLOY] git pull + restart",
+        "description": "{'remote': 'origin', 'branch': 'main', 'action': 'pull_restart'}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787632255.537584,
+        "updated_at": 1787632303.597756,
+        "created_by": "unknown",
+        "delegation_task_id": "dc4524b3-18f9-4192-808b-e9ef4ea30027",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787632255.55267
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch: OK\n[runa] git merge: OK \\u2014 74325d8 fix: os import missing in dashboard_files.py \\u2014 /api/files 500 root cause\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete \\u2014 node will restart shortly",
+            "timestamp": 1787632297.689464
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "d515281c",
+            "timestamp": 1787632298.160405
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787632303.598189
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch: OK\n[runa] git merge: OK \\u2014 74325d8 fix: os import missing in dashboard_files.py \\u2014 /api/files 500 root cause\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete \\u2014 node will restart shortly",
+        "completed_at": "2026-08-25 04:31:03.433977+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "d515281c-94fc-4173-84a0-67ea0c667779",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787632303.597753
+      },
+      {
+        "id": "card-1787632255929-66",
+        "title": "[DEPLOY] git pull + restart",
+        "description": "{'remote': 'origin', 'branch': 'main', 'action': 'pull_restart'}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787632255.92934,
+        "updated_at": 1787632297.658797,
+        "created_by": "unknown",
+        "delegation_task_id": "b9774693-49e4-4cef-ad64-75ea18c7d0c2",
+        "delegation_status": "cancelled",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787632255.943323
+          }
+        ],
+        "delegation_result": "Fan-out: sibling completed by runa",
+        "result_file": "",
+        "completed_at": ""
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787600696.651857
+    "updated_at": 1787632297.915978
   }
 ]
