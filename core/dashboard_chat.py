@@ -210,7 +210,7 @@ async def handle_chat_contacts(node, request, pool, user):
                       COUNT(CASE WHEN read_at IS NULL AND sender != $1 THEN 1 END) as unread,
                       MAX(created_at) as last_msg
                FROM mesh.mesh_chat_messages
-               WHERE username = $1
+               WHERE username = $1 AND recipient != $1
                GROUP BY recipient
                ORDER BY last_msg DESC""",
             username
