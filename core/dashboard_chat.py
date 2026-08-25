@@ -209,17 +209,20 @@ async def handle_chat_contacts(node, request, pool, user):
             r["last_msg"] = str(r["last_msg"]) if r.get("last_msg") else None
             contacts.append(r)
 
-        # Also list all available mesh agents (even if no chat yet)
+        # Also list all available mesh agents (including self)
         try:
             agent_rows = await pool.fetch(
-                "SELECT node_name FROM mesh.mesh_nodes WHERE node_name != $1 ORDER BY node_name",
-                getattr(node, "node_name", "nova")
+                "SELECT node_name FROM mesh.mesh_nodes ORDER BY node_name"
             )
             existing = {c["agent"] for c in contacts}
+            local_node = getattr(node, "node_name", "nova")
             for ar in agent_rows:
                 name = ar["node_name"]
                 if name not in existing:
                     contacts.append({"agent": name, "total": 0, "unread": 0, "last_msg": None})
+            # Ensure self is in the list
+            if local_node not in existing:
+                contacts.append({"agent": local_node, "total": 0, "unread": 0, "last_msg": None})
         except Exception:
             pass
 
