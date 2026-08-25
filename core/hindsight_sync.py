@@ -86,8 +86,12 @@ class HindsightSync:
             try:
                 import urllib.request
                 import urllib.parse
-                brain_host = getattr(self.node.config, 'brain_host', '192.168.1.8')
-                brain_port = getattr(self.node.config, 'brain_port', 3322)
+                try:
+                    brain_host = getattr(self.node.config, 'brain_host', None) or '192.168.1.8'
+                    brain_port = getattr(self.node.config, 'brain_port', 3322)
+                except Exception:
+                    brain_host = '192.168.1.8'
+                    brain_port = 3322
                 embed_text = f"{subject}: {result[:1000]}"
                 data = json.dumps({"id": None, "text": embed_text[:2000]}).encode()
                 # Get the last inserted ID
@@ -122,8 +126,12 @@ class HindsightSync:
         try:
             import urllib.request
             import urllib.parse
-            brain_host = getattr(self.node.config, 'brain_host', '192.168.1.8')
-            brain_port = getattr(self.node.config, 'brain_port', 3322)
+            try:
+                brain_host = getattr(self.node.config, 'brain_host', None) or '192.168.1.8'
+                brain_port = getattr(self.node.config, 'brain_port', 3322)
+            except Exception:
+                brain_host = '192.168.1.8'
+                brain_port = 3322
             url = f"http://{brain_host}:{brain_port}/mesh/memory/vector?query={urllib.parse.quote(subject)}&limit={limit}"
             req = urllib.request.Request(url, method='GET')
             resp = urllib.request.urlopen(req, timeout=5)
