@@ -1117,7 +1117,7 @@ class DelegationManager:
         # Inject prior memory context for this subject
         try:
             from .hindsight_sync import HindsightSync
-            hs = HindsightSync(self.node)
+            hs = HindsightSync(None)  # No node object needed — Brain host is hardcoded fallback
             hs.set_pg_pool(self.pg_pool)
             prior_memory = await hs.get_context_for_prompt(subject, limit=3)
             if prior_memory:
@@ -1243,7 +1243,7 @@ class DelegationManager:
             # Save to mesh_memory for shared knowledge across agents
             try:
                 from .hindsight_sync import HindsightSync
-                hs = HindsightSync(self.node)
+                hs = HindsightSync(None)  # No node object
                 hs.set_pg_pool(self.pg_pool)
                 await hs.save_delegation_result({
                     "task_id": str(task_id),

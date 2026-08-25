@@ -22,9 +22,9 @@ class HindsightSync:
     """Sync mesh delegation results to Hindsight long-term memory."""
 
     def __init__(self, node):
-        self.node = node
+        self.node = node  # May be None — Brain host uses hardcoded fallback
         self._pg_pool = None
-        self._enabled = getattr(node.config, 'hindsight_enabled', True)
+        self._enabled = True  # Always enabled — hindsight is just memory, non-fatal
 
     def set_pg_pool(self, pool):
         """Set PG pool for direct DB access."""
