@@ -458,23 +458,33 @@ function sendMessage() {
     body: JSON.stringify({ recipient: to, content: content, msg_type: "chat" })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.ok) {
-      // Add message to current chat view (both broadcast and DM channels)
-      addMessage({
-        id: d.message_id || ("local_" + Date.now()),
-        sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
-        recipient: to,
-        type: "chat",
-        content: content,
-        timestamp: new Date().toISOString(),
-        priority: priority,
-        source: "web_dashboard",
-        username: authUser ? authUser.display_name : "Zsolt"
-      }, true);
       input.value = "";
       scrollToBottom();
-      // Instant refresh — fetch auto-ack reply immediately
-      setTimeout(loadMessages, 300);
-      setTimeout(loadMessages, 1500);
+      // For DM channels: use _loadChatMessages (Marveen pattern — single conversation view)
+      // For general: use addMessage + loadMessages
+      var ch = currentChannel || "general";
+      if (ch !== "general") {
+        // DM: instant refresh via dedicated loader
+        setTimeout(function() { window._loadChatMessages(ch, true); }, 100);
+        setTimeout(function() { window._loadChatMessages(ch, true); }, 1000);
+        setTimeout(function() { window._loadChatMessages(ch, true); }, 3000);
+      } else {
+        // Broadcast: add to main chat and refresh
+        addMessage({
+          id: d.message_id || ("local_" + Date.now()),
+          sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
+          recipient: to,
+          type: "chat",
+          content: content,
+          timestamp: new Date().toISOString(),
+          priority: priority,
+          source: "web_dashboard",
+          username: authUser ? authUser.display_name : "Zsolt"
+        }, true);
+        scrollToBottom();
+        setTimeout(loadMessages, 300);
+        setTimeout(loadMessages, 1500);
+      }
     } else {
       log("Send failed: " + (d.error || "unknown"));
     }
@@ -683,10 +693,18 @@ function loadStatus() {
 }
 
 function loadMessages() {
-  // Use new chat API with auth header
+  // Main chat ONLY handles general/broadcast channel.
+  // DM channels are handled by _loadChatMessages() with /api/chat/messages?with=X
+  var ch = currentChannel || "general";
+  if (ch !== "general") {
+    // DM channel: use the DM panel loader instead
+    if (typeof window._loadChatMessages === "function") {
+      window._loadChatMessages(ch, true);
+    }
+    return;
+  }
   var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
   fetch("/api/chat/messages?limit=100", {
-    headers: { "Authorization": "Bearer " + token }
   }).then(function(r) {
     if (r.status === 401) { console.warn("[DM] 401 — token expired"); return null; }
     if (r.status === 429) { console.warn("[DM] 429 — rate limited"); return null; }
@@ -4033,14 +4051,15 @@ window._loadChatMessages = function(agentName, pollOnly) {
   }).then(function(r) { return r.json(); })
     .then(function(d) {
       var msgs = (d.messages || []).reverse(); // oldest first
-      var container = document.getElementById('chatMessages');
+      // Use main chat container for DM messages (Marveen pattern: single conversation view)
+      var container = document.getElementById('messages') || document.getElementById('chatMessages');
       if (!container) return;
       if (!msgs.length) {
-        if (!pollOnly) container.innerHTML = '<div style="color:var(--text3);font-size:13px;">Nincs üzenet. Írj valamit! 👋</div>';
+        if (!pollOnly) container.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Nincs üzenet. Írj valamit! 👋</div>';
         return;
       }
       var html = '';
-      var username = window._chatUsername || 'dashboard';
+      var username = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || 'zsolt';
       msgs.forEach(function(m) {
         var isSent = (m.sender === username);
         var senderName = esc(m.sender || '?');
