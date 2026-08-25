@@ -1742,6 +1742,12 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
         except (ValueError, TypeError, AttributeError):
             desc_text = desc_raw if desc_raw else subject
 
+        # Inject prior_memory from HindsightSync recall
+        if isinstance(context, dict) and context.get("prior_memory"):
+            desc_ctx = dict(desc_ctx) if desc_ctx else {}
+            desc_ctx["prior_memory"] = context["prior_memory"]
+            desc_text = desc_text + "\n\n--- Prior Memory ---\n" + context["prior_memory"]
+
         # ── Task dispatcher based on keywords ────────────────────────
         # Normalize: remove diacritics for matching (írj -> irj, fájl -> fajl)
         import unicodedata

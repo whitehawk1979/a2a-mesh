@@ -1,4 +1,4 @@
-# 🌙 Dream Engine — 2026-08-25T06:18:24.125881+00:00
+# 🌙 Dream Engine — 2026-08-25T06:22:24.322648+00:00
 **Node:** unknown
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -33,14 +33,14 @@ Archiválható (done >7nap): 53
 
 ## 💰 Bucket 7 — Költség
 
-- WARNING: cost bucket returned non-dict: 💰 **Költség (hó):** $0.0004
-   Token: 0 in / 5,710 out
-   runa: $0.0002
+- WARNING: cost bucket returned non-dict: 💰 **Költség (hó):** $0.0005
+   Token: 0 in / 6,410 out
    morzsa: $0.0002
+   runa: $0.0002
    tor: $0.0000
    None: $0.0000
-📊 Token használat: 5,710 total (128 kérés)
-   runa: 2,650 tokens
+📊 Token használat: 6,410 total (132 kérés)
+   runa: 2,668 tokens
    morzsa: 
 
 ## 🎯 Reggeli javaslatok

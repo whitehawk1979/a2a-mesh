@@ -2695,9 +2695,161 @@
         "delegation_result": "Fan-out: sibling completed by runa",
         "result_file": "",
         "completed_at": ""
+      },
+      {
+        "id": "card-1787638783354-67",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787638783.354859,
+        "updated_at": 1787638783.370583,
+        "created_by": "unknown",
+        "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638783.37058
+          }
+        ]
+      },
+      {
+        "id": "card-1787638783424-68",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "column": "todo",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787638783.424513,
+        "updated_at": 1787638822.0123022,
+        "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
+        "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638783.4245188
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2840 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A Mesh Agent: morzsa\n  Datum: 2026-08-25 09:20:00\n============================================================\n\n================================================================\n   AZ A2A (Agent-to-Agent) MESH ARCHITEKTURA OSSZEFOGLALOJA\n====================================================",
+            "timestamp": 1787638805.953453
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "3d155e02",
+            "timestamp": 1787638806.227154
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
+            "timestamp": 1787638822.0129259
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2840 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A Mesh Agent: morzsa\n  Datum: 2026-08-25 09:20:00\n============================================================\n\n================================================================\n   AZ A2A (Agent-to-Agent) MESH ARCHITEKTURA OSSZEFOGLALOJA\n================================================================\n\nAz A2A (Agent-to-Agent) Mesh Architektura egy decentralizalt\nhalozati modell, amelyben az onallo AI agentek kozvetlenul\nkommunikalnak egymassal, kozponti koordinator nelkul.\n\nFo jellemzok:\n- Decentralizalt topologia: Nincs kozponti szerver; minden\n  agent egyenrangu csomopontkent mukodik a halozatban.\n- Peer-to-peer kommunikacio: Az agentek kozvetlenul\n  kuldhetnek es fogadhatnak uzeneteket, feladatokat es\n  adatokat egymas kozott.\n- Dinamikus halozat: Az agentek barmikor csatlakozhatnak\n  vagy levalhatnak; a mesh automatikusan alkalmazkodik.\n- Feladat-delegacio: Egy agent atadhat reszfeladatokat\n  mas agenteknek, amelyek specializalt kepesseggel\n  rendelkeznek (pl. kodolas, elemzes, forditas).\n- Onallo dontes: Minden agent sajat celjai es\n  kepessegei alapjan donti el, milyen feladatokat\n  fogad el vagy utasit el.\n- Skalazhatosag: A halozat novekedesevel a kapacitas\n  is no, mivel az uj agentek tovabbi eroforrasokat\n  biztositana.\n\nMukodesi elv:\n1. Felderites: Az agentek felfedezik a halozatban levo\n   tobbi agentet (pl. broadcast vagy registry segitsegevel).\n2. Kommunikacio: Szabvanyos protokoll (pl. JSON-RPC,\n   gRPC) segitsegevel valasztjak az uzenetviteszt.\n3. Delegacio: Egy agent egy masik agentnek feladatot\n   biz, amely az eredmenyt visszakuld.\n4. Aggregacio: Az eredmenyek osszesitese es\n   feldolgozasa a kezdo agentnel tortenik.\n\nElonyok:\n- Rugalmassag: Egy csomopont kiesese nem allitja le\n  a rendszert.\n- Hatekonysag: A feladatok a legalkalmasabb agent",
+        "completed_at": "2026-08-25 06:20:01.140146+00:",
+        "reviewer": "tor",
+        "review_task_id": "3d155e02-cc94-488e-82df-95b90f97b7a8",
+        "review_status": "rejected",
+        "review_reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
+        "reviewed_at": 1787638822.012301
+      },
+      {
+        "id": "card-1787638864347-69",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "description": "Masodik teszt. Most mar kell prior memory-t kapni az elozo feladatbol.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787638864.3478441,
+        "updated_at": 1787638864.366834,
+        "created_by": "unknown",
+        "delegation_task_id": "76454f24-09d5-49cc-8739-5f3c4992003a",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638864.366831
+          }
+        ]
+      },
+      {
+        "id": "card-1787638864428-70",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787638864.42861,
+        "updated_at": 1787638882.408608,
+        "delegation_task_id": "76454f24-09d5-49cc-8739-5f3c4992003a",
+        "description": "Masodik teszt. Most mar kell prior memory-t kapni az elozo feladatbol.",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638864.428618
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-25T06:21:[PHONE REDACTED]+00:00",
+            "timestamp": 1787638875.374893
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "2db8adfa",
+            "timestamp": 1787638875.737338
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787638882.409021
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-25T06:21:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-08-25 06:21:11.098254+00:",
+        "reviewer": "tor",
+        "review_task_id": "2db8adfa-f3a1-41e8-9d73-d8b8a38a1a7d",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787638882.408606
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787633490.3257
+    "updated_at": 1787638875.628028
   }
 ]
