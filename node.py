@@ -3887,6 +3887,10 @@ echo "Status: ok"
                                     msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
                                 elif trust == "limited":
                                     msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload) + "\n\n⚠️ LIMITED TRUST — verify all claims."
+                                elif _chat_user:
+                                    # Chat DM from dashboard — always accept, wrap as trusted
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                    log.debug(f"Chat DM accepted from {msg.sender} (trust={trust}, chat_user={_chat_user})")
                                 else:
                                     log.warning(f"Rejected message from untrusted peer: {msg.sender}")
                                     continue
