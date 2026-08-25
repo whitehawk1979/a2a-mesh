@@ -34,8 +34,8 @@ async def handle_chat_send(node, request, pool, user):
     recipient = data.get("recipient", "broadcast")
     content = data.get("content", "") or data.get("text", "")
     msg_type = data.get("msg_type", "chat")
-    username = user.get("username", "dashboard")
-    display_name = user.get("display_name", username)
+    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
+    display_name = getattr(user, "display_name", None) or username
     node_name = getattr(node, "node_name", "nova")
 
     if not content.strip():
@@ -100,9 +100,9 @@ async def handle_chat_send(node, request, pool, user):
 async def handle_chat_messages(node, request, pool, user):
     """GET /api/chat/messages?with=morzsa&limit=50 — Get chat history with a specific agent."""
     from aiohttp import web
-    username = user.get("username", "dashboard")
+    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
     peer = request.query.get("with", "")
-    limit = int(request.query.get("limit", "50"))
+    limit = int(request.query.get("limit", 50))
 
     try:
         if peer:
@@ -141,7 +141,7 @@ async def handle_chat_messages(node, request, pool, user):
 async def handle_chat_inbox(node, request, pool, user):
     """GET /api/chat/inbox — Unread messages for this user from agents."""
     from aiohttp import web
-    username = user.get("username", "dashboard")
+    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
 
     try:
         rows = await pool.fetch(
@@ -169,7 +169,7 @@ async def handle_chat_mark_read(node, request, pool, user):
     Body: { from_agent: "morzsa" }
     """
     from aiohttp import web
-    username = user.get("username", "dashboard")
+    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
     data = await request.json()
     from_agent = data.get("from_agent", "")
 
@@ -188,7 +188,7 @@ async def handle_chat_mark_read(node, request, pool, user):
 async def handle_chat_contacts(node, request, pool, user):
     """GET /api/chat/contacts — List agents this user has chatted with + unread counts."""
     from aiohttp import web
-    username = user.get("username", "dashboard")
+    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
 
     try:
         rows = await pool.fetch(

@@ -707,7 +707,10 @@ class MeshNode:
                 log.info("✅ mDNS discovery started")
             else:
                 log.warning("❌ mDNS discovery failed")
-                await self.debug_log("WARNING", "transport", "mDNS discovery failed (zeroconf not installed or multicast unavailable)")
+                try:
+                    await self.debug_log("WARNING", "transport", "mDNS discovery failed (zeroconf not installed or multicast unavailable)")
+                except Exception:
+                    pass  # debug_log may block if PG pool not fully ready
 
         # 5. UDP broadcast discovery (works on local network + Tailscale)
         tailscale_if = self.config.discovery.tailscale_interface
