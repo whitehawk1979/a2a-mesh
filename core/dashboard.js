@@ -450,25 +450,19 @@ function sendMessage() {
     body: JSON.stringify({ recipient: to, content: content, msg_type: "chat" })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.ok) {
-      // Only add to main chat if broadcast; DM messages go to DM panel only
-      if (to === "broadcast") {
-        addMessage({
-          id: d.message_id || ("local_" + Date.now()),
-          sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
-          recipient: to,
-          type: "chat",
-          content: content,
-          timestamp: new Date().toISOString(),
-          priority: priority,
-          source: "web_dashboard",
-          username: authUser ? authUser.display_name : "Zsolt"
-        }, true);
-      }
+      // Add message to current chat view (both broadcast and DM channels)
+      addMessage({
+        id: d.message_id || ("local_" + Date.now()),
+        sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
+        recipient: to,
+        type: "chat",
+        content: content,
+        timestamp: new Date().toISOString(),
+        priority: priority,
+        source: "web_dashboard",
+        username: authUser ? authUser.display_name : "Zsolt"
+      }, true);
       input.value = "";
-      // Refresh DM panel if open for this recipient
-      if (to !== "broadcast" && typeof window._loadChatMessages === "function") {
-        window._loadChatMessages(to, true);
-      }
       scrollToBottom();
     } else {
       log("Send failed: " + (d.error || "unknown"));
@@ -484,23 +478,18 @@ function sendMessage() {
       body: JSON.stringify({ content: content, recipient: to, priority: priority })
     }).then(function(r) { return r.json(); }).then(function(d2) {
    if (d2.ok || d2.status === "sent") {
-     if (to === "broadcast") {
-       addMessage({
-         id: "local_" + Date.now(),
-         sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
-         recipient: to,
-         type: "chat",
-         content: content,
-         timestamp: new Date().toISOString(),
-         priority: priority,
-         source: "web_dashboard",
-         username: authUser ? authUser.display_name : "Zsolt"
-       }, true);
-     }
+     addMessage({
+       id: "local_" + Date.now(),
+       sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
+       recipient: to,
+       type: "chat",
+       content: content,
+       timestamp: new Date().toISOString(),
+       priority: priority,
+       source: "web_dashboard",
+       username: authUser ? authUser.display_name : "Zsolt"
+     }, true);
      input.value = "";
-     if (to !== "broadcast" && typeof window._loadChatMessages === "function") {
-       window._loadChatMessages(to, true);
-     }
      scrollToBottom();
    } else {
         log("Send failed: " + (d2.error || e));
@@ -693,15 +682,22 @@ function loadMessages() {
     if (!channelMessages[currentChannel || "general"]) {
       channelMessages[currentChannel || "general"] = [];
     }
-    // Only show non-DM messages in main chat (broadcast + general)
-    // DM messages are shown in the DM panel via _loadChatMessages()
+    // Filter messages based on current channel
+    var ch = currentChannel || "general";
     (d.messages || []).forEach(function(m) {
-      // Skip DM messages — they belong in the DM panel, not main chat
-      var isDM = m.msg_type === "chat" && m.sender !== "broadcast" && m.recipient !== "broadcast";
-      if (isDM && m.username === m.sender) return; // user→agent DM
-      if (isDM && m.msg_type === "agent_reply") return; // agent→user reply
       m.content = m.content || m.text || "";
       m.timestamp = m.timestamp || m.created_at || "";
+      if (ch === "general") {
+        // Main chat: only show broadcast messages (no DMs)
+        if (m.msg_type === "chat" && m.sender !== "broadcast" && m.recipient !== "broadcast") return;
+        if (m.msg_type === "agent_reply") return;
+      } else {
+        // DM channel: only show messages between user and this agent
+        var user = (authUser ? authUser.username : "zsolt") || "zsolt";
+        var isMine = (m.sender === user && m.recipient === ch);
+        var isTheirs = (m.sender === ch && m.recipient === user);
+        if (!isMine && !isTheirs) return;
+      }
       addMessage(m, false);
     });
     document.getElementById("msgCount").textContent = d.total || (d.messages || []).length;
