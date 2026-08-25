@@ -1114,6 +1114,19 @@ class DelegationManager:
 
         log.info(f"Executing task {task_id} of type {task_type}: {subject}")
 
+        # Inject prior memory context for this subject
+        try:
+            from .hindsight_sync import HindsightSync
+            hs = HindsightSync(self.node)
+            hs.set_pg_pool(self.pg_pool)
+            prior_memory = await hs.get_context_for_prompt(subject, limit=3)
+            if prior_memory:
+                context = dict(context)
+                context["prior_memory"] = prior_memory
+                log.info(f"Injected {len(prior_memory)} chars of prior memory for '{subject[:40]}'")
+        except Exception as mem_err:
+            log.debug(f"Memory recall failed (non-fatal): {mem_err}")
+
         # Mark as running
         self._active_tasks[task_id] = task
         await self.pg_pool.execute(
@@ -1226,6 +1239,22 @@ class DelegationManager:
                     STATUS_COMPLETED, result_text, task_id,
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
+
+            # Save to mesh_memory for shared knowledge across agents
+            try:
+                from .hindsight_sync import HindsightSync
+                hs = HindsightSync(self.node)
+                hs.set_pg_pool(self.pg_pool)
+                await hs.save_delegation_result({
+                    "task_id": str(task_id),
+                    "from_agent": task.get("from_agent", self.node_name),
+                    "assigned_agent": task.get("assigned_agent") or task.get("to_agent", ""),
+                    "subject": task.get("subject", ""),
+                    "result": result_text[:5000],
+                    "status": "completed",
+                })
+            except Exception as mem_err:
+                log.debug(f"Memory save failed (non-fatal): {mem_err}")
 
             # Marveen-inspired: complete task_run audit trail
             if _run_id:
