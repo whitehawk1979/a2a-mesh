@@ -3413,12 +3413,13 @@ function loadMarveenPage(page) {
       html += '<div style="font-size:12px;font-weight:600;color:var(--text3);padding:8px 4px 12px;">Beszélgetések</div>';
       contacts.forEach(function(c) {
         var name = esc(c.agent || '?');
+        var rawName = String(c.agent || '?').replace(/'/g, '');
         var unread = c.unread || 0;
         var lastMsg = c.last_msg ? fmtTime(c.last_msg) : '';
         var icon = c.is_user ? '👤' : '🤖';
         var badgeHtml = unread > 0 ? '<span style="background:var(--danger);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;">' + unread + '</span>' : '';
         var activeCls = (window._chatActiveContact === c.agent) ? 'border:2px solid var(--primary);' : 'border:1px solid var(--border);';
-        html += '<div onclick="selectChatContact(\'' + esc(c.agent) + '\')" style="cursor:pointer;padding:10px;border-radius:8px;margin-bottom:4px;' + activeCls + 'background:var(--surface);transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'' + (window._chatActiveContact === c.agent ? 'var(--primary)' : 'var(--border)') + '\'">';
+        html += '<div data-chat-agent="' + rawName + '" class="chat-contact-item" style="cursor:pointer;padding:10px;border-radius:8px;margin-bottom:4px;' + activeCls + 'background:var(--surface);transition:border-color 0.2s;">';
         html += '<div style="font-size:13px;font-weight:600;color:var(--text);">' + icon + ' ' + name + badgeHtml + '</div>';
         if (lastMsg) html += '<div style="font-size:10px;color:var(--text3);">' + lastMsg + '</div>';
         html += '</div>';
@@ -3762,6 +3763,16 @@ function loadMarveenPage(page) {
         if (renderer) {
           try { body.innerHTML = renderer(data); }
           catch(e) { body.innerHTML = errorBox('Render hiba: ' + e.message); }
+          // Chat: attach click handlers to contact items
+          if (page === 'chat') {
+            var items = document.querySelectorAll('.chat-contact-item');
+            for (var i = 0; i < items.length; i++) {
+              items[i].onclick = function() {
+                var agentName = this.getAttribute('data-chat-agent');
+                if (agentName) selectChatContact(agentName);
+              };
+            }
+          }
         } else {
           body.innerHTML = '<pre style="white-space:pre-wrap;font-size:12px;color:var(--text2);">' + esc(JSON.stringify(data, null, 2)) + '</pre>';
         }
