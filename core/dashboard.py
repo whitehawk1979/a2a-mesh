@@ -142,6 +142,12 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_post("/api/send", self._api_send)
         app.router.add_post("/api/send-file", self._api_send_file)
+        # Per-user chat system
+        app.router.add_post("/api/chat/send", self._api_chat_send)
+        app.router.add_get("/api/chat/messages", self._api_chat_messages)
+        app.router.add_get("/api/chat/inbox", self._api_chat_inbox)
+        app.router.add_post("/api/chat/read", self._api_chat_mark_read)
+        app.router.add_get("/api/chat/contacts", self._api_chat_contacts)
         app.router.add_get("/api/files", self._api_list_files)
         app.router.add_get("/api/files/{type}/{filename}", self._api_download_file)
         # Memory sync routes
@@ -1001,11 +1007,14 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             data = await request.json()
             recipient = data.get("recipient", "broadcast")
             msg_type = data.get("msg_type", "a2a_message")
-            text = data.get("text", "")
+            # Accept both "text" and "content" (JS sends content)
+            text = data.get("text", "") or data.get("content", "")
             priority = int(data.get("priority", 5))
             if not text:
                 return web.json_response({"error": "text is required"}, status=400)
-            payload = {"text": text, "subject": data.get("subject", text[:80])}
+            # Include sender info from authenticated user
+            sender = user.get("display_name", "dashboard") if user else "dashboard"
+            payload = {"text": text, "subject": data.get("subject", text[:80]), "sender_display": sender}
             if recipient == "broadcast":
                 result = await self.node.broadcast(msg_type, payload, priority=priority)
             else:

@@ -4138,3 +4138,59 @@ class DashboardAdminMixin:
             return web.json_response({"ok": True, "imported": len(imported), "ideas": imported})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+    # ==================== PER-USER CHAT SYSTEM ====================
+
+    async def _api_chat_send(self, request):
+        """POST /api/chat/send — Send DM from dashboard user to agent."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_send
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_send(self.node, request, pool, user)
+
+    async def _api_chat_messages(self, request):
+        """GET /api/chat/messages?with=morzsa — Chat history with agent."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_messages
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_messages(self.node, request, pool, user)
+
+    async def _api_chat_inbox(self, request):
+        """GET /api/chat/inbox — Unread DMs for this user."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_inbox
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_inbox(self.node, request, pool, user)
+
+    async def _api_chat_mark_read(self, request):
+        """POST /api/chat/read — Mark agent messages as read."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_mark_read
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_mark_read(self.node, request, pool, user)
+
+    async def _api_chat_contacts(self, request):
+        """GET /api/chat/contacts — List agents with unread counts."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_contacts
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_contacts(self.node, request, pool, user)

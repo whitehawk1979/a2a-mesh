@@ -3885,6 +3885,36 @@ echo "Status: ok"
                                 except Exception as e:
                                     log.debug(f"Dashboard notification failed: {e}")
 
+                                # ── Per-user chat: store agent replies as DMs ──
+                                # If the message payload contains chat_username, it's a reply
+                                # to a dashboard user's DM. Store it in mesh_chat_messages.
+                                if msg.type in ("a2a_message", "agent_reply"):
+                                    try:
+                                        import json as _json
+                                        payload_str = msg.payload if isinstance(msg.payload, str) else str(msg.payload)
+                                        # Try to parse payload for chat_username
+                                        chat_user = None
+                                        try:
+                                            pdata = _json.loads(payload_str) if isinstance(msg.payload, (str, bytes)) else msg.payload
+                                            if isinstance(pdata, dict):
+                                                chat_user = pdata.get("chat_username")
+                                        except Exception:
+                                            pass
+                                        if chat_user:
+                                            pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
+                                            if pool:
+                                                from .core.dashboard_chat import store_agent_reply
+                                                # Extract reply content
+                                                reply_text = ""
+                                                if isinstance(msg.payload, dict):
+                                                    reply_text = msg.payload.get("text", "") or msg.payload.get("content", "")
+                                                else:
+                                                    reply_text = str(msg.payload)[:500]
+                                                await store_agent_reply(pool, chat_user, msg.sender, reply_text)
+                                                log.info(f"💬 Chat reply routed: {msg.sender}→user:{chat_user}")
+                                    except Exception as e:
+                                        log.debug(f"Chat reply routing failed: {e}")
+
                             if result.status == "processed":
                                 log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
                                 # Wake the local agent for incoming messages, but NOT for

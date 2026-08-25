@@ -550,6 +550,7 @@ function submitAuth() {
     }).then(function(r) { return r.json(); }).then(function(d) {
       if (d.error) { errEl.textContent = d.error; } else {
         authToken = d.token; authUser = d.user;
+        window._chatUsername = d.user.username;
         localStorage.setItem("a2a_token", d.token);
         localStorage.setItem("mesh_token", d.token);
         localStorage.setItem("a2a_username", d.user.username);
@@ -1454,7 +1455,8 @@ function loadMarveenPage(page) {
     'ideas': '💡 Ötletlád',
     'labels': '🏷️ Címkék',
     'files': '📁 Fájlok',
-    'workflow': '⚙️ Workflow'
+    'workflow': '⚙️ Workflow',
+    'chat': '💬 Chat'
   };
 
   var apiMap = {
@@ -1499,7 +1501,8 @@ function loadMarveenPage(page) {
     'ideas': '/api/ideas',
     'labels': '/api/labels',
     'files': '/api/files',
-    'workflow': '/api/workflows'
+    'workflow': '/api/workflows',
+    'chat': '/api/chat/contacts'
   };
 
   var title = titleMap[page] || page;
@@ -3401,6 +3404,39 @@ function loadMarveenPage(page) {
       });
       return html;
     },
+
+    'chat': function(d) {
+      if (d.error) return errorBox(d.error);
+      var contacts = d.contacts || [];
+      var html = '<div style="display:flex;gap:12px;height:calc(100vh - 200px);min-height:400px;">';
+      html += '<div id="chatContactList" style="width:240px;min-width:240px;overflow-y:auto;background:var(--surface2);border-radius:10px;padding:8px;">';
+      html += '<div style="font-size:12px;font-weight:600;color:var(--text3);padding:8px 4px 12px;">Beszélgetések</div>';
+      contacts.forEach(function(c) {
+        var name = esc(c.agent || '?');
+        var unread = c.unread || 0;
+        var lastMsg = c.last_msg ? fmtTime(c.last_msg) : '';
+        var icon = c.is_user ? '👤' : '🤖';
+        var badgeHtml = unread > 0 ? '<span style="background:var(--danger);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:4px;">' + unread + '</span>' : '';
+        var activeCls = (window._chatActiveContact === c.agent) ? 'border:2px solid var(--primary);' : 'border:1px solid var(--border);';
+        html += '<div onclick="selectChatContact(\'' + esc(c.agent) + '\')" style="cursor:pointer;padding:10px;border-radius:8px;margin-bottom:4px;' + activeCls + 'background:var(--surface);transition:border-color 0.2s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'' + (window._chatActiveContact === c.agent ? 'var(--primary)' : 'var(--border)') + '\'">';
+        html += '<div style="font-size:13px;font-weight:600;color:var(--text);">' + icon + ' ' + name + badgeHtml + '</div>';
+        if (lastMsg) html += '<div style="font-size:10px;color:var(--text3);">' + lastMsg + '</div>';
+        html += '</div>';
+      });
+      if (!contacts.length) html += '<div style="color:var(--text3);padding:12px;font-size:12px;">Nincs kontakt</div>';
+      html += '</div>';
+      html += '<div id="chatArea" style="flex:1;display:flex;flex-direction:column;background:var(--surface2);border-radius:10px;overflow:hidden;">';
+      html += '<div id="chatHeader" style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;color:var(--text);">💬 Válassz egy kontaktot a bal oldalon</div>';
+      html += '<div id="chatMessages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;justify-content:center;align-items:center;color:var(--text3);font-size:13px;">← Kattints egy agent-re vagy user-re a beszélgetés megnyitásához</div>';
+      html += '<div id="chatInputBar" style="padding:12px;border-top:1px solid var(--border);display:none;gap:8px;">';
+      html += '<input id="chatInput" type="text" placeholder="Üzenet írása... (Enter = küldés)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" onkeyup="if(event.key===\'Enter\')sendChatMessage()" />';
+      html += '<button onclick="sendChatMessage()" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤</button>';
+      html += '</div>';
+      html += '</div>';
+      html += '</div>';
+      return html;
+    },
+
     'topology': function(d) {
       if (d.error) return errorBox(d.error);
       var nodes = d.nodes || [];
@@ -3850,6 +3886,93 @@ window.filterSkills = function() {
   });
   var empty = document.getElementById('skillsEmpty');
   if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+};
+
+// ==================== CHAT FUNCTIONS ====================
+
+window._chatActiveContact = null;
+window._chatPollTimer = null;
+
+window.selectChatContact = function(agentName) {
+  window._chatActiveContact = agentName;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  // Update header
+  var header = document.getElementById('chatHeader');
+  if (header) header.textContent = (agentName.indexOf('user:') === 0 ? '👤' : '🤖') + ' ' + agentName;
+  // Show input bar
+  var inputBar = document.getElementById('chatInputBar');
+  if (inputBar) inputBar.style.display = 'flex';
+  // Load messages
+  window._loadChatMessages(agentName);
+  // Mark as read
+  fetch('/api/chat/read', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ from_agent: agentName })
+  });
+  // Start polling for new messages
+  if (window._chatPollTimer) clearInterval(window._chatPollTimer);
+  window._chatPollTimer = setInterval(function() {
+    window._loadChatMessages(agentName, true);
+  }, 3000);
+};
+
+window._loadChatMessages = function(agentName, pollOnly) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/chat/messages?with=' + encodeURIComponent(agentName) + '&limit=50', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      var msgs = (d.messages || []).reverse(); // oldest first
+      var container = document.getElementById('chatMessages');
+      if (!container) return;
+      if (!msgs.length) {
+        if (!pollOnly) container.innerHTML = '<div style="color:var(--text3);font-size:13px;">Nincs üzenet. Írj valamit! 👋</div>';
+        return;
+      }
+      var html = '';
+      var username = window._chatUsername || 'dashboard';
+      msgs.forEach(function(m) {
+        var isSent = (m.sender === username);
+        var senderName = esc(m.sender || '?');
+        var content = esc(m.content || '');
+        var time = m.created_at ? m.created_at.substring(11, 16) : '';
+        var bg = isSent ? 'var(--primary)' : 'var(--surface)';
+        var color = isSent ? '#fff' : 'var(--text)';
+        var align = isSent ? 'margin-left:auto;' : 'margin-right:auto;';
+        html += '<div style="max-width:75%;' + align + 'background:' + bg + ';color:' + color + ';border-radius:12px;padding:10px 14px;margin-bottom:6px;">';
+        if (!isSent) html += '<div style="font-size:10px;font-weight:600;margin-bottom:2px;opacity:0.7;">' + senderName + '</div>';
+        html += '<div style="font-size:13px;line-height:1.4;word-wrap:break-word;">' + content + '</div>';
+        html += '<div style="font-size:9px;text-align:right;margin-top:2px;opacity:0.6;">' + time + '</div>';
+        html += '</div>';
+      });
+      container.innerHTML = '<div style="width:100%;">' + html + '</div>';
+      container.scrollTop = container.scrollHeight;
+    }).catch(function(e) {});
+};
+
+window.sendChatMessage = function() {
+  var input = document.getElementById('chatInput');
+  if (!input || !input.value.trim()) return;
+  var content = input.value.trim();
+  var recipient = window._chatActiveContact;
+  if (!recipient) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/chat/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ recipient: recipient, content: content })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        input.value = '';
+        window._loadChatMessages(recipient);
+      } else {
+        alert('Hiba: ' + (d.error || 'ismeretlen'));
+      }
+    }).catch(function(e) {
+      alert('Küldési hiba: ' + e.message);
+    });
 };
 
 window.memoryVectorSearch = function() {
