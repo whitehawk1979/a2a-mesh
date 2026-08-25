@@ -1354,8 +1354,13 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             by_type = await pool.fetch(
                 "SELECT memory_type, count(*) as cnt FROM mesh.mesh_memory GROUP BY memory_type ORDER BY cnt DESC"
             )
+            # Convert datetimes to strings for JSON
+            stats_dict = dict(stats) if stats else {}
+            for k, v in stats_dict.items():
+                if hasattr(v, 'isoformat'):
+                    stats_dict[k] = v.isoformat()
             return web.json_response({
-                "stats": dict(stats) if stats else {},
+                "stats": stats_dict,
                 "by_type": [dict(r) for r in by_type] if by_type else [],
             })
         except Exception as e:
