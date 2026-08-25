@@ -3431,7 +3431,7 @@ function loadMarveenPage(page) {
       html += '<div id="chatMessages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;justify-content:center;align-items:center;color:var(--text3);font-size:13px;">← Kattints egy agent-re vagy user-re a beszélgetés megnyitásához</div>';
       html += '<div id="chatInputBar" style="padding:12px;border-top:1px solid var(--border);display:none;gap:8px;">';
       html += '<input id="chatInput" type="text" placeholder="Üzenet írása... (Enter = küldés)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" />';
-      html += '<button id="chatSendBtn" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤</button>';
+      html += '<button id="chatSendBtn" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤ Küldés</button>';
       html += '</div>';
       html += '</div>';
       html += '</div>';
@@ -3757,7 +3757,16 @@ function loadMarveenPage(page) {
 
   if (apiPath && apiPath !== 'none') {
     fetch(apiPath, { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(r) {
+        if (r.status === 401) {
+          // Token expired — try re-login
+          console.log('[DASH] Token expired (401), re-login needed');
+          body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--danger)"><div style="font-size:32px;margin-bottom:12px">⚠️</div><p>A munkamenet lejárt.</p><button onclick="doLogout();setTimeout(function(){location.reload();},100);" style="background:var(--primary);color:#fff;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;margin-top:12px;">Újra bejelentkezés</button></div>';
+          throw new Error('401');
+        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function(data) {
         var renderer = renderers[page];
         if (renderer) {
@@ -3922,6 +3931,24 @@ window.selectChatContact = function(agentName) {
   // Show input bar
   var inputBar = document.getElementById('chatInputBar');
   if (inputBar) inputBar.style.display = 'flex';
+  // Attach send button + input handlers (in case they weren't attached)
+  var sendBtn = document.getElementById('chatSendBtn');
+  if (sendBtn) {
+    sendBtn.onclick = function() { window.sendChatMessage(); };
+    console.log('[CHAT] send button handler attached');
+  } else {
+    console.warn('[CHAT] chatSendBtn NOT FOUND');
+  }
+  var chatInput = document.getElementById('chatInput');
+  if (chatInput) {
+    chatInput.onkeyup = function(e) {
+      if (e.key === 'Enter' || e.keyCode === 13) { window.sendChatMessage(); }
+    };
+    chatInput.focus();
+    console.log('[CHAT] input handler attached, focused');
+  } else {
+    console.warn('[CHAT] chatInput NOT FOUND');
+  }
   // Load messages
   window._loadChatMessages(agentName);
   // Mark as read
@@ -3972,34 +3999,42 @@ window._loadChatMessages = function(agentName, pollOnly) {
 };
 
 window.sendChatMessage = function() {
+  console.log('[CHAT] sendChatMessage CALLED');
   var input = document.getElementById('chatInput');
-  if (!input || !input.value.trim()) return;
+  if (!input) { console.error('[CHAT] chatInput not found'); alert('Hiba: input nem található'); return; }
+  if (!input.value.trim()) { console.log('[CHAT] empty input'); return; }
   var content = input.value.trim();
   var recipient = window._chatActiveContact;
-  if (!recipient) { console.warn('[CHAT] No active contact'); return; }
+  if (!recipient) { console.warn('[CHAT] no active contact'); alert('Válassz kontaktot!'); return; }
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-  console.log('[CHAT] sendChatMessage to:', recipient, 'token:', token ? 'yes' : 'NO');
-  if (!token) { alert('Nem vagy bejelentkezve! Lépj be újra.'); return; }
+  console.log('[CHAT] sending to:', recipient, 'len:', content.length, 'token:', token ? 'yes' : 'NO');
+  if (!token) { alert('Bejelentkezés szükséges!'); return; }
+  var sendBtn = document.getElementById('chatSendBtn');
+  if (sendBtn) sendBtn.disabled = true;
   fetch('/api/chat/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
     body: JSON.stringify({ recipient: recipient, content: content })
   }).then(function(r) {
-    console.log('[CHAT] send response status:', r.status);
-    if (r.status === 401) { alert('Lejárt a munkamenet! Lépj be újra.'); location.reload(); return; }
+    console.log('[CHAT] response status:', r.status);
+    if (sendBtn) sendBtn.disabled = false;
+    if (r.status === 401) { alert('Lejárt! Jelentkezz be újra.'); location.reload(); return null; }
     return r.json();
   }).then(function(d) {
     if (!d) return;
-    console.log('[CHAT] send result:', d);
+    console.log('[CHAT] result:', d.ok, d.error || '');
     if (d.ok) {
       input.value = '';
+      input.focus();
       window._loadChatMessages(recipient);
     } else {
       alert('Hiba: ' + (d.error || 'ismeretlen'));
     }
-    }).catch(function(e) {
-      alert('Küldési hiba: ' + e.message);
-    });
+  }).catch(function(e) {
+    console.error('[CHAT] error:', e);
+    if (sendBtn) sendBtn.disabled = false;
+    alert('Hiba: ' + e.message);
+  });
 };
 
 window.memoryVectorSearch = function() {
