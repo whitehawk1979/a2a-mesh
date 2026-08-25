@@ -3843,9 +3843,9 @@ window.filterSkills = function() {
   if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
 };
 
-window.syncSkills = function() {
+window.syncSkills = function(evt) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-  var btn = event.target;
+  var btn = (evt && evt.target) || (typeof event !== 'undefined' && event.target) || null;
   if (btn) { btn.disabled = true; btn.textContent = '🔄 Szinkron...'; }
   fetch('/api/skills/auto-sync', {
     method: 'POST',

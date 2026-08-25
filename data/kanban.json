@@ -2727,7 +2727,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787638783.424513,
-        "updated_at": 1787639940.753317,
+        "updated_at": 1787640167.3678138,
         "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
         "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
         "task_type": "generic",
@@ -2821,6 +2821,14 @@
             "verdict": "reject",
             "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
             "timestamp": 1787639940.753773
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
+            "timestamp": 1787640167.3682518
           }
         ],
         "delegation_status": "completed",
@@ -2830,7 +2838,7 @@
         "review_task_id": "50a8a636-4cf5-4511-9072-9491db499ade",
         "review_status": "rejected",
         "review_reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
-        "reviewed_at": 1787639940.753315
+        "reviewed_at": 1787640167.367813
       },
       {
         "id": "card-1787638864347-69",
@@ -3015,7 +3023,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787639047.451076,
-        "updated_at": 1787639954.6071548,
+        "updated_at": 1787640167.9623811,
         "delegation_task_id": "d11268b7-b37f-4133-909d-783109691355",
         "description": "Harmadik teszt. Most mar kell latni a prior memory injection-t.",
         "task_type": "generic",
@@ -3117,6 +3125,30 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787639954.607925
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640166.531033
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640167.588518
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640167.962852
           }
         ],
         "delegation_status": "completed",
@@ -3126,7 +3158,7 @@
         "review_task_id": "f96b39a4-ebde-4c71-9147-ef66dcde2297",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787639954.607153
+        "reviewed_at": 1787640167.96238
       },
       {
         "id": "card-1787639818831-73",
@@ -3159,7 +3191,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787639820.749985,
-        "updated_at": 1787639956.450866,
+        "updated_at": 1787640190.244428,
         "delegation_task_id": "fa33d4fb-a032-4978-a400-7c4dfff1338f",
         "description": "Negyedik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
         "task_type": "generic",
@@ -3223,16 +3255,54 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787639956.4525719
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640166.7809439
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640167.0533361
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-25T06:36:[PHONE REDACTED]+00:00",
+            "timestamp": 1787640167.568352
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "4c6030f0",
+            "timestamp": 1787640168.126069
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640190.244889
           }
         ],
         "delegation_status": "completed",
         "delegation_result": "[morzsa] System analysis completed at 2026-08-25T06:36:[PHONE REDACTED]+00:00",
         "completed_at": "2026-08-25 06:37:01.626287+00:",
-        "reviewer": "tor",
-        "review_task_id": "9d2b9cf5-903c-4f6a-8998-d0f1a8db7f28",
+        "reviewer": "runa",
+        "review_task_id": "4c6030f0-7d7d-4f9b-85f8-295b5f9f0575",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787639956.4508631
+        "reviewed_at": 1787640190.244427
       },
       {
         "id": "card-1787639948383-75",
@@ -3265,7 +3335,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787639948.6791759,
-        "updated_at": 1787639975.124029,
+        "updated_at": 1787640184.52592,
         "delegation_task_id": "3f9c80d5-576b-4e92-b53b-49c3529e9f3e",
         "description": "Otodik teszt. Vektor kereses teszt.",
         "task_type": "generic",
@@ -3299,19 +3369,125 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787639975.124452
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640165.981981
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-25T06:39:[PHONE REDACTED]+00:00",
+            "timestamp": 1787640166.002799
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "8ed35e8d",
+            "timestamp": 1787640166.605991
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640184.5263271
           }
         ],
         "delegation_status": "completed",
         "delegation_result": "[morzsa] System analysis completed at 2026-08-25T06:39:[PHONE REDACTED]+00:00",
         "completed_at": "2026-08-25 06:39:15.030112+00:",
         "reviewer": "tor",
-        "review_task_id": "d6242449-52b8-4c84-8ed9-1f44e2150bb5",
+        "review_task_id": "8ed35e8d-024b-4534-aef2-7f1a486785e1",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787639975.124028
+        "reviewed_at": 1787640184.525919
+      },
+      {
+        "id": "card-1787640176041-77",
+        "title": "MEMORY_TEST: tudasmogosztas teszt",
+        "description": "Harmadik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787640176.041504,
+        "updated_at": 1787640176.0877461,
+        "created_by": "unknown",
+        "delegation_task_id": "b77cc6ff-16f7-4343-a8e5-f68fd55fca6b",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787640176.087741
+          }
+        ]
+      },
+      {
+        "id": "card-1787640176222-78",
+        "title": "MEMORY_TEST: tudasmogosztas teszt",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787640176.222216,
+        "updated_at": 1787640197.51475,
+        "delegation_task_id": "b77cc6ff-16f7-4343-a8e5-f68fd55fca6b",
+        "description": "Harmadik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787640176.2222269
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-25T06:43:[PHONE REDACTED]+00:00",
+            "timestamp": 1787640189.8402371
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "fa492fa2",
+            "timestamp": 1787640190.4058628
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640197.515313
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-25T06:43:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-08-25 06:43:08.514568+00:",
+        "reviewer": "tor",
+        "review_task_id": "fa492fa2-9135-424a-ac7b-0f6cce3d8cb3",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1787640197.5147488
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787639963.589143
+    "updated_at": 1787640190.10021
   }
 ]
