@@ -676,14 +676,19 @@ function loadMessages() {
   var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
   fetch("/api/chat/messages?limit=100", {
     headers: { "Authorization": "Bearer " + token }
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    // DON'T wipe channelMessages — merge new messages into existing channels
+  }).then(function(r) {
+    if (r.status === 401) { console.warn("[DM] 401 — token expired"); return null; }
+    if (r.status === 429) { console.warn("[DM] 429 — rate limited"); return null; }
+    return r.json();
+  }).then(function(d) {
+    if (!d) return; // 401/429 — keep existing messages, don't wipe
+    // Filter messages based on current channel
     messageHistory = [];
     if (!channelMessages[currentChannel || "general"]) {
       channelMessages[currentChannel || "general"] = [];
     }
-    // Filter messages based on current channel
     var ch = currentChannel || "general";
+    var username = (authUser ? authUser.username : localStorage.getItem("a2a_username")) || "zsolt";
     (d.messages || []).forEach(function(m) {
       m.content = m.content || m.text || "";
       m.timestamp = m.timestamp || m.created_at || "";
@@ -693,9 +698,8 @@ function loadMessages() {
         if (m.msg_type === "agent_reply") return;
       } else {
         // DM channel: only show messages between user and this agent
-        var user = (authUser ? authUser.username : "zsolt") || "zsolt";
-        var isMine = (m.sender === user && m.recipient === ch);
-        var isTheirs = (m.sender === ch && m.recipient === user);
+        var isMine = (m.sender === username && m.recipient === ch);
+        var isTheirs = (m.sender === ch && m.recipient === username);
         if (!isMine && !isTheirs) return;
       }
       addMessage(m, false);
@@ -703,15 +707,9 @@ function loadMessages() {
     document.getElementById("msgCount").textContent = d.total || (d.messages || []).length;
     renderChannelMessages();
     scrollToBottom();
-  }).catch(function() {
-    // Fallback to old API
-    fetch("/api/messages?limit=100").then(function(r) { return r.json(); }).then(function(d) {
-      messageHistory = [];
-      d.messages.reverse().forEach(function(m) { addMessage(m, false); });
-      document.getElementById("msgCount").textContent = d.total || d.messages.length;
-      renderChannelMessages();
-      scrollToBottom();
-    }).catch(function() {});
+  }).catch(function(e) {
+    console.warn("[DM] loadMessages error:", e);
+    // Keep existing messages on error — don't fallback to /api/messages
   });
 }
 
