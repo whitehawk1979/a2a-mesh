@@ -137,7 +137,6 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/dashboard.js", self._serve_dashboard_js)
         app.router.add_get("/api/status", self._api_status)
         app.router.add_get("/api/messages", self._api_messages)
-        app.router.add_get("/api/chat/messages", self._api_messages)  # alias for frontend
         app.router.add_get("/api/messages/incoming", self._api_messages_incoming)
         app.router.add_get("/api/agents", self._api_agents)
         app.router.add_post("/api/send", self._api_send)
