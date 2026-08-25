@@ -4624,6 +4624,79 @@ window.loadCostChart = function() {
     .catch(function(e) { console.error('Cost chart error:', e); });
 };
 
+
+// --- Keyboard Shortcuts ---
+window.handleKeyboard = function(e) {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  var key = e.key.toLowerCase();
+  switch(key) {
+    case 'k': e.preventDefault(); document.getElementById('globalSearchInput').focus(); break;
+    case 'g': loadMarveenPage('overview'); break;
+    case 't': toggleTheme(); break;
+    case 'r': loadMarveenPage('kanban'); break;
+    case 'a': loadMarveenPage('alerts'); break;
+    case 'd': loadMarveenPage('delegations'); break;
+    case 'm': loadMarveenPage('messages'); break;
+    case 'n': loadMarveenPage('nodes'); break;
+    case 'c': loadMarveenPage('insights-cost'); break;
+    case '?': showToast('Shortcuts: K=Keresés G=Áttekintés T=Téma R=Kanban A=Alerts D=Delegáció M=Üzenet N=Node-ok C=Költség', 'info'); break;
+  }
+};
+document.addEventListener('keydown', window.handleKeyboard);
+
+// --- Auto-refresh active modal ---
+window.autoRefreshInterval = null;
+window.startAutoRefresh = function() {
+  if (window.autoRefreshInterval) clearInterval(window.autoRefreshInterval);
+  window.autoRefreshInterval = setInterval(function() {
+    if (currentMarveenPage && document.getElementById('marveenModal').style.display !== 'none') {
+      var page = currentMarveenPage;
+      var apiMapEntry = apiMap[page];
+      if (apiMapEntry && apiMapEntry !== 'none') {
+        var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+        fetch(apiMapEntry, { headers: { 'Authorization': 'Bearer ' + token } })
+          .then(function(r) { return r.json(); })
+          .then(function(d) {
+            var renderer = renderers[page];
+            if (renderer) {
+              document.getElementById('marveenModalBody').innerHTML = renderer(d);
+            }
+          })
+          .catch(function() {});
+      }
+    }
+  }, 30000);
+};
+window.startAutoRefresh();
+
+// --- Notification badge ---
+window.updateNotificationBadge = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/overview', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var pending = (d.tasks_pending || 0) + (d.pending_approvals || 0);
+      var badge = document.getElementById('notifBadge');
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.id = 'notifBadge';
+        badge.style.cssText = 'position:fixed;top:12px;right:12px;background:var(--danger);color:#fff;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:700;z-index:99999;cursor:pointer;';
+        badge.onclick = function() { loadMarveenPage('delegations'); };
+        document.body.appendChild(badge);
+      }
+      if (pending > 0) {
+        badge.textContent = pending;
+        badge.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
+      }
+    })
+    .catch(function() {});
+  setTimeout(window.updateNotificationBadge, 60000);
+};
+window.updateNotificationBadge();
+
 // ─── Token Usage Chart ──
 window.renderTokenChart = function(canvasId, data) {
   var canvas = document.getElementById(canvasId);
