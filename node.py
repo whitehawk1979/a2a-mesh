@@ -841,6 +841,9 @@ class MeshNode:
         except Exception as e:
             log.warning(f"Skill auto-advertise failed (non-fatal): {e}")
 
+        # Auto-sync published skills from PG (pull skills from other nodes)
+        asyncio.create_task(self._auto_sync_skills_delayed())
+
         # At least one transport must be working
         any_ok = any(results.values())
         if any_ok:
@@ -3999,6 +4002,84 @@ echo "Status: ok"
         
         if advertised:
             log.info(f"📋 Auto-advertised {advertised} skills to marketplace")
+        
+        # Auto-publish skill FILES to PG for cross-node replication
+        try:
+            import os as _os
+            repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            skills_dir = _os.path.join(repo_root, "skills")
+            published = 0
+            if _os.path.isdir(skills_dir):
+                for skill_name in _os.listdir(skills_dir):
+                    skill_dir = _os.path.join(skills_dir, skill_name)
+                    if not _os.path.isdir(skill_dir):
+                        continue
+                    skill_id = f"skill-{self.node_name}-{skill_name}"
+                    files_to_publish = {}
+                    for fn in _os.listdir(skill_dir):
+                        fp = _os.path.join(skill_dir, fn)
+                        if _os.path.isfile(fp) and fn.endswith(('.md', '.py', '.sh', '.txt', '.yaml', '.yml', '.json')):
+                            try:
+                                with open(fp, 'r', errors='replace') as f:
+                                    files_to_publish[fn] = f.read()
+                            except Exception:
+                                pass
+                    if files_to_publish:
+                        import time as _time
+                        now_ts = _time.time()
+                        for fn, content in files_to_publish.items():
+                            await self._pg_pool.execute(
+                                """INSERT INTO mesh.mesh_skill_files (skill_id, filename, content, updated_at)
+                                   VALUES ($1, $2, $3, $4)
+                                   ON CONFLICT (skill_id, filename)
+                                   DO UPDATE SET content = EXCLUDED.content, updated_at = EXCLUDED.updated_at""",
+                                skill_id, fn, content, now_ts,
+                            )
+                        published += 1
+            if published:
+                log.info(f"📦 Auto-published {published} skill files to PG")
+        except Exception as e:
+            log.warning(f"Auto-publish skill files failed (non-fatal): {e}")
+
+    async def _auto_sync_skills_delayed(self):
+        """Auto-sync published skills from PG 10s after startup (non-blocking)."""
+        try:
+            await asyncio.sleep(10)
+            if not self._pg_pool:
+                return
+            import os as _os
+            rows = await self._pg_pool.fetch("SELECT DISTINCT skill_id FROM mesh.mesh_skill_files")
+            if not rows:
+                return
+            repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            skills_dir = _os.path.join(repo_root, "skills")
+            _os.makedirs(skills_dir, exist_ok=True)
+            synced = 0
+            for row in rows:
+                skill_id = row["skill_id"]
+                # Only sync skills from OTHER nodes
+                if f"-{self.node_name}-" in skill_id:
+                    continue
+                file_rows = await self._pg_pool.fetch(
+                    "SELECT filename, content FROM mesh.mesh_skill_files WHERE skill_id = $1",
+                    skill_id,
+                )
+                parts = skill_id.split("-", 2)
+                skill_name = parts[2] if len(parts) > 2 else skill_id
+                skill_dir = _os.path.join(skills_dir, skill_name)
+                _os.makedirs(skill_dir, exist_ok=True)
+                for fr in file_rows:
+                    filepath = _os.path.join(skill_dir, fr["filename"])
+                    filedir = _os.path.dirname(filepath)
+                    if filedir and not _os.path.exists(filedir):
+                        _os.makedirs(filedir, exist_ok=True)
+                    with open(filepath, "w") as f:
+                        f.write(fr["content"])
+                synced += 1
+            if synced:
+                log.info(f"📦 Auto-synced {synced} skills from other nodes")
+        except Exception as e:
+            log.warning(f"Auto-sync skills failed (non-fatal): {e}")
 
     async def _broadcast_skill_to_peers(self, skill_name: str):
         """Notify peer nodes to pull a newly auto-generated skill from PG."""

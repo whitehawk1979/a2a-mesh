@@ -3023,7 +3023,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787639047.451076,
-        "updated_at": 1787640167.9623811,
+        "updated_at": 1787640470.860491,
         "delegation_task_id": "d11268b7-b37f-4133-909d-783109691355",
         "description": "Harmadik teszt. Most mar kell latni a prior memory injection-t.",
         "task_type": "generic",
@@ -3149,6 +3149,14 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787640167.962852
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640470.861213
           }
         ],
         "delegation_status": "completed",
@@ -3158,7 +3166,7 @@
         "review_task_id": "f96b39a4-ebde-4c71-9147-ef66dcde2297",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787640167.96238
+        "reviewed_at": 1787640470.860489
       },
       {
         "id": "card-1787639818831-73",
@@ -3191,7 +3199,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787639820.749985,
-        "updated_at": 1787640190.244428,
+        "updated_at": 1787640471.7150772,
         "delegation_task_id": "fa33d4fb-a032-4978-a400-7c4dfff1338f",
         "description": "Negyedik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
         "task_type": "generic",
@@ -3293,6 +3301,30 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787640190.244889
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640469.958923
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640471.1072938
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640471.715866
           }
         ],
         "delegation_status": "completed",
@@ -3302,7 +3334,7 @@
         "review_task_id": "4c6030f0-7d7d-4f9b-85f8-295b5f9f0575",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787640190.244427
+        "reviewed_at": 1787640471.715074
       },
       {
         "id": "card-1787639948383-75",
@@ -3335,7 +3367,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787639948.6791759,
-        "updated_at": 1787640184.52592,
+        "updated_at": 1787640482.662317,
         "delegation_task_id": "3f9c80d5-576b-4e92-b53b-49c3529e9f3e",
         "description": "Otodik teszt. Vektor kereses teszt.",
         "task_type": "generic",
@@ -3399,16 +3431,54 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787640184.5263271
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640470.1350348
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-25T06:39:[PHONE REDACTED]+00:00",
+            "timestamp": 1787640470.441663
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640470.464463
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "af1402c9",
+            "timestamp": 1787640471.081086
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640482.662766
           }
         ],
         "delegation_status": "completed",
         "delegation_result": "[morzsa] System analysis completed at 2026-08-25T06:39:[PHONE REDACTED]+00:00",
         "completed_at": "2026-08-25 06:39:15.030112+00:",
-        "reviewer": "tor",
-        "review_task_id": "8ed35e8d-024b-4534-aef2-7f1a486785e1",
+        "reviewer": "runa",
+        "review_task_id": "af1402c9-bc28-4487-b949-9a204d0a0b71",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787640184.525919
+        "reviewed_at": 1787640482.662315
       },
       {
         "id": "card-1787640176041-77",
@@ -3441,7 +3511,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787640176.222216,
-        "updated_at": 1787640197.51475,
+        "updated_at": 1787640488.210698,
         "delegation_task_id": "b77cc6ff-16f7-4343-a8e5-f68fd55fca6b",
         "description": "Harmadik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
         "task_type": "generic",
@@ -3475,19 +3545,49 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787640197.515313
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] MEMORY_TEST analysis — tudasmegosztas teszt\\n\\nVEKTOR KERESES STATUSZ: MUKODIK\\n- Brain API (192.168.1.8:3322/mesh/memory/vector) valaszol\\n- Query \"MEMORY_TEST tudasmegosztas teszt\" → 5 talalat, top similarity=0.8526\\n- mesh.mesh_memory tabla: 3860 bejegyzes, embedding generalva (pgvector)\\n- HindsightSync.get_context_for_prompt() sikeresen injectal prior memory-t\\n\\nTUDASMEGOSZTAS MEGFIGYELESEK:\\n1. A delegation result-ok bekerulnek a mesh_memory tablaba (memory_type=delegation_result",
+            "timestamp": 1787640462.036323
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640469.2313228
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "4fe34524",
+            "timestamp": 1787640469.798691
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787640488.211126
           }
         ],
         "delegation_status": "completed",
-        "delegation_result": "[morzsa] System analysis completed at 2026-08-25T06:43:[PHONE REDACTED]+00:00",
-        "completed_at": "2026-08-25 06:43:08.514568+00:",
+        "delegation_result": "[morzsa] MEMORY_TEST analysis — tudasmegosztas teszt\\n\\nVEKTOR KERESES STATUSZ: MUKODIK\\n- Brain API (192.168.1.8:3322/mesh/memory/vector) valaszol\\n- Query \"MEMORY_TEST tudasmegosztas teszt\" → 5 talalat, top similarity=0.8526\\n- mesh.mesh_memory tabla: 3860 bejegyzes, embedding generalva (pgvector)\\n- HindsightSync.get_context_for_prompt() sikeresen injectal prior memory-t\\n\\nTUDASMEGOSZTAS MEGFIGYELESEK:\\n1. A delegation result-ok bekerulnek a mesh_memory tablaba (memory_type=delegation_result)\\n2. Minden bejegyzeshez embedding generalodik (Brain server auto-embed on save)\\n3. A vektor kereses semantic match-et ad (0.85+ similarity)\\n4. prior_memory injectalva van a task context-be a _execute_task_inner-ben\\n\\nPROBLEMA:\\n- A legtobb MEMORY_TEST eredmeny csak \"[morzsa] System analysis completed at ...\" szoveget tartalmaz\\n  (generic daemon valasz), nem a tenyleges LLM generalta tartalmat\\n- Ez a _handle_generic_task routing miatt van: a \"teszt\" szo nem illeszkedik egyetlen\\n  keyword patterhez sem, igy a fallback heuristic \"data_hints\"-re (test, status) illeszkedik\\n  es _task_system_analysis-t hiv, ami rendszerdiagnosztikat general, nem LLM osszefoglalot\\n- Csak az elso teszt (29c3bd25) tartalmazta az LLM altal generalt A2A Mesh osszefoglalot,\\n  de azt a reviewer rejectelte (csonkolt output miatt)\\n\\nKOVETKEZTETES:\\nA tudasmegosztas pipeline (delegation → mesh_memory → embedding → vector search → context injection)\\nMUKODIK. A vektor kereses visszaadja a prior MEMORY_TEST bejegyzeseket 0.85+ similarity-val.\\nAz eredmeny minosege azonban fugg a task routing-tol — ha a generic handler nem hiv LLM-t,\\na memory ertektelen tartalmat kap.",
+        "completed_at": "2026-08-25 06:46:34.840276+00:",
         "reviewer": "tor",
-        "review_task_id": "fa492fa2-9135-424a-ac7b-0f6cce3d8cb3",
+        "review_task_id": "4fe34524-ae2b-4751-b0c9-24d71df38ace",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787640197.5147488
+        "reviewed_at": 1787640488.210697
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787640190.10021
+    "updated_at": 1787640470.646986
   }
 ]

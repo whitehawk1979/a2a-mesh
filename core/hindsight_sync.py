@@ -132,21 +132,51 @@ class HindsightSync:
             except Exception:
                 brain_host = '192.168.1.8'
                 brain_port = 3322
-            url = f"http://{brain_host}:{brain_port}/mesh/memory/vector?query={urllib.parse.quote(subject)}&limit={limit}"
-            req = urllib.request.Request(url, method='GET')
-            resp = urllib.request.urlopen(req, timeout=5)
-            data = json.loads(resp.read())
-            results = data.get("results", [])
-            if results:
-                lines = []
-                for r in results:
+
+            # Search mesh_memory (delegation results)
+            mesh_results = []
+            try:
+                url = f"http://{brain_host}:{brain_port}/mesh/memory/vector?query={urllib.parse.quote(subject)}&limit={limit}"
+                req = urllib.request.Request(url, method='GET')
+                resp = urllib.request.urlopen(req, timeout=5)
+                data = json.loads(resp.read())
+                mesh_results = data.get("results", [])
+            except Exception:
+                pass
+
+            # Search agent_memory (Nova personal memory — knowledge, decisions, etc.)
+            agent_results = []
+            try:
+                url2 = f"http://{brain_host}:{brain_port}/memory/vector?query={urllib.parse.quote(subject)}&limit={limit}"
+                req2 = urllib.request.Request(url2, method='GET')
+                resp2 = urllib.request.urlopen(req2, timeout=5)
+                data2 = json.loads(resp2.read())
+                agent_results = data2.get("results", [])
+            except Exception:
+                pass
+
+            # Combine results
+            all_lines = []
+            if mesh_results:
+                all_lines.append("=== Delegation Memory ===")
+                for r in mesh_results:
                     ts = str(r.get("created_at", ""))[:19]
                     sender = r.get("source_agent", "?")
                     sim = r.get("similarity", 0)
                     value = (r.get("memory_value") or "")[:200]
-                    lines.append(f"[{ts}] {sender} (sim={sim}): {value}")
-                context = "\n".join(lines)
-                log.info(f"Vector recall: {len(results)} entries for '{subject[:30]}' (top sim={results[0].get('similarity', '?')})")
+                    all_lines.append(f"[{ts}] {sender} (sim={sim}): {value}")
+            if agent_results:
+                all_lines.append("=== Knowledge Memory ===")
+                for r in agent_results:
+                    cat = r.get("category", "?")
+                    sim = r.get("similarity", 0)
+                    title = r.get("title", "")[:60]
+                    content = (r.get("content") or "")[:150]
+                    all_lines.append(f"[{cat}] (sim={sim}): {title} — {content}")
+
+            if all_lines:
+                context = "\n".join(all_lines)
+                log.info(f"Vector recall: {len(mesh_results)} mesh + {len(agent_results)} agent entries for '{subject[:30]}'")
                 return context
         except Exception as vec_err:
             log.debug(f"Vector search failed, falling back to keyword: {vec_err}")
