@@ -3430,8 +3430,8 @@ function loadMarveenPage(page) {
       html += '<div id="chatHeader" style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;color:var(--text);">💬 Válassz egy kontaktot a bal oldalon</div>';
       html += '<div id="chatMessages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;justify-content:center;align-items:center;color:var(--text3);font-size:13px;">← Kattints egy agent-re vagy user-re a beszélgetés megnyitásához</div>';
       html += '<div id="chatInputBar" style="padding:12px;border-top:1px solid var(--border);display:none;gap:8px;">';
-      html += '<input id="chatInput" type="text" placeholder="Üzenet írása... (Enter = küldés)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" onkeyup="if(event.key===\'Enter\')sendChatMessage()" />';
-      html += '<button onclick="sendChatMessage()" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤</button>';
+      html += '<input id="chatInput" type="text" placeholder="Üzenet írása... (Enter = küldés)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" />';
+      html += '<button id="chatSendBtn" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤</button>';
       html += '</div>';
       html += '</div>';
       html += '</div>';
@@ -3763,13 +3763,21 @@ function loadMarveenPage(page) {
         if (renderer) {
           try { body.innerHTML = renderer(data); }
           catch(e) { body.innerHTML = errorBox('Render hiba: ' + e.message); }
-          // Chat: attach click handlers to contact items
+          // Chat: attach click handlers to contact items + send button + input
           if (page === 'chat') {
             var items = document.querySelectorAll('.chat-contact-item');
             for (var i = 0; i < items.length; i++) {
               items[i].onclick = function() {
                 var agentName = this.getAttribute('data-chat-agent');
                 if (agentName) selectChatContact(agentName);
+              };
+            }
+            var sendBtn = document.getElementById('chatSendBtn');
+            if (sendBtn) sendBtn.onclick = function() { sendChatMessage(); };
+            var chatInput = document.getElementById('chatInput');
+            if (chatInput) {
+              chatInput.onkeyup = function(e) {
+                if (e.key === 'Enter') sendChatMessage();
               };
             }
           }
