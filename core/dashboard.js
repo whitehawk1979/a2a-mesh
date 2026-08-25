@@ -2466,18 +2466,21 @@ function loadMarveenPage(page) {
     },
 
     tokenUsage: function(d) {
-      if (d.error) html += '<canvas id="tokenChartCanvas" style="width:100%;height:200px;margin-top:12px;border-radius:8px;"></canvas>';
-      return errorBox(d.error);
+      if (d.error) return errorBox(d.error);
       var total = d.total_tokens || d.total || 0;
-      var html = card('<div style="text-align:center;padding:10px;">' +
-        '<div style="font-size:28px;font-weight:700;color:var(--primary);">' + esc(total.toLocaleString ? total.toLocaleString() : total) + '</div>' +
-        '<div style="color:var(--text3);font-size:12px;margin-top:4px;">Összes token</div></div>');
-      var entries = d.usage || d.entries || d.by_model || d.models || [];
-      if (entries.length) {
-        html += table(['Modell', 'Token', 'Költség'], entries.map(function(e) {
-          return [esc(e.model || e.name || '—'), esc((e.tokens || e.total_tokens || 0).toLocaleString ? (e.tokens || e.total_tokens || 0).toLocaleString() : e.tokens || 0), '$' + esc((e.cost || 0).toFixed ? (e.cost || 0).toFixed(4) : e.cost || 0)];
+      var html = '<canvas id="tokenChartCanvas" style="width:100%;height:200px;margin-top:12px;border-radius:8px;"></canvas>';
+      html += '<div style="text-align:center;padding:10px;background:var(--surface2);border-radius:8px;margin:8px 0;">';
+      html += '<div style="font-size:28px;font-weight:700;color:var(--primary);">' + esc(String(total)) + '</div>';
+      html += '<div style="color:var(--text3);font-size:12px;margin-top:4px;">Összes token</div></div>';
+      var byAgent = d.by_agent || {};
+      var agentKeys = Object.keys(byAgent);
+      if (agentKeys.length) {
+        html += table(['Agent', 'Input', 'Output', 'Requests'], agentKeys.map(function(name) {
+          var a = byAgent[name] || {};
+          return [esc(name), esc(String(a.input || 0)), esc(String(a.output || 0)), esc(String(a.requests || 0))];
         }));
       }
+      setTimeout(function() { window.loadTokenChart && window.loadTokenChart(); }, 50);
       return html;
     },
 
