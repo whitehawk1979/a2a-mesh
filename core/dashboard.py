@@ -911,7 +911,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             if pool and hasattr(pool, 'is_connected') and pool.is_connected():
                 try:
                     rows = await pool.fetch(
-                        "SELECT node_name, status, last_heartbeat FROM mesh.mesh_nodes ORDER BY node_name"
+                        "SELECT node_name, status, last_heartbeat, version FROM mesh.mesh_nodes ORDER BY node_name"
                     )
                     result["nodes"] = _serialize_pg_rows(rows)
                 except Exception:
