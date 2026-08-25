@@ -2459,10 +2459,13 @@ class DashboardAdminMixin:
         return web.json_response(get_health_status())
 
     async def _api_federation_status(self, request):
-        """GET /api/federation — Federation status."""
+        """GET /api/federation — Federation status (merged with mesh nodes)."""
         from aiohttp import web
         from .federation import manager
-        return web.json_response(manager.get_status())
+        pg_pool = getattr(self.node, "_pg_pool", None)
+        node_name = getattr(self.node, "node_name", "nova")
+        status = await manager.get_status_with_mesh(pg_pool, node_name)
+        return web.json_response(status)
 
     async def _api_federation_add(self, request):
         """POST /api/federation/peer — Add federated peer."""

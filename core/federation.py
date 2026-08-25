@@ -208,9 +208,71 @@ class FederationManager:
 
     def get_status(self):
         config = self.get_config()
-        peers = config.get("peers", [])
+        peers = list(config.get("peers", []))
         return {
             "enabled": config.get("enabled", False),
+            "peer_count": len(peers),
+            "active_count": len([p for p in peers if p.get("status") == "online"]),
+            "tunnel_count": len(self.bridge.tunnels),
+            "peers": peers
+        }
+
+    async def get_status_with_mesh(self, pg_pool=None, node_name="nova"):
+        """Get federation status merged with mesh-discovered nodes from PG."""
+        config = self.get_config()
+        config_peers = {p["name"]: p for p in config.get("peers", [])}
+        
+        # Fetch all mesh nodes from PG
+        mesh_nodes = []
+        if pg_pool:
+            try:
+                rows = await pg_pool.fetch(
+                    """SELECT node_name, host, p2p_port, status, version, last_heartbeat,
+                              http_available, p2p_available
+                       FROM mesh.mesh_nodes ORDER BY node_name"""
+                )
+                for row in rows:
+                    name = row["node_name"]
+                    if name == node_name:
+                        continue  # Skip self
+                    row_dict = dict(row)
+                    # Determine status from availability flags
+                    is_online = row_dict.get("p2p_available") or row_dict.get("http_available")
+                    status_val = "online" if is_online else (row_dict.get("status") or "unknown")
+                    mesh_nodes.append({
+                        "name": name,
+                        "address": row_dict.get("host") or "",
+                        "port": 8650,  # Dashboard port is always 8650
+                        "trust": "trusted",
+                        "ssh_tunnel": False,
+                        "status": status_val,
+                        "version": row_dict.get("version") or "?",
+                        "last_seen": str(row_dict["last_heartbeat"]) if row_dict.get("last_heartbeat") else None,
+                        "capabilities": [],
+                        "source": "mesh"
+                    })
+            except Exception as e:
+                log.warning(f"Failed to fetch mesh nodes for federation: {e}")
+        
+        # Merge: mesh nodes take priority but preserve static config extras
+        merged = {}
+        for name, p in config_peers.items():
+            merged[name] = p
+        for n in mesh_nodes:
+            if n["name"] in merged:
+                # Update address/status from mesh if more recent
+                merged[n["name"]]["address"] = n["address"]
+                merged[n["name"]]["status"] = n["status"]
+                merged[n["name"]]["version"] = n.get("version", "?")
+                if n.get("last_seen"):
+                    merged[n["name"]]["last_seen"] = n["last_seen"]
+                merged[n["name"]]["source"] = "mesh+config"
+            else:
+                merged[n["name"]] = n
+        
+        peers = list(merged.values())
+        return {
+            "enabled": config.get("enabled", True),
             "peer_count": len(peers),
             "active_count": len([p for p in peers if p.get("status") == "online"]),
             "tunnel_count": len(self.bridge.tunnels),
