@@ -1499,7 +1499,7 @@ function loadMarveenPage(page) {
     'ideas': '/api/ideas',
     'labels': '/api/labels',
     'files': '/api/files',
-    'workflow': '/api/workflow'
+    'workflow': '/api/workflows'
   };
 
   var title = titleMap[page] || page;
@@ -2999,26 +2999,46 @@ function loadMarveenPage(page) {
       return html;
     },
     'insights-cost': function(d) {
-      setTimeout(function() { window.loadCostChart && window.loadCostChart(); }, 50);
       if (d.error) return errorBox(d.error);
       var html = '';
-      var summary = d.summary || [];
-      if (summary.length) {
-        html += '<h3 style=\"margin-bottom:12px\">💰 Havi költségek</h3>';
-        html += table(['Ügynök', 'Modell', 'Input', 'Output', 'Költség'], summary.map(function(s) {
-          return [esc(s.agent), esc(s.model), esc(s.input_tokens), esc(s.output_tokens), '$' + esc(s.cost_usd)];
+      var s = d.summary || {};
+      // Summary cards
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--border);"><div style="font-size:20px;font-weight:700;color:var(--primary);">$' + esc(String((s.total_cost_usd || 0).toFixed(4))) + '</div><div style="font-size:10px;color:var(--text3);">Havi költség</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--border);"><div style="font-size:20px;font-weight:700;color:var(--text);">' + esc(String(s.total_requests || 0)) + '</div><div style="font-size:10px;color:var(--text3);">Kérések</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--border);"><div style="font-size:20px;font-weight:700;color:var(--text);">' + esc(String((s.total_input_tokens || 0) + (s.total_output_tokens || 0))) + '</div><div style="font-size:10px;color:var(--text3);">Tokenek</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:8px;text-align:center;border:1px solid var(--border);"><div style="font-size:20px;font-weight:700;color:var(--text2);">' + esc(s.month || '—') + '</div><div style="font-size:10px;color:var(--text3);">Hónap</div></div>';
+      html += '</div>';
+      // By agent
+      var byAgent = s.by_agent || {};
+      var agentKeys = Object.keys(byAgent);
+      if (agentKeys.length) {
+        html += '<h3 style="margin:0 0 8px;font-size:13px;">💰 Költség agentenként</h3>';
+        html += table(['Agent', 'Költség'], agentKeys.map(function(name) {
+          return [esc(name), '$' + esc(String((byAgent[name] || 0).toFixed(4)))];
         }));
       }
+      // By model
+      var byModel = s.by_model || {};
+      var modelKeys = Object.keys(byModel);
+      if (modelKeys.length) {
+        html += '<h3 style="margin:16px 0 8px;font-size:13px;">🤖 Költség modellenként</h3>';
+        html += table(['Modell', 'Költség'], modelKeys.map(function(name) {
+          return [esc(name), '$' + esc(String((byModel[name] || 0).toFixed(4)))];
+        }));
+      }
+      // Alerts
       var alerts = d.alerts || [];
       if (alerts.length) {
-        html += '<h3 style=\"margin-top:20px;margin-bottom:12px\">⚠️ Költségfigyelő</h3>';
+        html += '<h3 style="margin:16px 0 8px;font-size:13px;">⚠️ Költségfigyelő</h3>';
         alerts.forEach(function(a) {
           var c = a.level === 'red' ? 'var(--danger)' : a.level === 'yellow' ? 'var(--warning)' : 'var(--success)';
-          html += card('<div style=\"display:flex;align-items:center;gap:8px\">' + badge(a.level.toUpperCase(), c) + '<span>' + esc(a.message) + '</span></div>');
+          html += card('<div style="display:flex;align-items:center;gap:8px">' + badge(a.level.toUpperCase(), c) + '<span>' + esc(a.message) + '</span></div>');
         });
       }
       html += '<canvas id="costChartCanvas" style="width:100%;height:200px;margin-top:12px;border-radius:8px;"></canvas>';
-      return html || empty('Nincs költség adat');
+      setTimeout(function() { window.loadCostChart && window.loadCostChart(); }, 50);
+      return html;
     },
     'insights-inbox': function(d) {
       if (d.error) return errorBox(d.error);
