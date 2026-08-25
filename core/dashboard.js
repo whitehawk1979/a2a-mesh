@@ -691,14 +691,14 @@ function loadAgents() {
     var currentVal = sel.value;
     sel.innerHTML = '<option value="">📢 Mindenkinek</option>';
     d.agents.forEach(function(a) {
-      if (a.name !== nodeId) {
-        var opt = document.createElement("option");
-        opt.value = a.name;
-        opt.textContent = "👤 " + a.name + " (" + a.role + ")";
-        sel.appendChild(opt);
-        // Also add DM channel with status
-        addDMChannel(a.name, a.status);
-      }
+      // Include self node (nova) so user can DM their own agent
+      var opt = document.createElement("option");
+      opt.value = a.name;
+      var label = a.name === nodeId ? "👤 " + a.name + " (saját)" : "👤 " + a.name + " (" + a.role + ")";
+      opt.textContent = label;
+      sel.appendChild(opt);
+      // Also add DM channel with status
+      addDMChannel(a.name, a.status);
     });
     // Restore selection
     sel.value = currentVal;
