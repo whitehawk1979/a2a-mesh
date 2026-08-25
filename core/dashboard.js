@@ -682,7 +682,13 @@ function loadMessages() {
     if (!channelMessages[currentChannel || "general"]) {
       channelMessages[currentChannel || "general"] = [];
     }
+    // Only show non-DM messages in main chat (broadcast + general)
+    // DM messages are shown in the DM panel via _loadChatMessages()
     (d.messages || []).forEach(function(m) {
+      // Skip DM messages — they belong in the DM panel, not main chat
+      var isDM = m.msg_type === "chat" && m.sender !== "broadcast" && m.recipient !== "broadcast";
+      if (isDM && m.username === m.sender) return; // user→agent DM
+      if (isDM && m.msg_type === "agent_reply") return; // agent→user reply
       m.content = m.content || m.text || "";
       m.timestamp = m.timestamp || m.created_at || "";
       addMessage(m, false);
