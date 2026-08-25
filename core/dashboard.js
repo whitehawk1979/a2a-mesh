@@ -229,10 +229,14 @@ function addMessageToDOM(msg, scroll) {
     timeoutEls.forEach(function(el) { el.remove(); });
     messageHistory = messageHistory.filter(function(m) { return m.type !== "agent_processing" && m.type !== "agent_timeout"; });
   }
-  var isSent = msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId;
-  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId && msg.type !== "agent_reply";
-  // Directives from web_dashboard with a specific recipient are DMs
-  if (!isDM && msg.type === "directive" && msg.recipient && msg.recipient !== "broadcast" && msg.source === "web_dashboard") {
+  var myUsername = (authUser ? authUser.username : localStorage.getItem("a2a_username")) || "zsolt";
+  var myDisplay = authUser ? authUser.display_name : "";
+  var isSent = msg.sender === myUsername || msg.sender === myDisplay || msg.sender === nodeId;
+  // DM: recipient is a specific agent (not broadcast, not me)
+  var msgType = msg.type || msg.msg_type || "";
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== myUsername && msgType !== "agent_reply";
+  // Agent replies in a DM context go to the DM channel with that agent
+  if (msgType === "agent_reply" && msg.sender && msg.sender !== "broadcast" && msg.sender !== myUsername) {
     isDM = true;
   }
   var isBroadcast = !isDM && (!msg.recipient || msg.recipient === "broadcast" || msg.type === "agent_reply" || msg.type === "directive");
@@ -345,13 +349,15 @@ function addMessage(msg, scroll) {
 
   // Route message to the correct channel
   var myUsername = (authUser ? authUser.username : localStorage.getItem("a2a_username")) || "zsolt";
+  var myDisplay = authUser ? authUser.display_name : "";
+  var msgType = msg.type || msg.msg_type || "";
   var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== myUsername;
   // Agent replies in a DM context go to the DM channel with that agent
-  if (msg.type === "agent_reply" && msg.sender && msg.sender !== "broadcast" && msg.sender !== myUsername) {
+  if (msgType === "agent_reply" && msg.sender && msg.sender !== "broadcast" && msg.sender !== myUsername) {
     isDM = true;
   }
   // Directives from web_dashboard with a specific recipient are DMs
-  if (!isDM && msg.type === "directive" && msg.recipient && msg.recipient !== "broadcast" && msg.source === "web_dashboard") {
+  if (!isDM && msgType === "directive" && msg.recipient && msg.recipient !== "broadcast" && msg.source === "web_dashboard") {
     isDM = true;
   }
   var channel;
@@ -694,9 +700,14 @@ function loadMessages() {
     }
     var ch = currentChannel || "general";
     var username = (authUser ? authUser.username : localStorage.getItem("a2a_username")) || "zsolt";
+    // Clear current channel messages before re-adding from server (avoid duplicates)
+    channelMessages[currentChannel || "general"] = [];
     (d.messages || []).forEach(function(m) {
       m.content = m.content || m.text || "";
       m.timestamp = m.timestamp || m.created_at || "";
+      // Normalize field names: API returns msg_type, JS expects type
+      m.type = m.type || m.msg_type || "";
+      // Normalize sender/recipient for addMessage routing
       if (ch === "general") {
         // Main chat: only show broadcast messages (no DMs)
         if (m.msg_type === "chat" && m.sender !== "broadcast" && m.recipient !== "broadcast") return;
