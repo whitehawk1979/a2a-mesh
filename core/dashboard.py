@@ -32,7 +32,7 @@ from .dashboard_diagnostics import DashboardDiagnosticsMixin
 from .dashboard_delegations import DashboardDelegationsMixin
 from .dashboard_agents import DashboardAgentsMixin
 from .dashboard_files import DashboardFilesMixin
-from .dashboard_chat import DashboardChatMixin
+from .dashboard_chat import handle_chat_send  # chat handler functions
 from .dashboard_admin import DashboardAdminMixin
 from .dashboard_skills import DashboardSkillsMixin
 
@@ -78,7 +78,7 @@ def _serialize_pg_rows(rows):
         result.append(d)
     return result
 
-class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardChatMixin, DashboardAdminMixin, DashboardSkillsMixin, ConfigSyncMixin, RecoveryNotesMixin):
+class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagnosticsMixin, DashboardDelegationsMixin, DashboardAgentsMixin, DashboardFilesMixin, DashboardAdminMixin, DashboardSkillsMixin, ConfigSyncMixin, RecoveryNotesMixin):
     """Handles web dashboard HTTP and WebSocket requests.
 
     Routes:
