@@ -218,8 +218,7 @@ class DashboardFilesMixin:
 
         return web.FileResponse(file_path)
 
-    @staticmethod
-    def _format_size(size_bytes):
+    def _format_size(self, size_bytes):
         """Format file size in human-readable form."""
         if size_bytes < 1024:
             return f"{size_bytes} B"

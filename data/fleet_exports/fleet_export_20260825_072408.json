@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "exportedAt": "2026-08-25T04:24:08Z",
+  "sourceHost": "Lakatoss-Mac-Pro.local",
+  "team": {
+    "nodes": {}
+  },
+  "kanban": {
+    "boards": []
+  },
+  "skills": {
+    "skills": []
+  },
+  "delegationStats": {
+    "note": "Summary only — individual tasks are PG-backed"
+  },
+  "dashboardSettings": {},
+  "meshConfig": null
+}
