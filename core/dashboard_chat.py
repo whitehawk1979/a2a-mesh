@@ -96,6 +96,13 @@ async def handle_chat_send(node, request, pool, user):
             result = await node.send_direct(recipient, "a2a_message", payload, priority=5)
             mesh_sent = True
             log.info(f"💬 Chat DM {username}→{recipient}: sent via mesh")
+            # Generate auto-ack on sender side (receiver may not support chat routing yet)
+            try:
+                await store_agent_reply(pool, username, recipient,
+                    "✅ Üzenet megkapva! Feldolgozás alatt...", "agent_reply")
+                log.info(f"💬 Chat auto-ack (sender-side) {recipient}→user:{username}")
+            except Exception as e:
+                log.warning(f"💬 Chat auto-ack failed: {e}")
         except Exception as e:
             log.warning(f"💬 Chat DM {username}→{recipient}: mesh send failed: {e}")
 
