@@ -2124,6 +2124,7 @@ function loadMarveenPage(page) {
 
   var renderers = {
     kanban: function(d) {
+      setTimeout(function() { window.initKanbanDnD && window.initKanbanDnD(); }, 100);
       if (!d || !d.boards) return empty('Nincs kanban adat');
       var boards = d.boards || [];
       if (!boards.length) return empty('Nincs kanban tábla');
@@ -2146,14 +2147,14 @@ function loadMarveenPage(page) {
           var colCards = cards.filter(function(c) { return (c.column || 'todo') === col; });
           var cl = colLabels[col] || col;
           var cc = colColors[col] || 'var(--text3)';
-          html += '<div style="flex:1;min-width:180px;background:var(--surface);border-radius:10px;padding:8px;">';
+          html += '<div data-column="' + col + '" style="flex:1;min-width:180px;background:var(--surface);border-radius:10px;padding:8px;">';
           html += '<div style="font-size:11px;font-weight:600;color:' + cc + ';margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">' + esc(cl) + ' (' + colCards.length + ')</div>';
           colCards.forEach(function(c) {
             var cid = esc(c.id || '');
             var pri = c.priority || 'medium';
             var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--warning)';
             var approvable = c.requires_approval || c.approval_status === 'pending';
-            html += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;">';
+            html += '<div data-card-id="' + cid + '" data-column="' + col + '" data-board-id="' + bid + '" draggable="true" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;cursor:grab;">';
             html += '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">' + esc(c.title || '—') + '</div>';
             if (c.description) html += '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">' + esc(c.description.substring(0,80)) + '</div>';
             html += '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">';
@@ -4754,6 +4755,135 @@ window.showSearchResults = function(results, query) {
   }
 };
 
+// ─── Dark/Light Theme Toggle ──
+window.toggleTheme = function() {
+  var root = document.documentElement;
+  var current = root.getAttribute('data-theme') || 'dark';
+  var next = current === 'dark' ? 'light' : 'dark';
+  root.setAttribute('data-theme', next);
+  localStorage.setItem('a2a_theme', next);
+  applyTheme(next);
+  showToast('Téma: ' + (next === 'dark' ? '🌙 Sötét' : '☀️ Világos'), 'info');
+};
+
+window.applyTheme = function(theme) {
+  var root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  var vars = theme === 'light' ? {
+    '--bg': '#f5f5f5', '--surface': '#ffffff', '--surface2': '#e9ecef',
+    '--text': '#212529', '--text2': '#495057', '--text3': '#6c757d',
+    '--border': '#dee2e6', '--primary': '#0d6efd', '--primary-dim': 'rgba(13,110,253,0.1)',
+    '--success': '#198754', '--warning': '#ffc107', '--danger': '#dc3545'
+  } : {
+    '--bg': '#0d1117', '--surface': '#161b22', '--surface2': '#21262d',
+    '--text': '#e6edf3', '--text2': '#b1bac4', '--text3': '#7d8590',
+    '--border': '#30363d', '--primary': '#58a6ff', '--primary-dim': 'rgba(88,166,255,0.1)',
+    '--success': '#3fb950', '--warning': '#d29922', '--danger': '#f85149'
+  };
+  var style = document.getElementById('theme-vars');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'theme-vars';
+    document.head.appendChild(style);
+  }
+  var css = ':root{';
+  for (var k in vars) { css += k + ':' + vars[k] + ';'; }
+  css += '}';
+  style.textContent = css;
+};
+
+// Init theme on load
+(function() {
+  var saved = localStorage.getItem('a2a_theme') || 'dark';
+  applyTheme(saved);
+})();
+
+// ─── Kanban Drag-and-Drop ──
+var dragData = null;
+
+window.handleDragStart = function(e) {
+  dragData = {
+    cardId: e.target.getAttribute('data-card-id'),
+    boardId: e.target.getAttribute('data-board-id'),
+    fromColumn: e.target.getAttribute('data-column')
+  };
+  e.target.style.opacity = '0.5';
+  e.dataTransfer.effectAllowed = 'move';
+};
+
+window.handleDragEnd = function(e) {
+  e.target.style.opacity = '1';
+  dragData = null;
+  // Remove highlight from all columns
+  var cols = document.querySelectorAll('.kanban-col-drop');
+  for (var i = 0; i < cols.length; i++) {
+    cols[i].style.background = '';
+  }
+};
+
+window.handleDragOver = function(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  if (e.currentTarget) {
+    e.currentTarget.style.background = 'rgba(88,166,255,0.08)';
+  }
+};
+
+window.handleDragLeave = function(e) {
+  if (e.currentTarget) {
+    e.currentTarget.style.background = '';
+  }
+};
+
+window.handleDrop = function(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  var targetColumn = e.currentTarget.getAttribute('data-column');
+  if (e.currentTarget) {
+    e.currentTarget.style.background = '';
+  }
+  if (!dragData || !targetColumn) return;
+  if (dragData.fromColumn === targetColumn) return;
+
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var boardId = dragData.boardId || 'main';
+  var cardId = dragData.cardId;
+
+  fetch('/api/kanban/' + boardId + '/cards/' + cardId, {
+    method: 'PUT',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ column: targetColumn })
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        showToast('Hiba: ' + d.error, 'error');
+      } else {
+        showToast('Card mozgatva: ' + dragData.fromColumn + ' → ' + targetColumn, 'success');
+        loadMarveenPage('kanban');
+      }
+    })
+    .catch(function(e) { showToast('Drag-drop hiba: ' + e, 'error'); });
+};
+
+window.initKanbanDnD = function() {
+  // Make cards draggable
+  var cards = document.querySelectorAll('[data-card-id]');
+  for (var i = 0; i < cards.length; i++) {
+    cards[i].setAttribute('draggable', 'true');
+    cards[i].addEventListener('dragstart', handleDragStart);
+    cards[i].addEventListener('dragend', handleDragEnd);
+  }
+  // Make columns droppable
+  var cols = document.querySelectorAll('[data-column]');
+  for (var j = 0; j < cols.length; j++) {
+    cols[j].classList.add('kanban-col-drop');
+    cols[j].addEventListener('dragover', handleDragOver);
+    cols[j].addEventListener('dragleave', handleDragLeave);
+    cols[j].addEventListener('drop', handleDrop);
+  }
+};
+
 // ─── Multi-API section loaders (for projects, network, security, sysinfo)
 window._fetchSection = function(url, targetId, renderFn) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
@@ -5181,7 +5311,7 @@ function renderKanbanCard(card, delegation) {
   var badge = isDelegation ? '<span style="font-size:12px">🔗</span>' : '<span style="font-size:12px">📋</span>';
   var clickAction = isDelegation ? "showTaskDetail('" + delegation.task_id + "')" : "showKanbanCardDetail('" + card.id + "')";
   
-  return '<div class="kanban-card" style="cursor:pointer" onclick="' + clickAction + '">' +
+  return '<div class="kanban-card" data-card-id="' + card.id + '" data-column="' + (card.column || 'todo') + '" data-board-id="' + (card.board_id || 'main') + '" style="cursor:pointer" onclick="' + clickAction + '">' +
     '<div class="card-subject"><span>' + escHtml(card.title || (delegation ? delegation.subject : "?")) + '</span>' + badge + '<span class="priority-badge ' + prioClass + '">' + prioLabel + '</span></div>' +
     '<div><span class="card-type ' + typeClass + '">' + typeLabel + '</span></div>' +
     '<div class="card-meta">' + (fromTo ? '<span>' + fromTo + '</span>' : '') + (assigned ? '<span>' + assigned + '</span>' : '') + '<span>' + timeAgo + '</span></div>' +
