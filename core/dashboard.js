@@ -1449,7 +1449,12 @@ function loadMarveenPage(page) {
     'projects': '📂 Projektek',
     'network': '🔌 P2P Hálózat',
     'security': '🛡️ Biztonság',
-    'sysinfo': '⚙️ Rendszer Infó'
+    'sysinfo': '⚙️ Rendszer Infó',
+    'nodes': '🌐 Node-ok',
+    'ideas': '💡 Ötletlád',
+    'labels': '🏷️ Címkék',
+    'files': '📁 Fájlok',
+    'workflow': '⚙️ Workflow'
   };
 
   var apiMap = {
@@ -1489,7 +1494,12 @@ function loadMarveenPage(page) {
     'projects': '/api/projects',
     'network': '/api/p2p/status',
     'security': '/api/context-guard',
-    'sysinfo': '/api/tool-timeouts'
+    'sysinfo': '/api/tool-timeouts',
+    'nodes': '/api/nodes',
+    'ideas': '/api/ideas',
+    'labels': '/api/labels',
+    'files': '/api/files',
+    'workflow': '/api/workflow'
   };
 
   var title = titleMap[page] || page;
@@ -3251,6 +3261,88 @@ function loadMarveenPage(page) {
       html += '<div id="sysinfo-labels-section" style="margin-top:16px;"></div>';
       html += '<div id="sysinfo-voice-section" style="margin-top:16px;"></div>';
       html += '<div style="margin-top:16px;display:flex;gap:8px;"><button onclick="authSync()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔐 Auth Sync</button><button onclick="webhookDeploy()" style="background:var(--warning);color:#000;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🪝 Webhook Deploy</button></div>';
+      return html;
+    },
+    'nodes': function(d) {
+      if (d.error) return errorBox(d.error);
+      var nodes = d.nodes || [];
+      if (!nodes.length) return empty('Nincs node adat');
+      var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px;">';
+      nodes.forEach(function(n) {
+        var online = n.status === 'active' || n.status === 'online';
+        var dotColor = online ? 'var(--success)' : 'var(--danger)';
+        html += '<div style="background:var(--surface2);border-radius:10px;padding:12px;border:1px solid var(--border);">';
+        html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">';
+        html += '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';"></div>';
+        html += '<strong style="font-size:13px;">' + esc(n.node_name || n.name || '?') + '</strong>';
+        html += '</div>';
+        html += '<div style="font-size:11px;color:var(--text3);">v' + esc(n.version || '?') + ' • ' + esc(n.host || '') + '</div>';
+        if (n.capabilities) html += '<div style="font-size:10px;color:var(--text2);margin-top:4px;">' + esc(n.capabilities.length) + ' képesség</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      return html;
+    },
+    'ideas': function(d) {
+      if (d.error) return errorBox(d.error);
+      var ideas = d.ideas || d.items || [];
+      var html = '<button onclick="showIdeaForm()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:12px;">+ Új ötlet</button>';
+      if (!ideas.length) return html + empty('Még nincs ötlet');
+      ideas.forEach(function(i) {
+        var status = i.status || 'open';
+        var sColor = status === 'approved' ? 'var(--success)' : status === 'rejected' ? 'var(--danger)' : 'var(--warning)';
+        html += '<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid var(--border);">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:start;">';
+        html += '<strong style="font-size:13px;">' + esc(i.title || '—') + '</strong>';
+        html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + sColor + ';color:#fff;">' + esc(status) + '</span>';
+        html += '</div>';
+        if (i.description) html += '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + esc(i.description.substring(0, 120)) + '</div>';
+        if (i.tags) html += '<div style="font-size:10px;color:var(--text2);margin-top:4px;">' + esc(i.tags) + '</div>';
+        html += '</div>';
+      });
+      return html;
+    },
+    'labels': function(d) {
+      if (d.error) return errorBox(d.error);
+      var labels = d.labels || d.items || [];
+      if (!labels.length) return empty('Nincs címke');
+      var html = '<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      labels.forEach(function(l) {
+        var color = l.color || 'var(--primary)';
+        html += '<div style="background:' + color + ';color:#fff;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:600;">' + esc(l.name || l.label || '?') + '</div>';
+      });
+      html += '</div>';
+      return html;
+    },
+    'files': function(d) {
+      if (d.error) return errorBox(d.error);
+      var files = d.files || [];
+      if (!files.length) return empty('Nincs fájl');
+      var html = '<div style="display:flex;flex-direction:column;gap:6px;">';
+      files.forEach(function(f) {
+        html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;display:flex;align-items:center;gap:10px;border:1px solid var(--border);">';
+        html += '<span style="font-size:20px;">📄</span>';
+        html += '<div style="flex:1;"><div style="font-size:12px;font-weight:600;">' + esc(f.name || '?') + '</div>';
+        html += '<div style="font-size:10px;color:var(--text3);">' + esc(f.size_human || f.size || '?') + ' • ' + esc(f.type || '') + '</div></div>';
+        if (f.url) html += '<a href="' + esc(f.url) + '" target="_blank" style="font-size:11px;color:var(--primary);text-decoration:none;">⬇️</a>';
+        html += '</div>';
+      });
+      html += '</div>';
+      return html;
+    },
+    'workflow': function(d) {
+      if (d.error) return errorBox(d.error);
+      var workflows = d.workflows || d.items || [];
+      var html = '<button onclick="showWorkflowForm()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;margin-bottom:12px;">+ Új workflow</button>';
+      if (!workflows.length) return html + empty('Nincs workflow');
+      workflows.forEach(function(w) {
+        var steps = w.steps || [];
+        html += '<div style="background:var(--surface2);border-radius:10px;padding:12px;margin-bottom:8px;border:1px solid var(--border);">';
+        html += '<strong style="font-size:13px;">' + esc(w.name || w.id || '?') + '</strong>';
+        if (w.description) html += '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + esc(w.description) + '</div>';
+        html += '<div style="font-size:10px;color:var(--text2);margin-top:4px;">' + steps.length + ' lépés</div>';
+        html += '</div>';
+      });
       return html;
     },
     'topology': function(d) {
