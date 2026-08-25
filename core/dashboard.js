@@ -2212,11 +2212,31 @@ function loadMarveenPage(page) {
     activity: function(d) {
       var acts = d.activities || [];
       if (!acts.length) return empty('Nincs aktivitás');
-      return table(['Feladó', 'Címzett', 'Típus', 'Prioritás', 'Idő'], acts.map(function(a) {
+      // Summary by type
+      var typeCounts = {};
+      acts.forEach(function(a) {
+        var t = a.msg_type || 'other';
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+      });
+      var topTypes = Object.keys(typeCounts).sort(function(a, b) { return typeCounts[b] - typeCounts[a]; }).slice(0, 5);
+      var html = '<div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;">';
+      topTypes.forEach(function(t) {
+        html += '<span style="background:var(--surface2);padding:4px 10px;border-radius:8px;font-size:10px;border:1px solid var(--border);">' + esc(t) + ': <strong>' + esc(String(typeCounts[t])) + '</strong></span>';
+      });
+      html += '</div>';
+      // Filter input
+      html += '<input type="text" id="activityFilter" placeholder="🔍 Szűrés feladó/típus..." onkeyup="filterActivityTable()" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;margin-bottom:8px;box-sizing:border-box;">';
+      html += '<div id="activityTableWrap">';
+      html += table(['Feladó', 'Címzett', 'Típus', 'Prioritás', 'Idő'], acts.slice(0, 50).map(function(a) {
         var pri = a.priority || 'normal';
         var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--primary)';
         return [esc(a.sender), esc(a.recipient), badge(a.msg_type || 'msg'), badge(pri, pc), fmtTime(a.created_at)];
       }));
+      html += '</div>';
+      if (acts.length > 50) {
+        html += '<div style="text-align:center;color:var(--text3);font-size:11px;margin-top:8px;">+' + (acts.length - 50) + ' további aktivitás</div>';
+      }
+      return html;
     },
 
     bgTasks: function(d) {
@@ -2768,30 +2788,37 @@ function loadMarveenPage(page) {
     overview: function(d) {
       if (d.error) return errorBox(d.error);
       var html = '';
-      // Stats row
-      html += '<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">';
-      html += statBox('Node', d.node_name || '—');
-      html += statBox('Peers', (d.peers || 0) + '/' + (d.peers_total || 0));
-      html += statBox('Tasks', (d.tasks_total || 0));
-      html += statBox('Pending', (d.tasks_pending || 0));
+      // Stats row — 4 colorful cards
+      var peers = (d.peers || 0) + '/' + (d.peers_total || 0);
+      var tasks = d.tasks_total || 0;
+      var pending = d.tasks_pending || 0;
+      html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px;">';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:10px;text-align:center;border:1px solid var(--border);border-left:3px solid var(--primary);"><div style="font-size:22px;font-weight:700;color:var(--primary);">' + esc(d.node_name || '—') + '</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">Helyi node</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:10px;text-align:center;border:1px solid var(--border);border-left:3px solid var(--success);"><div style="font-size:22px;font-weight:700;color:var(--success);">' + esc(String(peers)) + '</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">Peerek</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:10px;text-align:center;border:1px solid var(--border);border-left:3px solid var(--warning);"><div style="font-size:22px;font-weight:700;color:var(--warning);">' + esc(String(tasks)) + '</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">Feladatok</div></div>';
+      html += '<div style="background:var(--surface2);padding:12px;border-radius:10px;text-align:center;border:1px solid var(--border);border-left:3px solid var(--danger);"><div style="font-size:22px;font-weight:700;color:var(--danger);">' + esc(String(pending)) + '</div><div style="font-size:10px;color:var(--text3);margin-top:2px;">Függőben</div></div>';
       html += '</div>';
-      // Node list
+      // Node list with icons + version
       var nodes = d.nodes || [];
       if (nodes.length) {
-        html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Node-ok</h3>';
-        html += table(['Node', 'Státusz', 'Heartbeat'], nodes.map(function(n) {
+        html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Node-ok (' + nodes.length + ')</h3>';
+        html += table(['Node', 'Státusz', 'Verzió', 'Heartbeat'], nodes.map(function(n) {
           var st = n.status || 'unknown';
           var sc = st === 'active' || st === 'healthy' ? 'var(--primary)' : 'var(--text3)';
-          return [esc(n.node_name || n.name), badge(st, sc), fmtTime(n.last_heartbeat)];
+          var icon = st === 'active' || st === 'healthy' ? '🟢' : '🔴';
+          return [icon + ' ' + esc(n.node_name || n.name), badge(st, sc), esc(n.version || '?'), fmtTime(n.last_heartbeat)];
         }));
       }
-      // Recent activity
+      // Recent activity with filter
       var act = d.recent_activity || [];
       if (act.length) {
-        html += '<h3 style="margin:16px 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Legutóbbi aktivitás</h3>';
-        html += table(['Feladó', 'Címzett', 'Típus', 'Idő'], act.map(function(a) {
+        html += '<h3 style="margin:16px 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Legutóbbi aktivitás (' + act.length + ')</h3>';
+        html += table(['Feladó', 'Címzett', 'Típus', 'Idő'], act.slice(0, 15).map(function(a) {
           return [esc(a.sender), esc(a.recipient), badge(a.msg_type || 'msg'), fmtTime(a.created_at)];
         }));
+        if (act.length > 15) {
+          html += '<button onclick="loadMarveenPage(\'activity\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:6px 16px;border-radius:8px;cursor:pointer;font-size:11px;margin-top:8px;">Összes aktivitás →</button>';
+        }
       }
       return html || empty('Nincs adat');
     },
@@ -4624,6 +4651,18 @@ window.loadCostChart = function() {
     .catch(function(e) { console.error('Cost chart error:', e); });
 };
 
+
+// --- Activity filter ---
+window.filterActivityTable = function() {
+  var q = (document.getElementById('activityFilter').value || '').toLowerCase();
+  var wrap = document.getElementById('activityTableWrap');
+  if (!wrap) return;
+  var rows = wrap.querySelectorAll('tr');
+  for (var i = 1; i < rows.length; i++) {
+    var text = rows[i].innerText.toLowerCase();
+    rows[i].style.display = text.indexOf(q) >= 0 ? '' : 'none';
+  }
+};
 
 // --- Keyboard Shortcuts ---
 window.handleKeyboard = function(e) {
