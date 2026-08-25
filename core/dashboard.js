@@ -3443,7 +3443,7 @@ function loadMarveenPage(page) {
           '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + enColor + '22;color:' + enColor + ';font-weight:600;flex-shrink:0;">' + (enabled ? 'ON' : 'OFF') + '</span>' +
           '<div style="flex:1;"><strong style="font-size:12px;">' + esc(r.name || r.id || '—') + '</strong>' +
           '<div style="font-size:10px;color:var(--text3);margin-top:2px;">' + esc(r.description || '') + '</div>' +
-          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Kategória: ' + esc(r.category || '—') + '</div>' +
+          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Művelet: <strong style="color:var(--text2);">' + esc(r.action || '—') + '</strong></div>' +
           '</div></div>');
       });
       html += '</div>';
