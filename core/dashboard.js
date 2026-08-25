@@ -450,19 +450,25 @@ function sendMessage() {
     body: JSON.stringify({ recipient: to, content: content, msg_type: "chat" })
   }).then(function(r) { return r.json(); }).then(function(d) {
     if (d.ok) {
-      // Add message to UI immediately
-      addMessage({
-        id: d.message_id || ("local_" + Date.now()),
-        sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
-        recipient: to,
-        type: "chat",
-        content: content,
-        timestamp: new Date().toISOString(),
-        priority: priority,
-        source: "web_dashboard",
-        username: authUser ? authUser.display_name : "Zsolt"
-      }, true);
+      // Only add to main chat if broadcast; DM messages go to DM panel only
+      if (to === "broadcast") {
+        addMessage({
+          id: d.message_id || ("local_" + Date.now()),
+          sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
+          recipient: to,
+          type: "chat",
+          content: content,
+          timestamp: new Date().toISOString(),
+          priority: priority,
+          source: "web_dashboard",
+          username: authUser ? authUser.display_name : "Zsolt"
+        }, true);
+      }
       input.value = "";
+      // Refresh DM panel if open for this recipient
+      if (to !== "broadcast" && typeof window._loadChatMessages === "function") {
+        window._loadChatMessages(to, true);
+      }
       scrollToBottom();
     } else {
       log("Send failed: " + (d.error || "unknown"));
@@ -477,21 +483,26 @@ function sendMessage() {
       },
       body: JSON.stringify({ content: content, recipient: to, priority: priority })
     }).then(function(r) { return r.json(); }).then(function(d2) {
-      if (d2.ok || d2.status === "sent") {
-        addMessage({
-          id: "local_" + Date.now(),
-          sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
-          recipient: to,
-          type: "chat",
-          content: content,
-          timestamp: new Date().toISOString(),
-          priority: priority,
-          source: "web_dashboard",
-          username: authUser ? authUser.display_name : "Zsolt"
-        }, true);
-        input.value = "";
-        scrollToBottom();
-      } else {
+   if (d2.ok || d2.status === "sent") {
+     if (to === "broadcast") {
+       addMessage({
+         id: "local_" + Date.now(),
+         sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
+         recipient: to,
+         type: "chat",
+         content: content,
+         timestamp: new Date().toISOString(),
+         priority: priority,
+         source: "web_dashboard",
+         username: authUser ? authUser.display_name : "Zsolt"
+       }, true);
+     }
+     input.value = "";
+     if (to !== "broadcast" && typeof window._loadChatMessages === "function") {
+       window._loadChatMessages(to, true);
+     }
+     scrollToBottom();
+   } else {
         log("Send failed: " + (d2.error || e));
       }
     }).catch(function(e2) {
