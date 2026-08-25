@@ -1161,7 +1161,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         user, err = self._require_auth(request)
         if err:
             return err
-        if not user.get("is_admin", False):
+        if not getattr(user, "is_admin", False):
             return web.json_response({"error": "Admin only"}, status=403)
 
         msg_id = request.match_info.get("msg_id", "")
@@ -1450,7 +1450,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             if not text:
                 return web.json_response({"error": "text is required"}, status=400)
             # Include sender info from authenticated user
-            sender = user.get("display_name", "dashboard") if user else "dashboard"
+            sender = getattr(user, "display_name", "dashboard") if user else "dashboard"
             payload = {"text": text, "subject": data.get("subject", text[:80]), "sender_display": sender}
             if recipient == "broadcast":
                 result = await self.node.broadcast(msg_type, payload, priority=priority)
