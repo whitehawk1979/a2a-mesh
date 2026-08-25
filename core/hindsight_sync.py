@@ -81,6 +81,28 @@ class HindsightSync:
                  "delegation_result", 5, json.dumps(metadata))
 
             log.info(f"Saved delegation result to mesh_memory: {subject[:50]} ({str(task_id)[:8]})")
+
+            # Generate embedding for this entry via Brain server (non-fatal)
+            try:
+                import urllib.request
+                import urllib.parse
+                brain_host = getattr(self.node.config, 'brain_host', '192.168.1.8')
+                brain_port = getattr(self.node.config, 'brain_port', 3322)
+                embed_text = f"{subject}: {result[:1000]}"
+                data = json.dumps({"id": None, "text": embed_text[:2000]}).encode()
+                # Get the last inserted ID
+                row = await self._pg_pool.fetchval(
+                    "SELECT id FROM mesh.mesh_memory ORDER BY id DESC LIMIT 1"
+                )
+                if row:
+                    data = json.dumps({"id": row, "text": embed_text[:2000]}).encode()
+                    url = f"http://{brain_host}:{brain_port}/mesh/memory/embed"
+                    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method='POST')
+                    urllib.request.urlopen(req, timeout=10)
+                    log.info(f"Generated embedding for mesh_memory id={row}")
+            except Exception as emb_err:
+                log.debug(f"Embedding generation failed (non-fatal): {emb_err}")
+
             return True
 
         except Exception as e:
@@ -89,15 +111,40 @@ class HindsightSync:
 
     async def get_context_for_prompt(self, subject: str, limit: int = 5) -> str:
         """Retrieve relevant memory context for a given subject.
-
-        Searches mesh.mesh_memory for delegation results matching the subject
-        and returns a text summary for context injection into prompts.
+        
+        Uses Brain server vector search (pgvector cosine similarity) for semantic
+        matching, falling back to keyword search if Brain is unavailable.
         """
         if not self._enabled or not self._pg_pool:
             return ""
 
+        # Try vector search via Brain server first
         try:
-            # Simple keyword search — could be upgraded to vector search later
+            import urllib.request
+            import urllib.parse
+            brain_host = getattr(self.node.config, 'brain_host', '192.168.1.8')
+            brain_port = getattr(self.node.config, 'brain_port', 3322)
+            url = f"http://{brain_host}:{brain_port}/mesh/memory/vector?query={urllib.parse.quote(subject)}&limit={limit}"
+            req = urllib.request.Request(url, method='GET')
+            resp = urllib.request.urlopen(req, timeout=5)
+            data = json.loads(resp.read())
+            results = data.get("results", [])
+            if results:
+                lines = []
+                for r in results:
+                    ts = str(r.get("created_at", ""))[:19]
+                    sender = r.get("source_agent", "?")
+                    sim = r.get("similarity", 0)
+                    value = (r.get("memory_value") or "")[:200]
+                    lines.append(f"[{ts}] {sender} (sim={sim}): {value}")
+                context = "\n".join(lines)
+                log.info(f"Vector recall: {len(results)} entries for '{subject[:30]}' (top sim={results[0].get('similarity', '?')})")
+                return context
+        except Exception as vec_err:
+            log.debug(f"Vector search failed, falling back to keyword: {vec_err}")
+
+        # Fallback: keyword search in PG
+        try:
             rows = await self._pg_pool.fetch("""
                 SELECT memory_value, source_agent, target_agent, created_at, metadata
                 FROM mesh.mesh_memory
@@ -118,7 +165,7 @@ class HindsightSync:
                 lines.append(f"[{ts}] {sender}: {value}")
 
             context = "\n".join(lines)
-            log.info(f"Retrieved {len(rows)} memory entries for '{subject[:30]}'")
+            log.info(f"Keyword recall: {len(rows)} entries for '{subject[:30]}'")
             return context
 
         except Exception as e:
