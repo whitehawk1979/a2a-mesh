@@ -227,7 +227,7 @@ class TaskDispatchPlugin(MeshPlugin):
                 "history_size": len(self._task_history),
                 "last_5_tasks": self._task_history[-5:] if self._task_history else []}
 
-    async def on_start(self):
+    async def on_start(self, node=None):
         await super().on_start()
         self.log.info(f"TaskDispatch plugin started with handlers: {list(self._handlers.keys())}")
 

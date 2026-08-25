@@ -967,6 +967,439 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             result["error"] = str(e)
         return web.json_response(result)
 
+
+    async def _api_messages(self, request):
+        """Return recent messages — local history + PG messages from other agents.
+
+        Supports channel filtering via ?channel=general|dm:<agent_name>
+        """
+        from aiohttp import web
+        import traceback as tb
+        try:
+            limit = min(int(request.query.get("limit", 50)), 200)
+            channel = request.query.get("channel", None)
+
+            # Local messages
+            local_messages = self._message_history[-limit:]
+            safe_local = []
+            for i, m in enumerate(local_messages):
+                try:
+                    if not isinstance(m, dict):
+                        continue
+                    mid = m.get("id")
+                    if mid is not None:
+                        m["id"] = str(mid)
+                    else:
+                        m["id"] = f"local_{i}"
+                    mts = m.get("timestamp")
+                    if mts is None:
+                        m["timestamp"] = ""
+                    elif not isinstance(mts, str):
+                        m["timestamp"] = str(mts)
+                    safe_local.append(m)
+                except Exception:
+                    continue
+            local_messages = safe_local
+
+            # Fetch from PG
+            pg_messages = []
+            try:
+                pool = getattr(self.node, '_pg_pool', None)
+                if pool and hasattr(pool, 'is_connected') and pool.is_connected():
+                    where_clauses = []
+                    params = []
+                    where_clauses.append("msg_type NOT IN ('heartbeat', 'memory_sync', 'diagnostic_report', 'skills_announcement', 'config_suggestion', 'ack', 'peer_offline', 'peer_online', 'node_join', 'node_leave')")
+                    if channel == "general":
+                        where_clauses.append("(recipient = 'broadcast' OR msg_type IN ('agent_reply', 'directive'))")
+                    elif channel and channel.startswith("dm:"):
+                        dm_agent = channel[3:]
+                        where_clauses.append("(recipient = %s OR sender = %s)")
+                        params.extend([dm_agent, dm_agent])
+                    where_sql = " AND ".join(where_clauses)
+                    rows = await pool.fetch(
+                        f"SELECT id, sender, recipient, msg_type, priority, payload, created_at, status "
+                        f"FROM mesh.mesh_messages WHERE {where_sql} ORDER BY created_at DESC LIMIT %s",
+                        params + [limit]
+                    )
+                    import json as _json
+                    for row in rows:
+                        row_dict = dict(row) if hasattr(row, 'keys') else {}
+                        if not row_dict:
+                            # asyncpg Record
+                            row_dict = {k: row[i] for i, k in enumerate(row.keys())} if hasattr(row, 'keys') else {}
+                        msg_id = row_dict.get('id', '')
+                        sender = row_dict.get('sender', '')
+                        recipient = row_dict.get('recipient', '')
+                        msg_type = row_dict.get('msg_type', '')
+                        payload = row_dict.get('payload', '')
+                        created_at = row_dict.get('created_at')
+                        status = row_dict.get('status', 'unknown')
+                        if isinstance(payload, bytes):
+                            payload = payload.decode("utf-8", errors="replace")
+                        try:
+                            payload_data = _json.loads(payload) if isinstance(payload, str) else payload
+                        except (ValueError, TypeError):
+                            payload_data = {"text": str(payload)}
+                        pg_messages.append({
+                            "id": str(msg_id),
+                            "sender": sender,
+                            "recipient": recipient,
+                            "type": msg_type,
+                            "priority": row_dict.get('priority', 5),
+                            "content": payload_data.get("text", "") if isinstance(payload_data, dict) else str(payload),
+                            "username": payload_data.get("username", sender) if isinstance(payload_data, dict) else sender,
+                            "timestamp": created_at.isoformat() if created_at and hasattr(created_at, 'isoformat') else str(created_at or ""),
+                            "status": status,
+                            "source": "mesh",
+                        })
+            except Exception as e:
+                import logging
+                logging.getLogger('a2a_mesh').warning(f"Failed to fetch PG messages: {e}")
+
+            # Filter local messages by channel
+            def matches_channel(msg, ch):
+                msg_type = msg.get("type", "")
+                if msg_type in ("heartbeat", "memory_sync"):
+                    return False
+                if msg_type in ("agent_processing", "agent_timeout"):
+                    return True
+                if ch is None:
+                    return True
+                recip = msg.get("recipient", "broadcast")
+                sender = msg.get("sender", "")
+                if ch == "general":
+                    return recip == "broadcast" or msg_type in ("agent_reply", "directive")
+                elif ch.startswith("dm:"):
+                    agent = ch[3:]
+                    return sender == agent or recip == agent
+                return True
+
+            filtered_local = [m for m in local_messages if matches_channel(m, channel)]
+
+            # Merge + dedup
+            all_messages = {m.get("id") or f"local_{i}": m for i, m in enumerate(filtered_local)}
+            for m in pg_messages:
+                msg_id = m.get("id", "")
+                if msg_id and msg_id not in all_messages:
+                    all_messages[msg_id] = m
+
+            msg_list = list(all_messages.values())
+            for m in msg_list:
+                ts = m.get("timestamp")
+                if ts is None or not isinstance(ts, str):
+                    m["timestamp"] = str(ts) if ts is not None else ""
+            msg_list.sort(key=lambda m: m.get("timestamp", "") or "")
+            result = msg_list[-limit:]
+
+            return web.json_response({"messages": result, "total": len(msg_list)})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_messages_incoming(self, request):
+        """GET /api/messages/incoming — Return messages from other mesh agents."""
+        from aiohttp import web
+        try:
+            since = float(request.query.get("since", 0))
+            limit = min(int(request.query.get("limit", 50)), 200)
+            sender_filter = request.query.get("sender", None)
+
+            messages = []
+            for m in self._message_history:
+                try:
+                    if not isinstance(m, dict):
+                        continue
+                    msg_sender = m.get("sender", "")
+                    msg_recipient = m.get("recipient", "")
+                    msg_time = m.get("timestamp", 0)
+                    if isinstance(msg_time, str):
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(msg_time.replace("Z", "+00:00"))
+                            msg_time = dt.timestamp()
+                        except Exception:
+                            msg_time = 0
+                    if msg_time and msg_time < since:
+                        continue
+                    if sender_filter and msg_sender != sender_filter:
+                        continue
+                    local_name = self.node.node_name
+                    if msg_sender == local_name or msg_sender == "web_user":
+                        continue
+                    if msg_sender in ("system", ""):
+                        continue
+                    safe_msg = {}
+                    for k, v in m.items():
+                        if v is None:
+                            safe_msg[k] = None
+                        elif isinstance(v, (bool, int, float, str)):
+                            safe_msg[k] = v
+                        else:
+                            safe_msg[k] = str(v)
+                    safe_msg["sender"] = msg_sender
+                    safe_msg["recipient"] = msg_recipient
+                    safe_msg["timestamp"] = msg_time
+                    messages.append(safe_msg)
+                except Exception:
+                    continue
+            messages = messages[-limit:]
+            return web.json_response({"messages": messages, "count": len(messages)})
+        except Exception as e:
+            from aiohttp import web
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delete_message(self, request):
+        """Delete a message by ID — requires auth, admin only.
+
+        Deletes from both local history and PG mesh_messages.
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if not user.get("is_admin", False):
+            return web.json_response({"error": "Admin only"}, status=403)
+
+        msg_id = request.match_info.get("msg_id", "")
+        if not msg_id:
+            return web.json_response({"error": "Missing message ID"}, status=400)
+
+        # Remove from local history
+        self._message_history = [m for m in self._message_history if m.get("id") != msg_id]
+
+        # Remove from channelMessages cache
+        for ch in list(self._channel_messages_cache.keys()) if hasattr(self, "_channel_messages_cache") else []:
+            self._channel_messages_cache[ch] = [m for m in self._channel_messages_cache[ch] if m.get("id") != msg_id]
+
+        # Remove from PG
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host,
+                port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname,
+                user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+            cur.execute("DELETE FROM mesh.mesh_messages WHERE id = %s", (msg_id,))
+            deleted = cur.rowcount
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            log.warning(f"Failed to delete message from PG: {e}")
+            deleted = 0
+
+        # Broadcast deletion to all connected users
+        await self._broadcast_ws({"type": "message_deleted", "message_id": msg_id})
+
+        return web.json_response({"status": "deleted", "message_id": msg_id, "pg_deleted": deleted})
+
+
+    async def _api_memory_get(self, request):
+        """Get local mesh memory cache."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        memory = self.node.memory_sync.get_all_local_memory()
+        return web.json_response({"memory": memory, "count": len(memory)})
+
+
+    async def _api_memory_set(self, request):
+        """Set a memory key and broadcast to mesh agents."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+            key = data.get("key")
+            value = data.get("value")
+            if not key:
+                return web.json_response({"error": "key is required"}, status=400)
+            result = await self.node.memory_sync.broadcast_memory(key, value)
+            if result:
+                return web.json_response({"status": "broadcast", "key": key})
+            return web.json_response({"error": "broadcast failed"}, status=500)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+
+    async def _api_memory_sync(self, request):
+        """Request full memory sync from PG."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json() if request.content_type == "application/json" else {}
+            since = data.get("since")
+            memories = await self.node.memory_sync.request_sync(since=since)
+            return web.json_response({"synced": len(memories), "memories": memories})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _websocket_handler(self, request):
+        """WebSocket handler for real-time dashboard updates."""
+        from aiohttp import web
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+
+        # Auth: check token from query param
+        token = request.query.get("token", "")
+        auth_user = None
+        if token:
+            auth_user = self.auth.verify_token(token)
+
+        user_id = str(uuid.uuid4())[:8]
+        username = auth_user.display_name if auth_user else (request.query.get("username", f"guest_{user_id}"))
+        from .dashboard import DashboardUser
+        user = DashboardUser(user_id=user_id, username=username, websocket=ws)
+        self._users[user_id] = user
+
+        log.info(f"Dashboard user connected: {username} ({user_id}) auth={'yes' if auth_user else 'no'}")
+
+        # Send initial data — include agents list so frontend can populate DM channels immediately
+        try:
+            # Build agents list for the connected message
+            agents_data = []
+            status = self.node.get_status()
+            raw_transports = status.get("transports", {})
+            transport_inner = raw_transports
+            if isinstance(raw_transports, dict) and "transports" in raw_transports:
+                transport_inner = raw_transports["transports"]
+            self_transports = {}
+            for key in ("p2p", "pg", "pg_notify", "http", "ble"):
+                val = transport_inner.get(key, False)
+                if isinstance(val, str) and "available=True" in val:
+                    self_transports[key] = True
+                elif isinstance(val, str) and "available=False" in val:
+                    self_transports[key] = False
+                elif isinstance(val, bool):
+                    self_transports[key] = val
+                elif hasattr(val, "available"):
+                    self_transports[key] = val.available
+                else:
+                    self_transports[key] = bool(val)
+            agents_data.append({
+                "name": self.node.node_name,
+                "role": self.node.config.topology.node_role,
+                "status": "online",
+                "transports": {
+                    "p2p": self_transports.get("p2p", False),
+                    "pg": self_transports.get("pg_notify", self_transports.get("pg", False)),
+                    "http": self_transports.get("http", False),
+                },
+            })
+            for name, peer in self.node.peer_discovery.get_all_peers().items():
+                if peer.p2p_available and peer.pg_available:
+                    peer_status = "online"
+                elif peer.p2p_available:
+                    peer_status = "available"
+                else:
+                    peer_status = "offline"
+                agents_data.append({
+                    "name": peer.name,
+                    "role": peer.role,
+                    "status": peer_status,
+                    "transports": {
+                        "p2p": peer.p2p_available,
+                        "pg": peer.pg_available,
+                        "http": peer.http_available,
+                    },
+                })
+            await ws.send_json({
+                "type": "connected",
+                "user_id": user_id,
+                "username": username,
+                "node": self.node.node_name,
+                "authenticated": auth_user is not None,
+                "role": auth_user.role if auth_user else "guest",
+                "agents": agents_data,
+            })
+            await ws.send_json({"type": "status", "data": status})
+        except Exception:
+            pass
+
+        # Listen for messages from client
+        try:
+            async for msg in ws:
+                if msg.type == 1:  # TEXT
+                    try:
+                        data = json.loads(msg.data)
+                        msg_type = data.get("type", "")
+
+                        if msg_type == "chat":
+                            # Require auth for sending messages
+                            if not auth_user:
+                                await ws.send_json({"type": "error", "message": "Authentication required to send messages"})
+                                continue
+
+                            content = data.get("content", "")
+                            recipient = data.get("recipient", "")
+                            priority = int(data.get("priority", 5))
+
+                            from .message import A2AMessage, MSG_TYPE_DIRECTIVE, MSG_TYPE_STEER
+                            # Broadcast to all agents in the mesh
+                            effective_recipient = recipient if recipient else "broadcast"
+                            a2a_msg = A2AMessage(
+                                sender=auth_user.display_name or "web_user",
+                                recipient=effective_recipient,
+                                type=MSG_TYPE_DIRECTIVE,
+                                priority=priority,
+                                payload={
+                                    "text": content,
+                                    "source": "web_dashboard",
+                                    "username": auth_user.display_name,
+                                    "user_id": auth_user.user_id,
+                                    "original_sender": self.node.node_name,
+                                },
+                            )
+                            result = await self.node.router.send(a2a_msg)
+
+                            # Insert into mesh_messages for mesh-wide persistence
+                            await self._insert_mesh_message(a2a_msg, auth_user)
+
+                            # Always wake agent for dashboard messages (user is waiting for reply)
+                            await self._wake_agent(a2a_msg)
+
+                            self._message_history.append({
+                                "id": a2a_msg.id,
+                                "sender": a2a_msg.sender,
+                                "recipient": a2a_msg.recipient,
+                                "content": content,
+                                "type": "message",
+                                "priority": a2a_msg.priority,
+                                "timestamp": a2a_msg.timestamp,
+                                "source": "web_dashboard",
+                                "username": auth_user.display_name,
+                            })
+                            if len(self._message_history) > self._max_history:
+                                self._message_history = self._message_history[-self._max_history:]
+
+                            await self._broadcast_ws({
+                                "type": "new_message",
+                                "message": self._message_history[-1],
+                            })
+
+                        elif msg_type == "ping":
+                            await ws.send_json({"type": "pong", "timestamp": time.time()})
+                    except json.JSONDecodeError:
+                        pass
+                elif msg.type in (2, 3):  # ERROR, CLOSE
+                    break
+        except Exception as e:
+            log.warning(f"WebSocket error for {username}: {e}")
+        finally:
+            if user_id in self._users:
+                del self._users[user_id]
+            log.info(f"Dashboard user disconnected: {username} ({user_id})")
+
+        return ws
+
+
     async def _api_messages_page(self, request):
         """Messages page — browse A2A messages with filters (metadata only, no payload)."""
         from aiohttp import web
