@@ -3291,6 +3291,19 @@ function loadMarveenPage(page) {
       html += '<div id="security-throttle-section" style="margin-top:16px;"></div>';
       html += '<div id="security-lock-section" style="margin-top:16px;"></div>';
       html += '<div id="security-recovery-section" style="margin-top:16px;"></div>';
+      // Session management section
+      html += '<div style="margin-top:16px;">';
+      html += '<h3 style="margin:0 0 8px;font-size:13px;">🔑 Munkamenetek (Sessions)</h3>';
+      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;">';
+      html += '<div style="font-size:12px;color:var(--text3);margin-bottom:8px;">A token lejárati ideje órában. 0 = soha nem jár le (végtelen).</div>';
+      html += '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">';
+      html += '<label style="font-size:12px;color:var(--text2);">Saját session timeout:</label>';
+      html += '<input id="sessionTimeoutInput" type="number" min="0" max="87600" step="1" value="24" style="width:80px;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:6px 8px;border-radius:6px;font-size:12px;" />';
+      html += '<span style="font-size:11px;color:var(--text3);">óra (0=végtelen)</span>';
+      html += '<button onclick="saveSessionTimeout()" style="background:var(--primary);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">Mentés</button>';
+      html += '</div>';
+      html += '<div id="sessionListContainer" style="margin-top:12px;"></div>';
+      html += '</div></div>';
       return html;
     },
     'sysinfo': function(d) {
@@ -5515,6 +5528,65 @@ window._loadSecurityExtras = function() {
   });
 };
 
+// Session management
+window._loadSessionInfo = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/auth/session-timeout', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var input = document.getElementById('sessionTimeoutInput');
+      if (input && d.timeout_hours !== undefined) input.value = d.timeout_hours;
+    }).catch(function(e) {});
+  fetch('/api/auth/sessions', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var container = document.getElementById('sessionListContainer');
+      if (!container) return;
+      var sessions = d.sessions || [];
+      if (!sessions.length) { container.innerHTML = '<div style="font-size:11px;color:var(--text3);">Nincs aktív session.</div>'; return; }
+      var h = '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2);">Aktív sessions (' + sessions.length + '):</div>';
+      sessions.forEach(function(s) {
+        var exp = s.expires_at ? new Date(s.expires_at * 1000).toLocaleString('hu-HU') : '\u221e soha nem j\u00e1r le';
+        var created = s.created_at ? new Date(s.created_at * 1000).toLocaleString('hu-HU') : '?';
+        h += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:var(--surface2);border-radius:6px;margin-bottom:4px;font-size:11px;">';
+        h += '<span style="flex:1;"><strong>' + esc(s.username || '?') + '</strong> \u2014 ' + esc(exp) + ' <span style="color:var(--text3);">(l\u00e9trehozva: ' + esc(created) + ')</span></span>';
+        h += '<button onclick="revokeSession(this)" data-token="' + esc(s.token) + '" style="background:var(--danger);color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:10px;">Visszavon</button>';
+        h += '</div>';
+      });
+      container.innerHTML = h;
+    }).catch(function(e) {});
+};
+
+window.saveSessionTimeout = function() {
+  var input = document.getElementById('sessionTimeoutInput');
+  if (!input) return;
+  var timeout = parseFloat(input.value) || 0;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/auth/session-timeout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ timeout_hours: timeout })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { alert('Session timeout be\u00e1ll\u00edtva: ' + (timeout === 0 ? 'v\u00e9gtelen \u221e' : timeout + ' \u00f3ra') + '\n\n\u00dajra be kell jelentkezned a v\u00e1ltoztat\u00e1s \u00e9rv\u00e9nyes\u00fcl\u00e9s\u00e9hez!'); }
+      else { alert('Hiba: ' + (d.error || 'ismeretlen')); }
+      window._loadSessionInfo();
+    }).catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.revokeSession = function(btn) {
+  var tokenSig = btn.getAttribute('data-token');
+  if (!confirm('Biztosan visszavonod ezt a session-t?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/auth/revoke-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ token: tokenSig })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) { if (d.ok) window._loadSessionInfo(); else alert('Hiba: ' + (d.error || 'ismeretlen')); })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
 // SysInfo: queue + retries + store + workers + model + db + labels + voice
 window._loadSysinfoExtras = function() {
   window._fetchSection('/api/queue/stats', 'sysinfo-queue-section', function(d) {
@@ -5620,7 +5692,7 @@ window._loadSysinfoExtras = function() {
       setTimeout(function() {
         if (page === 'projects') window._loadProjectsExtras();
         else if (page === 'network') window._loadNetworkExtras();
-        else if (page === 'security') window._loadSecurityExtras();
+        else if (page === 'security') { window._loadSecurityExtras(); window._loadSessionInfo(); }
         else if (page === 'sysinfo') window._loadSysinfoExtras();
       }, 100);
     };
