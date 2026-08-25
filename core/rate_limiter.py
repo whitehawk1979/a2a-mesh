@@ -8,7 +8,7 @@ import time
 import logging
 from collections import OrderedDict
 from typing import Dict, Optional, Tuple
-from ..core.exceptions import RateLimitError
+from .exceptions import RateLimitError
 
 log = logging.getLogger("a2a_mesh.rate_limiter")
 

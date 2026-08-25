@@ -5,13 +5,13 @@ import asyncio
 import json
 import time
 from typing import Dict, List, Optional, Callable
-from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
-from ..core.dedup import DedupCache
-from ..core.bounded_queue import BoundedQueue
-from ..core.stream_mux import StreamMultiplexer, create_default_mux
-from ..core.gossipsub import GossipSub
-from ..core.health_scorer import HealthScorer
-from ..core.offline_queue import OfflineQueue
+from .message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
+from .dedup import DedupCache
+from .bounded_queue import BoundedQueue
+from .stream_mux import StreamMultiplexer, create_default_mux
+from .gossipsub import GossipSub
+from .health_scorer import HealthScorer
+from .offline_queue import OfflineQueue
 
 log = logging.getLogger("a2a_mesh.router")
 
@@ -286,7 +286,7 @@ class MeshRouter:
 
         # Sign message
         if self.config and self.config.security.signing_key:
-            from ..core.encryption import MeshEncryption
+            from .encryption import MeshEncryption
             enc = MeshEncryption(self.config.security.signing_key)
             content = message.sign_content()
             message.signature = enc.sign_message(content)

@@ -135,7 +135,7 @@ class DashboardFilesMixin:
             })
 
             # Also broadcast a chat message about the file
-            from ..core.message import A2AMessage
+            from .message import A2AMessage
             chat_msg = A2AMessage.create(
                 sender=self.node.node_name,
                 recipient=target,

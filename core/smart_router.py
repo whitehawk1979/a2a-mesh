@@ -15,8 +15,8 @@ import asyncio
 import logging
 import random
 from typing import Dict, List, Optional, Sequence, Tuple
-from ..core.registry import AgentRegistry, AgentCard, HealthRecord
-from ..core.message import A2AMessage, SendResult
+from .registry import AgentRegistry, AgentCard, HealthRecord
+from .message import A2AMessage, SendResult
 
 log = logging.getLogger("a2a_mesh.smart_router")
 

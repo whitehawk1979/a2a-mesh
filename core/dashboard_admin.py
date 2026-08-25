@@ -528,7 +528,7 @@ class DashboardAdminMixin:
 
         # Auto-register in peer discovery if endpoint provided
         if card.endpoint and self.node and hasattr(self.node, 'peer_discovery'):
-            from ..core.peer_discovery import PeerInfo
+            from .peer_discovery import PeerInfo
             import re
             # Parse host:port from endpoint
             match = re.match(r'https?://([^:]+):(\d+)', card.endpoint)

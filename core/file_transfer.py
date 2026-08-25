@@ -21,8 +21,8 @@ import time
 from typing import Optional, Dict, Tuple
 from pathlib import Path
 
-from ..core.message import A2AMessage
-from ..core.local_store import LocalStore
+from .message import A2AMessage
+from .local_store import LocalStore
 
 log = logging.getLogger("a2a_mesh.file_transfer")
 

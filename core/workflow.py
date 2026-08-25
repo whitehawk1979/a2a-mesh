@@ -519,7 +519,7 @@ class WorkflowCoordinator:
 
                 elif self.node and task.assigned_agent:
                     # Fallback: A2A message (no delegation system available)
-                    from ..core.message import A2AMessage
+                    from .message import A2AMessage
                     msg = A2AMessage(
                         sender=self.node.node_name,
                         recipient=task.assigned_agent,

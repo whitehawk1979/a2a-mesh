@@ -808,7 +808,7 @@ class DashboardAgentsMixin:
         auto-discovery pattern.
         """
         from aiohttp import web
-        from ..core.agent_card import build_agent_card
+        from .agent_card import build_agent_card
         import time
         
         # Build agent card from current state
