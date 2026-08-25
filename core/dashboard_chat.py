@@ -70,7 +70,20 @@ async def handle_chat_send(node, request, pool, user):
         # when they poll /api/chat/messages. No mesh routing needed.
         log.info(f"💬 Chat user DM {username}→{recipient}: stored in PG")
         mesh_sent = True
-    elif recipient not in ("broadcast", node_name, ""):
+    elif recipient == node_name:
+        # User → self (this node): process locally
+        # The node can respond immediately or queue for async processing
+        try:
+            from .dashboard_chat import store_agent_reply
+            # Auto-acknowledge: store a reply that the message was received
+            await store_agent_reply(pool, username, node_name,
+                "✅ Üzenet megkapva! Feldolgozás alatt...", "agent_reply")
+            mesh_sent = True
+            log.info(f"💬 Chat local {username}→{recipient}: auto-ack stored")
+            # TODO: trigger actual agent processing here
+        except Exception as e:
+            log.warning(f"💬 Chat local reply failed: {e}")
+    elif recipient not in ("broadcast", ""):
         try:
             payload = {
                 "text": content,
@@ -220,9 +233,7 @@ async def handle_chat_contacts(node, request, pool, user):
                 name = ar["node_name"]
                 if name not in existing:
                     contacts.append({"agent": name, "total": 0, "unread": 0, "last_msg": None})
-            # Ensure self is in the list
-            if local_node not in existing:
-                contacts.append({"agent": local_node, "total": 0, "unread": 0, "last_msg": None})
+                    existing.add(name)
         except Exception:
             pass
 
