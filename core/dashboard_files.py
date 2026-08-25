@@ -4,6 +4,7 @@ File upload, list, download endpoints.
 """
 
 import logging
+import os
 
 log = logging.getLogger("a2a_mesh.dashboard.files")
 
