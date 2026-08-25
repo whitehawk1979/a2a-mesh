@@ -3861,10 +3861,19 @@ echo "Status: ok"
                             # So we extract chat_username from the original dict payload first.
                             _chat_user = None
                             _chat_reply_text = ""
-                            if msg.type in ("a2a_message", "agent_reply") and isinstance(payload, dict):
-                                _chat_user = payload.get("chat_username")
-                                if _chat_user:
-                                    _chat_reply_text = payload.get("text", "") or payload.get("content", "")
+                            if msg.type in ("a2a_message", "agent_reply"):
+                                # Try dict payload first, then parse string
+                                _p = payload
+                                if isinstance(_p, str):
+                                    try:
+                                        import json as _j
+                                        _p = _j.loads(_p)
+                                    except Exception:
+                                        _p = None
+                                if isinstance(_p, dict):
+                                    _chat_user = _p.get("chat_username")
+                                    if _chat_user:
+                                        _chat_reply_text = _p.get("text", "") or _p.get("content", "")
 
                             # ── Untrusted framing for peer messages ──
                             # Wrap only user-facing message types (a2a_message, agent_reply)
