@@ -1,5 +1,5 @@
-# 🌙 Dream Engine — 2026-08-25T19:57:34.086564+00:00
-**Node:** nova
+# 🌙 Dream Engine — 2026-08-25T20:01:18.879367+00:00
+**Node:** unknown
 
 ## 💡 Bucket 1 — Skill javaslatok
 
@@ -9,14 +9,14 @@
 
 ## 🧹 Bucket 2 — Memória egészség
 
-- Vektorizálatlan: 108
-- Stale hot-tier (>7nap): 143
+- Vektorizálatlan: 0
+- Stale hot-tier (>7nap): 0
 
 ## 📋 Bucket 3 — Kanban audit
 
 *(nincs beragadt task)*
 
-Archiválható (done >7nap): 64
+Archiválható (done >7nap): 0
 
 ## 🔴 Bucket 4 — Hibák
 
@@ -24,24 +24,12 @@ Archiválható (done >7nap): 64
 
 ## 🤖 Bucket 5 — Agent teljesítmény
 
-- **tor**: 23 task, 95.7% siker, 9.1s átlag
-- **morzsa**: 15 task, 93.3% siker, 180.1s átlag
-- **runa**: 6 task, 83.3% siker, 23.2s átlag
-- **any**: 3 task, 66.7% siker, 7.8s átlag
-
-🏆 Legjobb: tor (95.7%)
-⚠️ Legrosszabb: any (66.7%)
+*(nincs adat az elmúlt 24órában)*
 
 ## ⭐ Bucket 6 — Skill használat
 
-- Összes aktív skill: 81
+- Összes aktív skill: 0
 - Auto-generált: 0
-- Tétlen skill-ek (10):
-  - code_generation (nova)
-  - translation (nova)
-  - mesh_send (nova)
-  - mesh_discover (nova)
-  - mesh_health (nova)
 
 ## 💰 Bucket 7 — Költség
 
@@ -57,7 +45,7 @@ Archiválható (done >7nap): 64
 
 ## 🎯 Reggeli javaslatok
 
-- 2. 🧹 108 vektorizálatlan memória — backfill szükséges
+- ✅ Minden rendben — nincs azonnali teendő
 
 ---
 *Dream Engine — A2A Mesh v0.36+*

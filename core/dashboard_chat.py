@@ -98,6 +98,7 @@ async def handle_chat_send(node, request, pool, user):
             log.info(f"💬 Chat DM {username}→{recipient}: sent via mesh")
             # Generate auto-ack on sender side (receiver may not support chat routing yet)
             try:
+                from .dashboard_chat import store_agent_reply
                 await store_agent_reply(pool, username, recipient,
                     "✅ Üzenet megkapva! Feldolgozás alatt...", "agent_reply")
                 log.info(f"💬 Chat auto-ack (sender-side) {recipient}→user:{username}")
