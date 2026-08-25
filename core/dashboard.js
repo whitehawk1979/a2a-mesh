@@ -344,9 +344,12 @@ function addMessage(msg, scroll) {
   }
 
   // Route message to the correct channel
-  // Agent replies (even if recipient=nova) should appear in general chat (Telegram-like)
-  // But DM messages (recipient is a specific agent, not broadcast) go to DM channel
-  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== nodeId && msg.type !== "agent_reply";
+  var myUsername = (authUser ? authUser.username : localStorage.getItem("a2a_username")) || "zsolt";
+  var isDM = msg.recipient && msg.recipient !== "broadcast" && msg.recipient !== myUsername;
+  // Agent replies in a DM context go to the DM channel with that agent
+  if (msg.type === "agent_reply" && msg.sender && msg.sender !== "broadcast" && msg.sender !== myUsername) {
+    isDM = true;
+  }
   // Directives from web_dashboard with a specific recipient are DMs
   if (!isDM && msg.type === "directive" && msg.recipient && msg.recipient !== "broadcast" && msg.source === "web_dashboard") {
     isDM = true;
@@ -355,8 +358,7 @@ function addMessage(msg, scroll) {
 
   if (isDM) {
     // DM message — route to the DM channel with the other party
-    var myName = authUser ? authUser.display_name : nodeId;
-    if (msg.sender === myName || msg.sender === nodeId) {
+    if (msg.sender === myUsername || msg.sender === (authUser ? authUser.display_name : "") || msg.sender === nodeId) {
       channel = msg.recipient;  // I sent it → show in DM with recipient
     } else {
       channel = msg.sender;  // Someone sent it to me → show in DM with sender
@@ -464,6 +466,9 @@ function sendMessage() {
       }, true);
       input.value = "";
       scrollToBottom();
+      // Instant refresh — fetch auto-ack reply immediately
+      setTimeout(loadMessages, 300);
+      setTimeout(loadMessages, 1500);
     } else {
       log("Send failed: " + (d.error || "unknown"));
     }
@@ -589,7 +594,7 @@ function submitAuth() {
         window._msgRefreshInterval = setInterval(function() {
           loadMessages();
           loadAgents();
-        }, 10000);
+        }, 3000);
       }
     }).catch(function() { errEl.textContent = "Hálózati hiba"; });
   } else {
