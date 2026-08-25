@@ -3471,7 +3471,10 @@ function loadMarveenPage(page) {
       // Protocol info
       html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px;">';
       html += '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Protokoll: <strong style="color:var(--text);">' + esc(d.protocol_version || '?') + '</strong></div>';
-      html += '<div style="font-size:11px;color:var(--text3);">Transports: <strong style="color:var(--text);">' + esc((d.transports || []).join(', ')) + '</strong></div>';
+      var transports = d.transports || {};
+      var tKeys = Object.keys(transports);
+      var tList = tKeys.map(function(k) { return k + (transports[k] && transports[k].available ? ' ✓' : ' ✗'); }).join(', ');
+      html += '<div style="font-size:11px;color:var(--text3);">Transports: <strong style="color:var(--text);">' + esc(tList) + '</strong></div>';
       if (d.degraded_mode) {
         html += '<div style="font-size:11px;color:var(--warning);margin-top:4px;">⚠️ Degradált mód aktív</div>';
       }
