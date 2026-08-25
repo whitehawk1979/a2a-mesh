@@ -329,6 +329,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/inbox-nudge", self._api_inbox_nudge)
         # Memory Boundary
         app.router.add_get("/api/memory-boundary", self._api_memory_boundary)
+        app.router.add_get("/api/memory-search", self._api_memory_search)
+        app.router.add_get("/api/memory-stats", self._api_memory_stats)
         # Message Router
         app.router.add_get("/api/message-router", self._api_message_router)
         # Agent Team
@@ -1293,3 +1295,68 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except Exception as e:
             result["error"] = str(e)
         return web.json_response(result)
+
+    async def _api_memory_search(self, request):
+        """GET /api/memory-search?q=query&limit=10 — Vector search across mesh_memory + agent_memory."""
+        from aiohttp import web
+        import urllib.request as urlreq
+        import urllib.parse as urlparse
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        q = request.query.get("q", "").strip()
+        limit = int(request.query.get("limit", "10"))
+        if not q:
+            return web.json_response({"results": [], "error": "query required"})
+        brain_host = "192.168.1.8"
+        brain_port = 3322
+        mesh_results = []
+        agent_results = []
+        try:
+            url = f"http://{brain_host}:{brain_port}/mesh/memory/vector?query={urlparse.quote(q)}&limit={limit}"
+            r = urlreq.Request(url, method="GET")
+            resp = urlreq.urlopen(r, timeout=10)
+            data = json.loads(resp.read())
+            mesh_results = data.get("results", [])
+        except Exception as e:
+            mesh_results = [{"error": str(e)}]
+        try:
+            url2 = f"http://{brain_host}:{brain_port}/memory/vector?query={urlparse.quote(q)}&limit={limit}"
+            r2 = urlreq.Request(url2, method="GET")
+            resp2 = urlreq.urlopen(r2, timeout=10)
+            data2 = json.loads(resp2.read())
+            agent_results = data2.get("results", [])
+        except Exception as e:
+            agent_results = [{"error": str(e)}]
+        return web.json_response({
+            "query": q,
+            "mesh_results": mesh_results,
+            "agent_results": agent_results,
+            "total": len(mesh_results) + len(agent_results)
+        })
+
+    async def _api_memory_stats(self, request):
+        """GET /api/memory-stats — Statistics about mesh_memory table."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        try:
+            stats = await pool.fetchrow(
+                "SELECT count(*) as total, count(CASE WHEN embedding IS NOT NULL THEN 1 END) as embedded, "
+                "count(CASE WHEN access_count > 0 THEN 1 END) as accessed, "
+                "max(access_count) as max_access, min(created_at) as oldest, max(created_at) as newest "
+                "FROM mesh.mesh_memory"
+            )
+            by_type = await pool.fetch(
+                "SELECT memory_type, count(*) as cnt FROM mesh.mesh_memory GROUP BY memory_type ORDER BY cnt DESC"
+            )
+            return web.json_response({
+                "stats": dict(stats) if stats else {},
+                "by_type": [dict(r) for r in by_type] if by_type else [],
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)

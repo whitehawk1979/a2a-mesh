@@ -2253,7 +2253,16 @@ function loadMarveenPage(page) {
       if (d.error) return errorBox(d.error);
       var cats = d.categories || {};
       var total = d.total || 0;
-      if (!total) return empty('Nincs memória adat');
+      // Vector search bar
+      var html = '<div style="margin-bottom:16px;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:16px;">';
+      html += '<div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;">🔍 Vektor keresés a memóriában</div>';
+      html += '<div style="display:flex;gap:8px;">';
+      html += '<input id="memorySearchInput" type="text" placeholder="Keresés a delegation eredmények és tudásbázis között..." style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" onkeyup="if(event.key===\'Enter\')memoryVectorSearch()" />';
+      html += '<button onclick="memoryVectorSearch()" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">🔍 Keres</button>';
+      html += '</div>';
+      html += '<div id="memorySearchResults" style="margin-top:12px;"></div>';
+      html += '</div>';
+      if (!total) return html + empty('Nincs memória adat');
       // Category labels (Hungarian)
       var catLabels = {
         'directive': '📋 Utasítások',
@@ -2264,7 +2273,7 @@ function loadMarveenPage(page) {
         'context': '📄 Kontextus',
         'other': '📦 Egyéb'
       };
-      var html = '<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">';
+      html += '<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">';
       html += '<span style="background:var(--primary);color:#fff;padding:4px 12px;border-radius:8px;font-size:12px;font-weight:600;">Összes: ' + total + '</span>';
       Object.keys(cats).forEach(function(c) {
         var label = catLabels[c] || ('📦 ' + c);
@@ -3841,6 +3850,63 @@ window.filterSkills = function() {
   });
   var empty = document.getElementById('skillsEmpty');
   if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+};
+
+window.memoryVectorSearch = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var q = (document.getElementById('memorySearchInput') || {}).value || '';
+  if (!q.trim()) return;
+  var resultsDiv = document.getElementById('memorySearchResults');
+  if (resultsDiv) resultsDiv.innerHTML = '<div style="color:var(--text3);padding:12px;">Keresés... 🔍</div>';
+  fetch('/api/memory-search?q=' + encodeURIComponent(q) + '&limit=10', {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      var html = '';
+      var mesh = d.mesh_results || [];
+      var agent = d.agent_results || [];
+      if (mesh.length) {
+        html += '<div style="margin-bottom:12px;"><div style="font-size:13px;font-weight:600;color:var(--primary);margin-bottom:6px;">📋 Delegation Memória (' + mesh.length + ')</div>';
+        mesh.forEach(function(r) {
+          var sim = r.similarity || '?';
+          var sender = esc(r.source_agent || '?');
+          var val = esc((r.memory_value || '').substring(0, 200));
+          var ts = (r.created_at || '').substring(0, 19);
+          html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;">';
+          html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">';
+          html += '<span style="font-size:11px;color:var(--text3);">' + ts + ' • ' + sender + '</span>';
+          html += '<span style="font-size:11px;color:var(--primary);font-weight:600;">sim=' + sim + '</span>';
+          html += '</div>';
+          html += '<div style="font-size:12px;color:var(--text);">' + val + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      if (agent.length) {
+        html += '<div><div style="font-size:13px;font-weight:600;color:var(--warning);margin-bottom:6px;">🧠 Tudásbázis (' + agent.length + ')</div>';
+        agent.forEach(function(r) {
+          var sim = r.similarity || '?';
+          var cat = esc(r.category || '?');
+          var title = esc((r.title || '').substring(0, 60));
+          var content = esc((r.content || '').substring(0, 150));
+          html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;">';
+          html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">';
+          html += '<span style="font-size:11px;color:var(--text3);">' + cat + ' • ' + title + '</span>';
+          html += '<span style="font-size:11px;color:var(--warning);font-weight:600;">sim=' + sim + '</span>';
+          html += '</div>';
+          html += '<div style="font-size:12px;color:var(--text);">' + content + '</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      if (!mesh.length && !agent.length) {
+        html = '<div style="color:var(--text3);padding:12px;">Nincs találat 😔</div>';
+      }
+      if (resultsDiv) resultsDiv.innerHTML = html;
+    })
+    .catch(function(e) {
+      if (resultsDiv) resultsDiv.innerHTML = '<div style="color:var(--danger);padding:12px;">Hiba: ' + esc(e.message) + '</div>';
+    });
 };
 
 window.syncSkills = function(evt) {
