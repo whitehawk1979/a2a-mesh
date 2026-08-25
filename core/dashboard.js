@@ -440,19 +440,19 @@ function sendMessage() {
   var to = document.getElementById("recipientSelect").value || "broadcast";
   var priority = parseInt(document.getElementById("prioritySelect").value) || 5;
 
-  // Send via REST API (works even without WebSocket)
-  fetch("/api/send", {
+  // Use /api/chat/send which handles PG storage, auto-ack, and mesh routing
+  fetch("/api/chat/send", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
     },
-    body: JSON.stringify({ content: content, recipient: to, priority: priority })
+    body: JSON.stringify({ recipient: to, content: content, msg_type: "chat" })
   }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.status === "sent") {
+    if (d.ok) {
       // Add message to UI immediately
       addMessage({
-        id: "local_" + Date.now(),
+        id: d.message_id || ("local_" + Date.now()),
         sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
         recipient: to,
         type: "chat",
@@ -468,13 +468,35 @@ function sendMessage() {
       log("Send failed: " + (d.error || "unknown"));
     }
   }).catch(function(e) {
-    // Fallback to WebSocket if REST fails
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: "chat", content: content, recipient: to, priority: priority }));
-      input.value = "";
-    } else {
-      log("Send failed: " + e);
-    }
+    // Fallback to old /api/send if chat API fails
+    fetch("/api/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
+      },
+      body: JSON.stringify({ content: content, recipient: to, priority: priority })
+    }).then(function(r) { return r.json(); }).then(function(d2) {
+      if (d2.ok || d2.status === "sent") {
+        addMessage({
+          id: "local_" + Date.now(),
+          sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
+          recipient: to,
+          type: "chat",
+          content: content,
+          timestamp: new Date().toISOString(),
+          priority: priority,
+          source: "web_dashboard",
+          username: authUser ? authUser.display_name : "Zsolt"
+        }, true);
+        input.value = "";
+        scrollToBottom();
+      } else {
+        log("Send failed: " + (d2.error || e));
+      }
+    }).catch(function(e2) {
+      log("Send failed: " + e2);
+    });
   });
 }
 
