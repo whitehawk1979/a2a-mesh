@@ -71,13 +71,35 @@ async def handle_chat_send(node, request, pool, user):
         log.info(f"💬 Chat user DM {username}→{recipient}: stored in PG")
         mesh_sent = True
     elif recipient == node_name:
-        # User → self (this node): process locally
-        # The node can respond immediately or queue for async processing
+        # User → self (this node): process locally via ollama API
         try:
-            # Auto-ack removed — the real LLM response arrives in 3-4s via wake-agent
             mesh_sent = True
-            log.info(f"💬 Chat local {username}→{recipient}: sent (no auto-ack)")
-            # TODO: trigger actual agent processing here
+            log.info(f"💬 Chat local {username}→{recipient}: sent (triggering self-wake)")
+            # Trigger self-wake via local wake-agent API (ollama direct)
+            import asyncio as _aio
+            import aiohttp as _aiohttp_sw
+            my_host = "127.0.0.1"
+            reply_endpoint = f"http://{my_host}:{node.config.health_port}/api/agent-reply"
+            async def _self_wake():
+                await _aio.sleep(1)
+                try:
+                    wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
+                    async with _aiohttp_sw.ClientSession() as sess:
+                        async with sess.post(wake_url, json={
+                            "prompt": f"Új üzenet érkezett {username}-tól: {content[:500]}",
+                            "agent_name": node_name,
+                            "sender": username,
+                            "sender_display": display_name,
+                            "chat_username": username,
+                            "chat_msg_uuid": msg_uuid,
+                            "chat_type": "user_dm",
+                            "reply_endpoint": reply_endpoint,
+                            "mesh_secret": "mesh-wake-secret-2026"
+                        }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
+                            log.info(f"🔔 Self-wake DM: {resp.status}")
+                except Exception as e:
+                    log.warning(f"🔔 Self-wake DM failed: {e}")
+            _aio.create_task(_self_wake())
         except Exception as e:
             log.warning(f"💬 Chat local reply failed: {e}")
     elif recipient == "broadcast":
