@@ -201,12 +201,23 @@ function switchChannel(channel) {
     }
   }
 
-  // Render existing channel messages immediately (don't wait for server reload)
-  renderChannelMessages();
+  // For DM channels: skip renderChannelMessages (it uses channelMessages which only has sent msgs)
+  // and load directly from server via _loadChatMessages (Marveen conversation pattern)
+  var ch = currentChannel || "general";
+  if (ch !== "general" && typeof window._loadChatMessages === "function") {
+    // Clear and show loading state
+    var container = document.getElementById("messages");
+    if (container) container.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Töltés...</div>';
+    // Load DM messages immediately
+    window._loadChatMessages(ch, false);
+  } else {
+    // General channel: render from channelMessages cache
+    renderChannelMessages();
+  }
   // Update open chats bar (highlight active tab)
   renderOpenChatsBar();
 
-  // Load channel messages from server (merges new ones, doesn't wipe existing)
+  // Also poll for new messages (loadMessages routes DM channels to _loadChatMessages)
   loadMessages();
 }
 
@@ -659,7 +670,15 @@ function initWebSocket() {
     switch(data.type) {
       case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
       case "status": updateStatus(data.data); break;
-      case "new_message": addMessage(data.message); incrementMsgCount(); break;
+      case "new_message":
+        addMessage(data.message);
+        incrementMsgCount();
+        // If in a DM channel, also refresh the DM conversation view
+        var _ch = currentChannel || "general";
+        if (_ch !== "general" && typeof window._loadChatMessages === "function") {
+          window._loadChatMessages(_ch, true);
+        }
+        break;
       case "file_transfer":
         // Show file transfer notification in chat
         var ftMsg = {
