@@ -669,6 +669,19 @@ class DashboardAgentsMixin:
 
             await self._broadcast_ws({"type": "new_message", "message": msg_dict})
 
+            # ── Store agent reply in mesh_chat_messages for DM visibility ──
+            # The wake-agent sends chat_username in the body; use it to store as DM
+            chat_username = body.get("chat_username", "")
+            if chat_username:
+                try:
+                    pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+                    if pool and pool.is_connected():
+                        from .dashboard_chat import store_agent_reply
+                        await store_agent_reply(pool, chat_username, sender, content, "agent_reply")
+                        log.info(f"💬 Agent reply stored as DM: {sender}→user:{chat_username} ({len(content)} chars)")
+                except Exception as dm_err:
+                    log.warning(f"Failed to store agent reply as DM: {dm_err}")
+
             return web.json_response({"status": "sent", "message_id": msg.id})
         except Exception as e:
             log.error(f"Agent reply failed: {e}")
@@ -763,6 +776,7 @@ class DashboardAgentsMixin:
                             "recipient": original_sender,
                             "priority": 5,
                             "reply_to": body.get("mesh_message_id", ""),
+                            "chat_username": body.get("chat_username", ""),
                         })
                         async with _aiohttp.ClientSession() as sess:
                             async with sess.post(

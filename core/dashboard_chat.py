@@ -107,24 +107,30 @@ async def handle_chat_send(node, request, pool, user):
             # Trigger wake-agent on the receiving node via its dashboard API
             try:
                 import asyncio as _aio
-                peer_info = node.peer_discovery.known_peers.get(recipient) if hasattr(node, 'peer_discovery') else None
+                peer_info = None
+                if hasattr(node, 'peer_discovery'):
+                    kp = getattr(node.peer_discovery, 'known_peers', None)
+                    if kp:
+                        peer_info = kp.get(recipient)
                 if peer_info:
                     peer_host = peer_info.get('host', '')
                     peer_health_port = peer_info.get('health_port', 8650)
                     wake_url = f"http://{peer_host}:{peer_health_port}/api/wake-agent"
+                    log.info(f"🔔 Wake-agent HTTP {recipient} → {wake_url}")
                     async def _wake():
                         import aiohttp as _aiohttp
                         try:
                             async with _aiohttp.ClientSession() as sess:
                                 async with sess.post(wake_url, json={
-                                    "message": content,
+                                    "prompt": f"Új üzenet érkezett {username}-tól: {content[:500]}",
+                                    "agent_name": recipient,
                                     "sender": username,
                                     "sender_display": display_name,
                                     "chat_username": username,
                                     "chat_msg_uuid": msg_uuid,
                                     "reply_endpoint": f"http://127.0.0.1:{node.config.health_port}/api/agent-reply",
-                                    "mesh_secret": getattr(node.config, 'mesh_secret', '')
-                                }, timeout=_aiohttp.ClientTimeout(total=10)) as resp:
+                                    "mesh_secret": "mesh-wake-secret-2026"
+                                }, timeout=_aiohttp.ClientTimeout(total=30)) as resp:
                                     log.info(f"🔔 Wake-agent {recipient}: {resp.status}")
                         except Exception as e:
                             log.warning(f"🔔 Wake-agent {recipient} failed: {e}")
