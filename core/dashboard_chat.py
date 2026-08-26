@@ -98,6 +98,8 @@ async def handle_chat_send(node, request, pool, user):
             mesh_sent = True
             log.info(f"💬 Chat broadcast {username}→all: sent via mesh (success={result.success}, transport={result.transport})")
 
+            import asyncio as _aio
+
             # Get my LAN IP for reply_endpoint
             my_host = "127.0.0.1"
             if hasattr(node, '_get_local_ip'):
