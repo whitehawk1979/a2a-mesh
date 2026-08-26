@@ -292,7 +292,7 @@ class DashboardAgentsMixin:
                 log.warning("Self-wake already in progress — skipping (rate limit)")
                 return
             elapsed = now - getattr(self, '_last_wake_agent_time', 0.0)
-            cooldown = getattr(self, '_wake_agent_cooldown', 30.0)
+            cooldown = getattr(self, '_wake_agent_cooldown', 5.0)  # Optimized: 30s → 5s
             if elapsed < cooldown:
                 remaining = cooldown - elapsed
                 log.warning(f"Self-wake rate limited — cooldown {remaining:.0f}s remaining")
@@ -316,7 +316,7 @@ class DashboardAgentsMixin:
                 env={**_os.environ, "HERMES_HOME": _hermes_home},
             )
             
-            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
+            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=120)
             output = stdout.decode('utf-8', errors='replace') if stdout else ""
             err = stderr.decode('utf-8', errors='replace') if stderr else ""
             

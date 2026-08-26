@@ -671,9 +671,13 @@ function initWebSocket() {
       case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
       case "status": updateStatus(data.data); break;
       case "new_message":
+        // Force-add to general channel for unified view
+        if (!channelMessages["general"]) channelMessages["general"] = [];
+        channelMessages["general"].push(data.message);
+        if (currentChannel === "general") { renderChannelMessages(); scrollMessages(); }
+        // Also add to DM channel for DM view
         addMessage(data.message);
         incrementMsgCount();
-        // If in a DM channel, also refresh the DM conversation view
         var _ch = currentChannel || "general";
         if (_ch !== "general" && typeof window._loadChatMessages === "function") {
           window._loadChatMessages(_ch, true);

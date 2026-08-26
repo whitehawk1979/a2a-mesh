@@ -3899,14 +3899,15 @@ echo "Status: ok"
 
                             # ── Per-user chat: store agent replies as DMs (BEFORE router.receive — INDEPENDENT of result.status) ──
                             log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
-                            if msg.type in ("a2a_message", "agent_reply") and _chat_user:
+                            if msg.type == "a2a_message" and _chat_user:
                                 try:
                                     pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
                                     if pool:
                                         from .core.dashboard_chat import store_agent_reply
                                         ack_text = "✅ Üzenet megkapva! Feldolgozás alatt..."
-                                        await store_agent_reply(pool, _chat_user, msg.sender, ack_text)
-                                        log.info(f"💬 Chat auto-ack: {msg.sender}→user:{_chat_user}")
+                                        # ACK from the RECIPIENT (self.node_name), not the sender
+                                        await store_agent_reply(pool, _chat_user, self.node_name, ack_text)
+                                        log.info(f"💬 Chat auto-ack: {self.node_name}→user:{_chat_user}")
                                 except Exception as e:
                                     log.warning(f"Chat reply routing failed: {e}")
 
