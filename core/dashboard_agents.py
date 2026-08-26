@@ -772,7 +772,7 @@ class DashboardAgentsMixin:
                         {"role": "user", "content": prompt}
                     ],
                     "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 300}
+                    "options": {"temperature": 0.7, "num_predict": 800}
                 }
                 
                 async with _aiohttp.ClientSession() as sess:
