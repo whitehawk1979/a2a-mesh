@@ -142,13 +142,8 @@ async def handle_chat_send(node, request, pool, user):
                         log.warning(f"🔔 Wake-agent broadcast {pn} failed: {e}")
                 _aio.create_task(_wake_broadcast())
 
-            # Also wake self (local agent)
-            if hasattr(node, 'dashboard') and hasattr(node.dashboard, '_wake_self_via_cli'):
-                _aio.create_task(node.dashboard._wake_self_via_cli(
-                    f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}",
-                    username
-                ))
-                log.info(f"🔔 Wake-agent local (self) for broadcast")
+            # Self-wake is handled by _trigger_webhook in node.py (P2P loopback)
+            # No need to call _wake_self_via_cli directly here
         except Exception as e:
             log.warning(f"💬 Chat broadcast {username}→all: mesh send failed: {e}")
     elif recipient not in ("broadcast", ""):
