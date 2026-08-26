@@ -15,7 +15,7 @@ mesh:
     priority_threshold: 10
     queue_lower_priorities: true
   auto_update:
-    apply_automatically: true
+    apply_automatically: false
     check_interval: 300
     enabled: true
     gitea_pass: admin1234
