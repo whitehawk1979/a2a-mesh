@@ -3906,6 +3906,7 @@ echo "Status: ok"
                             # (ACK, heartbeat, skills_announcement are not user-facing)
 
                             # ── Per-user chat: store agent replies as DMs (INDEPENDENT of result.status) ──
+                            log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r} result.status={result.status}")
                             if msg.type in ("a2a_message", "agent_reply") and _chat_user:
                                 try:
                                     pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)

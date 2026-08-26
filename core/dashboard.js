@@ -746,10 +746,10 @@ function loadMessages() {
       m.type = m.type || m.msg_type || "";
       // Normalize sender/recipient for addMessage routing
       if (ch === "general") {
-        // Main chat: show broadcast messages AND agent replies to this user
-        if (m.msg_type === "chat" && m.sender !== "broadcast" && m.recipient !== "broadcast") return;
-        // Agent replies are shown in general chat (like Marveen conversation view)
-        // if (m.msg_type === "agent_reply") return;  // REMOVED — show agent replies
+        // Main chat: show ALL messages — broadcast, chat DMs, and agent replies
+        // (Marveen pattern: general channel is a unified conversation view)
+        // Only skip pure mesh protocol messages (ack, heartbeat, skills_announcement)
+        if (m.msg_type === "ack" || m.msg_type === "heartbeat" || m.msg_type === "skills_announcement" || m.msg_type === "diagnostic_report") return;
       } else {
         // DM channel: only show messages between user and this agent
         var isMine = (m.sender === username && m.recipient === ch);
