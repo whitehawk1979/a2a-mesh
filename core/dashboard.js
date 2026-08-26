@@ -756,7 +756,18 @@ function loadMessages() {
         var isTheirs = (m.sender === ch && m.recipient === username);
         if (!isMine && !isTheirs) return;
       }
-      addMessage(m, false);
+      // For general channel: force-add to general channel regardless of DM detection
+      if (ch === "general") {
+        if (!channelMessages["general"]) channelMessages["general"] = [];
+        // Dedup by id
+        var exists = false;
+        for (var k = 0; k < channelMessages["general"].length; k++) {
+          if (channelMessages["general"][k].id === m.id) { exists = true; break; }
+        }
+        if (!exists) channelMessages["general"].push(m);
+      } else {
+        addMessage(m, false);
+      }
     });
     document.getElementById("msgCount").textContent = d.total || (d.messages || []).length;
     renderChannelMessages();
