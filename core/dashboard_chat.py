@@ -96,7 +96,7 @@ async def handle_chat_send(node, request, pool, user):
             }
             result = await node.broadcast("a2a_message", payload, priority=5)
             mesh_sent = True
-            log.info(f"💬 Chat broadcast {username}→all: sent via mesh (result={result.status})")
+            log.info(f"💬 Chat broadcast {username}→all: sent via mesh (success={result.success}, transport={result.transport})")
 
             # Get my LAN IP for reply_endpoint
             my_host = "127.0.0.1"
