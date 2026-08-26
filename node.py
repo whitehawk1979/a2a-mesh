@@ -3913,6 +3913,7 @@ echo "Status: ok"
 
                                 # ── Per-user chat: store agent replies as DMs ──
                                 # chat_username was extracted BEFORE untrusted framing (above)
+                                # Run regardless of result.status (acknowledged or processed)
                                 if msg.type in ("a2a_message", "agent_reply") and _chat_user:
                                     try:
                                         pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
@@ -3925,8 +3926,16 @@ echo "Status: ok"
                                     except Exception as e:
                                         log.debug(f"Chat reply routing failed: {e}")
 
-                            if result.status == "processed":
-                                log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
+                                # Wake agent for chat DMs regardless of processed/acknowledged status
+                                if msg.type == "a2a_message" and _chat_user:
+                                    try:
+                                        asyncio.create_task(self._trigger_webhook(msg))
+                                        log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
+                                    except Exception as e:
+                                        log.debug(f"Wake-agent trigger failed: {e}")
+
+                                if result.status == "processed":
+                                    log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing

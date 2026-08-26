@@ -746,9 +746,10 @@ function loadMessages() {
       m.type = m.type || m.msg_type || "";
       // Normalize sender/recipient for addMessage routing
       if (ch === "general") {
-        // Main chat: only show broadcast messages (no DMs)
+        // Main chat: show broadcast messages AND agent replies to this user
         if (m.msg_type === "chat" && m.sender !== "broadcast" && m.recipient !== "broadcast") return;
-        if (m.msg_type === "agent_reply") return;
+        // Agent replies are shown in general chat (like Marveen conversation view)
+        // if (m.msg_type === "agent_reply") return;  // REMOVED — show agent replies
       } else {
         // DM channel: only show messages between user and this agent
         var isMine = (m.sender === username && m.recipient === ch);
