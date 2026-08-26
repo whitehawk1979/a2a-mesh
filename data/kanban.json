@@ -4364,7 +4364,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787744932.699544,
-        "updated_at": 1787746910.940143,
+        "updated_at": 1787747399.776339,
         "delegation_task_id": "61ca1791-1c16-4e94-8c28-20cc1cfb09d3",
         "description": "Kerlek elemezd az A2A mesh halozat jelenlegi allapotat. Jelentsd vissza: 1) Hany node aktiv, 2) Milyen P2P kapcsolatok vannak, 3) Milyen capabilities elerhetok.",
         "task_type": "generic",
@@ -4436,6 +4436,14 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787746910.940586
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787747399.77727
           }
         ],
         "delegation_status": "completed",
@@ -4445,7 +4453,7 @@
         "review_task_id": "04e7502f-3bd3-4df7-b343-1b30196759d9",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787746910.9401422
+        "reviewed_at": 1787747399.776337
       },
       {
         "id": "card-1787745100390-100",
@@ -4478,7 +4486,7 @@
         "priority": 5,
         "assigned_to": "runa",
         "created_at": 1787745100.5156841,
-        "updated_at": 1787746942.213407,
+        "updated_at": 1787747399.355158,
         "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
         "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
         "task_type": "generic",
@@ -4580,6 +4588,22 @@
             "verdict": "reject",
             "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
             "timestamp": 1787746942.213875
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787747398.618298
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787747399.3555782
           }
         ],
         "delegation_status": "completed",
@@ -4588,8 +4612,8 @@
         "reviewer": "morzsa",
         "review_task_id": "6a208171-a58d-49a6-a9ad-5417146a3b94",
         "review_status": "rejected",
-        "review_reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-        "reviewed_at": 1787746942.213405
+        "review_reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+        "reviewed_at": 1787747399.355157
       },
       {
         "id": "card-1787745785259-102",
@@ -4600,7 +4624,7 @@
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1787745785.2592509,
-        "updated_at": 1787746931.2459168,
+        "updated_at": 1787747416.729701,
         "created_by": "unknown",
         "delegation_task_id": "467483f7-d900-4a6c-971a-222063bbc457",
         "delegation_status": "completed",
@@ -4702,15 +4726,61 @@
             "verdict": "reject",
             "reason": "Result does not fulfill echo test requirement; returned system analysis output instead of an echo response.",
             "timestamp": 1787746931.246359
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-26T12:22:[PHONE REDACTED]+00:00",
+            "timestamp": 1787747398.124457
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "905f805c",
+            "timestamp": 1787747398.919266
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirement; returned system analysis output instead of an echo response.",
+            "timestamp": 1787747399.135448
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirement. Expected an echo of the original task '[WF:1660930f] Echo test', but received a generic 'System analysis completed' message instead.",
+            "timestamp": 1787747401.142886
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirements; contains malformed timestamp with redacted phone number instead of an echo response.",
+            "timestamp": 1787747402.0056162
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirements; contains unrelated system analysis output and redacted phone number instead of echoing the original task.",
+            "timestamp": 1787747416.730398
           }
         ],
-        "delegation_result": "[morzsa] System analysis completed at 2026-08-26T12:18:[PHONE REDACTED]+00:00",
-        "completed_at": "2026-08-26 12:18:24.928016+00:",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-26T12:22:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-08-26 12:22:19.064655+00:",
         "reviewer": "tor",
-        "review_task_id": "b35ceb50-f32c-47b6-a19a-1ab597f5fa6d",
+        "review_task_id": "905f805c-6f10-49c7-a2c6-a8e7b60c870e",
         "review_status": "rejected",
-        "review_reason": "Result does not fulfill echo test requirement; returned system analysis output instead of an echo response.",
-        "reviewed_at": 1787746931.245915
+        "review_reason": "Result does not fulfill echo test requirements; contains unrelated system analysis output and redacted phone number instead of echoing the original task.",
+        "reviewed_at": 1787747416.7296991
       },
       {
         "id": "card-1787745801798-103",
@@ -4721,7 +4791,7 @@
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787745801.798945,
-        "updated_at": 1787746936.7263749,
+        "updated_at": 1787747422.203295,
         "created_by": "unknown",
         "delegation_task_id": "bba750ca-3541-4abc-95a7-53037940b17c",
         "delegation_status": "completed",
@@ -4823,18 +4893,64 @@
             "verdict": "accept",
             "reason": "Agent runa successfully acknowledged the echo task.",
             "timestamp": 1787746936.7267919
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Agent runa successfully acknowledged the echo task.",
+            "timestamp": 1787747398.8880918
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Result correctly acknowledges the echo task with agent identity, task reference, and timestamp. Format is consistent and complete.",
+            "timestamp": 1787747400.756398
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787747401.726198
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Acknowledged task '[WF:180699c4] Runa echo' at 2026-08-26T12:03:[PHONE REDACTED]+00:00",
+            "timestamp": 1787747407.850077
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "dbb6910f",
+            "timestamp": 1787747408.961836
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "The result correctly acknowledges the echo task with the proper task ID and timestamp.",
+            "timestamp": 1787747422.203887
           }
         ],
         "delegation_result": "[runa] Acknowledged task '[WF:180699c4] Runa echo' at 2026-08-26T12:03:[PHONE REDACTED]+00:00",
         "completed_at": "2026-08-26 12:03:31.101991+00:",
         "reviewer": "morzsa",
-        "review_task_id": "59bd5ee8-bf17-42c7-b022-c73a7edbcee2",
+        "review_task_id": "dbb6910f-8e5c-40c4-9cb2-b7727a05caa7",
         "review_status": "accept",
-        "review_reason": "Agent runa successfully acknowledged the echo task.",
-        "reviewed_at": 1787746936.726374
+        "review_reason": "The result correctly acknowledges the echo task with the proper task ID and timestamp.",
+        "reviewed_at": 1787747422.203294
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787746912.4778419
+    "updated_at": 1787747408.2356422
   }
 ]

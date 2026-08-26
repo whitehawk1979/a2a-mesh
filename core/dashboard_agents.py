@@ -757,53 +757,40 @@ class DashboardAgentsMixin:
             self._wake_agent_in_progress = True
             self._wake_agent_start_time = now
             
-            # Run hermes -z locally (same as _wake_self_via_cli but on this node)
+            # Direct ollama API call (bypasses slow hermes -z CLI)
             import asyncio as aio
             import os
-            
-            # Find hermes binary — check multiple common locations
-            import os as _os
-            hermes_bin = None
-            for _path in [
-                _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes"),
-                _os.path.expanduser("~/.local/bin/hermes"),
-                _os.path.expanduser("~/.hermes/venv/bin/hermes"),
-                "/usr/local/bin/hermes",
-            ]:
-                if _os.path.exists(_path):
-                    hermes_bin = _path
-                    break
-            if not hermes_bin:
-                hermes_bin = "hermes"  # fallback to PATH
-            
-            hermes_home = os.path.expanduser("~/.hermes")
+            import aiohttp as _aiohttp
             
             try:
-                proc = await aio.create_subprocess_exec(
-                    hermes_bin,
-                    "-z", prompt,
-                    "-t", "terminal",
-                    "--yolo",
-                    stdout=aio.subprocess.PIPE,
-                    stderr=aio.subprocess.PIPE,
-                    env={**os.environ, "HERMES_HOME": hermes_home},
-                )
+                # Build a simple chat prompt for ollama
+                ollama_url = "http://localhost:11434/api/chat"
+                ollama_body = {
+                    "model": "glm-5.2:cloud",
+                    "messages": [
+                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 300 karakter)."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "stream": False,
+                    "options": {"temperature": 0.7, "num_predict": 300}
+                }
                 
-                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=120)
-                output = stdout.decode('utf-8', errors='replace') if stdout else ""
-                err = stderr.decode('utf-8', errors='replace') if stderr else ""
+                async with _aiohttp.ClientSession() as sess:
+                    async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
+                        if resp.status == 200:
+                            result = await resp.json()
+                            output = result.get("message", {}).get("content", "").strip()
+                            log.info(f"Wake-agent '{agent_name}' ollama response ({len(output)} chars): {output[:200]}")
+                        else:
+                            err_text = await resp.text()
+                            log.warning(f"Wake-agent '{agent_name}' ollama error {resp.status}: {err_text[:200]}")
+                            output = ""
                 
-                log.info(f"Wake-agent '{agent_name}' CLI response ({len(output)} chars): {output[:200]}")
-                if err:
-                    log.warning(f"Wake-agent '{agent_name}' stderr: {err[:200]}")
-
-                # The agent's clean reply is in stdout. Send it to the reply_endpoint
-                # so it appears in the mesh chat. (Previously we relied on the agent
-                # running curl itself, but hermes -z doesn't execute tool calls.)
+                # Send the reply to the reply_endpoint
                 clean_reply = output.strip()
-                if clean_reply and reply_endpoint:
+                if clean_reply and clean_reply != "NEM VÁLASZTOLSZ" and reply_endpoint:
                     try:
-                        import aiohttp as _aiohttp
+                        import aiohttp as _aiohttp2
                         # MARVEEN: Reply to the original sender, not broadcast
                         original_sender = body.get("original_sender", "broadcast")
                         reply_body = json.dumps({
@@ -815,12 +802,12 @@ class DashboardAgentsMixin:
                             "chat_username": body.get("chat_username", ""),
                             "chat_type": body.get("chat_type", "user_dm"),
                         })
-                        async with _aiohttp.ClientSession() as sess:
+                        async with _aiohttp2.ClientSession() as sess:
                             async with sess.post(
                                 reply_endpoint,
                                 data=reply_body.encode(),
                                 headers={"Content-Type": "application/json"},
-                                timeout=_aiohttp.ClientTimeout(total=15),
+                                timeout=_aiohttp2.ClientTimeout(total=15),
                             ) as resp:
                                 log.info(f"Agent reply sent to {reply_endpoint}: {resp.status}")
                     except Exception as reply_err:
