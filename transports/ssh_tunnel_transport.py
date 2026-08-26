@@ -495,12 +495,16 @@ class SSHTunnelTransport(TransportAdapter):
         await self._write_frame_v3(writer, data, compressed=len(data) > 1024)
 
     async def receive(self) -> list:
-        """Drain all received messages from the queue."""
+        """Drain all received messages from the queue.
+
+        Returns list of (A2AMessage, transport_name) tuples —
+        matching the interface expected by _receive_loop in node.py.
+        """
         messages = []
         while not self._receive_queue.empty():
             try:
                 msg = self._receive_queue.get_nowait()
-                messages.append(msg)
+                messages.append((msg, "ssh_tunnel"))
             except asyncio.QueueEmpty:
                 break
         return messages
