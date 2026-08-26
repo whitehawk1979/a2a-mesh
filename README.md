@@ -1,399 +1,307 @@
-# A2A Mesh v0.29.0
+# A2A Mesh v0.38.0
 
-Decentralizált, P2P agent mesh hálózat — autonóm agent-ek közötti kommunikáció, delegáció és health monitoring.
+Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kommunikáció, delegáció, chat és health monitoring. Zigbee-inspirált topology, mTLS + HMAC titkosítás, PostgreSQL shared state, WebSocket dashboard.
+
+## Főbb funkciók
+
+### 📡 Mesh hálózat
+- **P2P transport** — TLS 1.3 titkosított közvetlen kapcsolat agent-ek között
+- **mDNS felfedezés** — zeroconf alapú peer discovery (LAN-on)
+- **PG NOTIFY** — PostgreSQL shared message bus (fallback transport)
+- **Offline queue** — megszakadt kapcsolatok esetén üzenetek buffering
+- **mTLS + HMAC** — mutual TLS + HMAC-SHA256 aláírás minden üzeneten
+- **Dedup + replay védelem** — nonce-based anti-replay
+
+### 💬 Chat & közös szoba (v0.38.0 újdonság)
+- **DM (direct message)** — közvetlen üzenet egy agentnek
+- **Broadcast (közös szoba)** — üzenet minden agentnek, mindenki válaszol
+- **WebSocket push** — valós idejű üzenet megjelenítés, polling nélkül
+- **Wake-agent** — `hermes -z` CLI hívás agent felébresztésére
+- **Auto-ack** — címzett agent automatikus visszaigazolása
+- **Cooldown 5s** — spam védelem gyors retry-jal
+
+### 📋 Kanban delegáció
+- **Task dispatch** — agent-ek közötti feladat delegáció
+- **Capability routing** — Smart Router a megfelelő agent kiválasztása
+- **Dependency chains** — több lépéses workflow-k
+- **Auto-reassign** — hibás task automatikus átirányítása
+- **Distribute mode** — terhelés elosztás
+
+### 🧠 Memória & tudás
+- **HindsightSync** — kombinált vektor keresés (Brain + mesh)
+- **Memory sync** — agent-ek közötti tudásmegosztás
+- **Auto skill sync** — SKILL.md automatikus szinkronizálás
+- **Knowledge sharing** — shared knowledge base
+
+### 📊 Dashboard
+- **Web UI** — HTML/JS/CSS dashboard (ES5 kompatibilis)
+- **Real-time chat** — DM + broadcast csatornák
+- **Kanban tábla** — delegációs feladatok vizualizálása
+- **Topology view** — mesh hálózat topológia
+- **Diagnostics** — health metrics, CPU/memória monitoring
+- **Auth** — felhasználó+ jelszavas, session token
+
+### 🔧 Marveen funkciók
+- **Heartbeat gate** — csak online agent-ek kapnak task-ot
+- **Gradual autonomy** — fokozatos önállóság
+- **Untrusted framing** — peer üzenetek biztonsági keretezése
+- **Inbox nudge** — olvasatlan üzenetek jelzése
+- **Alert rules** — kategória-specifikus autonómia
 
 ## Rendszerkövetelmények
 
-- Python 3.9+
-- PostgreSQL 14+ (shared mesh DB)
-- Tailscale VPN (ajánlott P2P kapcsolatokhoz)
-- Linux (systemd) vagy macOS (launchd)
+- **Python 3.9+**
+- **PostgreSQL 14+** (shared mesh DB, pgvector kiterjesztés)
+- **Tailscale VPN** (ajánlott P2P kapcsolatokhoz)
+- **Linux** (systemd) vagy **macOS** (launchd)
+- **Hermes Agent** (a wake-agent funkcióhoz)
 
----
+## Függőségek
 
-## Telepítési útmutató
+### Python csomagok
+```
+aiohttp>=3.9.0          # HTTP szerver/kliens, WebSocket
+asyncpg>=0.31.0         # AsyncPG PostgreSQL driver
+msgpack>=1.0.7          # Bináris üzenet szerializáció
+psycopg2-binary>=2.9.9  # Sync PG (fallback, migration)
+PyYAML>=6.0             # Config fájlok
+zeroconf>=0.130.0       # mDNS peer discovery
+```
+
+### Rendszer
+```
+PostgreSQL 14+          # Shared mesh database
+pgvector               # Vektor keresés (memória sync)
+Tailscale              # VPN (P2P connectivity)
+Hermes Agent           # LLM agent (wake-agent)
+```
+
+### Opcionális
+```
+pytest>=7.0             # Teszt futtatás
+pytest-asyncio>=0.21    # Async teszt support
+```
+
+## Architektúra
+
+```
+┌──────────────────────────────────────────────────────┐
+│                    A2A Mesh                          │
+├──────────┬──────────┬──────────┬──────────────────────┤
+│  Nova    │  Morzsa  │  Runa    │  Tor (HAOS Docker)   │
+│ (macOS)  │ (Linux)  │ (Linux)  │                      │
+├──────────┼──────────┼──────────┼──────────────────────┤
+│  Hermes  │  Hermes  │  Hermes  │  Owner-only          │
+│  Agent   │  Agent   │  Agent   │                      │
+├──────────┼──────────┼──────────┼──────────────────────┤
+│  A2A     │  A2A     │  A2A     │  A2A Mesh            │
+│  Mesh    │  Mesh    │  Mesh    │  (Docker)            │
+│  Node    │  Node    │  Node    │                      │
+├──────────┴──────────┴──────────┴──────────────────────┤
+│              PostgreSQL (shared)                      │
+│              192.168.1.30:5432                         │
+│              Database: agent_memory                   │
+│              Schema: mesh                              │
+├───────────────────────────────────────────────────────┤
+│              Tailscale VPN                             │
+│              mTLS + HMAC + Nonce                       │
+└───────────────────────────────────────────────────────┘
+```
+
+## Telepítés
 
 ### 1. Repó klónozás
 
 ```bash
 git clone http://192.168.1.100:3001/nova/a2a-mesh.git ~/a2a_mesh
 cd ~/a2a_mesh
-git checkout v0.29.0
+git checkout v0.38.0
 ```
 
-### 2. Installer futtatása
-
-#### Interaktív mód (kérdezget):
+### 2. Virtuális környezet
 
 ```bash
-./install.sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
-#### Automatikus mód (CLI argumentumokkal):
+### 3. Konfiguráció
 
 ```bash
-./install.sh \
-  --node nova \
-  --host 192.168.1.50 \
-  --pg-host 192.168.1.30 \
-  --pg-user nova \
-  --pg-password 'titkos_jelszo' \
-  --pg-db agent_memory \
-  --pg-init
+cp mesh_config_template.yaml mesh_config_myagent.yaml
+# Szerkeszd: node_name, health_port, pg_conn, tls cert paths
 ```
 
-#### Opciók:
-
-| Opció | Leírás | Default |
-|-------|--------|---------|
-| `--node NAME` | Node neve (pl. nova, morzsa, runa) | kérdez |
-| `--host IP` | Node IP címe (LAN vagy Tailscale) | auto-detect |
-| `--pg-host IP` | PostgreSQL host | kérdez |
-| `--pg-port PORT` | PostgreSQL port | 5432 |
-| `--pg-user USER` | PostgreSQL felhasználó | nova |
-| `--pg-password PW` | PostgreSQL jelszó | kérdez |
-| `--pg-db NAME` | PostgreSQL adatbázis | agent_memory |
-| `--pg-init` | PG schema inicializálás (schema_init.sql) | false |
-| `--config FILE` | Config fájl útvonala | mesh_config_\<node\>.yaml |
-| `--skip-venv` | System Python használata | false |
-| `--skip-certs` | TLS cert generálás kihagyása | false |
-| `--skip-service` | systemd/launchd kihagyása | false |
-| `--skip-cron` | Cron job-ok kihagyása | false |
-
-### 3. Az installer 7 lépése
-
-| Lépés | Mit csinál |
-|-------|-----------|
-| 1 | **Python** — Python 3.9+ detektálás, venv létrehozás |
-| 2 | **Dependencies** — `pip install -r requirements.txt` (aiohttp, asyncpg, msgpack, PyYAML, zeroconf, cryptography) |
-| 3 | **PostgreSQL** — Schema inicializálás (`schema_init.sql`) vagy connection test |
-| 4 | **Config** — `mesh_config_<node>.yaml` generálás a template-ből |
-| 5 | **TLS Certs** — `certs/` mappa, CA + node cert + key |
-| 6 | **Service** — macOS: LaunchAgent, Linux: systemd user service |
-| 7 | **Cron** — Watchdog (2min) + Session cleanup (10min) |
-
-### 4. PostgreSQL Schema
-
-Az installer `--pg-init` kapcsolóval automatikusan lefuttatja a `schema_init.sql`-t, ami létrehozza a következő táblákat:
-
-| Tábla | Leírás |
-|-------|--------|
-| `mesh.mesh_nodes` | Node regisztráció, heartbeat, provider_status (JSONB) |
-| `mesh.mesh_messages` | Agent-ek közötti üzenetek (JSONB payload) |
-| `mesh.mesh_tasks` | Delegált feladatok (status, result, timestamps) |
-| `mesh.mesh_health_history` | Health score történet (v0.29.0) |
-| `mesh.mesh_suggestions` | Diagnostics javaslatok (v0.29.0) |
-| `mesh.mesh_events` | Audit log |
-
-Kézi inicializálás (ha szükséges):
+### 4. TLS tanúsítványok
 
 ```bash
-psql -h <pg-host> -U nova -d agent_memory -f schema_init.sql
+python3 generate_certs.py --name myagent
 ```
 
-### 5. Konfiguráció
-
-Az installer a `mesh_config_template.yaml`-ból generálja a `mesh_config_<node>.yaml` fájlt, helyettesítve a placeholder-eket:
-
-- `__NODE_NAME__` → node neve
-- `__NODE_HOST__` → node IP címe
-- `__PG_HOST__` → PostgreSQL host
-- `__PG_PASSWORD__` → PostgreSQL jelszó
-
-A config tartalmazza:
-
-- **mesh** — node név, transport priority, capabilities, skills
-- **network** — host, port-ok, TLS beállítások
-- **postgresql** — kapcsolat a shared DB-hez
-- **security** — signing key (auto-generated)
-- **health_monitor** — health check interval
-- **watchdog** — auto-restart beállítások
-- **provider_health** — LLM provider (Ollama) státusz
-- **learning_loop** — HealthScorer + diagnostics beállítások
-
-Kézi szerkesztés a telepítés után:
+### 5. PostgreSQL séma
 
 ```bash
-nano ~/a2a_mesh/mesh_config_<node>.yaml
+# A bootstrap automatikusan létrehozza a sémát
+python3 cli.py start --name myagent --config mesh_config_myagent.yaml
 ```
 
-### 6. TLS Certifikátumok
-
-Az installer a `generate_certs.py` scripttel generálja a TLS cert-eket:
-
-```
-certs/
-├── ca.crt          # CA certificate
-├── ca.key          # CA private key
-├── node.crt        # Node certificate
-├── node.key        # Node private key
-└── ca.srl          # Serial number file
-```
-
-Kézi generálás (ha szükséges):
-
-```bash
-python3 generate_certs.py --output certs/
-```
-
-### 7. System Service
-
-#### macOS (LaunchAgent):
-
-```bash
-# Automatikus (installer futtatja):
-launchctl load ~/Library/LaunchAgents/com.hermes.a2a-mesh-node.plist
-
-# Kézi indítás/stop:
-launchctl start com.hermes.a2a-mesh-node
-launchctl stop com.hermes.a2a-mesh-node
-
-# Logok:
-tail -f ~/.hermes/logs/a2a_mesh_node.log
-```
+### 6. Indítás
 
 #### Linux (systemd):
-
 ```bash
-# Automatikus (installer futtatja):
 systemctl --user enable a2a-mesh
 systemctl --user start a2a-mesh
-
-# Kézi indítás/stop:
-systemctl --user start a2a-mesh
-systemctl --user stop a2a-mesh
-
-# Logok:
-journalctl --user -u a2a-mesh -f
 ```
 
-#### Manuális indítás (service nélkül):
-
+#### macOS (launchd):
 ```bash
-python3 cli.py start --name nova --config mesh_config_nova.yaml
+launchctl load ~/Library/LaunchAgents/com.hermes.a2a-mesh-node.plist
+launchctl start com.hermes.a2a-mesh-node
 ```
 
-### 8. Cron Job-ok
+## Konfiguráció
 
-Az installer automatikusan beállítja:
+Példa `mesh_config.yaml`:
 
-| Cron | Gyakoriság | Mit csinál |
-|------|-----------|------------|
-| `gateway_watchdog.py` | 2 perc | Node health endpoint ellenőrzés, auto-restart ha nem válaszol |
-| `session_cleanup.py` | 10 perc | Elhagyott session-ök takarítása |
+```yaml
+node_name: myagent
+health_port: 8650
+webhook_port: 8888
+wake_agent_on_message: true
 
-Kézi hozzáadás (ha szükséges):
+pg:
+  host: 192.168.1.30
+  port: 5432
+  database: agent_memory
+  user: nova
+  password: nova_agent_2026
 
+tls:
+  cert_dir: ./certs
+  verify_peer: false
+
+discovery:
+  mdns: true
+  udp_broadcast: true
+
+peers:
+  - name: morzsa
+    host: 192.168.1.30
+  - name: runa
+    host: 192.168.1.100
+```
+
+## Dashboard
+
+A dashboard elérhető: `http://<node-ip>:8650/dashboard`
+
+- **Bejelentkezés:** username + password
+- **General csatorna:** minden üzenet (DM + broadcast + agent válaszok)
+- **DM csatorna:** egyéni beszélgetések
+- **Kanban:** delegációs feladatok
+- **Topology:** mesh hálózat vizualizáció
+
+## Chat API
+
+### Üzenet küldése
 ```bash
-crontab -e
-# Adj hozzá:
-*/2 * * * * /path/to/python3 /path/to/a2a_mesh/core/gateway_watchdog.py --node <name> 2>&1
-*/10 * * * * /path/to/python3 /path/to/a2a_mesh/core/session_cleanup.py --node <name> 2>&1
+# Login
+TOKEN=$(curl -s -X POST http://localhost:8650/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"zsolt","password":"mesh2026"}' | jq -r .token)
+
+# DM
+curl -X POST http://localhost:8650/api/chat/send \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"morzsa","content":"Szia Morzsa!"}'
+
+# Broadcast (közös szoba)
+curl -X POST http://localhost:8650/api/chat/send \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"recipient":"broadcast","content":"Sziasztok mindenki!"}'
 ```
 
-### 9. Több node hálózat építése
-
-A mesh mag kialakításához legalább 2 node kell, de optimálisan 3+:
-
+### Üzenetek lekérdezése
 ```bash
-# Node 1 (Nova — macOS)
-./install.sh --node nova --host 100.75.253.52 \
-  --pg-host 192.168.1.30 --pg-user nova --pg-password 'pw' --pg-init
-
-# Node 2 (Morzsa — Linux)
-./install.sh --node morzsa --host 192.168.1.30 \
-  --pg-host 192.168.1.30 --pg-user nova --pg-password 'pw'
-  # --pg-init nem kell, már inicializálva
-
-# Node 3 (Runa — Linux)
-./install.sh --node runa --host 192.168.1.100 \
-  --pg-host 192.168.1.30 --pg-user nova --pg-password 'pw'
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8650/api/chat/messages?limit=50
 ```
 
-Minden node ugyanazt a PG adatbázist használja. A node-ok automatikusan felfedezik egymást P2P-n (Tailscale) és PG-n keresztül.
+## Verzió történet
 
-### 10. Ellenőrzés
+### v0.38.0 (2026-08-26)
+- **Broadcast chat** — közös szoba üzenetek minden agentnek
+- **Wake-agent broadcast** — minden online agent felébresztése
+- `chat_type` routing (broadcast vs DM) az `agent-reply` handlerben
+- `chat_type` meghatározás `message.recipient`-ből (untrusted framing safe)
+- WebSocket push: új üzenetek azonnal a general csatornán
+- Wake-agent cooldown 30s → 5s
+- Dupla auto-ack megszüntetése (csak címzett küld)
+- CLI timeout 90s → 120s
 
+### v0.37.7
+- Marveen feature integráció (Smart Router, AlertRule, kanban)
+- Capability routing mode (strong/catalog_first/advisory)
+- Untrusted framing a2a_message + agent_reply
+- Auto-update check (Morzsa)
+
+### v0.37.0
+- Gateway watchdog v0.37.4 (SOCKS5 bypass)
+- mTLS + HMAC minden node-on
+- PG replication slots (runa_replica, nova_replica)
+
+### v0.29.0 (Marveen merge)
+- Kanban-first delegation
+- Heartbeat gate
+- Gradual autonomy
+- Per-category autonomy in AlertRule
+
+## Fejlesztés
+
+### Tesztek
 ```bash
-# Node health
-curl http://localhost:8650/health | python3 -m json.tool
-
-# Peerek listázása
-python3 cli_mesh.py peers
-
-# Health history PG-ben
-psql -h <pg-host> -U nova -d agent_memory -c \
-  "SELECT node_name, health_score, provider_primary FROM mesh.mesh_health_history ORDER BY recorded_at DESC LIMIT 10;"
-
-# Diagnostics suggestions
-psql -h <pg-host> -U nova -d agent_memory -c \
-  "SELECT * FROM mesh.mesh_suggestions WHERE status='pending';"
-
-# Regisztrált node-ok
-psql -h <pg-host> -U nova -d agent_memory -c \
-  "SELECT node_name, status, version, provider_status->'primary'->>'status' as primary FROM mesh.mesh_nodes;"
+pytest tests/ -v
 ```
 
-### Hibaelhárítás
-
-| Probléma | Megoldás |
-|----------|---------|
-| Node nem indul | `tail -f ~/.hermes/logs/a2a_mesh_node.log` (macOS) vagy `journalctl --user -u a2a-mesh` (Linux) |
-| PG connection failed | Ellenőrizd a jelszót, host-ot, port-ot a config-ban |
-| P2P nem connect | Tailscale fut? `tailscale status` |
-| Health port nem válaszol | Várj 10-20s indulás után, vagy `launchctl stop/start` |
-| Import error | `pip install -r requirements.txt` újra a venv-ben |
-| Cert hiányzik | `python3 generate_certs.py --output certs/` |
-
----
-
-## Architektúra
-
-```
-┌──────────────┐     P2P (TLS)     ┌──────────────┐
-│   Node A     │◄────────────────►│   Node B     │
-│  (Python)    │                  │  (Python)    │
-│  Router       │                  │  Router      │
-│  HealthScorer│                  │  HealthScorer│
-│  Diagnostics  │                  │  Diagnostics │
-│  Watchdog    │                  │  Watchdog    │
-└──────┬───────┘                  └──────┬───────┘
-       │                                 │
-       └──────────┬──────────────────────┘
-                  │
-          ┌───────▼───────┐
-          │  PostgreSQL   │
-          │  agent_memory  │
-          │  mesh.* schema │
-          └───────────────┘
-```
-
-## v0.29.0 funkciók
-
-- **Health Score PG Persistence** — 60s-enként mentve, restart utáni helyreállítás
-- **Delegation Feedback Loop** — delegáció eredménye → health score
-- **Provider Status Integration** — LLM provider állapot → health penalty
-- **Gateway Watchdog** — 2perces cron, auto-restart
-- **Session Cleanup** — 10perces cron
-- **Diagnostics Suggestions** — PG-be persistált config javaslatok
-- **mTLS + HMAC** — node-ok közötti titkosítás
-- **P2P + PG + HTTP transport** — háromszintű fallback
-
----
-
-## Garantált Végrehajtási Modell (v0.29+)
-
-A mesh három delegációs módot támogat a feladatok garantált elvégzéséhez:
-
-### 1. RACE mód (verseny)
-
-Egy feladat több agentnek kiosztva — az első aki befejezi nyer, a többi auto-cancelled.
-
-```
-Nova → [Task] → Morzsa ✅ (winner)
-              → Runa   ✗ (cancelled: sibling completed)
-```
-
-- `fan_out: true` (alapértelmezett)
-- Redundáns végrehajtás, reliability
-- Auto-cancel siblings amikor az első completed
-
-### 2. DISTRIBUTE mód (szétosztás)
-
-Minden fan-out gyerek különböző agentnek megy, **mindnek el kell készülnie**.
-
-```
-Nova → [Task 1/3] → Morzsa ✅
-     → [Task 2/3] → Runa   ✅
-     → [Task 3/3] → Nova   ✅
-```
-
-- `fan_out: true, distribute_mode: true`
-- Komplex feladat bontás, párhuzamos munka
-- Nincs sibling cancellation — minden gyerek önálló
-
-### 3. Dependency Chain (láncolt végrehajtás)
-
-Feladatok sorrendben hajtódnak végre — B csak A befejezése után indul.
-
-```
-A (available) → completed → trigger B (available) → completed → trigger C
-```
-
-- `depends_on: <parent_task_id>`
-- Láncolt workflow-k, pipeline-ek
-- Auto-activation: `_check_dependencies` poll minden 5s
-- Cascade: ha parent fail/cancelled → gyermek auto-activate (manual handling)
-
-### Auto-Reassign
-
-Stuck/failed taskok automatikus újrakiosztása:
-
-```
-Task stuck >10min → retry_count++ → reset to available → újra kiosztás
-max_retries exhausted → P9 escalate + alert
-```
-
-### Auto-Kanban
-
-Minden delegált feladat automatikusan kap Kanban kártyát:
-- `todo` → `in_progress` → `review` → `done`
-- Státusz alapú auto-mozgatás
-- Cancelled/failed/expired → `done` oszlop
-
-### 7 napos Retention
-
-A rendszer automatikusan tisztítja a régi rekordokat:
-- 7 napnál régebbi completed/failed/cancelled/expired taskok
-- Fájlok és PG rekordok törlése
-
----
-
-## P2P Transport
-
-Teljes mesh P2P topology TLS-elve:
-
-```
-Nova (macOS) ←→ Morzsa (Debian 12) ←→ Runa (Ubuntu 24.04)
-     ↕                    ↕                    ↕
-     └────────────────────┴────────────────────┘
-              Full mesh P2P (TLS 1.3)
-```
-
-- `tls_verify_peer: false` minden node-on
-- `tls_enabled: true` — TLSv1.3, mTLS
-- SSH tunnel fallback (heartbeat 60s)
-- PG NOTIFY transport fallback
-- HTTP bridge fallback
-
-## Fájlok
-
+### Struktúra
 ```
 a2a_mesh/
-├── install.sh                    # Full installer (7 lépés)
-├── schema_init.sql               # PG schema init (6 tábla)
-├── requirements.txt              # Python dependencies
-├── mesh_config_template.yaml      # Config template
-├── README.md                      # Ez a fájl
-├── cli.py                         # CLI entry point
-├── cli_mesh.py                    # Mesh management CLI
-├── generate_certs.py              # TLS cert generator
-├── bootstrap_cli.py               # Lightweight bootstrap
-├── node.py                        # Main mesh node
+├── node.py              # Core node (transport, receive loop, chat routing)
+├── cli.py               # CLI entry point
 ├── core/
-│   ├── health_scorer.py           # Health score + PG persistence
-│   ├── diagnostics.py             # Config suggestion engine
-│   ├── provider_health.py         # LLM provider checks
-│   ├── gateway_watchdog.py        # Auto-restart watchdog
-│   ├── session_cleanup.py         # Session cleanup
-│   ├── router.py                  # Message routing
-│   ├── async_db.py                # AsyncPG connection pool
-│   ├── peer_discovery.py          # Peer discovery
-│   ├── auto_steer.py              # Topology tuning
-│   └── ...
+│   ├── message.py       # A2AMessage, SendResult, ProcessResult
+│   ├── config.py        # Konfiguráció + version resolution
+│   ├── router.py        # Message router
+│   ├── dashboard.py     # Dashboard handler (HTTP+WS)
+│   ├── dashboard_chat.py # Chat API (send, store, broadcast)
+│   ├── dashboard_agents.py # Wake-agent, agent-reply
+│   ├── delegation.py    # Kanban delegation system
+│   ├── smart_router.py  # Capability routing
+│   ├── encryption.py    # mTLS, HMAC
+│   ├── peer_discovery.py # mDNS + UDP discovery
+│   ├── ...              # 60+ modul
 ├── transports/
-│   ├── p2p_transport.py           # TLS P2P transport
-│   ├── pg_transport.py            # PostgreSQL NOTIFY transport
-│   └── http_transport.py          # HTTP fallback transport
-└── certs/                         # TLS certificates (generated)
+│   ├── p2p_transport.py  # TLS P2P
+│   ├── pg_transport.py  # PostgreSQL NOTIFY
+│   ├── http_transport.py # HTTP fallback
+├── discovery/
+│   ├── mdns.py          # mDNS zeroconf
+│   ├── udp_broadcast.py # UDP broadcast
+├── scripts/
+│   ├── auto_deploy.py   # Git webhook auto-deploy
+│   ├── mesh_bot.py      # Telegram bot
+├── tests/               # 30+ test files
+├── mesh_config_*.yaml  # Node configs
+└── pyproject.toml       # Package metadata
 ```
+
+## License
+
+MIT
+
+## Szerzők
+
+Nova A2A Mesh Team — Lakatos Miklós Zsolt + AI agents (Nova, Morzsa, Runa)
