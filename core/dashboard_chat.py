@@ -163,14 +163,7 @@ async def handle_chat_send(node, request, pool, user):
             result = await node.send_direct(recipient, "a2a_message", payload, priority=5)
             mesh_sent = True
             log.info(f"💬 Chat DM {username}→{recipient}: sent via mesh")
-            # Generate auto-ack on sender side (receiver may not support chat routing yet)
-            try:
-                from .dashboard_chat import store_agent_reply
-                await store_agent_reply(pool, username, recipient,
-                    "✅ Üzenet megkapva! Feldolgozás alatt...", "agent_reply")
-                log.info(f"💬 Chat auto-ack (sender-side) {recipient}→user:{username}")
-            except Exception as e:
-                log.warning(f"💬 Chat auto-ack failed: {e}")
+            # Auto-ack removed — receiver node sends ack via P2P + wake-agent reply
             # Trigger wake-agent on the receiving node via its dashboard API
             try:
                 import asyncio as _aio
@@ -215,9 +208,10 @@ async def handle_chat_send(node, request, pool, user):
                                     "sender_display": display_name,
                                     "chat_username": username,
                                     "chat_msg_uuid": msg_uuid,
+                                    "chat_type": "user_dm",
                                     "reply_endpoint": reply_endpoint,
                                     "mesh_secret": "mesh-wake-secret-2026"
-                                }, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                                }, timeout=_aiohttp.ClientTimeout(total=180)) as resp:
                                     log.info(f"🔔 Wake-agent {recipient}: {resp.status}")
                         except Exception as e:
                             log.warning(f"🔔 Wake-agent {recipient} failed: {e}")
