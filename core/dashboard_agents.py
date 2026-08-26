@@ -597,7 +597,8 @@ class DashboardAgentsMixin:
                 # Allow without signature for now (internal network)
                 pass
 
-            body = await request.json()
+            import json as _json
+            body = _json.loads(data) if data else {}
             sender = body.get("sender", "unknown_agent")
             content = body.get("content", "")
             recipient = body.get("recipient", "broadcast")
