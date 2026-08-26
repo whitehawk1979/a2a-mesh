@@ -3897,16 +3897,8 @@ echo "Status: ok"
                                     continue
                                 log.debug(f"Untrusted framing applied to {msg.type} {msg.id[:8]} from {msg.sender}")
 
-                            result = await self.router.receive(msg, from_transport)
-                            if result.status == "duplicate":
-                                log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
-                            else:
-                                log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
-                            # Skip internal mesh protocol messages for dashboard notification
-                            # (ACK, heartbeat, skills_announcement are not user-facing)
-
-                            # ── Per-user chat: store agent replies as DMs (INDEPENDENT of result.status) ──
-                            log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r} result.status={result.status}")
+                            # ── Per-user chat: store agent replies as DMs (BEFORE router.receive — INDEPENDENT of result.status) ──
+                            log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
                             if msg.type in ("a2a_message", "agent_reply") and _chat_user:
                                 try:
                                     pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
@@ -3916,15 +3908,23 @@ echo "Status: ok"
                                         await store_agent_reply(pool, _chat_user, msg.sender, ack_text)
                                         log.info(f"💬 Chat auto-ack: {msg.sender}→user:{_chat_user}")
                                 except Exception as e:
-                                    log.debug(f"Chat reply routing failed: {e}")
+                                    log.warning(f"Chat reply routing failed: {e}")
 
-                            # Wake agent for chat DMs (INDEPENDENT of result.status)
+                            # Wake agent for chat DMs (BEFORE router.receive — INDEPENDENT of result.status)
                             if msg.type == "a2a_message" and _chat_user:
                                 try:
                                     asyncio.create_task(self._trigger_webhook(msg))
                                     log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
                                 except Exception as e:
-                                    log.debug(f"Wake-agent trigger failed: {e}")
+                                    log.warning(f"Wake-agent trigger failed: {e}")
+
+                            result = await self.router.receive(msg, from_transport)
+                            if result.status == "duplicate":
+                                log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
+                            else:
+                                log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
+                            # Skip internal mesh protocol messages for dashboard notification
+                            # (ACK, heartbeat, skills_announcement are not user-facing)
 
                             if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
@@ -3981,7 +3981,7 @@ echo "Status: ok"
                                     log.debug(f"Skipping forwarded broadcast msg type={msg.type} from {msg.sender}")
 
                     except Exception as e:
-                        log.debug(f"Receive error on {transport_name}: {e}")
+                        log.warning(f"Receive error on {transport_name}: {e}", exc_info=True)
 
                 await asyncio.sleep(0.1)  # 100ms polling interval
 
