@@ -256,7 +256,7 @@ function addMessageToDOM(msg, scroll) {
   var pri = msg.priority || 5;
   var priCls = pri >= 7 ? "p-high" : pri >= 4 ? "p-med" : "p-low";
   var priLabel = pri >= 7 ? "SÜRGŐS" : pri >= 4 ? "normál" : "alacsony";
-  var senderLabel = msg.username || msg.sender || "?";
+  var senderLabel = msg.sender || msg.username || "?";
   var time = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString("hu-HU") : new Date().toLocaleTimeString("hu-HU");
 
   // Determine sender class
