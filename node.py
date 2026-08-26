@@ -5151,9 +5151,9 @@ echo "Status: ok"
             if dashboard_url:
                 payload["reply_endpoint"] = dashboard_url.replace("/api/wake-agent", "/api/agent-reply")
             
-            # Extract chat_username and chat_type from payload (for P2P-received chat messages)
+            # Extract chat_username from payload; determine chat_type from recipient
             _chat_user = None
-            _chat_type = "user_dm"
+            _chat_type = "broadcast" if message.recipient == "broadcast" else "user_dm"
             try:
                 import json as _j
                 _p = message.payload
@@ -5164,7 +5164,6 @@ echo "Status: ok"
                         _p = {}
                 if isinstance(_p, dict):
                     _chat_user = _p.get("chat_username")
-                    _chat_type = _p.get("chat_type", "user_dm")
             except Exception:
                 pass
             if _chat_user:
