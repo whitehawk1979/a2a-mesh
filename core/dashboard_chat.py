@@ -107,11 +107,20 @@ async def handle_chat_send(node, request, pool, user):
             # Trigger wake-agent on the receiving node via its dashboard API
             try:
                 import asyncio as _aio
+                # Get peer host from known_peers, static config, or hardcoded fallback
                 peer_info = None
                 if hasattr(node, 'peer_discovery'):
                     kp = getattr(node.peer_discovery, 'known_peers', None)
                     if kp:
                         peer_info = kp.get(recipient)
+                # Fallback: hardcoded peer IPs (avoids P2P discovery dependency)
+                if not peer_info:
+                    FALLBACK_PEERS = {
+                        "morzsa": {"host": "192.168.1.30", "health_port": 8650},
+                        "runa": {"host": "192.168.1.100", "health_port": 8650},
+                        "nova": {"host": "192.168.1.8", "health_port": 8650},
+                    }
+                    peer_info = FALLBACK_PEERS.get(recipient)
                 if peer_info:
                     peer_host = peer_info.get('host', '')
                     peer_health_port = peer_info.get('health_port', 8650)
