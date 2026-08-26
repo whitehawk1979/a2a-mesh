@@ -553,7 +553,14 @@ class MeshRouter:
 
         # 4. RE-chain filter (skip for heartbeat and ACK messages)
         if self.re_chain_limit > 0 and message.type not in ("heartbeat", "ack"):
-            re_count = message.payload.get("subject", "").count("RE:")
+            _payload = message.payload
+            if isinstance(_payload, str):
+                try:
+                    import json as _j
+                    _payload = _j.loads(_payload)
+                except Exception:
+                    _payload = {}
+            re_count = (_payload.get("subject", "") if isinstance(_payload, dict) else "").count("RE:")
             if re_count >= self.re_chain_limit:
                 self._stats["re_chain_filtered"] += 1
                 return ProcessResult(status="re_chain_filtered", message=message)

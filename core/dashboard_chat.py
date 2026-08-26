@@ -124,6 +124,7 @@ async def handle_chat_send(node, request, pool, user):
                 log.info(f"🔔 Wake-agent broadcast → {peer_name} at {wake_url}")
                 async def _wake_broadcast(pn=peer_name, url=wake_url):
                     import aiohttp as _aiohttp
+                    await _aio.sleep(2)  # Delay 2s — let P2P wake-agent trigger first
                     try:
                         async with _aiohttp.ClientSession() as sess:
                             async with sess.post(url, json={
@@ -137,7 +138,10 @@ async def handle_chat_send(node, request, pool, user):
                                 "reply_endpoint": reply_endpoint,
                                 "mesh_secret": "mesh-wake-secret-2026"
                             }, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
-                                log.info(f"🔔 Wake-agent broadcast {pn}: {resp.status}")
+                                if resp.status == 429:
+                                    log.info(f"🔔 Wake-agent broadcast {pn}: 429 (P2P already triggered — OK)")
+                                else:
+                                    log.info(f"🔔 Wake-agent broadcast {pn}: {resp.status}")
                     except Exception as e:
                         log.warning(f"🔔 Wake-agent broadcast {pn} failed: {e}")
                 _aio.create_task(_wake_broadcast())

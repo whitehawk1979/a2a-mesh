@@ -739,8 +739,14 @@ class DashboardAgentsMixin:
             import time as _time
             now = _time.monotonic()
             if self._wake_agent_in_progress:
-                log.warning(f"Wake-agent already in progress — skipping (rate limit)")
-                return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
+                # Safety: if in_progress for >120s, the CLI crashed/stuck — reset and allow
+                stuck_elapsed = now - getattr(self, '_wake_agent_start_time', now)
+                if stuck_elapsed > 120:
+                    log.warning(f"Wake-agent stuck for {stuck_elapsed:.0f}s — force resetting flag")
+                    self._wake_agent_in_progress = False
+                else:
+                    log.warning(f"Wake-agent already in progress — skipping (rate limit)")
+                    return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
             elapsed = now - self._last_wake_agent_time
             if elapsed < self._wake_agent_cooldown:
                 remaining = self._wake_agent_cooldown - elapsed
@@ -748,6 +754,7 @@ class DashboardAgentsMixin:
                 return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
             self._last_wake_agent_time = now
             self._wake_agent_in_progress = True
+            self._wake_agent_start_time = now
             
             # Run hermes -z locally (same as _wake_self_via_cli but on this node)
             import asyncio as aio
