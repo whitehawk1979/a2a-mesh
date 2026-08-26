@@ -4090,17 +4090,25 @@ window._loadChatMessages = function(agentName, pollOnly) {
   }).then(function(r) { return r.json(); })
     .then(function(d) {
       var msgs = (d.messages || []).reverse(); // oldest first
-      // Use main chat container for DM messages (Marveen pattern: single conversation view)
       var container = document.getElementById('messages') || document.getElementById('chatMessages');
       if (!container) return;
       if (!msgs.length) {
         if (!pollOnly) container.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Nincs üzenet. Írj valamit! 👋</div>';
         return;
       }
+      // Dirty check: only re-render if message count or last ID changed
+      var lastId = msgs.length ? msgs[msgs.length - 1].id : '';
+      var cacheKey = '_dmLastId_' + agentName;
+      if (pollOnly && window[cacheKey] === lastId && container.children.length > 0) {
+        return; // No change — skip re-render (prevents flicker)
+      }
+      window[cacheKey] = lastId;
+      
       var html = '';
       var username = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || 'zsolt';
       msgs.forEach(function(m) {
         var isSent = (m.sender === username);
+        // Allow self-DM messages (sender === recipient === agentName)
         var senderName = esc(m.sender || '?');
         var content = esc(m.content || '');
         var time = m.created_at ? m.created_at.substring(11, 16) : '';

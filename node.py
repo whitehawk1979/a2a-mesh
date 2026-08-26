@@ -3846,8 +3846,8 @@ echo "Status: ok"
                         if messages:
                             log.debug(f"Receive loop got {len(messages)} messages from {transport_name}")
                         for msg, from_transport in messages:
-                            # Skip own messages (loop prevention)
-                            if msg.sender == self.node_name:
+                            # Skip own messages (loop prevention) — except directives (self-DM)
+                            if msg.sender == self.node_name and msg.type != "directive":
                                 continue
 
                             # Skip empty payloads (wake-agent noise, not real messages)
