@@ -337,6 +337,8 @@ class DashboardAgentsMixin:
                         "recipient": reply_recipient,
                         "priority": 5,
                         "reply_to": mesh_msg_id,
+                        "chat_username": webhook_payload.get("chat_username", "") if isinstance(webhook_payload, dict) else "",
+                        "chat_type": webhook_payload.get("chat_type", "user_dm") if isinstance(webhook_payload, dict) else "user_dm",
                     })
                     async with _aiohttp.ClientSession() as sess:
                         async with sess.post(
@@ -794,6 +796,7 @@ class DashboardAgentsMixin:
                             "priority": 5,
                             "reply_to": body.get("mesh_message_id", ""),
                             "chat_username": body.get("chat_username", ""),
+                            "chat_type": body.get("chat_type", "user_dm"),
                         })
                         async with _aiohttp.ClientSession() as sess:
                             async with sess.post(
