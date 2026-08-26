@@ -3864,7 +3864,7 @@ echo "Status: ok"
                             if msg.type in ("a2a_message", "agent_reply"):
                                 # Try dict payload first, then parse string
                                 _p = payload
-                                log.info(f"🔍 Chat DM debug: msg.id={msg.id[:8]} payload_type={type(_p).__name__} payload_preview={str(_p)[:200]}")
+                                log.info(f"🔍 Chat DM debug: msg.id={msg.id[:8]} msg.type={msg.type} payload_type={type(_p).__name__} payload_preview={str(_p)[:200]}")
                                 if isinstance(_p, str):
                                     try:
                                         import json as _j
@@ -3904,6 +3904,27 @@ echo "Status: ok"
                                 log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             # Skip internal mesh protocol messages for dashboard notification
                             # (ACK, heartbeat, skills_announcement are not user-facing)
+
+                            # ── Per-user chat: store agent replies as DMs (INDEPENDENT of result.status) ──
+                            if msg.type in ("a2a_message", "agent_reply") and _chat_user:
+                                try:
+                                    pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
+                                    if pool:
+                                        from .core.dashboard_chat import store_agent_reply
+                                        ack_text = "✅ Üzenet megkapva! Feldolgozás alatt..."
+                                        await store_agent_reply(pool, _chat_user, msg.sender, ack_text)
+                                        log.info(f"💬 Chat auto-ack: {msg.sender}→user:{_chat_user}")
+                                except Exception as e:
+                                    log.debug(f"Chat reply routing failed: {e}")
+
+                            # Wake agent for chat DMs (INDEPENDENT of result.status)
+                            if msg.type == "a2a_message" and _chat_user:
+                                try:
+                                    asyncio.create_task(self._trigger_webhook(msg))
+                                    log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
+                                except Exception as e:
+                                    log.debug(f"Wake-agent trigger failed: {e}")
+
                             if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
                                 # Forwarded messages are replies to dashboard users that need to be displayed
@@ -3911,29 +3932,6 @@ echo "Status: ok"
                                     await self.dashboard.on_mesh_message(msg)
                                 except Exception as e:
                                     log.debug(f"Dashboard notification failed: {e}")
-
-                                # ── Per-user chat: store agent replies as DMs ──
-                                # chat_username was extracted BEFORE untrusted framing (above)
-                                # Run regardless of result.status (acknowledged or processed)
-                                if msg.type in ("a2a_message", "agent_reply") and _chat_user:
-                                    try:
-                                        pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
-                                        if pool:
-                                            from .core.dashboard_chat import store_agent_reply
-                                            # Auto-ack: acknowledge the DM
-                                            ack_text = "✅ Üzenet megkapva! Feldolgozás alatt..."
-                                            await store_agent_reply(pool, _chat_user, msg.sender, ack_text)
-                                            log.info(f"💬 Chat auto-ack: {msg.sender}→user:{_chat_user}")
-                                    except Exception as e:
-                                        log.debug(f"Chat reply routing failed: {e}")
-
-                                # Wake agent for chat DMs regardless of processed/acknowledged status
-                                if msg.type == "a2a_message" and _chat_user:
-                                    try:
-                                        asyncio.create_task(self._trigger_webhook(msg))
-                                        log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
-                                    except Exception as e:
-                                        log.debug(f"Wake-agent trigger failed: {e}")
 
                                 if result.status == "processed":
                                     log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
