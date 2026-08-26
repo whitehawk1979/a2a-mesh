@@ -942,3 +942,57 @@ class DashboardAgentsMixin:
         except Exception as e:
             log.error(f"Agent message failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
+    async def _insert_mesh_message(self, message, auth_user=None):
+        """Insert dashboard message into mesh.mesh_messages for mesh-wide persistence.
+
+        Uses mesh_messages (not shared_a2a_memory) so all agents in the mesh
+        see it via PG NOTIFY, and the dashboard shows agent replies in real-time.
+        """
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=self.node.config.pg.host,
+                port=self.node.config.pg.port,
+                dbname=self.node.config.pg.dbname,
+                user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+                options="-c client_encoding=UTF8",
+            )
+            cur = conn.cursor()
+            payload = message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)}
+            # For SQL_ASCII PG: use ASCII-safe sender name
+            safe_sender = (message.sender or "unknown").encode("ascii", "replace").decode("ascii")
+            payload_json = json.dumps(payload, ensure_ascii=True)
+
+            cur.execute(
+                """INSERT INTO mesh.mesh_messages
+                   (id, sender, recipient, msg_type, priority, payload, routing_mode, status, created_at)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                   ON CONFLICT (id) DO NOTHING""",
+                (
+                    message.id,
+                    safe_sender,
+                    message.recipient or "broadcast",
+                    message.type,
+                    message.priority,
+                    payload_json,
+                    "hybrid",
+                    "sent",
+                ),
+            )
+            conn.commit()
+            # Notify mesh channel so all agents receive it
+            notify_payload = json.dumps({
+                "id": str(message.id),
+                "sender": message.sender,
+                "recipient": message.recipient,
+                "msg_type": message.type,
+                "priority": message.priority,
+            })
+            cur.execute("NOTIFY mesh_channel, %s", (notify_payload,))
+            conn.commit()
+            cur.close()
+            conn.close()
+            log.info(f"Dashboard message {message.id[:8]} inserted into mesh_messages")
+        except Exception as e:
+            log.warning(f"Mesh insert failed: {e}")
