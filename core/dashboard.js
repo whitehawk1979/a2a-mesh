@@ -786,47 +786,6 @@ function loadMessages() {
   });
 }
 
-// DM channel message loader — fetches messages between user and a specific agent
-window._loadChatMessages = function(agentName, scrollToBottomFlag) {
-  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-  var url = '/api/chat/messages?with=' + encodeURIComponent(agentName) + '&limit=100';
-  fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) {
-      if (r.status === 401 || r.status === 429) return null;
-      return r.json();
-    })
-    .then(function(d) {
-      if (!d || !d.messages) return;
-      var username = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || 'zsolt';
-      channelMessages[agentName] = [];
-      d.messages.forEach(function(m) {
-        m.content = m.content || m.text || '';
-        m.timestamp = m.timestamp || m.created_at || '';
-        m.type = m.type || m.msg_type || '';
-        // Only show chat and agent_reply messages (skip ack, heartbeat, etc)
-        var mType = m.msg_type || m.type || '';
-        if (mType === 'ack' || mType === 'heartbeat' || mType === 'skills_announcement' || mType === 'diagnostic_report') return;
-        // Only show messages between this user and this agent
-        var isMine = (m.sender === username && m.recipient === agentName);
-        var isTheirs = (m.sender === agentName && (m.recipient === username || m.recipient === 'broadcast'));
-        if (!isMine && !isTheirs) return;
-        // Dedup
-        var exists = false;
-        for (var k = 0; k < channelMessages[agentName].length; k++) {
-          if (channelMessages[agentName][k].id === m.id) { exists = true; break; }
-        }
-        if (!exists) channelMessages[agentName].push(m);
-      });
-      if (currentChannel === agentName) {
-        renderChannelMessages();
-        if (scrollToBottomFlag) scrollToBottom();
-      }
-    })
-    .catch(function(e) {
-      console.warn('[DM] _loadChatMessages error:', e);
-    });
-};
-
 function loadAgents() {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
   fetch("/api/agents", { headers: { 'Authorization': 'Bearer ' + token } })

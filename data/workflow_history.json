@@ -31,7 +31,45 @@
         "agent": "nova",
         "result": null,
         "error": "AsyncDB pool not connected",
-        "duration_ms": 6.597280502319336,
+        "duration_ms": null,
+        "dependencies": []
+      }
+    },
+    "total_cost": 0.0
+  },
+  {
+    "id": "1660930f",
+    "name": "dispatch-test-nova",
+    "status": "completed",
+    "consensus": "all",
+    "created_at": 1787745783.775796,
+    "tasks": {
+      "t1": {
+        "name": "Echo test",
+        "status": "completed",
+        "agent": "nova",
+        "result": "{'result': '[morzsa] System analysis completed at 2026-08-26T12:03:[PHONE REDACTED]+00:00'}",
+        "error": null,
+        "duration_ms": 11702.837944030762,
+        "dependencies": []
+      }
+    },
+    "total_cost": 0.0
+  },
+  {
+    "id": "180699c4",
+    "name": "dispatch-test-cross-node",
+    "status": "completed",
+    "consensus": "all",
+    "created_at": 1787745801.6097012,
+    "tasks": {
+      "t1": {
+        "name": "Runa echo",
+        "status": "completed",
+        "agent": "runa",
+        "result": "{'result': \"[runa] Acknowledged task '[WF:180699c4] Runa echo' at 2026-08-26T12:03:[PHONE REDACTED]+00:00\"}",
+        "error": null,
+        "duration_ms": 10231.40001296997,
         "dependencies": []
       }
     },

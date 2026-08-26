@@ -207,19 +207,13 @@ class DashboardAgentsMixin:
             
             prompt = (
                 f"{preamble}"
-                f"Te egy A2A Mesh chat résztvevője vagy ({agent_name} 🤖). "
-                f"Ez egy közös chat session, mint egy Telegram csoport. "
-                f"A chatben emberi felhasználók (👤) és AI agentek (🤖) vesznek részt. "
-                f"Az emberi felhasználók (pl. Zsolt) írnak üzeneteket, az agentek válaszolnak. "
-                f"Látod a beszélgetés előzményeit és az új üzenetet.\n\n"
-                f"── Beszélgetés eddig ──\n{chat_context}\n\n"
+                f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. "
+                f"Zsolt (👤) írt neked. Válaszolj röviden, természetesen, magyarul (max 300 karakter).\n\n"
+                f"── Beszélgetés ──\n{chat_context}\n\n"
                 f"── Új üzenet ──\n[{sender_tag}] {framed}\n\n"
-                f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
-                f"Ha az üzenet emberi felhasználótól (👤) van, neki válaszolj. "
-                f"Ha egy másik agent (🤖) írt és nem hozzád szól, nem kell válaszolnod. "
-                f"Ha nem kell válaszolnod, csak annyit írj: 'NEM VÁLASZTOLSZ'.\n\n"
-                f"FONTOS: Csak írd a válaszodat sima szövegként (stdout). "
-                f"NE használj curl-t, NE használj tool-okat — a rendszer automatikusan elküldi a válaszodat."
+                f"Válaszodat sima szövegként írd (stdout). "
+                f"NE használj curl-t vagy tool-okat — a rendszer automatikusan elküldi. "
+                f"Ha nem hozzád szól, írj: 'NEM VÁLASZTOLSZ'."
             )
             
             log.info(f"Wake-agent prompt for '{agent_name}':\n{prompt[:500]}")
@@ -244,7 +238,7 @@ class DashboardAgentsMixin:
                     log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
                     
         except asyncio.TimeoutError:
-            log.warning(f"Wake-agent '{agent_name}' timed out (180s)")
+            log.warning(f"Wake-agent '{agent_name}' timed out (90s)")
         except Exception as e:
             log.warning(f"Wake-agent '{agent_name}' failed ({wake_url}): {e}")
 
@@ -314,7 +308,7 @@ class DashboardAgentsMixin:
                 env={**_os.environ, "HERMES_HOME": _hermes_home},
             )
             
-            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=180)
+            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
             output = stdout.decode('utf-8', errors='replace') if stdout else ""
             err = stderr.decode('utf-8', errors='replace') if stderr else ""
             
@@ -350,7 +344,7 @@ class DashboardAgentsMixin:
                     log.warning(f"Failed to send Nova agent reply: {reply_err}")
                 
         except asyncio.TimeoutError:
-            log.warning("Nova CLI timed out (180s)")
+            log.warning("Nova CLI timed out (90s)")
         except Exception as e:
             log.warning(f"Nova CLI wake failed: {e}")
         finally:
@@ -777,7 +771,7 @@ class DashboardAgentsMixin:
                     env={**os.environ, "HERMES_HOME": hermes_home},
                 )
                 
-                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=180)
+                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
                 output = stdout.decode('utf-8', errors='replace') if stdout else ""
                 err = stderr.decode('utf-8', errors='replace') if stderr else ""
                 
@@ -822,7 +816,7 @@ class DashboardAgentsMixin:
                 })
                 
             except asyncio.TimeoutError:
-                log.warning(f"Wake-agent '{agent_name}' timed out (180s)")
+                log.warning(f"Wake-agent '{agent_name}' timed out (90s)")
                 return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
             except FileNotFoundError:
                 log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")

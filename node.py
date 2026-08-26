@@ -3897,21 +3897,10 @@ echo "Status: ok"
                                     continue
                                 log.debug(f"Untrusted framing applied to {msg.type} {msg.id[:8]} from {msg.sender}")
 
-                            # ── Per-user chat: store agent replies as DMs (BEFORE router.receive — INDEPENDENT of result.status) ──
+                            # ── Per-user chat: trigger wake-agent (BEFORE router.receive) ──
+                            # Auto-ack removed — the real LLM response arrives in 15-30s
+                            # and serves as the natural acknowledgment.
                             log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
-                            if msg.type == "a2a_message" and _chat_user:
-                                try:
-                                    pool = getattr(self, "pg_pool", None) or getattr(self, "_pg_pool", None)
-                                    if pool:
-                                        from .core.dashboard_chat import store_agent_reply
-                                        ack_text = "✅ Üzenet megkapva! Feldolgozás alatt..."
-                                        # ACK from the RECIPIENT (self.node_name), not the sender
-                                        await store_agent_reply(pool, _chat_user, self.node_name, ack_text)
-                                        log.info(f"💬 Chat auto-ack: {self.node_name}→user:{_chat_user}")
-                                except Exception as e:
-                                    log.warning(f"Chat reply routing failed: {e}")
-
-                            # Wake agent for chat DMs (BEFORE router.receive — INDEPENDENT of result.status)
                             if msg.type == "a2a_message" and _chat_user:
                                 try:
                                     asyncio.create_task(self._trigger_webhook(msg))
