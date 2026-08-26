@@ -217,11 +217,9 @@ class DashboardAgentsMixin:
                 f"Válaszolj röviden, természetesen (magyarul, max 500 karakter). "
                 f"Ha az üzenet emberi felhasználótól (👤) van, neki válaszolj. "
                 f"Ha egy másik agent (🤖) írt és nem hozzád szól, nem kell válaszolnod. "
-                f"Ha nem kell válaszolnod, ne küldd el a curl-t.\n\n"
-                f"Válaszod elküldéséhez futtasd:\n"
-                f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
-                f"-d '{{\"sender\":\"{agent_name}\",\"content\":\"VÁLASZOD\","
-                f"\"recipient\":\"{sender}\",\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+                f"Ha nem kell válaszolnod, csak annyit írj: 'NEM VÁLASZTOLSZ'.\n\n"
+                f"FONTOS: Csak írd a válaszodat sima szövegként (stdout). "
+                f"NE használj curl-t, NE használj tool-okat — a rendszer automatikusan elküldi a válaszodat."
             )
             
             log.info(f"Wake-agent prompt for '{agent_name}':\n{prompt[:500]}")
@@ -337,8 +335,8 @@ class DashboardAgentsMixin:
                         "recipient": reply_recipient,
                         "priority": 5,
                         "reply_to": mesh_msg_id,
-                        "chat_username": webhook_payload.get("chat_username", "") if isinstance(webhook_payload, dict) else "",
-                        "chat_type": webhook_payload.get("chat_type", "user_dm") if isinstance(webhook_payload, dict) else "user_dm",
+                        "chat_username": payload_data.get("chat_username", "") if isinstance(payload_data, dict) else "",
+                        "chat_type": payload_data.get("chat_type", "user_dm") if isinstance(payload_data, dict) else "user_dm",
                     })
                     async with _aiohttp.ClientSession() as sess:
                         async with sess.post(
