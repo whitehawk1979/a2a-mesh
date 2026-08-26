@@ -89,7 +89,7 @@ mesh:
   auto_update:
     enabled: true
     check_interval: 300
-    apply_automatically: true
+    apply_automatically: false
     gitea_url: http://100.125.223.24:3001
     gitea_repo: nova/a2a-mesh
     gitea_user: zsolt
