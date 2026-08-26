@@ -750,10 +750,14 @@ function loadMessages() {
       m.type = m.type || m.msg_type || "";
       // Normalize sender/recipient for addMessage routing
       if (ch === "general") {
-        // Main chat: show ALL messages — broadcast, chat DMs, and agent replies
-        // (Marveen pattern: general channel is a unified conversation view)
-        // Only skip pure mesh protocol messages (ack, heartbeat, skills_announcement)
-        if (m.msg_type === "ack" || m.msg_type === "heartbeat" || m.msg_type === "skills_announcement" || m.msg_type === "diagnostic_report") return;
+        // General channel: ONLY show broadcast messages and agent replies to broadcast
+        // DM messages go to their own DM channels (not general)
+        var mType = m.msg_type || m.type || "";
+        if (mType === "ack" || mType === "heartbeat" || mType === "skills_announcement" || mType === "diagnostic_report") return;
+        // Skip DM messages (recipient is a specific agent, not broadcast)
+        if (m.recipient && m.recipient !== "broadcast" && m.recipient !== username && mType !== "agent_reply") return;
+        // Skip agent_reply DMs (sender is a specific agent, recipient is username — not broadcast)
+        if (mType === "agent_reply" && m.recipient && m.recipient !== "broadcast") return;
       } else {
         // DM channel: only show messages between user and this agent
         var isMine = (m.sender === username && m.recipient === ch);
@@ -781,6 +785,47 @@ function loadMessages() {
     // Keep existing messages on error — don't fallback to /api/messages
   });
 }
+
+// DM channel message loader — fetches messages between user and a specific agent
+window._loadChatMessages = function(agentName, scrollToBottomFlag) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var url = '/api/chat/messages?with=' + encodeURIComponent(agentName) + '&limit=100';
+  fetch(url, { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) {
+      if (r.status === 401 || r.status === 429) return null;
+      return r.json();
+    })
+    .then(function(d) {
+      if (!d || !d.messages) return;
+      var username = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || 'zsolt';
+      channelMessages[agentName] = [];
+      d.messages.forEach(function(m) {
+        m.content = m.content || m.text || '';
+        m.timestamp = m.timestamp || m.created_at || '';
+        m.type = m.type || m.msg_type || '';
+        // Only show chat and agent_reply messages (skip ack, heartbeat, etc)
+        var mType = m.msg_type || m.type || '';
+        if (mType === 'ack' || mType === 'heartbeat' || mType === 'skills_announcement' || mType === 'diagnostic_report') return;
+        // Only show messages between this user and this agent
+        var isMine = (m.sender === username && m.recipient === agentName);
+        var isTheirs = (m.sender === agentName && (m.recipient === username || m.recipient === 'broadcast'));
+        if (!isMine && !isTheirs) return;
+        // Dedup
+        var exists = false;
+        for (var k = 0; k < channelMessages[agentName].length; k++) {
+          if (channelMessages[agentName][k].id === m.id) { exists = true; break; }
+        }
+        if (!exists) channelMessages[agentName].push(m);
+      });
+      if (currentChannel === agentName) {
+        renderChannelMessages();
+        if (scrollToBottomFlag) scrollToBottom();
+      }
+    })
+    .catch(function(e) {
+      console.warn('[DM] _loadChatMessages error:', e);
+    });
+};
 
 function loadAgents() {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
