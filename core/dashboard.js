@@ -459,15 +459,35 @@ function sendMessage() {
   var to = document.getElementById("recipientSelect").value || "broadcast";
   var priority = parseInt(document.getElementById("prioritySelect").value) || 5;
 
+  // Pre-flight token check
+  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  if (!token) {
+    log("No token — showing login modal");
+    if (typeof showAuth === "function") { showAuth(); }
+    else { alert("Bejelentkezés szükséges! Kattints a bejelentkezés gombra."); }
+    return;
+  }
+
   // Use /api/chat/send which handles PG storage, auto-ack, and mesh routing
   fetch("/api/chat/send", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
+      "Authorization": "Bearer " + token
     },
     body: JSON.stringify({ recipient: to, content: content, msg_type: "chat" })
-  }).then(function(r) { return r.json(); }).then(function(d) {
+  }).then(function(r) {
+    if (r.status === 401) {
+      log("Token expired — showing login modal");
+      localStorage.removeItem("a2a_token");
+      localStorage.removeItem("mesh_token");
+      if (typeof showAuth === "function") { showAuth(); }
+      else { alert("Lejárt a session! Jelentkezz be újra."); }
+      return null;
+    }
+    return r.json();
+  }).then(function(d) {
+    if (!d) return;
     if (d.ok) {
       input.value = "";
       scrollToBottom();
@@ -498,37 +518,11 @@ function sendMessage() {
       }
     } else {
       log("Send failed: " + (d.error || "unknown"));
+      alert("Küldés sikertelen: " + (d.error || "ismeretlen hiba"));
     }
   }).catch(function(e) {
-    // Fallback to old /api/send if chat API fails
-    fetch("/api/send", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")
-      },
-      body: JSON.stringify({ content: content, recipient: to, priority: priority })
-    }).then(function(r) { return r.json(); }).then(function(d2) {
-   if (d2.ok || d2.status === "sent") {
-     addMessage({
-       id: "local_" + Date.now(),
-       sender: (authUser ? authUser.display_name : "Zsolt") || nodeId,
-       recipient: to,
-       type: "chat",
-       content: content,
-       timestamp: new Date().toISOString(),
-       priority: priority,
-       source: "web_dashboard",
-       username: authUser ? authUser.display_name : "Zsolt"
-     }, true);
-     input.value = "";
-     scrollToBottom();
-   } else {
-        log("Send failed: " + (d2.error || e));
-      }
-    }).catch(function(e2) {
-      log("Send failed: " + e2);
-    });
+    log("Send error: " + e);
+    alert("Küldés hiba: " + e.message);
   });
 }
 
