@@ -3864,6 +3864,7 @@ echo "Status: ok"
                             if msg.type in ("a2a_message", "agent_reply"):
                                 # Try dict payload first, then parse string
                                 _p = payload
+                                log.info(f"🔍 Chat DM debug: msg.id={msg.id[:8]} payload_type={type(_p).__name__} payload_preview={str(_p)[:200]}")
                                 if isinstance(_p, str):
                                     try:
                                         import json as _j

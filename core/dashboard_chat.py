@@ -104,6 +104,33 @@ async def handle_chat_send(node, request, pool, user):
                 log.info(f"💬 Chat auto-ack (sender-side) {recipient}→user:{username}")
             except Exception as e:
                 log.warning(f"💬 Chat auto-ack failed: {e}")
+            # Trigger wake-agent on the receiving node via its dashboard API
+            try:
+                import asyncio as _aio
+                peer_info = node.peer_discovery.known_peers.get(recipient) if hasattr(node, 'peer_discovery') else None
+                if peer_info:
+                    peer_host = peer_info.get('host', '')
+                    peer_health_port = peer_info.get('health_port', 8650)
+                    wake_url = f"http://{peer_host}:{peer_health_port}/api/wake-agent"
+                    async def _wake():
+                        import aiohttp as _aiohttp
+                        try:
+                            async with _aiohttp.ClientSession() as sess:
+                                async with sess.post(wake_url, json={
+                                    "message": content,
+                                    "sender": username,
+                                    "sender_display": display_name,
+                                    "chat_username": username,
+                                    "chat_msg_uuid": msg_uuid,
+                                    "reply_endpoint": f"http://127.0.0.1:{node.config.health_port}/api/agent-reply",
+                                    "mesh_secret": getattr(node.config, 'mesh_secret', '')
+                                }, timeout=_aiohttp.ClientTimeout(total=10)) as resp:
+                                    log.info(f"🔔 Wake-agent {recipient}: {resp.status}")
+                        except Exception as e:
+                            log.warning(f"🔔 Wake-agent {recipient} failed: {e}")
+                    _aio.create_task(_wake())
+            except Exception as e:
+                log.debug(f"Wake-agent remote trigger failed: {e}")
         except Exception as e:
             log.warning(f"💬 Chat DM {username}→{recipient}: mesh send failed: {e}")
 
