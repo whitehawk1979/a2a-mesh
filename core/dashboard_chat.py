@@ -141,7 +141,7 @@ async def handle_chat_send(node, request, pool, user):
                                     "chat_msg_uuid": msg_uuid,
                                     "reply_endpoint": reply_endpoint,
                                     "mesh_secret": "mesh-wake-secret-2026"
-                                }, timeout=_aiohttp.ClientTimeout(total=30)) as resp:
+                                }, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
                                     log.info(f"🔔 Wake-agent {recipient}: {resp.status}")
                         except Exception as e:
                             log.warning(f"🔔 Wake-agent {recipient} failed: {e}")

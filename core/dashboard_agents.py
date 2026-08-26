@@ -753,7 +753,7 @@ class DashboardAgentsMixin:
                     env={**os.environ, "HERMES_HOME": hermes_home},
                 )
                 
-                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
+                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=120)
                 output = stdout.decode('utf-8', errors='replace') if stdout else ""
                 err = stderr.decode('utf-8', errors='replace') if stderr else ""
                 
