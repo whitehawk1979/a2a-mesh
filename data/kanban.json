@@ -4364,7 +4364,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1787744932.699544,
-        "updated_at": 1787746700.2543411,
+        "updated_at": 1787746910.940143,
         "delegation_task_id": "61ca1791-1c16-4e94-8c28-20cc1cfb09d3",
         "description": "Kerlek elemezd az A2A mesh halozat jelenlegi allapotat. Jelentsd vissza: 1) Hany node aktiv, 2) Milyen P2P kapcsolatok vannak, 3) Milyen capabilities elerhetok.",
         "task_type": "generic",
@@ -4428,6 +4428,14 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787746700.254837
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787746910.940586
           }
         ],
         "delegation_status": "completed",
@@ -4437,7 +4445,7 @@
         "review_task_id": "04e7502f-3bd3-4df7-b343-1b30196759d9",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1787746700.254339
+        "reviewed_at": 1787746910.9401422
       },
       {
         "id": "card-1787745100390-100",
@@ -4470,7 +4478,7 @@
         "priority": 5,
         "assigned_to": "runa",
         "created_at": 1787745100.5156841,
-        "updated_at": 1787746716.321985,
+        "updated_at": 1787746942.213407,
         "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
         "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
         "task_type": "generic",
@@ -4534,16 +4542,54 @@
             "verdict": "reject",
             "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
             "timestamp": 1787746716.322467
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 7134 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A MESH NODE ALLAPOTJELENTES\n  Agent: runa\n============================================================\n  Hostname       : UbuntuVM\n  Platform       : Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n  Python         : 3.12.3\n  Idobelyeg (UTC): 2026-08-26T12:18:[PHONE REDACTED]+00:",
+            "timestamp": 1787746899.4536471
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787746910.345621
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "6a208171",
+            "timestamp": 1787746910.5486982
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
+            "timestamp": 1787746912.697608
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787746942.213875
           }
         ],
         "delegation_status": "completed",
-        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 13297 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nCollecting node status... (this may take a few seconds)\n\n================================================================\n  A2A MESH \\u2014 NODE STATUS REPORT\n  Agent: runa | Mesh: A2A\n  Timestamp: 2026-08-26T11:53:[PHONE REDACTED]+00:00\n  psutil: available\n================================================================\n\n--- CPU ---\n  Logical cores:   8\n  Physical cores:  8\n  CPU usage:       8.4%\n  Frequency:       3093 MHz (max 0.0 MHz)\n  Load average:    1.31, 2.23, 5.32\n\n--- MEMORY ---\n  Total:     9.7 GB\n  Used:      4.0 GB (44.0%)\n  Available: 5.4 GB\n  Free:      1.2 GB\n  Swap:      6.7 GB / 9.7 GB (68.6%)\n\n--- DISK ---\n  /dev/mapper/ubuntu--vg-ubuntu--lv -> / (ext4)\n    Total: 351.0 GB  Used: 255.8 GB  Free: 80.4 GB  Usage: 76.1%\n  /dev/loop0 -> /snap/bare/5 (squashfs)\n    Total: 128.0 KB  Used: 128.0 KB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop2 -> /snap/core24/1587 (squashfs)\n    Total: 66.9 MB  Used: 66.9 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop5 -> /snap/firmware-updater/224 (squashfs)\n    Total: 16.5 MB  Used: 16.5 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop7 -> /snap/winbox/185 (squashfs)\n    Total: 45.1 MB  Used: 45.1 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop14 -> /snap/core24/1643 (squashfs)\n    Total: 66.9 MB  Used: 66.9 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop15 -> /snap/nvidia-core22/148 (squashfs)\n    Total: 410.4 MB  Used: 410.4 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop9 -> /snap/core20/2769 (squashfs)\n    Total: 63.9 MB  Used: 63.9 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop22 -> /snap/gtk-common-themes/1535 (squashfs)\n    Total: 91.8 MB  Used: 91.8 MB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop32 -> /snap/nvidia-smi-uc/2 (squashfs)\n    Total: 128.0 KB  Used: 128.0 KB  Free: 0.0 B  Usage: 100.0%\n  /dev/loop13 -> /snap/core22/2411 (squashfs)\n    Total: 74.0 MB  Used: 74.0 MB  Free: 0.0 B  Us",
-        "completed_at": "2026-08-26 11:53:21.651263+00:",
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 7134 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A MESH NODE ALLAPOTJELENTES\n  Agent: runa\n============================================================\n  Hostname       : UbuntuVM\n  Platform       : Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n  Python         : 3.12.3\n  Idobelyeg (UTC): 2026-08-26T12:18:[PHONE REDACTED]+00:00\n  Uptime (mp)    : 307052.74\n------------------------------------------------------------\n  [CPU]\n    Hasznalat        : 36.8%\n    Logikai magok    : 8\n    Fizikai magok    : 8\n    Load average     : ([PHONE REDACTED], [PHONE REDACTED], [PHONE REDACTED])\n------------------------------------------------------------\n  [MEMORIA]\n    Virtualis total  : 9.69 GB\n    Virtualis haszn. : 3.77 GB (42.0%)\n    Virtualis szabad : 5.62 GB\n    Swap total       : 9.72 GB\n    Swap hasznalt    : 6.73 GB (69.3%)\n------------------------------------------------------------\n  [LEMEZ]\n    /dev/mapper/ubuntu--vg-ubuntu--lv -> / (ext4)\n      Total: 351.03 GB | Hasznalt: 255.8 GB (76.1%) | Szabad: 80.36 GB\n    /dev/loop0 -> /snap/bare/5 (squashfs)\n      Total: 0.0 GB | Hasznalt: 0.0 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop2 -> /snap/core24/1587 (squashfs)\n      Total: 0.07 GB | Hasznalt: 0.07 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop5 -> /snap/firmware-updater/224 (squashfs)\n      Total: 0.02 GB | Hasznalt: 0.02 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop7 -> /snap/winbox/185 (squashfs)\n      Total: 0.04 GB | Hasznalt: 0.04 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop14 -> /snap/core24/1643 (squashfs)\n      Total: 0.07 GB | Hasznalt: 0.07 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop15 -> /snap/nvidia-core22/148 (squashfs)\n      Total: 0.4 GB | Hasznalt: 0.4 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop9 -> /snap/core20/2769 (squashfs)\n      Total: 0.06 GB | Hasznalt: 0.06 GB (100.0%) | Szabad: 0.0 GB\n ",
+        "completed_at": "2026-08-26 12:18:37.884846+00:",
         "reviewer": "morzsa",
-        "review_task_id": "b55cabf6-3c93-4fbe-9fe3-8df5c57cdff4",
+        "review_task_id": "6a208171-a58d-49a6-a9ad-5417146a3b94",
         "review_status": "rejected",
-        "review_reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-        "reviewed_at": 1787746716.321984
+        "review_reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+        "reviewed_at": 1787746942.213405
       },
       {
         "id": "card-1787745785259-102",
@@ -4554,7 +4600,7 @@
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1787745785.2592509,
-        "updated_at": 1787746700.7047591,
+        "updated_at": 1787746931.2459168,
         "created_by": "unknown",
         "delegation_task_id": "467483f7-d900-4a6c-971a-222063bbc457",
         "delegation_status": "completed",
@@ -4618,15 +4664,53 @@
             "verdict": "reject",
             "reason": "Result does not fulfill echo test requirement. Expected an echo of the original task '[WF:1660930f] Echo test', but received a generic 'System analysis completed' message instead.",
             "timestamp": 1787746700.70527
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-26T12:18:[PHONE REDACTED]+00:00",
+            "timestamp": 1787746910.293261
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "b35ceb50",
+            "timestamp": 1787746911.040622
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirement. Expected an echo of the original task '[WF:1660930f] Echo test', but received a generic 'System analysis completed' message instead.",
+            "timestamp": 1787746911.767176
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirements; contains malformed timestamp with redacted phone number instead of an echo response.",
+            "timestamp": 1787746912.24408
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirement; returned system analysis output instead of an echo response.",
+            "timestamp": 1787746931.246359
           }
         ],
-        "delegation_result": "[runa] System analysis completed at 2026-08-26T12:03:[PHONE REDACTED]+00:00",
-        "completed_at": "2026-08-26 12:03:43.891442+00:",
-        "reviewer": "morzsa",
-        "review_task_id": "dfa14af1-924d-4624-b339-b32604246381",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-26T12:18:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-08-26 12:18:24.928016+00:",
+        "reviewer": "tor",
+        "review_task_id": "b35ceb50-f32c-47b6-a19a-1ab597f5fa6d",
         "review_status": "rejected",
-        "review_reason": "Result does not fulfill echo test requirement. Expected an echo of the original task '[WF:1660930f] Echo test', but received a generic 'System analysis completed' message instead.",
-        "reviewed_at": 1787746700.704757
+        "review_reason": "Result does not fulfill echo test requirement; returned system analysis output instead of an echo response.",
+        "reviewed_at": 1787746931.245915
       },
       {
         "id": "card-1787745801798-103",
@@ -4637,7 +4721,7 @@
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787745801.798945,
-        "updated_at": 1787746700.476468,
+        "updated_at": 1787746936.7263749,
         "created_by": "unknown",
         "delegation_task_id": "bba750ca-3541-4abc-95a7-53037940b17c",
         "delegation_status": "completed",
@@ -4701,18 +4785,56 @@
             "verdict": "accept",
             "reason": "Result correctly acknowledges the echo task with agent identity, task reference, and timestamp. Format is consistent and complete.",
             "timestamp": 1787746700.4769611
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Result correctly acknowledges the echo task with agent identity, task reference, and timestamp. Format is consistent and complete.",
+            "timestamp": 1787746911.2614028
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787746912.063236
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Acknowledged task '[WF:180699c4] Runa echo' at 2026-08-26T12:03:[PHONE REDACTED]+00:00",
+            "timestamp": 1787746912.215242
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "59bd5ee8",
+            "timestamp": 1787746912.7283242
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Agent runa successfully acknowledged the echo task.",
+            "timestamp": 1787746936.7267919
           }
         ],
         "delegation_result": "[runa] Acknowledged task '[WF:180699c4] Runa echo' at 2026-08-26T12:03:[PHONE REDACTED]+00:00",
         "completed_at": "2026-08-26 12:03:31.101991+00:",
-        "reviewer": "tor",
-        "review_task_id": "679802cd-bbcd-4326-bda4-d90d34b3f660",
+        "reviewer": "morzsa",
+        "review_task_id": "59bd5ee8-bf17-42c7-b022-c73a7edbcee2",
         "review_status": "accept",
-        "review_reason": "Result correctly acknowledges the echo task with agent identity, task reference, and timestamp. Format is consistent and complete.",
-        "reviewed_at": 1787746700.476466
+        "review_reason": "Agent runa successfully acknowledged the echo task.",
+        "reviewed_at": 1787746936.726374
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787746694.680765
+    "updated_at": 1787746912.4778419
   }
 ]

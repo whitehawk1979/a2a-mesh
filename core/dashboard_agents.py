@@ -294,9 +294,18 @@ class DashboardAgentsMixin:
             
             # Run hermes -z (one-shot query) with terminal toolset
             import os as _os
-            _hermes_bin = _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes")
-            if not _os.path.exists(_hermes_bin):
-                _hermes_bin = "hermes"  # fallback to PATH
+            _hermes_bin = None
+            for _p in [
+                _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes"),
+                _os.path.expanduser("~/.local/bin/hermes"),
+                _os.path.expanduser("~/.hermes/venv/bin/hermes"),
+                "/usr/local/bin/hermes",
+            ]:
+                if _os.path.exists(_p):
+                    _hermes_bin = _p
+                    break
+            if not _hermes_bin:
+                _hermes_bin = "hermes"
             _hermes_home = _os.path.expanduser("~/.hermes")
             proc = await aio.create_subprocess_exec(
                 _hermes_bin,
@@ -752,11 +761,20 @@ class DashboardAgentsMixin:
             import asyncio as aio
             import os
             
-            # Find hermes binary
-            hermes_bin = os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes")
-            if not os.path.exists(hermes_bin):
-                # Fallback: try PATH
-                hermes_bin = "hermes"
+            # Find hermes binary — check multiple common locations
+            import os as _os
+            hermes_bin = None
+            for _path in [
+                _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes"),
+                _os.path.expanduser("~/.local/bin/hermes"),
+                _os.path.expanduser("~/.hermes/venv/bin/hermes"),
+                "/usr/local/bin/hermes",
+            ]:
+                if _os.path.exists(_path):
+                    hermes_bin = _path
+                    break
+            if not hermes_bin:
+                hermes_bin = "hermes"  # fallback to PATH
             
             hermes_home = os.path.expanduser("~/.hermes")
             
