@@ -127,7 +127,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         self._max_history = 100
         self._html_cache: Optional[str] = None  # Cached dashboard HTML
         self._last_wake_agent_time: float = 0.0  # Rate limit: last wake-agent call
-        self._wake_agent_cooldown: float = 5.0  # Optimized: 30s → 5s for responsive chat
+        self._wake_agent_cooldown: float = 2.0  # Optimized: 5s → 2s for fast ollama API
         self._wake_agent_in_progress: bool = False  # Prevent concurrent wake-agent calls
 
     def register_routes(self, app):

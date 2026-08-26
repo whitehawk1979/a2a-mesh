@@ -284,7 +284,7 @@ class DashboardAgentsMixin:
                 log.warning("Self-wake already in progress — skipping (rate limit)")
                 return
             elapsed = now - getattr(self, '_last_wake_agent_time', 0.0)
-            cooldown = getattr(self, '_wake_agent_cooldown', 5.0)  # Optimized: 30s → 5s
+            cooldown = getattr(self, '_wake_agent_cooldown', 2.0)  # Optimized: 5s → 2s
             if elapsed < cooldown:
                 remaining = cooldown - elapsed
                 log.warning(f"Self-wake rate limited — cooldown {remaining:.0f}s remaining")
