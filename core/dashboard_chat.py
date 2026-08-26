@@ -117,6 +117,17 @@ async def handle_chat_send(node, request, pool, user):
                     peer_health_port = peer_info.get('health_port', 8650)
                     wake_url = f"http://{peer_host}:{peer_health_port}/api/wake-agent"
                     log.info(f"🔔 Wake-agent HTTP {recipient} → {wake_url}")
+                    # Use peer's actual host for reply_endpoint (not 127.0.0.1)
+                    # so the peer can POST the agent's reply back to our dashboard API
+                    my_host = "127.0.0.1"
+                    if hasattr(node, '_get_local_ip'):
+                        try:
+                            my_host = node._get_local_ip()
+                        except Exception:
+                            pass
+                    elif hasattr(node.config, 'host') and node.config.host:
+                        my_host = node.config.host
+                    reply_endpoint = f"http://{my_host}:{node.config.health_port}/api/agent-reply"
                     async def _wake():
                         import aiohttp as _aiohttp
                         try:
@@ -128,7 +139,7 @@ async def handle_chat_send(node, request, pool, user):
                                     "sender_display": display_name,
                                     "chat_username": username,
                                     "chat_msg_uuid": msg_uuid,
-                                    "reply_endpoint": f"http://127.0.0.1:{node.config.health_port}/api/agent-reply",
+                                    "reply_endpoint": reply_endpoint,
                                     "mesh_secret": "mesh-wake-secret-2026"
                                 }, timeout=_aiohttp.ClientTimeout(total=30)) as resp:
                                     log.info(f"🔔 Wake-agent {recipient}: {resp.status}")
