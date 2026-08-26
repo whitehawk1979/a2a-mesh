@@ -1246,6 +1246,222 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _broadcast_ws(self, data: dict):
+        """Broadcast data to all connected WebSocket clients."""
+        disconnected = []
+        for user_id, user in self._users.items():
+            try:
+                await user.websocket.send_json(data)
+            except Exception:
+                disconnected.append(user_id)
+        for user_id in disconnected:
+            self._users.pop(user_id, None)
+
+    async def on_mesh_message(self, message):
+        """Called by the node when a mesh message is received.
+
+        Displays agent replies in the dashboard chat in real-time.
+        Filters out heartbeat and system messages.
+        Extracts text from payload for proper display.
+        """
+        msg_type = message.type if hasattr(message, "type") else message.message_type
+
+        # Skip non-chat messages — they flood the chat
+        if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online", "node_join", "node_leave"):
+            return
+
+        # Extract display text from payload — handle both dict and JSON string payloads
+        if isinstance(message.payload, dict):
+            payload = message.payload
+        elif isinstance(message.payload, str):
+            try:
+                payload = json.loads(message.payload)
+            except (json.JSONDecodeError, ValueError):
+                payload = {"text": message.payload}
+        else:
+            payload = {}
+
+        # Skip agent_reply messages that contain heartbeat-like payload (uptime/transports only)
+        # These happen when an agent's webhook response is just a status dump, not a real reply
+        if msg_type == "agent_reply" and isinstance(payload, dict):
+            if set(payload.keys()) <= {"uptime", "transports"}:
+                return
+
+        content = payload.get("text", "") or getattr(message, "content", "") or json.dumps(payload, ensure_ascii=True)
+        username = payload.get("username", "") or message.sender
+
+        self._message_history.append({
+            "id": message.id,
+            "sender": message.sender,
+            "recipient": message.recipient,
+            "content": content,
+            "type": msg_type,
+            "priority": message.priority,
+            "timestamp": message.timestamp,
+            "source": "mesh",
+            "username": username,
+        })
+        if len(self._message_history) > self._max_history:
+            self._message_history = self._message_history[-self._max_history:]
+
+        await self._broadcast_ws({
+            "type": "new_message",
+            "message": self._message_history[-1],
+        })
+
+    async def _insert_mesh_message(self, message, auth_user):
+        """Insert dashboard message into mesh.mesh_messages for mesh-wide persistence.
+
+        Uses mesh_messages (not shared_a2a_memory) so all agents in the mesh
+        see it via PG NOTIFY, and the dashboard shows agent replies in real-time.
+        """
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if not pool:
+                log.warning("Mesh insert failed: no PG pool")
+                return
+            payload = message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)}
+            username = (auth_user.display_name if auth_user else "web_user")
+            safe_sender = (message.sender or "unknown")
+            payload_json = json.dumps(payload, ensure_ascii=True)
+
+            await pool.execute(
+                """INSERT INTO mesh.mesh_messages
+                   (id, sender, recipient, msg_type, priority, payload, routing_mode, status, created_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                   ON CONFLICT (id) DO NOTHING""",
+                str(message.id), safe_sender, message.recipient or "broadcast",
+                message.type, message.priority, payload_json, "hybrid", "sent"
+            )
+            log.info(f"Dashboard message {str(message.id)[:8]} inserted into mesh_messages")
+        except Exception as e:
+            log.warning(f"Mesh insert failed: {e}")
+
+    def _fetch_chat_history(self, limit: int = 10, channel: str = "general") -> list:
+        """Fetch recent chat messages from PG for context injection.
+
+        Returns a list of {sender, content, timestamp} dicts — the last N
+        non-heartbeat messages from the given channel.
+        """
+        import psycopg2, json as _json
+        try:
+            conn = psycopg2.connect(
+                dbname=self.node.config.pg.dbname, user=self.node.config.pg.user,
+                password=self.node.config.pg.password,
+                host=self.node.config.pg.host, port=self.node.config.pg.port,
+            )
+            cur = conn.cursor()
+            cur.execute("SET client_encoding TO UTF8")
+
+            where_clauses = [
+                "msg_type NOT IN ('heartbeat', 'memory_sync', 'ack', 'diagnostic_report', 'skills_announcement', 'config_suggestion', 'peer_offline', 'peer_online', 'node_join', 'node_leave')",
+            ]
+            params = []
+            if channel == "general":
+                where_clauses.append("(recipient = 'broadcast' OR msg_type IN ('agent_reply', 'directive'))")
+            elif channel and channel.startswith("dm:"):
+                dm_agent = channel[3:]
+                where_clauses.append("(recipient = %s OR sender = %s)")
+                params.extend([dm_agent, dm_agent])
+
+            where_sql = " AND ".join(where_clauses)
+            cur.execute(f"""
+                SELECT sender, recipient, msg_type, payload, created_at
+                FROM mesh.mesh_messages
+                WHERE {where_sql}
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, params + [limit])
+
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+
+            history = []
+            for row in reversed(rows):  # chronological order
+                sender, recipient, msg_type, payload, created_at = row
+                if isinstance(payload, bytes):
+                    payload = payload.decode("utf-8", errors="replace")
+                elif isinstance(payload, str):
+                    try:
+                        payload = payload.encode("latin-1").decode("utf-8")
+                    except (UnicodeDecodeError, UnicodeEncodeError):
+                        pass  # keep original
+                try:
+                    p = _json.loads(payload) if isinstance(payload, str) else payload
+                except (ValueError, TypeError):
+                    p = {}
+                text = p.get("text", "") if isinstance(p, dict) else str(payload)
+                if isinstance(p, dict) and set(p.keys()) <= {"uptime", "transports"}:
+                    continue
+                if not text:
+                    text = str(payload)[:200]
+                history.append({
+                    "sender": sender,
+                    "content": text[:500],
+                    "timestamp": created_at.isoformat() if created_at else "",
+                    "type": msg_type,
+                })
+            return history
+        except Exception as e:
+            log.warning(f"Failed to fetch chat history: {e}")
+            return []
+
+    def _build_context_prompt(self, agent_name: str, sender: str, content: str,
+                              reply_endpoint: str, mesh_msg_id: str,
+                              channel: str = "general") -> str:
+        """Build a prompt with full chat context for the agent.
+
+        The agent sees the recent conversation history + the new message,
+        like a Telegram group chat. It can reply via curl to reply_endpoint.
+        """
+        history = self._fetch_chat_history(limit=10, channel=channel)
+
+        # Known agent names
+        agent_names = set()
+        try:
+            for name, _ in self.node.peer_discovery.get_all_peers().items():
+                agent_names.add(name.lower())
+        except Exception:
+            pass
+        agent_names.add(self.node.node_name.lower())
+
+        # Build conversation context
+        if history:
+            chat_lines = []
+            for h in history:
+                h_sender = h.get('sender', '?')
+                h_content = h.get('content', '')[:200]
+                if h_sender.lower() in agent_names or h_sender.lower() in ('nova', 'morzsa', 'runa'):
+                    chat_lines.append(f"  [{h_sender} _] {h_content}")
+                else:
+                    chat_lines.append(f"  [{h_sender}] {h_content}")
+            chat_context = "\n".join(chat_lines[-8:])
+        else:
+            chat_context = "(nincs elozmeny)"
+
+        is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
+        sender_tag = f"{sender} (emberi felhasznalo)" if is_human else f"{sender} (agent)"
+
+        prompt = (
+            f"Te egy A2A Mesh chat resztvevoje vagy ({agent_name}). "
+            f"Ez egy kozos chat session, mint egy Telegram csoport. "
+            f"A chatben emberi felhasznalok es AI agentek vesznek reszt. "
+            f"Latod a beszelgetes elozmenyeit es az uj uzenetet.\n\n"
+            f"-- Beszelgetes eddig --\n{chat_context}\n\n"
+            f"-- Uj uzenet --\n[{sender_tag}] {content}\n\n"
+            f"Valaszolj roviden, termeszetesen (magyarul, max 500 karakter). "
+            f"Ha az uzenet emberi felhasznalotol van, neki valaszolj. "
+            f"Ha egy masik agent irt es nem hozzaszol, nem kell valaszolnod. "
+            f"Ha nem kell valaszolnod, ne kuld el a curl-t.\n\n"
+            f"Valaszod elkuldesehez futtasd:\n"
+            f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
+            f"-d '{{\"sender\":\"{agent_name}\",\"content\":\"VALASZOD\","
+            f"\"recipient\":\"{sender}\",\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+        )
+        return prompt
+
+
     async def _websocket_handler(self, request):
         """WebSocket handler for real-time dashboard updates."""
         from aiohttp import web
