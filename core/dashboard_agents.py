@@ -672,7 +672,11 @@ class DashboardAgentsMixin:
                     self._message_history = [m for m in self._message_history if m.get("id") != processing_id]
                     log.info(f"Removed processing indicator for message {reply_to} after agent reply")
 
-            await self._broadcast_ws({"type": "new_message", "message": msg_dict})
+            # Broadcast to all connected dashboard users (if method exists)
+            if hasattr(self, '_broadcast_ws'):
+                await self._broadcast_ws({"type": "new_message", "message": msg_dict})
+            else:
+                log.debug("WebSocket broadcast skipped — _broadcast_ws not available")
 
             # ── Store agent reply in mesh_chat_messages for DM visibility ──
             # The wake-agent sends chat_username in the body; use it to store as DM
@@ -689,7 +693,9 @@ class DashboardAgentsMixin:
 
             return web.json_response({"status": "sent", "message_id": msg.id})
         except Exception as e:
-            log.error(f"Agent reply failed: {e}")
+            log.error(f"Agent reply failed: {e}", exc_info=True)
+            import traceback as _tb
+            log.error(f"TRACEBACK: {_tb.format_exc()}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def _api_wake_agent(self, request):
