@@ -624,8 +624,12 @@ class DashboardAgentsMixin:
             # Send via mesh router so all nodes get it
             await self.node.router.send(msg)
 
-            # Insert into mesh_messages for persistence
-            await self._insert_mesh_message(msg, auth_user=None)
+            # Insert into mesh_messages for persistence (if method exists)
+            if hasattr(self, '_insert_mesh_message'):
+                try:
+                    await self._insert_mesh_message(msg, auth_user=None)
+                except Exception as ins_err:
+                    log.debug(f"mesh_messages insert skipped: {ins_err}")
 
             # MARVEEN: Mark original message as read (inbox nudge)
             if reply_to:
@@ -902,8 +906,12 @@ class DashboardAgentsMixin:
             
             result = await self.node.router.send(msg)
             
-            # Insert into PG
-            await self._insert_mesh_message(msg, auth_user=None)
+            # Insert into PG (if method exists)
+            if hasattr(self, '_insert_mesh_message'):
+                try:
+                    await self._insert_mesh_message(msg, auth_user=None)
+                except Exception as ins_err:
+                    log.debug(f"mesh_messages insert skipped: {ins_err}")
             
             # Wake the target agent
             await self._wake_agent(msg)
