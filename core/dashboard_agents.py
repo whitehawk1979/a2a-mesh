@@ -679,17 +679,23 @@ class DashboardAgentsMixin:
                 log.debug("WebSocket broadcast skipped — _broadcast_ws not available")
 
             # ── Store agent reply in mesh_chat_messages for DM visibility ──
-            # The wake-agent sends chat_username in the body; use it to store as DM
             chat_username = body.get("chat_username", "")
+            chat_type = body.get("chat_type", "user_dm")
             if chat_username:
                 try:
                     pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
                     if pool and pool.is_connected():
                         from .dashboard_chat import store_agent_reply
-                        await store_agent_reply(pool, chat_username, sender, content, "agent_reply")
-                        log.info(f"💬 Agent reply stored as DM: {sender}→user:{chat_username} ({len(content)} chars)")
+                        if chat_type == "broadcast":
+                            # Broadcast reply → store as broadcast (general room)
+                            await store_agent_reply(pool, "broadcast", sender, content, "agent_reply")
+                            log.info(f"💬 Agent reply stored as BROADCAST: {sender}→all ({len(content)} chars)")
+                        else:
+                            # DM reply → store as DM
+                            await store_agent_reply(pool, chat_username, sender, content, "agent_reply")
+                            log.info(f"💬 Agent reply stored as DM: {sender}→user:{chat_username} ({len(content)} chars)")
                 except Exception as dm_err:
-                    log.warning(f"Failed to store agent reply as DM: {dm_err}")
+                    log.warning(f"Failed to store agent reply: {dm_err}")
 
             return web.json_response({"status": "sent", "message_id": msg.id})
         except Exception as e:

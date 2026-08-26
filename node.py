@@ -5151,11 +5151,34 @@ echo "Status: ok"
             if dashboard_url:
                 payload["reply_endpoint"] = dashboard_url.replace("/api/wake-agent", "/api/agent-reply")
             
+            # Extract chat_username and chat_type from payload (for P2P-received chat messages)
+            _chat_user = None
+            _chat_type = "user_dm"
+            try:
+                import json as _j
+                _p = message.payload
+                if isinstance(_p, str):
+                    try:
+                        _p = _j.loads(_p)
+                    except Exception:
+                        _p = {}
+                if isinstance(_p, dict):
+                    _chat_user = _p.get("chat_username")
+                    _chat_type = _p.get("chat_type", "user_dm")
+            except Exception:
+                pass
+            if _chat_user:
+                payload["chat_username"] = _chat_user
+                payload["chat_type"] = _chat_type
+            
             # Add mesh_secret for dashboard wake-agent API auth
             if wake_url == dashboard_url:
                 payload["mesh_secret"] = "mesh-wake-secret-2026"
                 # Build prompt from message content for wake-agent
-                prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
+                if _chat_user:
+                    prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {payload['content'][:500]}"
+                else:
+                    prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
                 payload["prompt"] = prompt_text
                 payload["agent_name"] = self.node_name
             

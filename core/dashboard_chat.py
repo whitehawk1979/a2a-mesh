@@ -83,6 +83,72 @@ async def handle_chat_send(node, request, pool, user):
             # TODO: trigger actual agent processing here
         except Exception as e:
             log.warning(f"💬 Chat local reply failed: {e}")
+    elif recipient == "broadcast":
+        # ── Broadcast: send to ALL peers via mesh + wake-agent ALL ──
+        try:
+            payload = {
+                "text": content,
+                "subject": content[:80],
+                "sender_display": display_name,
+                "chat_username": username,
+                "chat_msg_uuid": msg_uuid,
+                "chat_type": "broadcast"
+            }
+            result = await node.broadcast("a2a_message", payload, priority=5)
+            mesh_sent = True
+            log.info(f"💬 Chat broadcast {username}→all: sent via mesh (result={result.status})")
+
+            # Get my LAN IP for reply_endpoint
+            my_host = "127.0.0.1"
+            if hasattr(node, '_get_local_ip'):
+                try:
+                    my_host = node._get_local_ip()
+                except Exception:
+                    pass
+            reply_endpoint = f"http://{my_host}:{node.config.health_port}/api/agent-reply"
+
+            # Wake-agent on ALL online peers
+            FALLBACK_PEERS = {
+                "morzsa": {"host": "192.168.1.30", "health_port": 8650},
+                "runa": {"host": "192.168.1.100", "health_port": 8650},
+                "nova": {"host": "192.168.1.8", "health_port": 8650},
+            }
+            for peer_name, peer_info in FALLBACK_PEERS.items():
+                if peer_name == node_name:
+                    continue  # Skip self
+                peer_host = peer_info["host"]
+                peer_port = peer_info["health_port"]
+                wake_url = f"http://{peer_host}:{peer_port}/api/wake-agent"
+                log.info(f"🔔 Wake-agent broadcast → {peer_name} at {wake_url}")
+                async def _wake_broadcast(pn=peer_name, url=wake_url):
+                    import aiohttp as _aiohttp
+                    try:
+                        async with _aiohttp.ClientSession() as sess:
+                            async with sess.post(url, json={
+                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}",
+                                "agent_name": pn,
+                                "sender": username,
+                                "sender_display": display_name,
+                                "chat_username": username,
+                                "chat_msg_uuid": msg_uuid,
+                                "chat_type": "broadcast",
+                                "reply_endpoint": reply_endpoint,
+                                "mesh_secret": "mesh-wake-secret-2026"
+                            }, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                                log.info(f"🔔 Wake-agent broadcast {pn}: {resp.status}")
+                    except Exception as e:
+                        log.warning(f"🔔 Wake-agent broadcast {pn} failed: {e}")
+                _aio.create_task(_wake_broadcast())
+
+            # Also wake self (local agent)
+            if hasattr(node, 'dashboard') and hasattr(node.dashboard, '_wake_self_via_cli'):
+                _aio.create_task(node.dashboard._wake_self_via_cli(
+                    f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}",
+                    username
+                ))
+                log.info(f"🔔 Wake-agent local (self) for broadcast")
+        except Exception as e:
+            log.warning(f"💬 Chat broadcast {username}→all: mesh send failed: {e}")
     elif recipient not in ("broadcast", ""):
         try:
             payload = {
