@@ -3846,8 +3846,18 @@ echo "Status: ok"
                         if messages:
                             log.debug(f"Receive loop got {len(messages)} messages from {transport_name}")
                         for msg, from_transport in messages:
-                            # Skip own messages (loop prevention) — except directives (self-DM)
-                            if msg.sender == self.node_name and msg.type != "directive":
+                            # Skip own messages (loop prevention) — except directives and broadcast chat
+                            _is_broadcast_chat = False
+                            try:
+                                _p = msg.payload
+                                if isinstance(_p, str):
+                                    import json as _j2
+                                    _p = _j2.loads(_p)
+                                if isinstance(_p, dict) and _p.get("chat_type") == "broadcast":
+                                    _is_broadcast_chat = True
+                            except Exception:
+                                pass
+                            if msg.sender == self.node_name and msg.type not in ("directive",) and not _is_broadcast_chat:
                                 continue
 
                             # Skip empty payloads (wake-agent noise, not real messages)

@@ -292,38 +292,35 @@ class DashboardAgentsMixin:
             self._last_wake_agent_time = now
             self._wake_agent_in_progress = True
             
-            # Run hermes -z (one-shot query) with terminal toolset
+            # Direct ollama API call (bypasses slow hermes -z CLI)
             import os as _os
-            _hermes_bin = None
-            for _p in [
-                _os.path.expanduser("~/.hermes/hermes-agent/venv/bin/hermes"),
-                _os.path.expanduser("~/.local/bin/hermes"),
-                _os.path.expanduser("~/.hermes/venv/bin/hermes"),
-                "/usr/local/bin/hermes",
-            ]:
-                if _os.path.exists(_p):
-                    _hermes_bin = _p
-                    break
-            if not _hermes_bin:
-                _hermes_bin = "hermes"
-            _hermes_home = _os.path.expanduser("~/.hermes")
-            proc = await aio.create_subprocess_exec(
-                _hermes_bin,
-                "-z", prompt,
-                "-t", "terminal",
-                "--yolo",
-                stdout=aio.subprocess.PIPE,
-                stderr=aio.subprocess.PIPE,
-                env={**_os.environ, "HERMES_HOME": _hermes_home},
-            )
+            import aiohttp as _aiohttp_ollama
             
-            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=120)
-            output = stdout.decode('utf-8', errors='replace') if stdout else ""
-            err = stderr.decode('utf-8', errors='replace') if stderr else ""
-            
-            log.info(f"Nova CLI response ({len(output)} chars): {output[:200]}")
-            if err:
-                log.warning(f"Nova CLI stderr: {err[:200]}")
+            try:
+                ollama_url = "http://localhost:11434/api/chat"
+                ollama_body = {
+                    "model": "glm-5.2:cloud",
+                    "messages": [
+                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 300 karakter)."},
+                        {"role": "user", "content": content[:500]}
+                    ],
+                    "stream": False,
+                    "options": {"temperature": 0.7, "num_predict": 800}
+                }
+                
+                async with _aiohttp_ollama.ClientSession() as sess:
+                    async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp_ollama.ClientTimeout(total=90)) as resp:
+                        if resp.status == 200:
+                            result = await resp.json()
+                            output = result.get("message", {}).get("content", "").strip()
+                            log.info(f"Nova ollama response ({len(output)} chars): {output[:200]}")
+                        else:
+                            err_text = await resp.text()
+                            log.warning(f"Nova ollama error {resp.status}: {err_text[:200]}")
+                            output = ""
+            except Exception as ollama_err:
+                log.error(f"Nova ollama API failed: {ollama_err}")
+                output = ""
             
             # Send the agent's reply to the chat via /api/agent-reply
             clean_reply = output.strip()

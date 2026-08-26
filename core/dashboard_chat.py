@@ -74,12 +74,9 @@ async def handle_chat_send(node, request, pool, user):
         # User → self (this node): process locally
         # The node can respond immediately or queue for async processing
         try:
-            from .dashboard_chat import store_agent_reply
-            # Auto-acknowledge: store a reply that the message was received
-            await store_agent_reply(pool, username, node_name,
-                "✅ Üzenet megkapva! Feldolgozás alatt...", "agent_reply")
+            # Auto-ack removed — the real LLM response arrives in 3-4s via wake-agent
             mesh_sent = True
-            log.info(f"💬 Chat local {username}→{recipient}: auto-ack stored")
+            log.info(f"💬 Chat local {username}→{recipient}: sent (no auto-ack)")
             # TODO: trigger actual agent processing here
         except Exception as e:
             log.warning(f"💬 Chat local reply failed: {e}")
@@ -146,8 +143,31 @@ async def handle_chat_send(node, request, pool, user):
                         log.warning(f"🔔 Wake-agent broadcast {pn} failed: {e}")
                 _aio.create_task(_wake_broadcast())
 
-            # Self-wake is handled by _trigger_webhook in node.py (P2P loopback)
-            # No need to call _wake_self_via_cli directly here
+            # Self-wake: Nova also responds to broadcast (not just peers)
+            try:
+                self_wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
+                async def _wake_self_broadcast():
+                    import aiohttp as _aiohttp_sw
+                    await _aio.sleep(1)
+                    try:
+                        async with _aiohttp_sw.ClientSession() as sess:
+                            async with sess.post(self_wake_url, json={
+                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}",
+                                "agent_name": node_name,
+                                "sender": username,
+                                "sender_display": display_name,
+                                "chat_username": username,
+                                "chat_msg_uuid": msg_uuid,
+                                "chat_type": "broadcast",
+                                "reply_endpoint": reply_endpoint,
+                                "mesh_secret": "mesh-wake-secret-2026"
+                            }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
+                                log.info(f"🔔 Self-wake broadcast: {resp.status}")
+                    except Exception as e:
+                        log.warning(f"🔔 Self-wake broadcast failed: {e}")
+                _aio.create_task(_wake_self_broadcast())
+            except Exception as e:
+                log.warning(f"Self-wake setup failed: {e}")
         except Exception as e:
             log.warning(f"💬 Chat broadcast {username}→all: mesh send failed: {e}")
     elif recipient not in ("broadcast", ""):

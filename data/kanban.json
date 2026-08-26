@@ -4502,7 +4502,7 @@
         "priority": 5,
         "assigned_to": "runa",
         "created_at": 1787745100.5156841,
-        "updated_at": 1787748443.430751,
+        "updated_at": 1787748698.69056,
         "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
         "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
         "task_type": "generic",
@@ -4652,6 +4652,14 @@
             "verdict": "reject",
             "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
             "timestamp": 1787748443.4311612
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787748698.690992
           }
         ],
         "delegation_status": "completed",
@@ -4660,19 +4668,19 @@
         "reviewer": "morzsa",
         "review_task_id": "6a208171-a58d-49a6-a9ad-5417146a3b94",
         "review_status": "rejected",
-        "review_reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-        "reviewed_at": 1787748443.43075
+        "review_reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+        "reviewed_at": 1787748698.690559
       },
       {
         "id": "card-1787745785259-102",
         "title": "[WF:1660930f] Echo test",
         "description": "{\"type\": \"generic\", \"description\": \"Echo test\", \"context\": {\"workflow_id\": \"1660930f\", \"task_id\": \"t1\", \"retry_count\": 0, \"type\": \"generic\", \"description\": \"Simple dispatch test - echo back OK\"}}",
-        "column": "done",
+        "column": "review",
         "priority": "medium",
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1787745785.2592509,
-        "updated_at": 1787748452.252573,
+        "updated_at": 1787750503.808397,
         "created_by": "unknown",
         "delegation_task_id": "467483f7-d900-4a6c-971a-222063bbc457",
         "delegation_status": "completed",
@@ -4912,15 +4920,76 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1787748452.253109
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1787748697.574433
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] System analysis completed at 2026-08-26T12:47:[PHONE REDACTED]+00:00",
+            "timestamp": 1787748697.605819
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirements; it's a generic system analysis message instead of an echo.",
+            "timestamp": 1787748698.041684
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "3bc3d5e6",
+            "timestamp": 1787748698.280148
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirements; contains unrelated system analysis output and redacted phone number instead of echoing the original task.",
+            "timestamp": 1787748698.4630332
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirement; returned system analysis output instead of an echo response.",
+            "timestamp": 1787748699.059264
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result does not fulfill echo test requirements: expected the input to be echoed back, but received a system analysis completion message instead.",
+            "timestamp": 1787748709.894242
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] System analysis completed at 2026-08-26T12:51:[PHONE REDACTED]+00:00",
+            "timestamp": 1787750503.646005
           }
         ],
-        "delegation_result": "[runa] System analysis completed at 2026-08-26T12:40:[PHONE REDACTED]+00:00",
-        "completed_at": "2026-08-26 12:40:05.900872+00:",
+        "delegation_result": "[morzsa] System analysis completed at 2026-08-26T12:51:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-08-26 12:51:54.919187+00:",
         "reviewer": "morzsa",
-        "review_task_id": "9d402502-06e0-49a1-b650-1b7880d24045",
-        "review_status": "accept",
-        "review_reason": "",
-        "reviewed_at": 1787748452.2525709
+        "review_task_id": "3bc3d5e6-0b8f-412a-8b63-d5d95e0be6a6",
+        "review_status": "rejected",
+        "review_reason": "Result does not fulfill echo test requirements: expected the input to be echoed back, but received a system analysis completion message instead.",
+        "reviewed_at": 1787748709.8938031
       },
       {
         "id": "card-1787745801798-103",
@@ -4931,7 +5000,7 @@
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787745801.798945,
-        "updated_at": 1787748443.956169,
+        "updated_at": 1787748698.9084532,
         "created_by": "unknown",
         "delegation_task_id": "bba750ca-3541-4abc-95a7-53037940b17c",
         "delegation_status": "completed",
@@ -5127,6 +5196,22 @@
             "verdict": "accept",
             "reason": "Result correctly acknowledges the echo task with agent identity, task reference, and timestamp. Format is consistent and complete.",
             "timestamp": 1787748443.956952
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "The result correctly acknowledges the echo task with the proper task ID and timestamp.",
+            "timestamp": 1787748698.2445
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Agent runa successfully acknowledged the echo task.",
+            "timestamp": 1787748698.908868
           }
         ],
         "delegation_result": "[runa] Acknowledged task '[WF:180699c4] Runa echo' at 2026-08-26T12:03:[PHONE REDACTED]+00:00",
@@ -5134,11 +5219,11 @@
         "reviewer": "morzsa",
         "review_task_id": "dbb6910f-8e5c-40c4-9cb2-b7727a05caa7",
         "review_status": "accept",
-        "review_reason": "Result correctly acknowledges the echo task with agent identity, task reference, and timestamp. Format is consistent and complete.",
-        "reviewed_at": 1787748443.956167
+        "review_reason": "Agent runa successfully acknowledged the echo task.",
+        "reviewed_at": 1787748698.908452
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787748442.070533
+    "updated_at": 1787750503.808398
   }
 ]
