@@ -238,7 +238,7 @@ class DashboardAgentsMixin:
                     log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
                     
         except asyncio.TimeoutError:
-            log.warning(f"Wake-agent '{agent_name}' timed out (90s)")
+            log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
         except Exception as e:
             log.warning(f"Wake-agent '{agent_name}' failed ({wake_url}): {e}")
 
@@ -308,7 +308,7 @@ class DashboardAgentsMixin:
                 env={**_os.environ, "HERMES_HOME": _hermes_home},
             )
             
-            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
+            stdout, stderr = await aio.wait_for(proc.communicate(), timeout=120)
             output = stdout.decode('utf-8', errors='replace') if stdout else ""
             err = stderr.decode('utf-8', errors='replace') if stderr else ""
             
@@ -344,7 +344,7 @@ class DashboardAgentsMixin:
                     log.warning(f"Failed to send Nova agent reply: {reply_err}")
                 
         except asyncio.TimeoutError:
-            log.warning("Nova CLI timed out (90s)")
+            log.warning("Nova CLI timed out (120s)")
         except Exception as e:
             log.warning(f"Nova CLI wake failed: {e}")
         finally:
@@ -771,7 +771,7 @@ class DashboardAgentsMixin:
                     env={**os.environ, "HERMES_HOME": hermes_home},
                 )
                 
-                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=90)
+                stdout, stderr = await aio.wait_for(proc.communicate(), timeout=120)
                 output = stdout.decode('utf-8', errors='replace') if stdout else ""
                 err = stderr.decode('utf-8', errors='replace') if stderr else ""
                 
@@ -816,7 +816,7 @@ class DashboardAgentsMixin:
                 })
                 
             except asyncio.TimeoutError:
-                log.warning(f"Wake-agent '{agent_name}' timed out (90s)")
+                log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
                 return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
             except FileNotFoundError:
                 log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")

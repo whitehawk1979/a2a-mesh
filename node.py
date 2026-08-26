@@ -5164,7 +5164,11 @@ echo "Status: ok"
                 payload["mesh_secret"] = "mesh-wake-secret-2026"
                 # Build prompt from message content for wake-agent
                 if _chat_user:
-                    prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {payload['content'][:500]}"
+                    # Extract just the text content, not the full JSON payload
+                    _content_text = payload['content']
+                    if isinstance(_p, dict):
+                        _content_text = _p.get('text', _p.get('subject', str(_p)[:500]))
+                    prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:300]}"
                 else:
                     prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
                 payload["prompt"] = prompt_text

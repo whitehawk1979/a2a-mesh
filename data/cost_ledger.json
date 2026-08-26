@@ -2299,6 +2299,126 @@
       "cost_usd": 8e-06,
       "task_id": "5ea28dec-3cf4-441d-a579-492192f1b160",
       "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:00.498238+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 109,
+      "cost_usd": 8e-06,
+      "task_id": "5ea28dec-3cf4-441d-a579-492192f1b160",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:00.861691+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 18,
+      "cost_usd": 1e-06,
+      "task_id": "f19c5a26-f6f4-4fb7-a8bd-366a01ef4a4e",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:01.335758+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 77,
+      "cost_usd": 5e-06,
+      "task_id": "89ffd764-d3d4-448f-899b-cd487299823b",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:02.101048+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 23,
+      "cost_usd": 2e-06,
+      "task_id": "814eb58f-81d4-4ef1-8af4-472ce46fb877",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:12.507641+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 1001,
+      "cost_usd": 7e-05,
+      "task_id": "8e485454-4d52-447a-b043-e0233a8e55f4",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:13.483439+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 109,
+      "cost_usd": 8e-06,
+      "task_id": "f3d01b12-f9dc-4d9e-b722-c88637f32f73",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:14.114732+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 41,
+      "cost_usd": 3e-06,
+      "task_id": "76df8e21-d822-403b-9086-5725d263c234",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:14.607017+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 40,
+      "cost_usd": 3e-06,
+      "task_id": "1369269a-680e-4e28-b66c-913852489f5c",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:20.221929+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 41,
+      "cost_usd": 3e-06,
+      "task_id": "923c756f-308a-42ea-8bc0-17b49e4fb363",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:20.445380+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 78,
+      "cost_usd": 5e-06,
+      "task_id": "65251859-0bae-4cb9-a3f2-0ac37f41e9a6",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:20.626505+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 90,
+      "cost_usd": 6e-06,
+      "task_id": "e2ea5fd1-2d90-438f-8cc2-c46ff9222f37",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-08-26T12:18:36.262887+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 82,
+      "cost_usd": 6e-06,
+      "task_id": "51386888-a65c-4b61-9505-fa089fe3eb1a",
+      "node": ""
     }
   ],
   "budgets": {},
