@@ -1498,7 +1498,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 
                 # Store capsule async (don't block the prompt)
                 try:
-                    pg_pool = getattr(self, '_pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                    pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                     if pg_pool:
                         msg_ids = [h.get('id', 0) for h in prev_msgs]
                         asyncio.ensure_future(store_capsule(

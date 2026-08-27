@@ -304,7 +304,7 @@ class DashboardAgentsMixin:
             
             # Pre-fetch memory capsules for context (async, before sync prompt build)
             try:
-                pg_pool = getattr(self, '_pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in content for marker in TOPIC_SWITCH_MARKERS):
                     capsules = await retrieve_capsules(pg_pool, content[:500])
                     self._current_capsules = format_capsules_for_prompt(capsules)
@@ -810,7 +810,7 @@ class DashboardAgentsMixin:
             
             # Pre-fetch memory capsules for this peer's context
             try:
-                pg_pool = getattr(self, '_pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
                     capsules = await retrieve_capsules(pg_pool, prompt[:500])
                     capsule_text = format_capsules_for_prompt(capsules)

@@ -206,67 +206,58 @@ async def store_capsule(
 ) -> Optional[int]:
     """Store a conversation capsule in mesh_memory with vector embedding."""
     try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            log.warning(f"Capsule storage: PG pool not connected")
+            return None
+
         # Create embedding from topic + summary
         embed_text = f"{topic}\n{summary}"
         embedding = await create_embedding(embed_text, ollama_url)
         
-        if embedding is None:
-            log.warning(f"Capsule storage: embedding failed for topic '{topic[:50]}'")
-            # Store without embedding — still useful for keyword search
-            embedding = None
-        
-        # Insert into mesh_memory
-        async with pg_pool.acquire() as conn:
-            if embedding is not None:
-                # Convert embedding to pgvector format
-                embed_str = '[' + ','.join(str(x) for x in embedding) + ']'
-                row = await conn.fetchrow(
-                    """INSERT INTO mesh.mesh_memory 
-                       (memory_key, memory_value, source_agent, target_agent, 
-                        memory_type, priority, metadata, embedding)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
-                       RETURNING id""",
-                    f"capsule:{topic[:100]}",
-                    summary,
-                    agents[0] if agents else 'mesh',
-                    'all',
-                    'capsule',
-                    3,  # Medium priority
-                    json.dumps({
-                        'topic': topic,
-                        'agents': agents,
-                        'msg_start': msg_start_id,
-                        'msg_end': msg_end_id,
-                        'msg_count': msg_end_id - msg_start_id + 1,
-                        'created': time.time(),
-                    }),
-                    embed_str,
-                )
-            else:
-                row = await conn.fetchrow(
-                    """INSERT INTO mesh.mesh_memory 
-                       (memory_key, memory_value, source_agent, target_agent, 
-                        memory_type, priority, metadata)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7)
-                       RETURNING id""",
-                    f"capsule:{topic[:100]}",
-                    summary,
-                    agents[0] if agents else 'mesh',
-                    'all',
-                    'capsule',
-                    3,
-                    json.dumps({
-                        'topic': topic,
-                        'agents': agents,
-                        'msg_start': msg_start_id,
-                        'msg_end': msg_end_id,
-                        'msg_count': msg_end_id - msg_start_id + 1,
-                        'created': time.time(),
-                    }),
-                )
-            capsule_id = row['id'] if row else None
-            log.info(f"💾 Capsule stored: id={capsule_id}, topic='{topic[:50]}', agents={agents}")
-            return capsule_id
+        metadata = json.dumps({
+            'topic': topic,
+            'agents': agents,
+            'msg_start': msg_start_id,
+            'msg_end': msg_end_id,
+            'msg_count': msg_end_id - msg_start_id + 1,
+            'created': time.time(),
+        })
+
+        if embedding is not None:
+            embed_str = '[' + ','.join(str(x) for x in embedding) + ']'
+            row = await pg_pool.fetchrow(
+                """INSERT INTO mesh.mesh_memory 
+                   (memory_key, memory_value, source_agent, target_agent, 
+                    memory_type, priority, metadata, embedding)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
+                   RETURNING id""",
+                f"capsule:{topic[:100]}",
+                summary,
+                agents[0] if agents else 'mesh',
+                'all',
+                'capsule',
+                3,
+                metadata,
+                embed_str,
+            )
+        else:
+            row = await pg_pool.fetchrow(
+                """INSERT INTO mesh.mesh_memory 
+                   (memory_key, memory_value, source_agent, target_agent, 
+                    memory_type, priority, metadata)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   RETURNING id""",
+                f"capsule:{topic[:100]}",
+                summary,
+                agents[0] if agents else 'mesh',
+                'all',
+                'capsule',
+                3,
+                metadata,
+            )
+        capsule_id = row['id'] if row else None
+        log.info(f"💾 Capsule stored: id={capsule_id}, topic='{topic[:50]}', agents={agents}")
+        return capsule_id
             
     except Exception as e:
         log.warning(f"Capsule storage failed: {e}")
@@ -281,47 +272,50 @@ async def retrieve_capsules(
 ) -> List[Dict[str, Any]]:
     """Retrieve relevant capsules by vector similarity."""
     try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            log.warning("Capsule retrieval: PG pool not connected")
+            return []
+
         # Create embedding for the query
         query_embedding = await create_embedding(query_text, ollama_url)
         if query_embedding is None:
             log.warning("Capsule retrieval: query embedding failed")
             return []
-        
+
         embed_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
-        
-        async with pg_pool.acquire() as conn:
-            rows = await conn.fetch(
-                """SELECT id, memory_key, memory_value, metadata,
-                          embedding <=> $1::vector AS distance
-                   FROM mesh.mesh_memory
-                   WHERE memory_type = 'capsule'
-                     AND embedding IS NOT NULL
-                   ORDER BY embedding <=> $1::vector
-                   LIMIT $2""",
-                embed_str,
-                limit,
-            )
-            
-            capsules = []
-            for row in rows:
-                distance = float(row['distance']) if row['distance'] else 1.0
-                # cosine distance → similarity = 1 - distance
-                similarity = 1.0 - distance
-                if similarity < CAPSULE_RELEVANCE_THRESHOLD:
-                    continue
-                
-                meta = json.loads(row['metadata']) if row['metadata'] else {}
-                capsules.append({
-                    'id': row['id'],
-                    'topic': meta.get('topic', ''),
-                    'summary': row['memory_value'],
-                    'agents': meta.get('agents', []),
-                    'similarity': similarity,
-                })
-            
-            log.info(f"📚 Capsule retrieval: query='{query_text[:50]}', found {len(capsules)} relevant")
-            return capsules
-            
+
+        rows = await pg_pool.fetch(
+            """SELECT id, memory_key, memory_value, metadata,
+                      embedding <=> $1::vector AS distance
+               FROM mesh.mesh_memory
+               WHERE memory_type = 'capsule'
+                 AND embedding IS NOT NULL
+               ORDER BY embedding <=> $1::vector
+               LIMIT $2""",
+            embed_str,
+            limit,
+        )
+
+        capsules = []
+        for row in rows:
+            distance = float(row['distance']) if row['distance'] else 1.0
+            # cosine distance → similarity = 1 - distance
+            similarity = 1.0 - distance
+            if similarity < CAPSULE_RELEVANCE_THRESHOLD:
+                continue
+
+            meta = json.loads(row['metadata']) if row['metadata'] else {}
+            capsules.append({
+                'id': row['id'],
+                'topic': meta.get('topic', ''),
+                'summary': row['memory_value'],
+                'agents': meta.get('agents', []),
+                'similarity': similarity,
+            })
+
+        log.info(f"📚 Capsule retrieval: query='{query_text[:50]}', found {len(capsules)} relevant")
+        return capsules
+
     except Exception as e:
         log.warning(f"Capsule retrieval failed: {e}")
         return []
