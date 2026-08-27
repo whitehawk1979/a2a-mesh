@@ -210,6 +210,10 @@ async def store_capsule(
             log.warning(f"Capsule storage: PG pool not connected")
             return None
 
+        # Sanitize text for SQL_ASCII compatibility — strip non-ASCII chars
+        topic_safe = topic.encode('ascii', 'replace').decode('ascii')
+        summary_safe = summary.encode('ascii', 'replace').decode('ascii')
+
         # Create embedding from topic + summary
         embed_text = f"{topic}\n{summary}"
         embedding = await create_embedding(embed_text, ollama_url)
@@ -231,8 +235,8 @@ async def store_capsule(
                     memory_type, priority, metadata, embedding)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
                    RETURNING id""",
-                f"capsule:{topic[:100]}",
-                summary,
+                f"capsule:{topic_safe[:100]}",
+                summary_safe,
                 agents[0] if agents else 'mesh',
                 'all',
                 'capsule',
@@ -247,8 +251,8 @@ async def store_capsule(
                     memory_type, priority, metadata)
                    VALUES ($1, $2, $3, $4, $5, $6, $7)
                    RETURNING id""",
-                f"capsule:{topic[:100]}",
-                summary,
+                f"capsule:{topic_safe[:100]}",
+                summary_safe,
                 agents[0] if agents else 'mesh',
                 'all',
                 'capsule',
