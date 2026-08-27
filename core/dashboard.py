@@ -1414,8 +1414,14 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
 
         The agent sees the recent conversation history + the new message,
         like a Telegram group chat. It can reply via curl to reply_endpoint.
+        
+        Topic detection: if content contains '🔔' or 'mode:' or 'ÚJ TÉMA',
+        the chat history is cleared to force a topic switch.
         """
-        history = self._fetch_chat_history(limit=10, channel=channel)
+        # Topic switch detection — clear history to break echo chamber loops
+        is_topic_switch = any(marker in content for marker in ['🔔', 'ÚJ TÉMA', 'mode:', 'SZEREP', 'SZABÁLY'])
+        history_limit = 0 if is_topic_switch else 10
+        history = self._fetch_chat_history(limit=history_limit, channel=channel) if history_limit > 0 else []
 
         # Known agent names
         agent_names = set()
@@ -1433,31 +1439,43 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 h_sender = h.get('sender', '?')
                 h_content = h.get('content', '')[:200]
                 if h_sender.lower() in agent_names or h_sender.lower() in ('nova', 'morzsa', 'runa'):
-                    chat_lines.append(f"  [{h_sender} _] {h_content}")
+                    chat_lines.append(f"  [{h_sender} 🤖] {h_content}")
                 else:
-                    chat_lines.append(f"  [{h_sender}] {h_content}")
+                    chat_lines.append(f"  [{h_sender} 👤] {h_content}")
             chat_context = "\n".join(chat_lines[-8:])
         else:
-            chat_context = "(nincs elozmeny)"
+            chat_context = "(nincs előzmény — új téma)"
 
         is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
-        sender_tag = f"{sender} (emberi felhasznalo)" if is_human else f"{sender} (agent)"
+        sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
+
+        # System instruction — stronger for topic switches
+        if is_topic_switch:
+            topic_instruction = (
+                "⚠️ EZ ÚJ TÉMA — a korábbi beszélgetés LEZÁRVA. "
+                "Ne hivatkozz a korábbi témákra. "
+                "Kövesd az üzenetben megadott szerepeket és szabályokat. "
+                "Ne érts egyet a többiekkel — hozz saját, új érveket. "
+                "Tilos: 'igazad van', 'jó pont', 'egyetértek'. "
+            )
+        else:
+            topic_instruction = (
+                "Ha az üzenet emberi felhasználótól van, neki válaszolj. "
+                "Ha egy másik agent írt és nem hozzád szól, nem kell válaszolnod. "
+                "Ha nem kell válaszolnod, ne küld el a curl-t. "
+            )
 
         prompt = (
-            f"Te egy A2A Mesh chat resztvevoje vagy ({agent_name}). "
-            f"Ez egy kozos chat session, mint egy Telegram csoport. "
-            f"A chatben emberi felhasznalok es AI agentek vesznek reszt. "
-            f"Latod a beszelgetes elozmenyeit es az uj uzenetet.\n\n"
-            f"-- Beszelgetes eddig --\n{chat_context}\n\n"
-            f"-- Uj uzenet --\n[{sender_tag}] {content}\n\n"
-            f"Valaszolj roviden, termeszetesen (magyarul, max 500 karakter). "
-            f"Ha az uzenet emberi felhasznalotol van, neki valaszolj. "
-            f"Ha egy masik agent irt es nem hozzaszol, nem kell valaszolnod. "
-            f"Ha nem kell valaszolnod, ne kuld el a curl-t.\n\n"
-            f"Valaszod elkuldesehez futtasd:\n"
-            f"curl -s -X POST {reply_endpoint} -H 'Content-Type: application/json' "
-            f"-d '{{\"sender\":\"{agent_name}\",\"content\":\"VALASZOD\","
-            f"\"recipient\":\"{sender}\",\"priority\":5,\"reply_to\":\"{mesh_msg_id}\"}}'"
+            f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevője. "
+            f"Ez egy közös chat session, mint egy Telegram csoport. "
+            f"A chatben emberi felhasználók és AI agentek vesznek részt. "
+            f"Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
+            f"Ne ismételd mások érveit — csak új gondolatot hozz. "
+            f"{topic_instruction}\n\n"
+            f"── Beszélgetés ──\n{chat_context}\n\n"
+            f"── Új üzenet ──\n[{sender_tag}] {content[:4000]}\n\n"
+            f"Válaszodat sima szövegként írd (stdout). "
+            f"NE használj curl-t vagy tool-okat — a rendszer automatikusan elküldi."
         )
         return prompt
 

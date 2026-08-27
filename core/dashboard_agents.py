@@ -40,10 +40,15 @@ class DashboardAgentsMixin:
 
         payload_text = (message.payload or {}).get("text", "")[:60] if isinstance(message.payload, dict) else str(message.payload)[:60]
         
+        # Topic switch detection — clear history to break echo chamber loops
+        full_text = (message.payload or {}).get("text", "") if isinstance(message.payload, dict) else str(message.payload)
+        is_topic_switch = any(marker in full_text for marker in ['🔔', 'ÚJ TÉMA', 'mode:', 'SZEREP', 'SZABÁLY'])
+        history_limit = 0 if is_topic_switch else 10
+        
         # Fetch chat history for context injection (Telegram-group-like session)
         recipient = message.recipient or "broadcast"
         channel = "general" if recipient == "broadcast" else f"dm:{recipient}"
-        chat_history = self._fetch_chat_history(limit=10, channel=channel)
+        chat_history = self._fetch_chat_history(limit=history_limit, channel=channel) if history_limit > 0 else []
         
         payload = json.dumps({
             "event_type": "a2a_message",
