@@ -3,6 +3,8 @@ import asyncio
 import json
 import logging
 
+from .capsules import strip_echo_prefix, retrieve_capsules, format_capsules_for_prompt, store_capsule, extract_topic_from_prompt, summarize_conversation, TOPIC_SWITCH_MARKERS
+
 log = logging.getLogger("a2a_mesh.dashboard.agents")
 
 
@@ -300,6 +302,18 @@ class DashboardAgentsMixin:
                 log.info(f"Skipping self-wake: message from {sender} (self)")
                 return
             
+            # Pre-fetch memory capsules for context (async, before sync prompt build)
+            try:
+                pg_pool = getattr(self, '_pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                if pg_pool and not any(marker in content for marker in TOPIC_SWITCH_MARKERS):
+                    capsules = await retrieve_capsules(pg_pool, content[:500])
+                    self._current_capsules = format_capsules_for_prompt(capsules)
+                else:
+                    self._current_capsules = ''
+            except Exception as e:
+                log.warning(f"Capsule pre-fetch failed (non-blocking): {e}")
+                self._current_capsules = ''
+
             # Build context-aware prompt with chat history
             prompt = self._build_context_prompt(
                 agent_name=self.node.node_name,
@@ -359,8 +373,10 @@ class DashboardAgentsMixin:
             
             # Send the agent's reply to the chat via /api/agent-reply
             clean_reply = output.strip()
+            # Echo filter: strip agreement prefixes, skip pure echo
+            clean_reply = strip_echo_prefix(clean_reply)
             # Filter "NEM VÁLASZTOLSZ" — agent decided not to reply
-            if clean_reply.upper() == "NEM VÁLASZTOLSZ":
+            if not clean_reply or clean_reply.upper() == "NEM VÁLASZTOLSZ":
                 log.info(f"Nova agent chose not to reply (NEM VÁLASZTOLSZ) — skipping")
             elif clean_reply and reply_endpoint:
                 try:
@@ -792,6 +808,17 @@ class DashboardAgentsMixin:
             self._wake_agent_in_progress = True
             self._wake_agent_start_time = now
             
+            # Pre-fetch memory capsules for this peer's context
+            try:
+                pg_pool = getattr(self, '_pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
+                    capsules = await retrieve_capsules(pg_pool, prompt[:500])
+                    capsule_text = format_capsules_for_prompt(capsules)
+                    if capsule_text:
+                        prompt = f"{capsule_text}\n\n{prompt}"
+            except Exception as e:
+                log.warning(f"Peer capsule pre-fetch failed (non-blocking): {e}")
+
             # Direct ollama API call (bypasses slow hermes -z CLI)
             import asyncio as aio
             import os
@@ -823,6 +850,8 @@ class DashboardAgentsMixin:
                 
                 # Send the reply to the reply_endpoint
                 clean_reply = output.strip()
+                # Echo filter: strip agreement prefixes, skip pure echo
+                clean_reply = strip_echo_prefix(clean_reply)
                 if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ" and reply_endpoint:
                     try:
                         import aiohttp as _aiohttp2

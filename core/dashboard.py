@@ -18,6 +18,11 @@ import uuid
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
+from .capsules import (
+    retrieve_capsules, format_capsules_for_prompt, store_capsule,
+    extract_topic_from_prompt, summarize_conversation, TOPIC_SWITCH_MARKERS
+)
+
 from .auth import AuthManager, DashboardUser as AuthUser
 from .registry import AgentRegistry, AgentCard, HealthRecord
 from .smart_router import SmartRouter
@@ -1444,12 +1449,13 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         its point has already been made by someone else.
         """
         # Topic switch detection — clear history to break echo chamber loops
-        is_topic_switch = any(marker in content for marker in ['🔔', 'ÚJ TÉMA', 'mode:', 'SZEREP', 'SZABÁLY'])
+        is_topic_switch = any(marker in content for marker in TOPIC_SWITCH_MARKERS)
         # Use 20 messages for richer context — agent needs to see what's already been said
         history_limit = 0 if is_topic_switch else 20
         history = self._fetch_chat_history(limit=history_limit, channel=channel) if history_limit > 0 else []
 
-        # Known agent names
+        # ── Topic switch: create capsule from previous conversation ──
+        # Known agent names — needed for capsule and prompt
         agent_names = set()
         try:
             for name, _ in self.node.peer_discovery.get_all_peers().items():
@@ -1457,6 +1463,52 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except Exception:
             pass
         agent_names.add(self.node.node_name.lower())
+
+        if is_topic_switch:
+            # Fetch the PREVIOUS topic's messages (before this switch)
+            prev_history = self._fetch_chat_history(limit=20, channel=channel)
+            # Filter out the switch message itself and anything after it
+            prev_msgs = []
+            for h in prev_history:
+                h_content = h.get('content', '')
+                if any(marker in h_content for marker in TOPIC_SWITCH_MARKERS):
+                    break  # Stop at the switch message
+                prev_msgs.append(h)
+            
+            if len(prev_msgs) >= 4:  # Only capsule if meaningful conversation
+                # Extract topic from the LAST switch marker in history, or use "unknown"
+                prev_topic = "ismeretlen téma"
+                for h in reversed(prev_msgs):
+                    h_content = h.get('content', '')
+                    topic = extract_topic_from_prompt(h_content)
+                    if topic:
+                        prev_topic = topic
+                        break
+                if not prev_topic or prev_topic == "ismeretlen téma":
+                    # Try to derive from content
+                    texts = [h.get('content', '')[:100] for h in prev_msgs[:3]]
+                    prev_topic = ' '.join(texts)[:200]
+                
+                # Build summary
+                summary_msgs = [{'sender': h.get('sender', '?'), 'text': h.get('content', '')} for h in prev_msgs]
+                summary = summarize_conversation(summary_msgs)
+                
+                # Get agent list
+                agents_involved = list(set(h.get('sender', '') for h in prev_msgs if h.get('sender', '').lower() in agent_names))
+                
+                # Store capsule async (don't block the prompt)
+                try:
+                    pg_pool = getattr(self, '_pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                    if pg_pool:
+                        msg_ids = [h.get('id', 0) for h in prev_msgs]
+                        asyncio.ensure_future(store_capsule(
+                            pg_pool, prev_topic, summary, agents_involved,
+                            min(msg_ids) if msg_ids else 0,
+                            max(msg_ids) if msg_ids else 0,
+                        ))
+                        log.info(f"📚 Capsule creation triggered for topic '{prev_topic[:50]}' ({len(prev_msgs)} msgs)")
+                except Exception as e:
+                    log.warning(f"Capsule creation failed (non-blocking): {e}")
 
         # Build conversation context — show full history so agent can check for duplicates
         if history:
@@ -1520,11 +1572,15 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 f"{self_regulation}\n{anti_echo}"
             )
 
+        # ── Retrieve relevant memory capsules (sync — pre-fetched by caller) ──
+        capsule_context = getattr(self, '_current_capsules', '')
+        capsule_block = f"{capsule_context}\n\n" if capsule_context else ""
         prompt = (
             f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevője. "
             f"Ez egy közös chat session, mint egy Telegram csoport. "
             f"Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
             f"{topic_instruction}\n\n"
+            f"{capsule_block}"
             f"── Beszélgetés eddig ──\n{chat_context}\n\n"
             f"── Új üzenet ──\n[{sender_tag}] {content[:4000]}\n\n"
             f"Válaszodat sima szövegként írd (stdout). "
