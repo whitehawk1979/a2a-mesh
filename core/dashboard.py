@@ -1449,6 +1449,49 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
         sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
 
+        # ── Directive system: anti-spam + auto-summary ──
+        MAX_MSG_PER_AGENT = 3      # Max messages per agent per topic
+        SUMMARY_THRESHOLD = 9      # Auto-summary after this many agent messages
+        FINAL_SUMMARY_THRESHOLD = 12  # Force final summary
+
+        # Count agent messages in current history
+        agent_msgs = [h for h in history if h.get('sender', '').lower() in agent_names
+                      or h.get('sender', '').lower() in ('nova', 'morzsa', 'runa')]
+        my_msgs = [h for h in agent_msgs if h.get('sender', '').lower() == agent_name.lower()]
+        total_agent_count = len(agent_msgs)
+        my_count = len(my_msgs)
+
+        # Build directive based on message counts
+        directives = []
+
+        if my_count >= MAX_MSG_PER_AGENT:
+            directives.append(
+                f"🔴 DIREKTÍVA: Elérted a maximális üzenetszámot ({MAX_MSG_PER_AGENT}) ebben a témában. "
+                f"Küldj EGY rövid összefoglalót a saját álláspontodról (max 200 karakter), "
+                f"után NE válaszolj többet ebben a témában. Írd: 'NEM VÁLASZTOLSZ' ha már összegezted."
+            )
+        elif total_agent_count >= FINAL_SUMMARY_THRESHOLD:
+            directives.append(
+                f"🔴 DIREKTÍVA: A beszélgetés elérte a {FINAL_SUMMARY_THRESHOLD}. üzenetet. "
+                f"Készíts VÉGSŐ összefoglalót: 3 pont a fő álláspontokról + 1 pont a közös következtetésről. "
+                f"Utána NE válaszolj többet. Ha már összegezted, írd: 'NEM VÁLASZTOLSZ'."
+            )
+        elif total_agent_count >= SUMMARY_THRESHOLD:
+            directives.append(
+                f"🟡 DIREKTÍVA: A beszélgetés elérte a {SUMMARY_THRESHOLD}. üzenetet. "
+                f"Ha még nem foglaltad össze az álláspontodat, tedd meg most röviden (max 200 karakter). "
+                f"Ha már összegezted, írd: 'NEM VÁLASZTOLSZ'."
+            )
+
+        # Anti-echo directive — always active
+        directives.append(
+            "🟠 SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. "
+            "Csak ÚJ érvet, ellenvetést vagy konkrét javaslatot írj. "
+            "Ha nincs új mondanivalód, írd: 'NEM VÁLASZTOLSZ'."
+        )
+
+        directive_text = "\n".join(directives)
+
         # System instruction — stronger for topic switches
         if is_topic_switch:
             topic_instruction = (
@@ -1456,13 +1499,14 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 "Ne hivatkozz a korábbi témákra. "
                 "Kövesd az üzenetben megadott szerepeket és szabályokat. "
                 "Ne érts egyet a többiekkel — hozz saját, új érveket. "
-                "Tilos: 'igazad van', 'jó pont', 'egyetértek'. "
+                f"{directive_text}"
             )
         else:
             topic_instruction = (
                 "Ha az üzenet emberi felhasználótól van, neki válaszolj. "
                 "Ha egy másik agent írt és nem hozzád szól, nem kell válaszolnod. "
                 "Ha nem kell válaszolnod, ne küld el a curl-t. "
+                f"{directive_text}"
             )
 
         prompt = (

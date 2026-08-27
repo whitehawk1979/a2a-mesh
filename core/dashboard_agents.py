@@ -210,6 +210,46 @@ class DashboardAgentsMixin:
                 framed = content_text[:4000]
                 preamble = ""
             
+            # ── Directive system: anti-spam + auto-summary ──
+            MAX_MSG_PER_AGENT = 3
+            SUMMARY_THRESHOLD = 9
+            FINAL_SUMMARY_THRESHOLD = 12
+
+            # Count agent messages in chat history
+            agent_msgs_peer = [h for h in chat_history if h.get('sender', '').lower() in agent_names]
+            my_msgs_peer = [h for h in agent_msgs_peer if h.get('sender', '').lower() == agent_name.lower()]
+            total_agent_count_peer = len(agent_msgs_peer)
+            my_count_peer = len(my_msgs_peer)
+
+            directives_peer = []
+            if my_count_peer >= MAX_MSG_PER_AGENT:
+                directives_peer.append(
+                    f"🔴 DIREKTÍVA: Elérted a maximális üzenetszámot ({MAX_MSG_PER_AGENT}). "
+                    f"Küldj EGY rövid összefoglalót (max 200 karakter), "
+                    f"után írd: 'NEM VÁLASZTOLSZ'."
+                )
+            elif total_agent_count_peer >= FINAL_SUMMARY_THRESHOLD:
+                directives_peer.append(
+                    f"🔴 DIREKTÍVA: {FINAL_SUMMARY_THRESHOLD}. üzenet elérve. "
+                    f"Készíts VÉGSŐ összefoglalót: 3 pont fő álláspontok + 1 pont közös következtetés. "
+                    f"Utána írd: 'NEM VÁLASZTOLSZ'."
+                )
+            elif total_agent_count_peer >= SUMMARY_THRESHOLD:
+                directives_peer.append(
+                    f"🟡 DIREKTÍVA: {SUMMARY_THRESHOLD}. üzenet elérve. "
+                    f"Foglald össze az álláspontodat röviden (max 200 karakter). "
+                    f"Ha már összegezted, írd: 'NEM VÁLASZTOLSZ'."
+                )
+
+            # Anti-echo directive — always active
+            directives_peer.append(
+                "🟠 SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. "
+                "Csak ÚJ érvet, ellenvetést vagy konkrét javaslatot írj. "
+                "Ha nincs új mondanivalód, írd: 'NEM VÁLASZTOLSZ'."
+            )
+
+            directive_text_peer = "\n".join(directives_peer)
+
             prompt = (
                 f"{preamble}"
                 f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. "
@@ -217,6 +257,7 @@ class DashboardAgentsMixin:
                 f"Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. "
                 f"Ne ismételd mások érveit — csak új gondolatot hozz. "
                 f"Ha nincs mit hozzátenned, írj: 'NEM VÁLASZTOLSZ'.\n\n"
+                f"{directive_text_peer}\n\n"
                 f"── Beszélgetés ──\n{chat_context}\n\n"
                 f"── Új üzenet ──\n[{sender_tag}] {framed}\n\n"
                 f"Válaszodat sima szövegként írd (stdout). "
@@ -308,7 +349,7 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, ne válaszolj."},
+                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a direktíva 'NEM VÁLASZTOLSZ'-ot kér, pontosan azt írd: 'NEM VÁLASZTOLSZ'. Tartsd be a 🔴🟡🟠 direktívákat — ezek kötelező szabályok."},
                         {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
@@ -331,7 +372,10 @@ class DashboardAgentsMixin:
             
             # Send the agent's reply to the chat via /api/agent-reply
             clean_reply = output.strip()
-            if clean_reply and reply_endpoint:
+            # Filter "NEM VÁLASZTOLSZ" — agent decided not to reply
+            if clean_reply.upper() == "NEM VÁLASZTOLSZ":
+                log.info(f"Nova agent chose not to reply (NEM VÁLASZTOLSZ) — skipping")
+            elif clean_reply and reply_endpoint:
                 try:
                     import aiohttp as _aiohttp
                     # MARVEEN: Reply to the original sender, not broadcast
@@ -772,7 +816,7 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, ne válaszolj."},
+                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a direktíva 'NEM VÁLASZTOLSZ'-ot kér, pontosan azt írd: 'NEM VÁLASZTOLSZ'. Tartsd be a 🔴🟡🟠 direktívákat — ezek kötelező szabályok."},
                         {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
@@ -792,7 +836,7 @@ class DashboardAgentsMixin:
                 
                 # Send the reply to the reply_endpoint
                 clean_reply = output.strip()
-                if clean_reply and clean_reply != "NEM VÁLASZTOLSZ" and reply_endpoint:
+                if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ" and reply_endpoint:
                     try:
                         import aiohttp as _aiohttp2
                         # MARVEEN: Reply to the original sender, not broadcast
