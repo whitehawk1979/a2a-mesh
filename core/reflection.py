@@ -17,10 +17,62 @@ from collections import Counter
 log = logging.getLogger("a2a_mesh.reflection")
 
 # ── Config ──
-REFLECTION_INTERVAL = 5  # analyze every N messages
+REFLECTION_INTERVAL_MIN = 3   # min messages between reflections (stagnation = frequent)
+REFLECTION_INTERVAL_MAX = 8   # max messages between reflections (progress = rare)
 STAGNATION_WINDOW = 8    # check last N messages for repetition
 CONSENSUS_THRESHOLD = 0.7  # 70% agreement = consensus
 REFLECTION_RELEVANCE_THRESHOLD = 0.5  # minimum similarity for retrieved reflections
+
+# Hungarian stop words for topic extraction
+STOP_WORDS = frozenset([
+    'pedig', 'azonban', 'viszont', 'mintha', 'amikor', 'mert', 'hogy', 'ezzel',
+    'ugyan', 'igy', 'ott', 'annak', 'ehelyett', 'vagyok', 'vagy', 'van', 'nem',
+    'igen', 'ez', 'az', 'egy', 'the', 'and', 'but', 'for', 'with', 'from',
+    'szerintem', 'szerinte', 'szerint', 'gondolom', 'talam', 'talán', 'lehet',
+    'kellene', 'kell', 'lehetne', 'helyes', 'jó', 'rossz', 'hibás', 'helytelen',
+])
+
+
+def extract_topic_from_conversation(messages: List[Dict[str, Any]]) -> str:
+    """Extract topic from conversation content — not just 🔔 markers.
+    
+    Uses keyword frequency analysis on significant words across all messages.
+    Falls back to first user message first sentence if no keywords found.
+    """
+    if not messages:
+        return "ismeretlen"
+
+    # Collect all text
+    all_text = ' '.join(_extract_content(m) for m in messages).lower()
+
+    # Extract significant words (>4 chars, not stop words)
+    words = []
+    for w in all_text.split():
+        w = w.strip('.,!?;:"\'()[]{}áéíóöőúüű')
+        if len(w) > 4 and w not in STOP_WORDS:
+            words.append(w)
+
+    if not words:
+        # Fallback: first user message first sentence
+        for m in messages:
+            sender = _extract_sender(m)
+            if sender and sender.lower() not in ('nova', 'morzsa', 'runa'):
+                content = _extract_content(m)
+                first_sentence = content.split('.')[0].split('!')[0].split('?')[0]
+                if len(first_sentence) > 10:
+                    return first_sentence.strip()[:150]
+        return "ismeretlen"
+
+    # Top 3-5 keywords = topic
+    word_counts = Counter(words)
+    top_words = [w for w, c in word_counts.most_common(5) if c >= 2]
+
+    if not top_words:
+        # Single occurrence words — take the most significant
+        top_words = [word_counts.most_common(3)[i][0] for i in range(min(3, len(word_counts)))]
+
+    topic = ' '.join(top_words[:5])
+    return topic[:150] if len(topic) > 5 else "ismeretlen"
 
 # ── Reflection types ──
 REFLECTION_TYPES = {
@@ -266,14 +318,43 @@ async def generate_deep_reflection(
     messages: List[Dict[str, Any]],
     topic: str,
     ollama_url: str = "http://localhost:11434",
-    model: str = "gemma4:31b-cloud",
+    model: str = None,
 ) -> Optional[str]:
     """Generate a deeper LLM-based reflection on the conversation.
 
-    This is optional — the deterministic analysis runs first, and this
-    adds a synthesized eszmefuttatas on top.
+    Uses the agent's own model (auto-detected) rather than a hardcoded model.
+    Falls back gracefully if no model is available.
     """
     try:
+        # Auto-detect available model from ollama
+        if model is None:
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                try:
+                    async with session.get(f"{ollama_url}/api/tags", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            tags_data = await resp.json()
+                            models = [m.get('name', '') for m in tags_data.get('models', [])]
+                            # Prefer the largest/best model available
+                            priority = ['glm-5.2:cloud', 'gemma4:31b-cloud', 'qwen2.5:32b',
+                                       'qwen2.5:7b', 'llama3.2', 'gemma2']
+                            for pref in priority:
+                                for m in models:
+                                    if pref in m:
+                                        model = m
+                                        break
+                                if model:
+                                    break
+                            # If no priority match, use first available
+                            if model is None and models:
+                                model = models[0]
+                except Exception:
+                    pass
+
+        if model is None:
+            log.info("🔍 Deep reflection skipped — no model available")
+            return None
+
         # Build conversation summary for LLM
         recent = messages[-10:]
         conv_text = '\n'.join(
@@ -302,13 +383,16 @@ Válaszolj röviden, magyarul, objektíven. Ne ismételd amit mások mondtak."""
                 "stream": False,
                 "options": {"temperature": 0.4, "num_predict": 200},
             }
-            async with session.post(f"{ollama_url}/api/generate", json=payload, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with session.post(f"{ollama_url}/api/generate", json=payload, timeout=aiohttp.ClientTimeout(total=60)) as resp:
                 if resp.status == 200:
                     data = await resp.json()
                     text = data.get('response', '').strip()
                     if text and len(text) > 20:
+                        log.info(f"🔍 Deep reflection generated with model={model}: {text[:80]}...")
                         # ASCII-safe for SQL_ASCII PG
                         return text.encode('ascii', 'replace').decode('ascii')
+                else:
+                    log.warning(f"🔍 Deep reflection failed: HTTP {resp.status} from model={model}")
                 return None
 
     except Exception as e:
@@ -484,6 +568,28 @@ def format_past_reflections_for_prompt(reflections: List[Dict[str, Any]]) -> str
     return '\n'.join(lines)
 
 
+def get_dynamic_interval(reflections: List[Dict[str, Any]]) -> int:
+    """Determine reflection interval based on conversation state.
+    
+    Stagnation → frequent (3 messages)
+    Progress → rare (8 messages)
+    Normal → default (5 messages)
+    """
+    if not reflections:
+        return 5
+
+    types = [r['type'] for r in reflections]
+    
+    if 'stagnation' in types:
+        return REFLECTION_INTERVAL_MIN  # 3 — check more often when stuck
+    elif 'progress' in types:
+        return REFLECTION_INTERVAL_MAX  # 8 — less frequent when moving forward
+    elif 'consensus' in types:
+        return REFLECTION_INTERVAL_MAX  # 8 — conversation converging, less need
+    else:
+        return 5  # default
+
+
 async def run_reflection_cycle(
     pg_pool,
     messages: List[Dict[str, Any]],
@@ -499,11 +605,15 @@ async def run_reflection_cycle(
     if len(messages) < 3:
         return "", None
 
+    # Auto-extract topic if not provided or unknown
+    if not topic or topic == "ismeretlen":
+        topic = extract_topic_from_conversation(messages)
+
     # 1. Deterministic analysis (no LLM)
     reflections = analyze_conversation(messages, topic)
     log.info(f"🔍 Reflection cycle: {len(reflections)} findings for topic '{topic[:50]}'")
 
-    # 2. Deep LLM reflection (optional)
+    # 2. Deep LLM reflection (optional — uses agent's own model)
     deep_reflection = None
     if enable_deep and reflections:
         deep_reflection = await generate_deep_reflection(messages, topic, ollama_url)
