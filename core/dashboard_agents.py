@@ -210,16 +210,14 @@ class DashboardAgentsMixin:
                 framed = content_text[:4000]
                 preamble = ""
             
-            # ── Directive system: anti-spam + auto-summary ──
+            # ── Directive system: anti-spam + auto-summary (in-memory counters) ──
             MAX_MSG_PER_AGENT = 3
             SUMMARY_THRESHOLD = 9
             FINAL_SUMMARY_THRESHOLD = 12
 
-            # Count agent messages in chat history
-            agent_msgs_peer = [h for h in chat_history if h.get('sender', '').lower() in agent_names]
-            my_msgs_peer = [h for h in agent_msgs_peer if h.get('sender', '').lower() == agent_name.lower()]
-            total_agent_count_peer = len(agent_msgs_peer)
-            my_count_peer = len(my_msgs_peer)
+            # Use in-memory counters for real-time accuracy
+            my_count_peer = self._agent_msg_counts.get(agent_name.lower(), 0)
+            total_agent_count_peer = self._total_agent_msgs
 
             directives_peer = []
             if my_count_peer >= MAX_MSG_PER_AGENT:

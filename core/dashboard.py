@@ -129,6 +129,11 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         self._last_wake_agent_time: float = 0.0  # Rate limit: last wake-agent call
         self._wake_agent_cooldown: float = 2.0  # Optimized: 5s → 2s for fast ollama API
         self._wake_agent_in_progress: bool = False  # Prevent concurrent wake-agent calls
+        
+        # ── In-memory directive counters (real-time, not PG-dependent) ──
+        self._agent_msg_counts: Dict[str, int] = {}  # {agent_name: count} per topic
+        self._total_agent_msgs: int = 0  # Total agent messages in current topic
+        self._current_topic_id: Optional[str] = None  # Topic ID for resetting counters
 
     def register_routes(self, app):
         """Register dashboard routes on an existing aiohttp app."""
@@ -1290,6 +1295,28 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         content = payload.get("text", "") or getattr(message, "content", "") or json.dumps(payload, ensure_ascii=True)
         username = payload.get("username", "") or message.sender
 
+        # ── In-memory directive counter update ──
+        # Topic switch detection — reset counters
+        is_new_topic = any(marker in content for marker in ['🔔', 'ÚJ TÉMA', 'mode:', 'SZEREP', 'SZABÁLY'])
+        if is_new_topic:
+            self._agent_msg_counts = {}
+            self._total_agent_msgs = 0
+            log.info("📊 Directive counters reset (topic switch detected)")
+
+        # Count agent messages (not human)
+        agent_names_set = set()
+        try:
+            for name, _ in self.node.peer_discovery.get_all_peers().items():
+                agent_names_set.add(name.lower())
+        except Exception:
+            pass
+        agent_names_set.add(self.node.node_name.lower())
+
+        if message.sender.lower() in agent_names_set and msg_type not in ("heartbeat", "ack", "memory_sync", "skills_announcement"):
+            self._agent_msg_counts[message.sender.lower()] = self._agent_msg_counts.get(message.sender.lower(), 0) + 1
+            self._total_agent_msgs += 1
+            log.info(f"📊 Directive counter: {message.sender}={self._agent_msg_counts[message.sender.lower()]} total={self._total_agent_msgs}")
+
         self._message_history.append({
             "id": message.id,
             "sender": message.sender,
@@ -1449,17 +1476,14 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
         sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
 
-        # ── Directive system: anti-spam + auto-summary ──
+        # ── Directive system: anti-spam + auto-summary (in-memory counters) ──
         MAX_MSG_PER_AGENT = 3      # Max messages per agent per topic
         SUMMARY_THRESHOLD = 9      # Auto-summary after this many agent messages
         FINAL_SUMMARY_THRESHOLD = 12  # Force final summary
 
-        # Count agent messages in current history
-        agent_msgs = [h for h in history if h.get('sender', '').lower() in agent_names
-                      or h.get('sender', '').lower() in ('nova', 'morzsa', 'runa')]
-        my_msgs = [h for h in agent_msgs if h.get('sender', '').lower() == agent_name.lower()]
-        total_agent_count = len(agent_msgs)
-        my_count = len(my_msgs)
+        # Use in-memory counters for real-time accuracy (PG history lags behind)
+        my_count = self._agent_msg_counts.get(agent_name.lower(), 0)
+        total_agent_count = self._total_agent_msgs
 
         # Build directive based on message counts
         directives = []
