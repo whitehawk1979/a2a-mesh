@@ -219,7 +219,7 @@ async def store_capsule(
         embedding = await create_embedding(embed_text, ollama_url)
         
         metadata = json.dumps({
-            'topic': topic,
+            'topic': topic_safe,
             'agents': agents,
             'msg_start': msg_start_id,
             'msg_end': msg_end_id,
