@@ -30,6 +30,11 @@ STOP_WORDS = frozenset([
     'igen', 'ez', 'az', 'egy', 'the', 'and', 'but', 'for', 'with', 'from',
     'szerintem', 'szerinte', 'szerint', 'gondolom', 'talam', 'talán', 'lehet',
     'kellene', 'kell', 'lehetne', 'helyes', 'jó', 'rossz', 'hibás', 'helytelen',
+    'hanem', 'ismeretlen', 'akkor', 'mint', 'ilyen', 'olyan', 'ezek', 'azok',
+    'erre', 'arra', 'innen', 'onnan', 'ahol', 'ahova', 'amely', 'amelyik',
+    'minden', 'semmi', 'valami', 'bármi', 'sokkal', 'kevesebb', 'több',
+    'első', 'második', 'utolsó', 'következő', 'előző', 'jelenlegi',
+    'ellentétben', 'kapcsolatban', 'alapján', 'révén', 'keresztül', 'soron',
 ])
 
 
