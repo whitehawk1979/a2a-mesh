@@ -195,25 +195,27 @@ class DashboardAgentsMixin:
                 from .prompt_safety import wrap_untrusted, wrap_trusted_peer, UNTRUSTED_PREAMBLE
                 if sender != agent_name:
                     if is_human:
-                        framed = wrap_untrusted(sender, content_text[:500])
+                        framed = wrap_untrusted(sender, content_text[:4000])
                     else:
-                        framed = wrap_trusted_peer(sender, content_text[:500])
+                        framed = wrap_trusted_peer(sender, content_text[:4000])
                 else:
-                    framed = content_text[:500]
+                    framed = content_text[:4000]
                 preamble = UNTRUSTED_PREAMBLE + "\n\n"
             except Exception:
-                framed = content_text[:500]
+                framed = content_text[:4000]
                 preamble = ""
             
             prompt = (
                 f"{preamble}"
                 f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. "
-                f"Zsolt (👤) írt neked. Válaszolj röviden, természetesen, magyarul (max 300 karakter).\n\n"
+                f"Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
+                f"Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. "
+                f"Ne ismételd mások érveit — csak új gondolatot hozz. "
+                f"Ha nincs mit hozzátenned, írj: 'NEM VÁLASZTOLSZ'.\n\n"
                 f"── Beszélgetés ──\n{chat_context}\n\n"
                 f"── Új üzenet ──\n[{sender_tag}] {framed}\n\n"
                 f"Válaszodat sima szövegként írd (stdout). "
-                f"NE használj curl-t vagy tool-okat — a rendszer automatikusan elküldi. "
-                f"Ha nem hozzád szól, írj: 'NEM VÁLASZTOLSZ'."
+                f"NE használj curl-t vagy tool-okat — a rendszer automatikusan elküldi."
             )
             
             log.info(f"Wake-agent prompt for '{agent_name}':\n{prompt[:500]}")
@@ -765,11 +767,11 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 300 karakter)."},
-                        {"role": "user", "content": prompt}
+                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, ne válaszolj."},
+                        {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 800}
+                    "options": {"temperature": 0.8, "num_predict": 1000}
                 }
                 
                 async with _aiohttp.ClientSession() as sess:
