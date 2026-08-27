@@ -3,7 +3,13 @@ import asyncio
 import json
 import logging
 
-from .capsules import strip_echo_prefix, retrieve_capsules, format_capsules_for_prompt, store_capsule, extract_topic_from_prompt, summarize_conversation, TOPIC_SWITCH_MARKERS
+from .capsules import (
+    strip_echo_prefix, retrieve_capsules, format_capsules_for_prompt,
+    store_capsule, extract_topic_from_prompt, summarize_conversation,
+    TOPIC_SWITCH_MARKERS, retrieve_engramms, format_engramms_for_prompt,
+    increment_capsule_retrieval_count, check_and_promote_capsules,
+    check_and_generate_skills,
+)
 
 log = logging.getLogger("a2a_mesh.dashboard.agents")
 
@@ -302,17 +308,26 @@ class DashboardAgentsMixin:
                 log.info(f"Skipping self-wake: message from {sender} (self)")
                 return
             
-            # Pre-fetch memory capsules for context (async, before sync prompt build)
+            # Pre-fetch memory capsules + engramms for context (async, before sync prompt build)
             try:
                 pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in content for marker in TOPIC_SWITCH_MARKERS):
+                    # Capsules (recent conversations)
                     capsules = await retrieve_capsules(pg_pool, content[:500])
                     self._current_capsules = format_capsules_for_prompt(capsules)
+                    # Engramms (matured conclusions — "régebbi gondolatok")
+                    engramms = await retrieve_engramms(pg_pool, content[:500])
+                    self._current_engramms = format_engramms_for_prompt(engramms)
+                    # Periodic batch promotion + skill generation (non-blocking)
+                    asyncio.ensure_future(check_and_promote_capsules(pg_pool))
+                    asyncio.ensure_future(check_and_generate_skills(pg_pool))
                 else:
                     self._current_capsules = ''
+                    self._current_engramms = ''
             except Exception as e:
-                log.warning(f"Capsule pre-fetch failed (non-blocking): {e}")
+                log.warning(f"Memory pre-fetch failed (non-blocking): {e}")
                 self._current_capsules = ''
+                self._current_engramms = ''
 
             # Build context-aware prompt with chat history
             prompt = self._build_context_prompt(
@@ -808,16 +823,27 @@ class DashboardAgentsMixin:
             self._wake_agent_in_progress = True
             self._wake_agent_start_time = now
             
-            # Pre-fetch memory capsules for this peer's context
+            # Pre-fetch memory capsules + engramms for this peer's context
             try:
                 pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
                     capsules = await retrieve_capsules(pg_pool, prompt[:500])
                     capsule_text = format_capsules_for_prompt(capsules)
+                    engramms = await retrieve_engramms(pg_pool, prompt[:500])
+                    engramm_text = format_engramms_for_prompt(engramms)
+                    # Inject both capsules and engramms before the prompt
+                    memory_prefix = ""
+                    if engramm_text:
+                        memory_prefix += f"{engramm_text}\n\n"
                     if capsule_text:
-                        prompt = f"{capsule_text}\n\n{prompt}"
+                        memory_prefix += f"{capsule_text}\n\n"
+                    if memory_prefix:
+                        prompt = f"{memory_prefix}{prompt}"
+                    # Periodic batch promotion + skill generation
+                    asyncio.ensure_future(check_and_promote_capsules(pg_pool))
+                    asyncio.ensure_future(check_and_generate_skills(pg_pool))
             except Exception as e:
-                log.warning(f"Peer capsule pre-fetch failed (non-blocking): {e}")
+                log.warning(f"Peer memory pre-fetch failed (non-blocking): {e}")
 
             # Direct ollama API call (bypasses slow hermes -z CLI)
             import asyncio as aio

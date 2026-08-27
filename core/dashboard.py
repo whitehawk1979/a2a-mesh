@@ -20,7 +20,10 @@ from dataclasses import dataclass, field
 
 from .capsules import (
     retrieve_capsules, format_capsules_for_prompt, store_capsule,
-    extract_topic_from_prompt, summarize_conversation, TOPIC_SWITCH_MARKERS
+    extract_topic_from_prompt, summarize_conversation, TOPIC_SWITCH_MARKERS,
+    retrieve_engramms, format_engramms_for_prompt,
+    increment_capsule_retrieval_count, check_and_promote_capsules,
+    check_and_generate_skills,
 )
 
 from .auth import AuthManager, DashboardUser as AuthUser
@@ -1573,15 +1576,20 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 f"{self_regulation}\n{anti_echo}"
             )
 
-        # ── Retrieve relevant memory capsules (sync — pre-fetched by caller) ──
+        # ── Retrieve relevant memory capsules + engramms (sync — pre-fetched by caller) ──
         capsule_context = getattr(self, '_current_capsules', '')
-        capsule_block = f"{capsule_context}\n\n" if capsule_context else ""
+        engramm_context = getattr(self, '_current_engramms', '')
+        memory_block = ""
+        if engramm_context:
+            memory_block += f"{engramm_context}\n\n"
+        if capsule_context:
+            memory_block += f"{capsule_context}\n\n"
         prompt = (
             f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevője. "
             f"Ez egy közös chat session, mint egy Telegram csoport. "
             f"Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
             f"{topic_instruction}\n\n"
-            f"{capsule_block}"
+            f"{memory_block}"
             f"── Beszélgetés eddig ──\n{chat_context}\n\n"
             f"── Új üzenet ──\n[{sender_tag}] {content[:4000]}\n\n"
             f"Válaszodat sima szövegként írd (stdout). "

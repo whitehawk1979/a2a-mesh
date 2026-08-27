@@ -337,3 +337,606 @@ def format_capsules_for_prompt(capsules: List[Dict[str, Any]]) -> str:
         )
     lines.append("── Ha ezekből van releváns folytatás, hivatkozz rá. Ne ismételd el. ──")
     return '\n'.join(lines)
+
+
+# ── Engramm system — matured capsules as shared conclusions ──
+
+# Promotion thresholds
+ENGRAHM_MIN_AGE_SECONDS = 3600       # 1 hour — capsule must age before promotion
+ENGRAHM_MIN_RETRIEVALS = 1           # capsule must be retrieved at least once
+ENGRAHM_RELEVANCE_THRESHOLD = 0.55   # slightly lower than capsule threshold
+ENGRAHM_RECENCY_DECAY_DAYS = 30      # after 30 days, engramm weight halves
+MAX_RETRIEVED_ENGRAMMS = 4
+
+
+async def promote_capsule_to_engramm(pg_pool, capsule_id: int) -> Optional[int]:
+    """Promote a matured capsule to an engramm (shared conclusion).
+    
+    Conditions:
+    - Capsule age > ENGRAHM_MIN_AGE_SECONDS
+    - Capsule retrieval_count >= ENGRAHM_MIN_RETRIEVALS
+    - Not already promoted
+    
+    The engramm stores ONLY the conclusion, not the full conversation.
+    """
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return None
+
+        # Fetch capsule
+        row = await pg_pool.fetchrow(
+            """SELECT id, memory_key, memory_value, metadata, embedding, created_at
+               FROM mesh.mesh_memory WHERE id = $1 AND memory_type = 'capsule'""",
+            capsule_id,
+        )
+        if not row:
+            return None
+
+        meta = json.loads(row['metadata']) if row['metadata'] else {}
+        created_ts = meta.get('created', 0)
+        age = time.time() - created_ts if created_ts else 0
+        retrieval_count = meta.get('retrieval_count', 0)
+
+        if age < ENGRAHM_MIN_AGE_SECONDS:
+            log.debug(f"Engramm promotion: capsule {capsule_id} too young ({int(age)}s < {ENGRAHM_MIN_AGE_SECONDS}s)")
+            return None
+
+        if retrieval_count < ENGRAHM_MIN_RETRIEVALS:
+            log.debug(f"Engramm promotion: capsule {capsule_id} not retrieved enough ({retrieval_count} < {ENGRAHM_MIN_RETRIEVALS})")
+            return None
+
+        # Extract conclusion from capsule summary
+        conclusion = extract_conclusion(row['memory_value'], meta.get('topic', ''))
+
+        # Create embedding for the conclusion (not the full summary)
+        embedding = await create_embedding(conclusion)
+        if embedding is None:
+            # Reuse capsule embedding as fallback
+            embedding_str = None
+        else:
+            embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+
+        # Determine consensus level from agents count
+        agents = meta.get('agents', [])
+        consensus = 'high' if len(agents) >= 3 else 'medium' if len(agents) >= 2 else 'low'
+
+        engramm_meta = json.dumps({
+            'topic': meta.get('topic', ''),
+            'agents': agents,
+            'source_capsule_id': capsule_id,
+            'consensus': consensus,
+            'tags': extract_tags(conclusion),
+            'created': time.time(),
+            'last_referenced': time.time(),
+            'reference_count': 0,
+            'pattern_type': detect_pattern_type(conclusion),
+        })
+
+        if embedding_str:
+            engramm_row = await pg_pool.fetchrow(
+                """INSERT INTO mesh.mesh_memory
+                   (memory_key, memory_value, source_agent, target_agent,
+                    memory_type, priority, metadata, embedding)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
+                   RETURNING id""",
+                f"engramm:{meta.get('topic', '')[:100]}",
+                conclusion,
+                agents[0] if agents else 'mesh',
+                'all',
+                'engramm',
+                5 if consensus == 'high' else 3,  # Higher priority for strong consensus
+                engramm_meta,
+                embedding_str,
+            )
+        else:
+            engramm_row = await pg_pool.fetchrow(
+                """INSERT INTO mesh.mesh_memory
+                   (memory_key, memory_value, source_agent, target_agent,
+                    memory_type, priority, metadata)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   RETURNING id""",
+                f"engramm:{meta.get('topic', '')[:100]}",
+                conclusion,
+                agents[0] if agents else 'mesh',
+                'all',
+                'engramm',
+                5 if consensus == 'high' else 3,
+                engramm_meta,
+            )
+
+        engramm_id = engramm_row['id'] if engramm_row else None
+
+        # Mark capsule as promoted
+        meta['promoted_to_engramm'] = engramm_id
+        await pg_pool.execute(
+            "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+            json.dumps(meta), capsule_id,
+        )
+
+        log.info(f"🧠 Engramm promoted: id={engramm_id}, capsule={capsule_id}, "
+                 f"topic='{meta.get('topic', '')[:40]}', consensus={consensus}")
+        return engramm_id
+
+    except Exception as e:
+        log.warning(f"Engramm promotion failed: {e}")
+        return None
+
+
+def extract_conclusion(summary: str, topic: str = "") -> str:
+    """Extract the core conclusion from a capsule summary.
+    
+    Deterministic extraction — identifies the final synthesis or key takeaway.
+    No LLM needed — uses structural patterns.
+    """
+    if not summary:
+        return topic if topic else "N/A"
+
+    lines = summary.strip().split('\n')
+    
+    # Look for conclusion indicators
+    conclusion_markers = [
+        'konklúzió', 'következtetés', 'tanulság', 'összegzés',
+        'ergo', 'tehát', 'összegezve', 'végeredményben',
+        'the conclusion', 'takeaway', 'in summary',
+    ]
+    
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
+        for marker in conclusion_markers:
+            if marker in line_lower:
+                # Return this line + next 2 lines as conclusion
+                conclusion_lines = lines[i:i+3]
+                return ' '.join(conclusion_lines)[:800]
+
+    # No explicit conclusion — synthesize from last 3 messages
+    # (last messages usually contain the synthesis)
+    if len(lines) >= 3:
+        last_lines = lines[-3:]
+        return f"Téma: {topic}\n" + ' '.join(last_lines)[:800] if topic else ' '.join(last_lines)[:800]
+    
+    # Fallback: return the whole summary capped
+    return summary[:800]
+
+
+def extract_tags(text: str) -> List[str]:
+    """Extract topic tags from text — simple keyword extraction."""
+    if not text:
+        return []
+    
+    # Common tech/decision keywords to tag
+    tag_keywords = {
+        'kriptográfia': ['kripto', 'shor', 'qkd', 'kvantum', 'rsa', 'titkosítás'],
+        'ai-demokrácia': ['demokratiz', 'nyílt', 'open-source', 'llm', 'model'],
+        'decentralizáció': ['decentral', 'peer', 'mesh', 'distributed'],
+        'kódolás': ['code', 'kód', 'python', 'függvény', 'function', 'class'],
+        'architektúra': ['architect', 'design', 'pattern', 'struktúra'],
+        'biztonság': ['security', 'biztonság', 'vulnerability', 'attack'],
+        'teljesítmény': ['performance', 'optim', 'latency', 'cache'],
+        'döntés': ['dönt', 'decide', 'choice', 'trade-off', 'kompromisszum'],
+        'debug': ['debug', 'hiba', 'error', 'fix', 'root cause'],
+        'skálázás': ['scale', 'skáláz', 'shard', 'replica', 'horizontal'],
+    }
+    
+    text_lower = text.lower()
+    tags = []
+    for tag, keywords in tag_keywords.items():
+        if any(kw in text_lower for kw in keywords):
+            tags.append(tag)
+    
+    return tags[:5]  # Max 5 tags
+
+
+def detect_pattern_type(text: str) -> str:
+    """Detect what type of pattern this engramm represents."""
+    if not text:
+        return 'general'
+    
+    text_lower = text.lower()
+    
+    # Code pattern — contains code indicators
+    code_indicators = ['def ', 'function', 'class ', 'import ', 'async ', 'await ', 
+                       'return ', '```', 'python', 'javascript', 'sql']
+    if any(ind in text_lower for ind in code_indicators):
+        return 'code_pattern'
+    
+    # Architectural decision
+    arch_indicators = ['architect', 'design', 'pattern', 'trade-off', 'kompromisszum',
+                       'struktúra', 'megoldás']
+    if any(ind in text_lower for ind in arch_indicators):
+        return 'architectural_decision'
+    
+    # Debugging approach
+    debug_indicators = ['root cause', 'hiba', 'fix', 'debug', 'megoldottuk']
+    if any(ind in text_lower for ind in debug_indicators):
+        return 'debugging_approach'
+    
+    # Debate conclusion
+    debate_indicators = ['konklúzió', 'konszenzus', 'egyetértettünk', 'vita']
+    if any(ind in text_lower for ind in debate_indicators):
+        return 'debate_conclusion'
+    
+    return 'general'
+
+
+async def retrieve_engramms(
+    pg_pool,
+    query_text: str,
+    limit: int = MAX_RETRIEVED_ENGRAMMS,
+    ollama_url: str = "http://localhost:11434",
+) -> List[Dict[str, Any]]:
+    """Retrieve relevant engramms by vector similarity with recency bias."""
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return []
+
+        query_embedding = await create_embedding(query_text, ollama_url)
+        if query_embedding is None:
+            return []
+
+        embed_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+        rows = await pg_pool.fetch(
+            """SELECT id, memory_key, memory_value, metadata,
+                      embedding <=> $1::vector AS distance
+               FROM mesh.mesh_memory
+               WHERE memory_type = 'engramm'
+                 AND embedding IS NOT NULL
+               ORDER BY embedding <=> $1::vector
+               LIMIT $2""",
+            embed_str,
+            limit,
+        )
+
+        engramms = []
+        now = time.time()
+        for row in rows:
+            distance = float(row['distance']) if row['distance'] else 1.0
+            similarity = 1.0 - distance
+            if similarity < ENGRAHM_RELEVANCE_THRESHOLD:
+                continue
+
+            meta = json.loads(row['metadata']) if row['metadata'] else {}
+            
+            # Recency bias — older engramms decay
+            created = meta.get('created', 0)
+            age_days = (now - created) / 86400 if created else 0
+            recency_factor = max(0.5, 1.0 - (age_days / ENGRAHM_RECENCY_DECAY_DAYS) * 0.5)
+            
+            # Adjusted score = vector similarity * recency factor
+            adjusted_score = similarity * recency_factor
+
+            engramms.append({
+                'id': row['id'],
+                'topic': meta.get('topic', ''),
+                'conclusion': row['memory_value'],
+                'agents': meta.get('agents', []),
+                'consensus': meta.get('consensus', 'unknown'),
+                'tags': meta.get('tags', []),
+                'pattern_type': meta.get('pattern_type', 'general'),
+                'similarity': similarity,
+                'adjusted_score': adjusted_score,
+                'age_days': age_days,
+            })
+
+        # Sort by adjusted score (recency-biased)
+        engramms.sort(key=lambda e: e['adjusted_score'], reverse=True)
+
+        # Update last_referenced for retrieved engramms (async, non-blocking)
+        for eng in engramms:
+            try:
+                meta_update = json.loads(
+                    (await pg_pool.fetchrow(
+                        "SELECT metadata FROM mesh.mesh_memory WHERE id = $1", eng['id']
+                    ))['metadata'] if (await pg_pool.fetchrow(
+                        "SELECT metadata FROM mesh.mesh_memory WHERE id = $1", eng['id']
+                    )) else '{}'
+                )
+                meta_update['last_referenced'] = now
+                meta_update['reference_count'] = meta_update.get('reference_count', 0) + 1
+                await pg_pool.execute(
+                    "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+                    json.dumps(meta_update), eng['id'],
+                )
+            except Exception:
+                pass  # Non-blocking — don't fail retrieval if update fails
+
+        log.info(f"🧠 Engramm retrieval: query='{query_text[:50]}', found {len(engramms)} relevant")
+        return engramms
+
+    except Exception as e:
+        log.warning(f"Engramm retrieval failed: {e}")
+        return []
+
+
+def format_engramms_for_prompt(engramms: List[Dict[str, Any]]) -> str:
+    """Format retrieved engramms for injection into agent context prompt."""
+    if not engramms:
+        return ""
+
+    lines = ["── 🧠 Régebbi gondolatok (engrammok) — közös konklúziók ──"]
+    for eng in engramms:
+        score_pct = int(eng['adjusted_score'] * 100)
+        agents_str = ', '.join(eng['agents'][:3])
+        consensus = eng['consensus']
+        tags_str = ' '.join(f"#{t}" for t in eng['tags'][:3])
+        age = f"{int(eng['age_days'])}d" if eng['age_days'] >= 1 else "friss"
+        
+        consensus_emoji = "✅" if consensus == 'high' else "🟡" if consensus == 'medium' else "🔵"
+        
+        lines.append(
+            f"{consensus_emoji} [{score_pct}%] Téma: {eng['topic']}\n"
+            f"   Résztvevők: {agents_str} | Kor: {age} | {tags_str}\n"
+            f"   Konklúzió: {eng['conclusion'][:400]}\n"
+        )
+    lines.append("── Ezek közös tanulságok. Hivatkozz rájuk, építs tovább, ne ismételd el. ──")
+    return '\n'.join(lines)
+
+
+# ── Auto skill generation from engramms ──
+
+SKILL_GENERATION_THRESHOLD = 2  # engramm must be referenced >=2 times
+SKILL_DEDUPLICATION_SIMILARITY = 0.85  # don't create skill if similar exists
+
+
+async def check_and_promote_capsules(pg_pool) -> int:
+    """Check all capsules for promotion eligibility — call periodically.
+    
+    Returns count of capsules promoted.
+    """
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return 0
+
+        # Find capsules not yet promoted
+        rows = await pg_pool.fetch(
+            """SELECT id, metadata FROM mesh.mesh_memory 
+               WHERE memory_type = 'capsule' 
+                 AND metadata NOT LIKE '%promoted_to_engramm%'
+               ORDER BY created_at DESC LIMIT 20""",
+        )
+
+        promoted = 0
+        for row in rows:
+            meta = json.loads(row['metadata']) if row['metadata'] else {}
+            if 'promoted_to_engramm' in meta:
+                continue
+            
+            age = time.time() - meta.get('created', 0)
+            retrieval_count = meta.get('retrieval_count', 0)
+            
+            if age >= ENGRAHM_MIN_AGE_SECONDS and retrieval_count >= ENGRAHM_MIN_RETRIEVALS:
+                result = await promote_capsule_to_engramm(pg_pool, row['id'])
+                if result:
+                    promoted += 1
+
+        if promoted:
+            log.info(f"🧠 Batch promotion: {promoted} capsules → engramms")
+        return promoted
+
+    except Exception as e:
+        log.warning(f"Batch capsule promotion failed: {e}")
+        return 0
+
+
+async def auto_generate_skill(pg_pool, engramm_id: int) -> Optional[str]:
+    """Auto-generate a SKILL.md from a mature, well-referenced engramm.
+    
+    Conditions:
+    - Engramm reference_count >= SKILL_GENERATION_THRESHOLD
+    - No similar skill already exists (dedup by similarity)
+    - Pattern type is code_pattern, architectural_decision, or debugging_approach
+    """
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return None
+
+        row = await pg_pool.fetchrow(
+            """SELECT id, memory_key, memory_value, metadata, embedding
+               FROM mesh.mesh_memory WHERE id = $1 AND memory_type = 'engramm'""",
+            engramm_id,
+        )
+        if not row:
+            return None
+
+        meta = json.loads(row['metadata']) if row['metadata'] else {}
+        ref_count = meta.get('reference_count', 0)
+        pattern_type = meta.get('pattern_type', 'general')
+
+        if ref_count < SKILL_GENERATION_THRESHOLD:
+            return None
+
+        # Only generate skills for actionable patterns
+        if pattern_type not in ('code_pattern', 'architectural_decision', 'debugging_approach'):
+            return None
+
+        # Check for existing similar skill
+        if row['embedding']:
+            embed_str = str(row['embedding'])
+            existing = await pg_pool.fetchrow(
+                """SELECT id FROM mesh.mesh_memory 
+                   WHERE memory_type = 'skill_seed'
+                     AND embedding IS NOT NULL
+                     AND embedding <=> $1::vector < $2
+                   LIMIT 1""",
+                embed_str, 1.0 - SKILL_DEDUPLICATION_SIMILARITY,
+            )
+            if existing:
+                log.info(f"🔧 Skill generation: dedup — similar skill exists for engramm {engramm_id}")
+                return None
+
+        # Generate SKILL.md content
+        topic = meta.get('topic', 'ismeretlen')
+        conclusion = row['memory_value']
+        agents = meta.get('agents', [])
+        tags = meta.get('tags', [])
+
+        skill_name = f"mesh-{pattern_type}-{topic[:30].lower().replace(' ', '-')}"
+        skill_name = skill_name.replace('--', '-').strip('-')[:60]
+
+        skill_md = generate_skill_md(skill_name, topic, conclusion, agents, tags, pattern_type)
+
+        # Store as skill_seed
+        skill_meta = json.dumps({
+            'skill_name': skill_name,
+            'source_engramm_id': engramm_id,
+            'pattern_type': pattern_type,
+            'topic': topic,
+            'created': time.time(),
+            'reference_count': ref_count,
+        })
+
+        if row['embedding']:
+            skill_row = await pg_pool.fetchrow(
+                """INSERT INTO mesh.mesh_memory
+                   (memory_key, memory_value, source_agent, target_agent,
+                    memory_type, priority, metadata, embedding)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)
+                   RETURNING id""",
+                f"skill_seed:{skill_name}",
+                skill_md,
+                agents[0] if agents else 'mesh',
+                'all',
+                'skill_seed',
+                7,  # High priority
+                skill_meta,
+                str(row['embedding']),
+            )
+        else:
+            skill_row = await pg_pool.fetchrow(
+                """INSERT INTO mesh.mesh_memory
+                   (memory_key, memory_value, source_agent, target_agent,
+                    memory_type, priority, metadata)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   RETURNING id""",
+                f"skill_seed:{skill_name}",
+                skill_md,
+                agents[0] if agents else 'mesh',
+                'all',
+                'skill_seed',
+                7,
+                skill_meta,
+            )
+
+        skill_id = skill_row['id'] if skill_row else None
+        log.info(f"🔧 Auto-skill generated: id={skill_id}, name='{skill_name}', "
+                 f"pattern={pattern_type}, refs={ref_count}")
+        return skill_md
+
+    except Exception as e:
+        log.warning(f"Auto skill generation failed: {e}")
+        return None
+
+
+def generate_skill_md(name: str, topic: str, conclusion: str, 
+                      agents: List[str], tags: List[str], pattern_type: str) -> str:
+    """Generate a SKILL.md content from an engramm."""
+    tags_str = ', '.join(tags) if tags else 'mesh-generated'
+    agents_str = ', '.join(agents) if agents else 'mesh'
+    
+    trigger_map = {
+        'code_pattern': f'Use when encountering a similar coding problem related to: {topic}',
+        'architectural_decision': f'Use when making architectural decisions about: {topic}',
+        'debugging_approach': f'Use when debugging issues related to: {topic}',
+        'debate_conclusion': f'Use when discussing: {topic}',
+        'general': f'Use when working on: {topic}',
+    }
+    
+    trigger = trigger_map.get(pattern_type, trigger_map['general'])
+    
+    return f"""---
+name: {name}
+description: {trigger}. Auto-generated from mesh conversation engramm.
+category: mesh-generated
+tags: [{tags_str}]
+---
+
+# {name}
+
+## Trigger
+{trigger}
+
+## Context
+This skill was auto-generated from a mesh conversation between: {agents_str}
+
+## Konklúzió
+{conclusion}
+
+## Alkalmazás
+1. Felismerd a pattern-t a jelenlegi feladatban
+2. Ellenőrizd hogy a konklúzió releváns-e a kontextushoz
+3. Alkalmazd a tanulságot — de igazítsd az adott helyzethez
+4. Ha működik, erősítsd meg; ha nem, javítsd és frissítsd ezt a skill-t
+
+## Forrás
+- Típus: {pattern_type}
+- Résztvevők: {agents_str}
+- Tags: {tags_str}
+- Generálva: {time.strftime('%Y-%m-%d', time.gmtime())}
+"""
+
+
+async def check_and_generate_skills(pg_pool) -> int:
+    """Check all engramms for skill generation eligibility — call periodically."""
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return 0
+
+        # Find engramms not yet turned into skills, with enough references
+        rows = await pg_pool.fetch(
+            """SELECT id, metadata FROM mesh.mesh_memory 
+               WHERE memory_type = 'engramm'
+                 AND metadata NOT LIKE '%skill_generated%'
+               ORDER BY created_at DESC LIMIT 20""",
+        )
+
+        generated = 0
+        for row in rows:
+            meta = json.loads(row['metadata']) if row['metadata'] else {}
+            if 'skill_generated' in meta:
+                continue
+
+            ref_count = meta.get('reference_count', 0)
+            pattern_type = meta.get('pattern_type', 'general')
+
+            if ref_count >= SKILL_GENERATION_THRESHOLD and pattern_type in (
+                'code_pattern', 'architectural_decision', 'debugging_approach'
+            ):
+                skill_md = await auto_generate_skill(pg_pool, row['id'])
+                if skill_md:
+                    # Mark engramm as skill-generated
+                    meta['skill_generated'] = True
+                    await pg_pool.execute(
+                        "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+                        json.dumps(meta), row['id'],
+                    )
+                    generated += 1
+
+        if generated:
+            log.info(f"🔧 Batch skill generation: {generated} skills from engramms")
+        return generated
+
+    except Exception as e:
+        log.warning(f"Batch skill generation failed: {e}")
+        return 0
+
+
+async def increment_capsule_retrieval_count(pg_pool, capsule_id: int):
+    """Increment retrieval count for a capsule — called when capsule is retrieved."""
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return
+
+        row = await pg_pool.fetchrow(
+            "SELECT metadata FROM mesh.mesh_memory WHERE id = $1", capsule_id,
+        )
+        if not row:
+            return
+
+        meta = json.loads(row['metadata']) if row['metadata'] else {}
+        meta['retrieval_count'] = meta.get('retrieval_count', 0) + 1
+        await pg_pool.execute(
+            "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+            json.dumps(meta), capsule_id,
+        )
+    except Exception:
+        pass  # Non-blocking
