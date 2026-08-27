@@ -1301,9 +1301,55 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         username = payload.get("username", "") or message.sender
 
         # ── In-memory directive counter update ──
-        # Topic switch detection — reset counters
-        is_new_topic = any(marker in content for marker in ['🔔', 'ÚJ TÉMA', 'mode:', 'SZEREP', 'SZABÁLY'])
+        # Topic switch detection — reset counters + create capsule from previous topic
+        is_new_topic = any(marker in content for marker in TOPIC_SWITCH_MARKERS)
         if is_new_topic:
+            # Create capsule from previous conversation BEFORE resetting
+            try:
+                prev_history = self._fetch_chat_history(limit=20, channel="general")
+                prev_msgs = []
+                for h in prev_history:
+                    h_content = h.get('content', '')
+                    if any(marker in h_content for marker in TOPIC_SWITCH_MARKERS):
+                        break
+                    prev_msgs.append(h)
+                
+                if len(prev_msgs) >= 4:
+                    # Extract topic
+                    prev_topic = "ismeretlen téma"
+                    for h in reversed(prev_msgs):
+                        topic = extract_topic_from_prompt(h.get('content', ''))
+                        if topic:
+                            prev_topic = topic
+                            break
+                    if not prev_topic or prev_topic == "ismeretlen téma":
+                        texts = [h.get('content', '')[:100] for h in prev_msgs[:3]]
+                        prev_topic = ' '.join(texts)[:200]
+                    
+                    summary_msgs = [{'sender': h.get('sender', '?'), 'text': h.get('content', '')} for h in prev_msgs]
+                    summary = summarize_conversation(summary_msgs)
+                    
+                    agent_names_tmp = set()
+                    try:
+                        for name, _ in self.node.peer_discovery.get_all_peers().items():
+                            agent_names_tmp.add(name.lower())
+                    except Exception:
+                        pass
+                    agent_names_tmp.add(self.node.node_name.lower())
+                    agents_involved = list(set(h.get('sender', '') for h in prev_msgs if h.get('sender', '').lower() in agent_names_tmp))
+                    
+                    pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                    if pg_pool:
+                        msg_ids = [h.get('id', 0) for h in prev_msgs]
+                        asyncio.ensure_future(store_capsule(
+                            pg_pool, prev_topic, summary, agents_involved,
+                            min(msg_ids) if msg_ids else 0,
+                            max(msg_ids) if msg_ids else 0,
+                        ))
+                        log.info(f"📚 Capsule creation triggered for topic '{prev_topic[:50]}' ({len(prev_msgs)} msgs)")
+            except Exception as e:
+                log.warning(f"Capsule creation failed (non-blocking): {e}")
+
             self._agent_msg_counts = {}
             self._total_agent_msgs = 0
             log.info("📊 Directive counters reset (topic switch detected)")
@@ -1454,8 +1500,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         history_limit = 0 if is_topic_switch else 20
         history = self._fetch_chat_history(limit=history_limit, channel=channel) if history_limit > 0 else []
 
-        # ── Topic switch: create capsule from previous conversation ──
-        # Known agent names — needed for capsule and prompt
+        # Known agent names — needed for prompt
         agent_names = set()
         try:
             for name, _ in self.node.peer_discovery.get_all_peers().items():
@@ -1464,51 +1509,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             pass
         agent_names.add(self.node.node_name.lower())
 
-        if is_topic_switch:
-            # Fetch the PREVIOUS topic's messages (before this switch)
-            prev_history = self._fetch_chat_history(limit=20, channel=channel)
-            # Filter out the switch message itself and anything after it
-            prev_msgs = []
-            for h in prev_history:
-                h_content = h.get('content', '')
-                if any(marker in h_content for marker in TOPIC_SWITCH_MARKERS):
-                    break  # Stop at the switch message
-                prev_msgs.append(h)
-            
-            if len(prev_msgs) >= 4:  # Only capsule if meaningful conversation
-                # Extract topic from the LAST switch marker in history, or use "unknown"
-                prev_topic = "ismeretlen téma"
-                for h in reversed(prev_msgs):
-                    h_content = h.get('content', '')
-                    topic = extract_topic_from_prompt(h_content)
-                    if topic:
-                        prev_topic = topic
-                        break
-                if not prev_topic or prev_topic == "ismeretlen téma":
-                    # Try to derive from content
-                    texts = [h.get('content', '')[:100] for h in prev_msgs[:3]]
-                    prev_topic = ' '.join(texts)[:200]
-                
-                # Build summary
-                summary_msgs = [{'sender': h.get('sender', '?'), 'text': h.get('content', '')} for h in prev_msgs]
-                summary = summarize_conversation(summary_msgs)
-                
-                # Get agent list
-                agents_involved = list(set(h.get('sender', '') for h in prev_msgs if h.get('sender', '').lower() in agent_names))
-                
-                # Store capsule async (don't block the prompt)
-                try:
-                    pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
-                    if pg_pool:
-                        msg_ids = [h.get('id', 0) for h in prev_msgs]
-                        asyncio.ensure_future(store_capsule(
-                            pg_pool, prev_topic, summary, agents_involved,
-                            min(msg_ids) if msg_ids else 0,
-                            max(msg_ids) if msg_ids else 0,
-                        ))
-                        log.info(f"📚 Capsule creation triggered for topic '{prev_topic[:50]}' ({len(prev_msgs)} msgs)")
-                except Exception as e:
-                    log.warning(f"Capsule creation failed (non-blocking): {e}")
+        # NOTE: Capsule creation is handled in on_mesh_message (async) — not here (sync)
 
         # Build conversation context — show full history so agent can check for duplicates
         if history:
