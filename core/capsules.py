@@ -691,7 +691,7 @@ async def check_and_promote_capsules(pg_pool) -> int:
         rows = await pg_pool.fetch(
             """SELECT id, metadata FROM mesh.mesh_memory 
                WHERE memory_type = 'capsule' 
-                 AND metadata NOT LIKE '%promoted_to_engramm%'
+                 AND NOT (metadata::text LIKE '%promoted_to_engramm%')
                ORDER BY created_at DESC LIMIT 20""",
         )
 
@@ -885,7 +885,7 @@ async def check_and_generate_skills(pg_pool) -> int:
         rows = await pg_pool.fetch(
             """SELECT id, metadata FROM mesh.mesh_memory 
                WHERE memory_type = 'engramm'
-                 AND metadata NOT LIKE '%skill_generated%'
+                 AND NOT (metadata::text LIKE '%skill_generated%')
                ORDER BY created_at DESC LIMIT 20""",
         )
 

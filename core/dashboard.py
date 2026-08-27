@@ -1307,6 +1307,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Topic switch detection — reset counters + create capsule from previous topic
         is_new_topic = any(marker in content for marker in TOPIC_SWITCH_MARKERS)
         if is_new_topic:
+            log.info(f"🔔 Topic switch detected in on_mesh_message — creating capsule from previous conversation")
             # Create capsule from previous conversation BEFORE resetting
             try:
                 prev_history = self._fetch_chat_history(limit=20, channel="general")
