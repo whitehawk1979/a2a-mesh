@@ -8566,3 +8566,90 @@ function approveKanbanCard(cardId) {
     }
   });
 }
+
+// ─── Reflections (Esmefuttatasok) ──────────────────────────
+
+var _reflAllData = [];
+var _reflActiveFilter = "";
+
+function showReflections() {
+  document.getElementById("reflectionsModal").style.display = "flex";
+  _reflActiveFilter = "";
+  loadReflections();
+}
+
+function loadReflections() {
+  var url = "/api/reflections?limit=100";
+  if (_reflActiveFilter) url += "&type=" + encodeURIComponent(_reflActiveFilter);
+  fetch(url, {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        document.getElementById("reflectionsContent").innerHTML = '<div style="color:var(--danger);padding:20px">Hiba: ' + escapeHtml(d.error) + '</div>';
+        return;
+      }
+      _reflAllData = d.reflections || [];
+      renderReflections();
+    })
+    .catch(function() {
+      document.getElementById("reflectionsContent").innerHTML = '<div style="color:var(--danger);padding:20px">Hiba a betöltéskor</div>';
+    });
+}
+
+function renderReflections() {
+  var data = _reflAllData;
+  var el = document.getElementById("reflectionsContent");
+  var statsEl = document.getElementById("reflStats");
+  var filtersEl = document.getElementById("reflFilters");
+
+  // Stats
+  var typeCounts = {};
+  data.forEach(function(r) {
+    (r.types || []).forEach(function(t) { typeCounts[t] = (typeCounts[t] || 0) + 1; });
+  });
+  var statsHtml = '<span>📊 Összes: <b>' + data.length + '</b></span>';
+  Object.keys(typeCounts).forEach(function(t) {
+    var emoji = {"stagnation":"🔄","consensus":"🤝","blind_spot":"🔍","tension":"⚡","progress":"📈"}[t] || "📊";
+    statsHtml += '<span>' + emoji + ' ' + t + ': <b>' + typeCounts[t] + '</b></span>';
+  });
+  statsEl.innerHTML = statsHtml;
+
+  // Filter buttons
+  var filterHtml = '<button class="btn btn-sm" style="' + (!_reflActiveFilter ? "background:var(--primary)" : "") + '" onclick="_reflActiveFilter=\'\';loadReflections()">Mind</button>';
+  ["stagnation","consensus","blind_spot","tension","progress"].forEach(function(t) {
+    var emoji = {"stagnation":"🔄","consensus":"🤝","blind_spot":"🔍","tension":"⚡","progress":"📈"}[t] || "📊";
+    filterHtml += '<button class="btn btn-sm" style="' + (_reflActiveFilter === t ? "background:var(--primary)" : "") + '" onclick="_reflActiveFilter=\'' + t + '\';loadReflections()">' + emoji + ' ' + t + '</button>';
+  });
+  filtersEl.innerHTML = filterHtml;
+
+  // Content
+  if (data.length === 0) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:40px">Nincsenek eszmefuttatások</div>';
+    return;
+  }
+
+  el.innerHTML = data.map(function(r) {
+    var typeBadges = (r.types || []).map(function(t) {
+      var emoji = {"stagnation":"🔄","consensus":"🤝","blind_spot":"🔍","tension":"⚡","progress":"📈"}[t] || "📊";
+      var color = {"stagnation":"var(--warning)","consensus":"var(--success)","blind_spot":"var(--info)","tension":"var(--danger)","progress":"var(--primary)"}[t] || "var(--text3)";
+      return '<span style="background:' + color + '20;color:' + color + ';padding:2px 8px;border-radius:4px;font-size:11px;margin-right:4px">' + emoji + ' ' + t + '</span>';
+    }).join("");
+
+    var agents = (r.agents || []).map(function(a) { return '<span style="color:var(--text3);font-size:11px">@' + escapeHtml(a) + '</span>'; }).join(" ");
+    var time = r.created_at ? new Date(r.created_at).toLocaleString("hu-HU") : "";
+
+    return '<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;background:var(--surface2)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:6px">' +
+        '<div>' + typeBadges + '</div>' +
+        '<span style="font-size:11px;color:var(--text3)">' + time + '</span>' +
+      '</div>' +
+      '<div style="font-size:13px;color:var(--text2);margin-bottom:4px">📌 ' + escapeHtml(r.topic || 'ismeretlen') + '</div>' +
+      '<div style="font-size:13px;line-height:1.5;color:var(--text)">' + escapeHtml(r.analysis || '') + '</div>' +
+      (agents ? '<div style="margin-top:6px">' + agents + '</div>' : '') +
+    '</div>';
+  }).join("");
+}
+
+function exportReflections() {
+  window.open("/api/reflections/export?token=" + encodeURIComponent(localStorage.getItem("mesh_token") || ""), "_blank");
+}

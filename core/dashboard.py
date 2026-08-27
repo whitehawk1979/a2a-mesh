@@ -412,6 +412,9 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/queue/flush", self._api_queue_flush)
         app.router.add_post("/api/queue/cleanup", self._api_queue_cleanup)
         app.router.add_get("/api/queue/stats", self._api_queue_stats)
+        # Reflections (eszmefuttatasok)
+        app.router.add_get("/api/reflections", self._api_reflections)
+        app.router.add_get("/api/reflections/export", self._api_reflections_export)
         # Delegation endpoints
         app.router.add_get("/api/delegations", self._api_delegations_list)
         app.router.add_post("/api/delegations", self._api_delegations_create)

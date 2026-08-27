@@ -3115,7 +3115,110 @@ class DashboardAdminMixin:
             log.error(f"Queue stats API error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
-    # ── Log Viewer API ──
+    # ── Reflections (Esmefuttatasok) API ──
+
+    async def _api_reflections(self, request):
+        """Get reflections from mesh_memory. GET /api/reflections?limit=50&type=stagnation
+        
+        Query params:
+            limit: max results (default 50, max 200)
+            type: filter by reflection type (stagnation, consensus, blind_spot, tension, progress)
+        """
+        from aiohttp import web
+        try:
+            limit = min(int(request.query.get("limit", "50")), 200)
+            type_filter = request.query.get("type", "")
+
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG not available"}, status=503)
+
+            if type_filter:
+                rows = await pool.fetch(
+                    """SELECT id, memory_key, memory_value, metadata, created_at
+                       FROM mesh.mesh_memory
+                       WHERE memory_type = 'reflection'
+                         AND metadata::text LIKE $1
+                       ORDER BY created_at DESC LIMIT $2""",
+                    f'%"{type_filter}"%', limit,
+                )
+            else:
+                rows = await pool.fetch(
+                    """SELECT id, memory_key, memory_value, metadata, created_at
+                       FROM mesh.mesh_memory
+                       WHERE memory_type = 'reflection'
+                       ORDER BY created_at DESC LIMIT $1""",
+                    limit,
+                )
+
+            reflections = []
+            for row in rows:
+                import json as _json
+                meta = _json.loads(row['metadata']) if row['metadata'] else {}
+                reflections.append({
+                    "id": row['id'],
+                    "topic": meta.get('topic', ''),
+                    "analysis": row['memory_value'],
+                    "types": meta.get('reflection_types', []),
+                    "agents": meta.get('agents', []),
+                    "msg_count": meta.get('msg_count', 0),
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else '',
+                })
+
+            return web.json_response({
+                "reflections": reflections,
+                "count": len(reflections),
+            })
+        except Exception as e:
+            log.error(f"Reflections API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_reflections_export(self, request):
+        """Export all reflections as JSON download. GET /api/reflections/export"""
+        from aiohttp import web
+        try:
+            pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if not pool or not hasattr(pool, 'is_connected') or not pool.is_connected():
+                return web.json_response({"error": "PG not available"}, status=503)
+
+            rows = await pool.fetch(
+                """SELECT id, memory_key, memory_value, metadata, created_at
+                   FROM mesh.mesh_memory
+                   WHERE memory_type = 'reflection'
+                   ORDER BY created_at DESC LIMIT 500""",
+            )
+
+            import json as _json, time as _time
+            reflections = []
+            for row in rows:
+                meta = _json.loads(row['metadata']) if row['metadata'] else {}
+                reflections.append({
+                    "id": row['id'],
+                    "topic": meta.get('topic', ''),
+                    "analysis": row['memory_value'],
+                    "types": meta.get('reflection_types', []),
+                    "agents": meta.get('agents', []),
+                    "msg_count": meta.get('msg_count', 0),
+                    "created_at": row['created_at'].isoformat() if row['created_at'] else '',
+                })
+
+            export_data = _json.dumps({
+                "exportedAt": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                "source": "nova",
+                "count": len(reflections),
+                "reflections": reflections,
+            }, indent=2, ensure_ascii=False)
+
+            return web.Response(
+                text=export_data,
+                content_type="application/json",
+                headers={
+                    "Content-Disposition": f"attachment; filename=reflections_export_{_time.strftime('%Y%m%d_%H%M%S')}.json"
+                },
+            )
+        except Exception as e:
+            log.error(f"Reflections export API error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
 
     async def _api_logs(self, request):
         """Central log viewer. GET /api/logs?type=delegation&limit=50&status=failed
