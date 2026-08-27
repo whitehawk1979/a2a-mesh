@@ -301,11 +301,11 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 300 karakter)."},
-                        {"role": "user", "content": content[:500]}
+                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, ne válaszolj."},
+                        {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
-                    "options": {"temperature": 0.7, "num_predict": 800}
+                    "options": {"temperature": 0.8, "num_predict": 1000}
                 }
                 
                 async with _aiohttp_ollama.ClientSession() as sess:
