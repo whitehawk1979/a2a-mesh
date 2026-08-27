@@ -123,6 +123,12 @@ class DashboardAgentsMixin:
             log.info(f"Skipping self-wake: DM to {recipient} (not self)")
         
         if wake_self:
+            # Hard limit: skip self-wake if agent already sent MAX_MSG_PER_AGENT
+            MAX_MSG_PER_AGENT = 3
+            my_count = self._agent_msg_counts.get(self.node.node_name.lower(), 0)
+            if my_count >= MAX_MSG_PER_AGENT:
+                log.info(f"🚫 Hard limit: skipping self-wake for {self.node.node_name} (already sent {my_count} msgs)")
+                wake_self = False
             total = 1 + len(peer_targets)  # self + peers
             log.info(f"Waking {total} agent(s): self (CLI) + {len(peer_targets)} peers (wake-agent API)")
             asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
@@ -131,6 +137,12 @@ class DashboardAgentsMixin:
         
         # Wake peers via wake-agent API (HTTP POST to peer's mesh node)
         for agent_name, wake_url in peer_targets:
+            # Hard limit: skip peer-wake if agent already sent MAX_MSG_PER_AGENT
+            MAX_MSG_PER_AGENT = 3
+            peer_count = self._agent_msg_counts.get(agent_name.lower(), 0)
+            if peer_count >= MAX_MSG_PER_AGENT:
+                log.info(f"🚫 Hard limit: skipping wake for {agent_name} (already sent {peer_count} msgs)")
+                continue
             asyncio.ensure_future(self._call_wake_agent_api(agent_name, wake_url, payload, message))
 
         # Start background tasks: poll for agent reply + cleanup timeout
