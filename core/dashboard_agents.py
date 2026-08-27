@@ -308,7 +308,7 @@ class DashboardAgentsMixin:
                 log.info(f"Skipping self-wake: message from {sender} (self)")
                 return
             
-            # Pre-fetch memory capsules + engramms for context (async, before sync prompt build)
+            # Pre-fetch memory capsules + engramms + reflections for context (async, before sync prompt build)
             try:
                 pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in content for marker in TOPIC_SWITCH_MARKERS):
@@ -318,12 +318,20 @@ class DashboardAgentsMixin:
                     # Engramms (matured conclusions — "régebbi gondolatok")
                     engramms = await retrieve_engramms(pg_pool, content[:500])
                     self._current_engramms = format_engramms_for_prompt(engramms)
+                    # Reflections (past meta-analyses)
+                    from .reflection import retrieve_reflections, format_past_reflections_for_prompt
+                    past_reflections = await retrieve_reflections(pg_pool, content[:500])
+                    if past_reflections:
+                        existing_refl = getattr(self, '_current_reflection', '')
+                        refl_text = format_past_reflections_for_prompt(past_reflections)
+                        self._current_reflection = f"{existing_refl}\n\n{refl_text}" if existing_refl else refl_text
                     # Periodic batch promotion + skill generation (non-blocking)
                     asyncio.ensure_future(check_and_promote_capsules(pg_pool))
                     asyncio.ensure_future(check_and_generate_skills(pg_pool))
                 else:
                     self._current_capsules = ''
                     self._current_engramms = ''
+                    self._current_reflection = ''
             except Exception as e:
                 log.warning(f"Memory pre-fetch failed (non-blocking): {e}")
                 self._current_capsules = ''
@@ -823,7 +831,7 @@ class DashboardAgentsMixin:
             self._wake_agent_in_progress = True
             self._wake_agent_start_time = now
             
-            # Pre-fetch memory capsules + engramms for this peer's context
+            # Pre-fetch memory capsules + engramms + reflections for this peer's context
             try:
                 pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
@@ -831,12 +839,18 @@ class DashboardAgentsMixin:
                     capsule_text = format_capsules_for_prompt(capsules)
                     engramms = await retrieve_engramms(pg_pool, prompt[:500])
                     engramm_text = format_engramms_for_prompt(engramms)
-                    # Inject both capsules and engramms before the prompt
+                    # Reflections (past meta-analyses)
+                    from .reflection import retrieve_reflections, format_past_reflections_for_prompt
+                    past_reflections = await retrieve_reflections(pg_pool, prompt[:500])
+                    reflection_text = format_past_reflections_for_prompt(past_reflections)
+                    # Inject all memory layers before the prompt
                     memory_prefix = ""
                     if engramm_text:
                         memory_prefix += f"{engramm_text}\n\n"
                     if capsule_text:
                         memory_prefix += f"{capsule_text}\n\n"
+                    if reflection_text:
+                        memory_prefix += f"{reflection_text}\n\n"
                     if memory_prefix:
                         prompt = f"{memory_prefix}{prompt}"
                     # Periodic batch promotion + skill generation

@@ -1372,6 +1372,40 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             self._total_agent_msgs += 1
             log.info(f"📊 Directive counter: {message.sender}={self._agent_msg_counts[message.sender.lower()]} total={self._total_agent_msgs}")
 
+            # ── Reflection cycle — every N agent messages ──
+            from .reflection import run_reflection_cycle, retrieve_reflections, format_past_reflections_for_prompt
+            if self._total_agent_msgs % 5 == 0 and self._total_agent_msgs >= 5:
+                try:
+                    # Get recent conversation history
+                    recent_history = self._fetch_chat_history(limit=15, channel="general")
+                    if recent_history and len(recent_history) >= 3:
+                        # Extract topic from recent messages
+                        ref_topic = "ismeretlen"
+                        for h in reversed(recent_history):
+                            t = extract_topic_from_prompt(h.get('content', ''))
+                            if t:
+                                ref_topic = t
+                                break
+
+                        # Get agents involved
+                        ref_agents = list(set(h.get('sender', '') for h in recent_history if h.get('sender', '')))
+
+                        pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                        if pg_pool:
+                            # Run reflection cycle (deterministic + optional deep LLM)
+                            ref_msgs = [{'sender': h.get('sender', ''), 'content': h.get('content', '')} for h in recent_history]
+                            ref_prompt, ref_id = await run_reflection_cycle(
+                                pg_pool, ref_msgs, ref_topic, ref_agents,
+                                ollama_url="http://localhost:11434",
+                                enable_deep=True,
+                            )
+                            if ref_prompt:
+                                # Store for injection into next agent wake
+                                self._current_reflection = ref_prompt
+                                log.info(f"🔍 Reflection cycle complete: id={ref_id}, injected into next prompt")
+                except Exception as e:
+                    log.warning(f"Reflection cycle failed (non-blocking): {e}")
+
         self._message_history.append({
             "id": message.id,
             "sender": message.sender,
@@ -1577,14 +1611,17 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 f"{self_regulation}\n{anti_echo}"
             )
 
-        # ── Retrieve relevant memory capsules + engramms (sync — pre-fetched by caller) ──
+        # ── Retrieve relevant memory capsules + engramms + reflections (sync — pre-fetched by caller) ──
         capsule_context = getattr(self, '_current_capsules', '')
         engramm_context = getattr(self, '_current_engramms', '')
+        reflection_context = getattr(self, '_current_reflection', '')
         memory_block = ""
         if engramm_context:
             memory_block += f"{engramm_context}\n\n"
         if capsule_context:
             memory_block += f"{capsule_context}\n\n"
+        if reflection_context:
+            memory_block += f"{reflection_context}\n\n"
         prompt = (
             f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevője. "
             f"Ez egy közös chat session, mint egy Telegram csoport. "
