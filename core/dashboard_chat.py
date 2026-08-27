@@ -122,47 +122,40 @@ async def handle_chat_send(node, request, pool, user):
             is_topic_switch = any(marker in content for marker in TOPIC_SWITCH_MARKERS)
             if is_topic_switch:
                 log.info(f"🔔 Topic switch detected in chat_send — creating capsule")
-                import asyncio as _aio_cs
-                async def _create_capsule():
-                    try:
-                        # Fetch previous messages from PG
-                        rows = await pool.fetch(
-                            """SELECT sender, content FROM mesh.mesh_chat_messages
-                               WHERE msg_type = 'chat' AND status = 'sent'
-                               ORDER BY created_at DESC LIMIT 20"""
-                        )
-                        prev_msgs = []
-                        for row in rows:
-                            row_content = row['content'] or ''
-                            if any(marker in row_content for marker in TOPIC_SWITCH_MARKERS):
+                try:
+                    # Fetch previous messages from PG
+                    rows = await pool.fetch(
+                        """SELECT sender, content FROM mesh.mesh_chat_messages
+                           WHERE msg_type = 'chat' AND status = 'sent'
+                             AND content NOT LIKE '%🔔%'
+                           ORDER BY created_at DESC LIMIT 20"""
+                    )
+                    prev_msgs = []
+                    for row in reversed(rows):  # Reverse to chronological
+                        prev_msgs.append({'sender': row['sender'], 'content': row['content'] or ''})
+
+                    if len(prev_msgs) >= 2:
+                        prev_topic = "ismeretlen téma"
+                        for h in reversed(prev_msgs):
+                            topic = extract_topic_from_prompt(h.get('content', ''))
+                            if topic:
+                                prev_topic = topic
                                 break
-                            prev_msgs.append({'sender': row['sender'], 'content': row_content})
+                        if not prev_topic or prev_topic == "ismeretlen téma":
+                            texts = [h.get('content', '')[:100] for h in prev_msgs[:3]]
+                            prev_topic = ' '.join(texts)[:200]
 
-                        if len(prev_msgs) >= 4:
-                            # Extract topic from previous switch marker
-                            prev_topic = "ismeretlen téma"
-                            for h in reversed(prev_msgs):
-                                topic = extract_topic_from_prompt(h.get('content', ''))
-                                if topic:
-                                    prev_topic = topic
-                                    break
-                            if not prev_topic or prev_topic == "ismeretlen téma":
-                                texts = [h.get('content', '')[:100] for h in prev_msgs[:3]]
-                                prev_topic = ' '.join(texts)[:200]
+                        summary_msgs = [{'sender': h.get('sender', '?'), 'text': h.get('content', '')} for h in prev_msgs]
+                        summary = summarize_conversation(summary_msgs)
+                        agents_involved = list(set(h.get('sender', '') for h in prev_msgs if h.get('sender', '').lower() in ('nova', 'morzsa', 'runa')))
 
-                            summary_msgs = [{'sender': h.get('sender', '?'), 'text': h.get('content', '')} for h in prev_msgs]
-                            summary = summarize_conversation(summary_msgs)
-
-                            agents_involved = list(set(h.get('sender', '') for h in prev_msgs if h.get('sender', '').lower() in ('nova', 'morzsa', 'runa')))
-
-                            await store_capsule(
-                                pool, prev_topic, summary, agents_involved,
-                                0, 0,
-                            )
-                            log.info(f"📚 Capsule created in chat_send for topic '{prev_topic[:50]}' ({len(prev_msgs)} msgs)")
-                    except Exception as e:
-                        log.warning(f"Capsule creation in chat_send failed (non-blocking): {e}")
-                _aio_cs.create_task(_create_capsule())
+                        await store_capsule(
+                            pool, prev_topic, summary, agents_involved,
+                            0, 0,
+                        )
+                        log.info(f"📚 Capsule created in chat_send for topic '{prev_topic[:50]}' ({len(prev_msgs)} msgs)")
+                except Exception as e:
+                    log.warning(f"Capsule creation in chat_send failed: {e}")
 
             import asyncio as _aio
 
