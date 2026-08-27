@@ -1438,16 +1438,15 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                               reply_endpoint: str, mesh_msg_id: str,
                               channel: str = "general") -> str:
         """Build a prompt with full chat context for the agent.
-
-        The agent sees the recent conversation history + the new message,
-        like a Telegram group chat. It can reply via curl to reply_endpoint.
         
-        Topic detection: if content contains '🔔' or 'mode:' or 'ÚJ TÉMA',
-        the chat history is cleared to force a topic switch.
+        Self-regulating approach: the agent sees the full conversation and
+        decides for itself whether to reply, how much to say, and whether
+        its point has already been made by someone else.
         """
         # Topic switch detection — clear history to break echo chamber loops
         is_topic_switch = any(marker in content for marker in ['🔔', 'ÚJ TÉMA', 'mode:', 'SZEREP', 'SZABÁLY'])
-        history_limit = 0 if is_topic_switch else 10
+        # Use 20 messages for richer context — agent needs to see what's already been said
+        history_limit = 0 if is_topic_switch else 20
         history = self._fetch_chat_history(limit=history_limit, channel=channel) if history_limit > 0 else []
 
         # Known agent names
@@ -1459,88 +1458,74 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             pass
         agent_names.add(self.node.node_name.lower())
 
-        # Build conversation context
+        # Build conversation context — show full history so agent can check for duplicates
         if history:
             chat_lines = []
             for h in history:
                 h_sender = h.get('sender', '?')
-                h_content = h.get('content', '')[:200]
+                h_content = h.get('content', '')[:300]
                 if h_sender.lower() in agent_names or h_sender.lower() in ('nova', 'morzsa', 'runa'):
                     chat_lines.append(f"  [{h_sender} 🤖] {h_content}")
                 else:
                     chat_lines.append(f"  [{h_sender} 👤] {h_content}")
-            chat_context = "\n".join(chat_lines[-8:])
+            chat_context = "\n".join(chat_lines)
         else:
             chat_context = "(nincs előzmény — új téma)"
 
         is_human = sender.lower() not in agent_names and sender.lower() not in ('nova', 'morzsa', 'runa')
         sender_tag = f"{sender} 👤 emberi felhasználó" if is_human else f"{sender} 🤖 agent"
 
-        # ── Directive system: anti-spam + auto-summary (in-memory counters) ──
-        MAX_MSG_PER_AGENT = 3      # Max messages per agent per topic
-        SUMMARY_THRESHOLD = 9      # Auto-summary after this many agent messages
-        FINAL_SUMMARY_THRESHOLD = 12  # Force final summary
+        # Count how many times this agent has already spoken (from history)
+        my_msgs = [h for h in history if h.get('sender', '').lower() == agent_name.lower()]
+        my_msg_count = len(my_msgs)
 
-        # Use in-memory counters for real-time accuracy (PG history lags behind)
-        my_count = self._agent_msg_counts.get(agent_name.lower(), 0)
-        total_agent_count = self._total_agent_msgs
+        # ── Self-regulating system prompt ──
+        # No external hard limit — the agent decides based on context quality
+        self_regulation = (
+            "ÖNSZABÁLYOZÁS — Te döntöd el, válaszolsz-e:\n"
+            "1. OLVASD EL a fenti beszélgetést figyelmesen.\n"
+            "2. DUPLÁZÁS-ELLENŐRZÉS: Ha valaki már említette az érvedet vagy gondolatodat, "
+            "NE ismételd el. Csak akkor szólj hozzá, ha ÚJ szempontot, ellenvetést vagy "
+            "következtetést tudsz hozzátenni. 'Igen, és pont ezért...' nem új érv.\n"
+            "3. RELEVANCIA: Ha a beszélgetés már lefutott az adróddal kapcsolatban és "
+            "nincs mit hozzátenned, NE válaszolj. Csend is válasz.\n"
+            "4. TÉMAVÁLTÁS: Ha az új üzenet konkrét témát és szerepeket tartalmaz, "
+            "kövesd azokat. Ne hivatkozz korábbi témákra.\n"
+            "5. Ha úgy érzed, hogy már eleget mondtál és a többi agent tovább vitte "
+            "a gondolatot, egy rövid 'NEM VÁLASZTOLSZ' választ adj.\n"
+            f"6. Eddig {my_msg_count} üzenetet írtál ebben a témában. "
+            f"{'Ha már 3+ üzeneted van, csak kritikus új információ esetén válaszolj.' if my_msg_count >= 3 else ''}"
+        )
 
-        # Build directive based on message counts
-        directives = []
-
-        if my_count >= MAX_MSG_PER_AGENT:
-            directives.append(
-                f"🔴 DIREKTÍVA: Elérted a maximális üzenetszámot ({MAX_MSG_PER_AGENT}) ebben a témában. "
-                f"Küldj EGY rövid összefoglalót a saját álláspontodról (max 200 karakter), "
-                f"után NE válaszolj többet ebben a témában. Írd: 'NEM VÁLASZTOLSZ' ha már összegezted."
-            )
-        elif total_agent_count >= FINAL_SUMMARY_THRESHOLD:
-            directives.append(
-                f"🔴 DIREKTÍVA: A beszélgetés elérte a {FINAL_SUMMARY_THRESHOLD}. üzenetet. "
-                f"Készíts VÉGSŐ összefoglalót: 3 pont a fő álláspontokról + 1 pont a közös következtetésről. "
-                f"Utána NE válaszolj többet. Ha már összegezted, írd: 'NEM VÁLASZTOLSZ'."
-            )
-        elif total_agent_count >= SUMMARY_THRESHOLD:
-            directives.append(
-                f"🟡 DIREKTÍVA: A beszélgetés elérte a {SUMMARY_THRESHOLD}. üzenetet. "
-                f"Ha még nem foglaltad össze az álláspontodat, tedd meg most röviden (max 200 karakter). "
-                f"Ha már összegezted, írd: 'NEM VÁLASZTOLSZ'."
-            )
-
-        # Anti-echo directive — always active
-        directives.append(
-            "🟠 SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. "
-            "Csak ÚJ érvet, ellenvetést vagy konkrét javaslatot írj. "
+        # Anti-echo rule — always active
+        anti_echo = (
+            "SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek', 'pontosan' "
+            "üres értelés. Csak ÚJ érvet, ellenvetést vagy konkrét javaslatot írj. "
             "Ha nincs új mondanivalód, írd: 'NEM VÁLASZTOLSZ'."
         )
 
-        directive_text = "\n".join(directives)
-
-        # System instruction — stronger for topic switches
+        # System instruction
         if is_topic_switch:
             topic_instruction = (
                 "⚠️ EZ ÚJ TÉMA — a korábbi beszélgetés LEZÁRVA. "
-                "Ne hivatkozz a korábbi témákra. "
                 "Kövesd az üzenetben megadott szerepeket és szabályokat. "
-                "Ne érts egyet a többiekkel — hozz saját, új érveket. "
-                f"{directive_text}"
+                "Ne érts egyet a többiekkel — hozz saját, új érveket.\n\n"
+                f"{self_regulation}\n{anti_echo}"
             )
         else:
             topic_instruction = (
                 "Ha az üzenet emberi felhasználótól van, neki válaszolj. "
                 "Ha egy másik agent írt és nem hozzád szól, nem kell válaszolnod. "
-                "Ha nem kell válaszolnod, ne küld el a curl-t. "
-                f"{directive_text}"
+                "Ha nem kell válaszolnod, írd: 'NEM VÁLASZTOLSZ'.\n\n"
+                f"{self_regulation}\n{anti_echo}"
             )
 
         prompt = (
             f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevője. "
             f"Ez egy közös chat session, mint egy Telegram csoport. "
-            f"A chatben emberi felhasználók és AI agentek vesznek részt. "
             f"Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
-            f"Ne ismételd mások érveit — csak új gondolatot hozz. "
             f"{topic_instruction}\n\n"
-            f"── Beszélgetés ──\n{chat_context}\n\n"
+            f"── Beszélgetés eddig ──\n{chat_context}\n\n"
             f"── Új üzenet ──\n[{sender_tag}] {content[:4000]}\n\n"
             f"Válaszodat sima szövegként írd (stdout). "
             f"NE használj curl-t vagy tool-okat — a rendszer automatikusan elküldi."

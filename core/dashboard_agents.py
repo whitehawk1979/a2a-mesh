@@ -123,12 +123,7 @@ class DashboardAgentsMixin:
             log.info(f"Skipping self-wake: DM to {recipient} (not self)")
         
         if wake_self:
-            # Hard limit: skip self-wake if agent already sent MAX_MSG_PER_AGENT
-            MAX_MSG_PER_AGENT = 3
-            my_count = self._agent_msg_counts.get(self.node.node_name.lower(), 0)
-            if my_count >= MAX_MSG_PER_AGENT:
-                log.info(f"🚫 Hard limit: skipping self-wake for {self.node.node_name} (already sent {my_count} msgs)")
-                wake_self = False
+            # Self-regulating: no hard limit, agent decides via system prompt
             total = 1 + len(peer_targets)  # self + peers
             log.info(f"Waking {total} agent(s): self (CLI) + {len(peer_targets)} peers (wake-agent API)")
             asyncio.ensure_future(self._wake_self_via_cli(payload, sig, message))
@@ -137,12 +132,7 @@ class DashboardAgentsMixin:
         
         # Wake peers via wake-agent API (HTTP POST to peer's mesh node)
         for agent_name, wake_url in peer_targets:
-            # Hard limit: skip peer-wake if agent already sent MAX_MSG_PER_AGENT
-            MAX_MSG_PER_AGENT = 3
-            peer_count = self._agent_msg_counts.get(agent_name.lower(), 0)
-            if peer_count >= MAX_MSG_PER_AGENT:
-                log.info(f"🚫 Hard limit: skipping wake for {agent_name} (already sent {peer_count} msgs)")
-                continue
+            # Self-regulating: no hard limit, agent decides via system prompt
             asyncio.ensure_future(self._call_wake_agent_api(agent_name, wake_url, payload, message))
 
         # Start background tasks: poll for agent reply + cleanup timeout
@@ -222,43 +212,30 @@ class DashboardAgentsMixin:
                 framed = content_text[:4000]
                 preamble = ""
             
-            # ── Directive system: anti-spam + auto-summary (in-memory counters) ──
-            MAX_MSG_PER_AGENT = 3
-            SUMMARY_THRESHOLD = 9
-            FINAL_SUMMARY_THRESHOLD = 12
+            # Count how many times this agent has spoken in the current history
+            my_msgs_peer = [h for h in chat_history if h.get('sender', '').lower() == agent_name.lower()]
+            my_msg_count_peer = len(my_msgs_peer)
 
-            # Use in-memory counters for real-time accuracy
-            my_count_peer = self._agent_msg_counts.get(agent_name.lower(), 0)
-            total_agent_count_peer = self._total_agent_msgs
-
-            directives_peer = []
-            if my_count_peer >= MAX_MSG_PER_AGENT:
-                directives_peer.append(
-                    f"🔴 DIREKTÍVA: Elérted a maximális üzenetszámot ({MAX_MSG_PER_AGENT}). "
-                    f"Küldj EGY rövid összefoglalót (max 200 karakter), "
-                    f"után írd: 'NEM VÁLASZTOLSZ'."
-                )
-            elif total_agent_count_peer >= FINAL_SUMMARY_THRESHOLD:
-                directives_peer.append(
-                    f"🔴 DIREKTÍVA: {FINAL_SUMMARY_THRESHOLD}. üzenet elérve. "
-                    f"Készíts VÉGSŐ összefoglalót: 3 pont fő álláspontok + 1 pont közös következtetés. "
-                    f"Utána írd: 'NEM VÁLASZTOLSZ'."
-                )
-            elif total_agent_count_peer >= SUMMARY_THRESHOLD:
-                directives_peer.append(
-                    f"🟡 DIREKTÍVA: {SUMMARY_THRESHOLD}. üzenet elérve. "
-                    f"Foglald össze az álláspontodat röviden (max 200 karakter). "
-                    f"Ha már összegezted, írd: 'NEM VÁLASZTOLSZ'."
-                )
-
-            # Anti-echo directive — always active
-            directives_peer.append(
-                "🟠 SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. "
-                "Csak ÚJ érvet, ellenvetést vagy konkrét javaslatot írj. "
-                "Ha nincs új mondanivalód, írd: 'NEM VÁLASZTOLSZ'."
+            # ── Self-regulating system prompt (no external hard limit) ──
+            self_regulation_peer = (
+                "ÖNSZABÁLYOZÁS — Te döntöd el, válaszolsz-e:\n"
+                "1. OLVASD EL a fenti beszélgetést figyelmesen.\n"
+                "2. DUPLÁZÁS-ELLENŐRZÉS: Ha valaki már említette az érvedet, NE ismételd el. "
+                "Csak ÚJ szempontot, ellenvetést vagy következtetést adj hozzá. "
+                "'Igen, és pont ezért...' nem új érv.\n"
+                "3. RELEVANCIA: Ha a beszélgetés már lefutott és nincs mit hozzátenned, "
+                "NE válaszolj. Csend is válasz.\n"
+                "4. Ha úgy érzed, hogy már eleget mondtál és a többi agent tovább vitte "
+                "a gondolatot, írd: 'NEM VÁLASZTOLSZ'.\n"
+                f"5. Eddig {my_msg_count_peer} üzenetet írtél ebben a témában. "
+                f"{'Ha már 3+ üzeneted van, csak kritikus új információ esetén válaszolj.' if my_msg_count_peer >= 3 else ''}"
             )
 
-            directive_text_peer = "\n".join(directives_peer)
+            anti_echo_peer = (
+                "SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek', 'pontosan' "
+                "üres értelés. Csak ÚJ érvet, ellenvetést vagy konkrét javaslatot írj. "
+                "Ha nincs új mondanivalód, írd: 'NEM VÁLASZTOLSZ'."
+            )
 
             prompt = (
                 f"{preamble}"
@@ -267,8 +244,8 @@ class DashboardAgentsMixin:
                 f"Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. "
                 f"Ne ismételd mások érveit — csak új gondolatot hozz. "
                 f"Ha nincs mit hozzátenned, írj: 'NEM VÁLASZTOLSZ'.\n\n"
-                f"{directive_text_peer}\n\n"
-                f"── Beszélgetés ──\n{chat_context}\n\n"
+                f"{self_regulation_peer}\n{anti_echo_peer}\n\n"
+                f"── Beszélgetés eddig ──\n{chat_context}\n\n"
                 f"── Új üzenet ──\n[{sender_tag}] {framed}\n\n"
                 f"Válaszodat sima szövegként írd (stdout). "
                 f"NE használj curl-t vagy tool-okat — a rendszer automatikusan elküldi."
@@ -359,7 +336,7 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a direktíva 'NEM VÁLASZTOLSZ'-ot kér, pontosan azt írd: 'NEM VÁLASZTOLSZ'. Tartsd be a 🔴🟡🟠 direktívákat — ezek kötelező szabályok."},
+                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'. Olvasd el a beszélgetést és döntsd el: van-e új érv-ed vagy csak ismétled másokat."},
                         {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
@@ -826,7 +803,7 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a direktíva 'NEM VÁLASZTOLSZ'-ot kér, pontosan azt írd: 'NEM VÁLASZTOLSZ'. Tartsd be a 🔴🟡🟠 direktívákat — ezek kötelező szabályok."},
+                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'. Olvasd el a beszélgetést és döntsd el: van-e új érv-ed vagy csak ismétled másokat."},
                         {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
