@@ -94,7 +94,7 @@ class MeshDiscovery:
                 port=self.port,
                 properties=properties,
             )
-            self._zeroconf.register_service(self._service_info)
+            self._zeroconf.register_service(self._service_info, allow_name_change=True)
             log.info(f"mDNS: Registered {self.node_name} at {local_ip}:{self.port} as {self.service_type}")
 
             # Start browsing for other services
@@ -109,7 +109,7 @@ class MeshDiscovery:
             return True
 
         except Exception as e:
-            log.error(f"mDNS start failed: {e}")
+            log.error(f"mDNS start failed: {type(e).__name__}: {e}")
             # Cleanup on failure
             if self._browser:
                 self._browser.cancel()
