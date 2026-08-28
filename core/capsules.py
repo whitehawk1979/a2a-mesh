@@ -398,7 +398,7 @@ def format_capsules_for_prompt(capsules: List[Dict[str, Any]]) -> str:
 
 # Promotion thresholds
 ENGRAHM_MIN_AGE_SECONDS = 3600       # 1 hour — capsule must age before promotion
-ENGRAHM_MIN_RETRIEVALS = 1           # capsule must be retrieved at least once
+ENGRAHM_MIN_RETRIEVALS = 0           # v0.40: age-only promotion (retrieval optional)
 ENGRAHM_RELEVANCE_THRESHOLD = 0.55   # slightly lower than capsule threshold
 ENGRAHM_RECENCY_DECAY_DAYS = 30      # after 30 days, engramm weight halves
 MAX_RETRIEVED_ENGRAMMS = 4
@@ -463,7 +463,7 @@ async def promote_capsule_to_engramm(pg_pool, capsule_id: int) -> Optional[int]:
             'tags': extract_tags(conclusion),
             'created': time.time(),
             'last_referenced': time.time(),
-            'reference_count': 0,
+            'reference_count': 1,  # v0.40: start at 1 — promotion itself is a reference
             'pattern_type': detect_pattern_type(conclusion),
         })
 
@@ -744,7 +744,7 @@ def format_engramms_for_prompt(engramms: List[Dict[str, Any]]) -> str:
 
 # ── Auto skill generation from engramms ──
 
-SKILL_GENERATION_THRESHOLD = 2  # engramm must be referenced >=2 times
+SKILL_GENERATION_THRESHOLD = 1  # v0.40: lowered from 2 — one reference enough for auto-skill
 SKILL_DEDUPLICATION_SIMILARITY = 0.85  # don't create skill if similar exists
 
 
@@ -815,8 +815,8 @@ async def auto_generate_skill(pg_pool, engramm_id: int) -> Optional[str]:
         if ref_count < SKILL_GENERATION_THRESHOLD:
             return None
 
-        # Only generate skills for actionable patterns
-        if pattern_type not in ('code_pattern', 'architectural_decision', 'debugging_approach'):
+        # Only generate skills for actionable patterns (v0.40: added debate_conclusion)
+        if pattern_type not in ('code_pattern', 'architectural_decision', 'debugging_approach', 'debate_conclusion'):
             return None
 
         # Check for existing similar skill
@@ -969,7 +969,7 @@ async def check_and_generate_skills(pg_pool) -> int:
             pattern_type = meta.get('pattern_type', 'general')
 
             if ref_count >= SKILL_GENERATION_THRESHOLD and pattern_type in (
-                'code_pattern', 'architectural_decision', 'debugging_approach'
+                'code_pattern', 'architectural_decision', 'debugging_approach', 'debate_conclusion'
             ):
                 skill_md = await auto_generate_skill(pg_pool, row['id'])
                 if skill_md:

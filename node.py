@@ -740,6 +740,9 @@ class MeshNode:
         # v0.29: Auto-Bootstrap + Self-Healing loop
         self._tasks.append(asyncio.create_task(self._auto_bootstrap_heal_loop()))
 
+        # v0.40: Memory maintenance loop — capsule promotion + auto skill generation
+        self._tasks.append(asyncio.create_task(self._memory_maintenance_loop()))
+
         # Start alert manager evaluation loop
         if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'alert_manager'):
             asyncio.create_task(self.dashboard.alert_manager.start())
@@ -4951,6 +4954,30 @@ echo "Status: ok"
                 break
             except Exception as e:
                 log.warning(f"Stats update error: {e}")
+
+    async def _memory_maintenance_loop(self):
+        """v0.40: Periodic capsule promotion + auto skill generation.
+
+        Runs every 5 minutes. Promotes mature capsules to engramms,
+        then generates SKILL.md from well-referenced engramms.
+        """
+        from core.capsules import check_and_promote_capsules, check_and_generate_skills
+        while self._running:
+            try:
+                await asyncio.sleep(300)  # Every 5 minutes
+                if not self._running:
+                    break
+                pg_pool = getattr(self, '_pg_pool', None)
+                if not pg_pool or not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+                    continue
+                promoted = await check_and_promote_capsules(pg_pool)
+                generated = await check_and_generate_skills(pg_pool)
+                if promoted or generated:
+                    log.info(f"🧠 Memory maintenance: promoted={promoted}, skills_generated={generated}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning(f"Memory maintenance error: {e}")
 
     async def _auto_update_loop(self, check_interval: int = 300):
         """Periodically check Gitea for new versions and auto-update if configured."""
