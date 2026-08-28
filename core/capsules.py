@@ -218,6 +218,16 @@ async def store_capsule(
         embed_text = f"{topic}\n{summary}"
         embedding = await create_embedding(embed_text, ollama_url)
         
+        # ── Affinity tags (Runa javaslat): initial tags from topic + summary ──
+        # These tags strengthen when the capsule is retrieved in matching contexts.
+        initial_tags = extract_tags(f"{topic} {summary}")
+        
+        # ── Version chain (Runa javaslat): track why the capsule was created ──
+        # change_type: 'initial' | 'refinement' | 'merge' | 'reflection'
+        # change_reason: human-readable explanation
+        change_type = 'initial'
+        change_reason = f'Initial capsule from {len(agents)}-agent conversation'
+        
         metadata = json.dumps({
             'topic': topic_safe,
             'agents': agents,
@@ -225,6 +235,14 @@ async def store_capsule(
             'msg_end': msg_end_id,
             'msg_count': msg_end_id - msg_start_id + 1,
             'created': time.time(),
+            'affinity_tags': {tag: 1.0 for tag in initial_tags},  # tag → weight, grows with use
+            # ── Version chain ──
+            'version': 1,  # Incremented on each update
+            'change_type': change_type,
+            'change_reason': change_reason,
+            'change_log': [
+                {'version': 1, 'type': change_type, 'reason': change_reason, 'ts': time.time()}
+            ],
         })
 
         if embedding is not None:
@@ -309,15 +327,48 @@ async def retrieve_capsules(
                 continue
 
             meta = json.loads(row['metadata']) if row['metadata'] else {}
+            
+            # ── Affinity tag boost (Runa javaslat): ──
+            # If the query text contains tags that match the capsule's affinity_tags,
+            # boost the similarity score. Tags strengthen with each matching retrieval.
+            affinity_tags = meta.get('affinity_tags', {})
+            query_tags = extract_tags(query_text)
+            affinity_boost = 0.0
+            for qt in query_tags:
+                if qt in affinity_tags:
+                    # Boost by up to 15% per matching tag (capped at 30% total)
+                    affinity_boost += min(0.15, affinity_tags[qt] * 0.05)
+            affinity_boost = min(affinity_boost, 0.30)  # Cap at 30%
+            adjusted_similarity = min(1.0, similarity + affinity_boost)
+            
+            # ── Strengthen affinity tags for matched query terms ──
+            if query_tags and affinity_tags is not None:
+                for qt in query_tags:
+                    if qt in affinity_tags:
+                        affinity_tags[qt] = min(5.0, affinity_tags[qt] + 0.2)
+                    else:
+                        # Add new affinity tag from query context
+                        affinity_tags[qt] = 0.5
+                # Save strengthened tags back (async, non-blocking)
+                try:
+                    meta['affinity_tags'] = affinity_tags
+                    await pg_pool.execute(
+                        "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+                        json.dumps(meta), row['id'],
+                    )
+                except Exception:
+                    pass  # Non-blocking
+            
             capsules.append({
                 'id': row['id'],
                 'topic': meta.get('topic', ''),
                 'summary': row['memory_value'],
                 'agents': meta.get('agents', []),
-                'similarity': similarity,
+                'similarity': adjusted_similarity,
+                'affinity_boost': round(affinity_boost, 3),
             })
 
-        log.info(f"📚 Capsule retrieval: query='{query_text[:50]}', found {len(capsules)} relevant")
+        log.info(f"📚 Capsule retrieval: query='{query_text[:50]}', found {len(capsules)} relevant (affinity-boosted)")
         return capsules
 
     except Exception as e:
@@ -601,12 +652,25 @@ async def retrieve_engramms(
 
             meta = json.loads(row['metadata']) if row['metadata'] else {}
             
-            # Recency bias — older engramms decay
+            # ── LTP (Long-Term Potentiation) — Morzsa javaslat ──
+            # Minél többször hivatkoznak egy engrammra, annál lassabb a decay.
+            # Biology: frequently-activated synapses strengthen (LTP).
+            # Formula: effective_decay_days = base_decay * (1 + log(1 + reference_count))
+            #   0 refs → 30 days (base)
+            #   1 ref  → 30 * 1.69 = ~51 days
+            #   3 refs → 30 * 2.39 = ~72 days
+            #   5 refs → 30 * 2.79 = ~84 days
+            #   10 refs → 30 * 3.40 = ~102 days
+            import math as _math
+            ref_count = meta.get('reference_count', 0)
+            effective_decay_days = ENGRAHM_RECENCY_DECAY_DAYS * (1.0 + _math.log(1 + ref_count))
+            
+            # Recency bias — older engramms decay, but LTP slows the decay
             created = meta.get('created', 0)
             age_days = (now - created) / 86400 if created else 0
-            recency_factor = max(0.5, 1.0 - (age_days / ENGRAHM_RECENCY_DECAY_DAYS) * 0.5)
+            recency_factor = max(0.3, 1.0 - (age_days / effective_decay_days) * 0.5)
             
-            # Adjusted score = vector similarity * recency factor
+            # Adjusted score = vector similarity * recency factor (LTP-modulated)
             adjusted_score = similarity * recency_factor
 
             engramms.append({
@@ -620,6 +684,8 @@ async def retrieve_engramms(
                 'similarity': similarity,
                 'adjusted_score': adjusted_score,
                 'age_days': age_days,
+                'reference_count': ref_count,
+                'effective_decay_days': round(effective_decay_days, 1),
             })
 
         # Sort by adjusted score (recency-biased)
@@ -944,3 +1010,86 @@ async def increment_capsule_retrieval_count(pg_pool, capsule_id: int):
         )
     except Exception:
         pass  # Non-blocking
+
+
+async def update_capsule_version(
+    pg_pool,
+    capsule_id: int,
+    change_type: str,
+    change_reason: str,
+    new_summary: str = None,
+    new_embedding_text: str = None,
+    ollama_url: str = "http://localhost:11434",
+) -> bool:
+    """Update a capsule with version chain tracking (Runa javaslat).
+    
+    change_type: 'refinement' | 'merge' | 'reflection' | 'correction'
+    change_reason: human-readable explanation of WHY this change happened
+    
+    Returns True if successful.
+    """
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return False
+        
+        row = await pg_pool.fetchrow(
+            "SELECT metadata, memory_value FROM mesh.mesh_memory WHERE id = $1",
+            capsule_id,
+        )
+        if not row:
+            return False
+        
+        meta = json.loads(row['metadata']) if row['metadata'] else {}
+        current_version = meta.get('version', 1)
+        new_version = current_version + 1
+        
+        # Append to change log
+        change_log = meta.get('change_log', [])
+        change_log.append({
+            'version': new_version,
+            'type': change_type,
+            'reason': change_reason,
+            'ts': time.time(),
+        })
+        # Keep last 20 entries to prevent unbounded growth
+        change_log = change_log[-20:]
+        
+        meta['version'] = new_version
+        meta['change_type'] = change_type
+        meta['change_reason'] = change_reason
+        meta['change_log'] = change_log
+        meta['last_updated'] = time.time()
+        
+        # Update summary if provided
+        if new_summary:
+            meta['previous_summary'] = (row['memory_value'] or '')[:200]  # Keep snippet
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_memory SET memory_value = $1, metadata = $2 WHERE id = $3",
+                new_summary.encode('ascii', 'replace').decode('ascii'),
+                json.dumps(meta),
+                capsule_id,
+            )
+        else:
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+                json.dumps(meta),
+                capsule_id,
+            )
+        
+        # Update embedding if new text provided
+        if new_embedding_text:
+            embedding = await create_embedding(new_embedding_text, ollama_url)
+            if embedding:
+                embed_str = '[' + ','.join(str(x) for x in embedding) + ']'
+                await pg_pool.execute(
+                    "UPDATE mesh.mesh_memory SET embedding = $1::vector WHERE id = $2",
+                    embed_str,
+                    capsule_id,
+                )
+        
+        log.info(f"📝 Capsule {capsule_id} updated: v{current_version}→v{new_version} ({change_type}: {change_reason[:60]})")
+        return True
+        
+    except Exception as e:
+        log.warning(f"Capsule version update failed: {e}")
+        return False

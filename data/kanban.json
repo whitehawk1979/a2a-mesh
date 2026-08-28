@@ -5447,9 +5447,122 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787800103.3794172
+      },
+      {
+        "id": "card-1787907804846-108",
+        "title": "[DEPLOY] Deploy main to morzsa",
+        "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787907804.846329,
+        "updated_at": 1787907838.925366,
+        "created_by": "unknown",
+        "delegation_task_id": "08945ddf-0c85-4a7c-a86f-0d0095200b40",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787907804.8898182
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK \\u2014 fdce70d fix: mDNS NonUniqueNameException on restart \\u2014 allow_name_change=True + b\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete \\u2014 node will restart shortly",
+            "timestamp": 1787907822.352701
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "898c9742",
+            "timestamp": 1787907822.890987
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment successful: git fetch and merge completed, node restart scheduled.",
+            "timestamp": 1787907838.926094
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK \\u2014 fdce70d fix: mDNS NonUniqueNameException on restart \\u2014 allow_name_change=True + b\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete \\u2014 node will restart shortly",
+        "completed_at": "2026-08-28 09:03:35.422284+00:",
+        "reviewer": "tor",
+        "review_task_id": "898c9742-f330-45dd-a9f2-267bf68119d2",
+        "review_status": "accept",
+        "review_reason": "Deployment successful: git fetch and merge completed, node restart scheduled.",
+        "reviewed_at": 1787907838.9253602
+      },
+      {
+        "id": "card-1787907805105-109",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "review",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787907805.1054752,
+        "updated_at": 1787909644.812215,
+        "created_by": "unknown",
+        "delegation_task_id": "3e87414f-d611-4de9-8d36-875efdbddeac",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787907805.141089
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+            "timestamp": 1787907833.284213
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "c0ad9e7f",
+            "timestamp": 1787907833.566427
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Git operation timed out — deployment did not complete. The repo path was identified but no branch checkout, pull, or restart was performed. Retry with extended timeout or check network/git lock issues.",
+            "timestamp": 1787907849.762528
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch: OK\n[runa] git merge: OK \\u2014 fdce70d fix: mDNS NonUniqueNameException on restart \\u2014 allow_name_change=True + b\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete \\u2014 node will restart shortly",
+            "timestamp": 1787909643.541996
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch: OK\n[runa] git merge: OK \\u2014 fdce70d fix: mDNS NonUniqueNameException on restart \\u2014 allow_name_change=True + b\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete \\u2014 node will restart shortly",
+        "completed_at": "2026-08-28 09:04:23.567787+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "c0ad9e7f-0a83-4fd6-bfd9-c99638e36828",
+        "review_status": "rejected",
+        "review_reason": "Git operation timed out — deployment did not complete. The repo path was identified but no branch checkout, pull, or restart was performed. Retry with extended timeout or check network/git lock issues.",
+        "reviewed_at": 1787907849.76206
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1787801791.807464
+    "updated_at": 1787909644.812216
   }
 ]
