@@ -404,25 +404,77 @@ class DashboardAgentsMixin:
             elif clean_reply and reply_endpoint:
                 try:
                     import aiohttp as _aiohttp
-                    # MARVEEN: Reply to the original sender, not broadcast
-                    reply_recipient = original_message.sender if original_message.sender != self.node.node_name else "broadcast"
-                    reply_body = json.dumps({
-                        "sender": self.node.node_name,
-                        "content": clean_reply[:2000],
-                        "recipient": reply_recipient,
-                        "priority": 5,
-                        "reply_to": mesh_msg_id,
-                        "chat_username": payload_data.get("chat_username", "") if isinstance(payload_data, dict) else "",
-                        "chat_type": payload_data.get("chat_type", "user_dm") if isinstance(payload_data, dict) else "user_dm",
-                    })
-                    async with _aiohttp.ClientSession() as sess:
-                        async with sess.post(
-                            reply_endpoint,
-                            data=reply_body.encode(),
-                            headers={"Content-Type": "application/json"},
-                            timeout=_aiohttp.ClientTimeout(total=15),
-                        ) as resp:
-                            log.info(f"Nova agent reply sent to {reply_endpoint}: {resp.status}")
+                    import re as _re
+
+                    # ── DM parser: extract DM:target:message lines ──
+                    # Format: "DM:morzsa:hello" or "DM:runa:check this"
+                    # Multiple DMs allowed — one per line
+                    # Non-DM lines go as broadcast reply
+                    dm_lines = []
+                    broadcast_lines = []
+                    for line in clean_reply.split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        dm_match = _re.match(r"^DM:(\w+):(.+)", line, _re.IGNORECASE)
+                        if dm_match:
+                            target = dm_match.group(1).lower()
+                            dm_text = dm_match.group(2).strip()
+                            dm_lines.append((target, dm_text))
+                        else:
+                            broadcast_lines.append(line)
+
+                    # Send DMs via /api/agent-dm
+                    for target, dm_text in dm_lines:
+                        try:
+                            dm_payload = {
+                                "sender": self.node.node_name,
+                                "recipient": target,
+                                "content": dm_text[:2000],
+                                "msg_type": "a2a_message",
+                            }
+                            dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
+                            async with _aiohttp.ClientSession() as sess:
+                                async with sess.post(
+                                    dm_url,
+                                    json=dm_payload,
+                                    headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
+                                    timeout=_aiohttp.ClientTimeout(total=10),
+                                ) as dm_resp:
+                                    log.info(f"📩 Agent DM {self.node.node_name}→{target}: {dm_resp.status} — {dm_text[:80]}")
+                        except Exception as dm_err:
+                            log.warning(f"📩 Agent DM to {target} failed: {dm_err}")
+
+                    # Send broadcast reply (non-DM lines)
+                    broadcast_reply = "\n".join(broadcast_lines).strip()
+                    if broadcast_lines or not dm_lines:
+                        # If there are broadcast lines, send them as reply
+                        # If no DMs at all, send the full clean_reply as reply (backward compat)
+                        reply_content = broadcast_reply if dm_lines else clean_reply
+                        if reply_content and reply_content.upper() != "NEM VÁLASZTOLSZ":
+                            # MARVEEN: Reply to the original sender, not broadcast
+                            reply_recipient = original_message.sender if original_message.sender != self.node.node_name else "broadcast"
+                            reply_body = json.dumps({
+                                "sender": self.node.node_name,
+                                "content": reply_content[:2000],
+                                "recipient": reply_recipient,
+                                "priority": 5,
+                                "reply_to": mesh_msg_id,
+                                "chat_username": payload_data.get("chat_username", "") if isinstance(payload_data, dict) else "",
+                                "chat_type": payload_data.get("chat_type", "user_dm") if isinstance(payload_data, dict) else "user_dm",
+                            })
+                            async with _aiohttp.ClientSession() as sess:
+                                async with sess.post(
+                                    reply_endpoint,
+                                    data=reply_body.encode(),
+                                    headers={"Content-Type": "application/json"},
+                                    timeout=_aiohttp.ClientTimeout(total=15),
+                                ) as resp:
+                                    log.info(f"Nova agent reply sent to {reply_endpoint}: {resp.status}")
+                        elif dm_lines and not broadcast_lines:
+                            log.info(f"Agent {self.node.node_name} sent only DMs (no broadcast reply)")
+                    elif dm_lines and not broadcast_lines:
+                        log.info(f"Agent {self.node.node_name} sent {len(dm_lines)} DM(s), no broadcast")
                 except Exception as reply_err:
                     log.warning(f"Failed to send Nova agent reply: {reply_err}")
                 
@@ -895,25 +947,69 @@ class DashboardAgentsMixin:
                 if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ" and reply_endpoint:
                     try:
                         import aiohttp as _aiohttp2
-                        # MARVEEN: Reply to the original sender, not broadcast
-                        original_sender = body.get("original_sender", "broadcast")
-                        reply_body = json.dumps({
-                            "sender": agent_name,
-                            "content": clean_reply[:2000],
-                            "recipient": original_sender,
-                            "priority": 5,
-                            "reply_to": body.get("mesh_message_id", ""),
-                            "chat_username": body.get("chat_username", ""),
-                            "chat_type": body.get("chat_type", "user_dm"),
-                        })
-                        async with _aiohttp2.ClientSession() as sess:
-                            async with sess.post(
-                                reply_endpoint,
-                                data=reply_body.encode(),
-                                headers={"Content-Type": "application/json"},
-                                timeout=_aiohttp2.ClientTimeout(total=15),
-                            ) as resp:
-                                log.info(f"Agent reply sent to {reply_endpoint}: {resp.status}")
+                        import re as _re_dm
+
+                        # ── DM parser: extract DM:target:message lines ──
+                        dm_lines = []
+                        broadcast_lines = []
+                        for line in clean_reply.split("\n"):
+                            line = line.strip()
+                            if not line:
+                                continue
+                            dm_match = _re_dm.match(r"^DM:(\w+):(.+)", line, _re_dm.IGNORECASE)
+                            if dm_match:
+                                target = dm_match.group(1).lower()
+                                dm_text = dm_match.group(2).strip()
+                                dm_lines.append((target, dm_text))
+                            else:
+                                broadcast_lines.append(line)
+
+                        # Send DMs via /api/agent-dm
+                        for target, dm_text in dm_lines:
+                            try:
+                                dm_payload = {
+                                    "sender": agent_name,
+                                    "recipient": target,
+                                    "content": dm_text[:2000],
+                                    "msg_type": "a2a_message",
+                                }
+                                dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
+                                async with _aiohttp2.ClientSession() as sess:
+                                    async with sess.post(
+                                        dm_url,
+                                        json=dm_payload,
+                                        headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
+                                        timeout=_aiohttp2.ClientTimeout(total=10),
+                                    ) as dm_resp:
+                                        log.info(f"📩 Agent DM {agent_name}→{target}: {dm_resp.status} — {dm_text[:80]}")
+                            except Exception as dm_err:
+                                log.warning(f"📩 Agent DM to {target} failed: {dm_err}")
+
+                        # Send broadcast reply (non-DM lines)
+                        broadcast_reply = "\n".join(broadcast_lines).strip()
+                        reply_content = broadcast_reply if dm_lines else clean_reply
+                        if reply_content and reply_content.upper() != "NEM VÁLASZTOLSZ":
+                            # MARVEEN: Reply to the original sender, not broadcast
+                            original_sender = body.get("original_sender", "broadcast")
+                            reply_body = json.dumps({
+                                "sender": agent_name,
+                                "content": reply_content[:2000],
+                                "recipient": original_sender,
+                                "priority": 5,
+                                "reply_to": body.get("mesh_message_id", ""),
+                                "chat_username": body.get("chat_username", ""),
+                                "chat_type": body.get("chat_type", "user_dm"),
+                            })
+                            async with _aiohttp2.ClientSession() as sess:
+                                async with sess.post(
+                                    reply_endpoint,
+                                    data=reply_body.encode(),
+                                    headers={"Content-Type": "application/json"},
+                                    timeout=_aiohttp2.ClientTimeout(total=15),
+                                ) as resp:
+                                    log.info(f"Agent reply sent to {reply_endpoint}: {resp.status}")
+                        elif dm_lines and not broadcast_lines:
+                            log.info(f"Agent {agent_name} sent only DMs (no broadcast reply)")
                     except Exception as reply_err:
                         log.warning(f"Failed to send agent reply to {reply_endpoint}: {reply_err}")
                 

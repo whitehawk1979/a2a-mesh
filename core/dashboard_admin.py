@@ -4254,6 +4254,52 @@ class DashboardAdminMixin:
             return web.json_response({"error": "DB not available"}, status=503)
         return await handle_chat_send(self.node, request, pool, user)
 
+    async def _api_agent_dm(self, request):
+        """POST /api/agent-dm — Agent-to-agent proactive DM via mesh.
+
+        Body: { sender: "nova", recipient: "morzsa", content: "Hello", msg_type: "a2a_message" }
+        Uses X-Mesh-Token for auth (mesh-internal).
+        """
+        from aiohttp import web
+        # Auth: X-Mesh-Token OR user auth
+        mesh_token = request.headers.get("X-Mesh-Token", "")
+        if mesh_token != "mesh-wake-secret-2026":
+            user, err = self._require_auth(request)
+            if err: return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid JSON"}, status=400)
+
+        sender = data.get("sender", "").strip().lower()
+        recipient = data.get("recipient", "").strip().lower()
+        content = data.get("content", "").strip()
+        msg_type = data.get("msg_type", "a2a_message")
+
+        if not sender or not recipient or not content:
+            return web.json_response({"error": "sender, recipient, content required"}, status=400)
+        if sender == recipient:
+            return web.json_response({"error": "cannot DM yourself"}, status=400)
+
+        # Send via mesh direct
+        payload = {
+            "text": content,
+            "subject": content[:80],
+            "sender_display": sender,
+            "chat_type": "agent_dm",
+        }
+        try:
+            result = await self.node.send_direct(recipient, msg_type, payload, priority=5)
+            if result.success:
+                log.info(f"📩 Agent DM {sender}→{recipient}: sent via {result.transport}")
+                return web.json_response({"ok": True, "transport": result.transport})
+            else:
+                log.warning(f"📩 Agent DM {sender}→{recipient} failed: {result.error}")
+                return web.json_response({"ok": False, "error": result.error}, status=502)
+        except Exception as e:
+            log.error(f"Agent DM error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _api_chat_messages(self, request):
         """GET /api/chat/messages?with=morzsa — Chat history with agent."""
         from aiohttp import web

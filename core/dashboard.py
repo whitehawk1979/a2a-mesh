@@ -156,6 +156,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/send-file", self._api_send_file)
         # Per-user chat system
         app.router.add_post("/api/chat/send", self._api_chat_send)
+        # Agent-to-agent DM (proactive)
+        app.router.add_post("/api/agent-dm", self._api_agent_dm)
         app.router.add_get("/api/chat/messages", self._api_chat_messages)
         app.router.add_get("/api/chat/inbox", self._api_chat_inbox)
         app.router.add_post("/api/chat/read", self._api_chat_mark_read)
@@ -1634,6 +1636,15 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                 f"{self_regulation}\n{anti_echo}"
             )
 
+        # ── Agent DM capability — proactive direct messaging ──
+        dm_instruction = (
+            "ÜGYNÖK DM (proaktív közvetlen üzenet): Ha egy specifikus agenthez akarsz szólni "
+            "(nem mindenkihez), írd a válaszod így: 'DM:célagent:üzenet'. "
+            "Például: 'DM:morzsa:ezt a részt neked szánom'. "
+            "A rendszer csak a célagentnek küldi el. "
+            "Ha a DM után folytatod a broadcast választ, új sorba írd a többi tartalmat."
+        )
+
         # ── Retrieve relevant memory capsules + engramms + reflections (sync — pre-fetched by caller) ──
         capsule_context = getattr(self, '_current_capsules', '')
         engramm_context = getattr(self, '_current_engramms', '')
@@ -1650,6 +1661,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             f"Ez egy közös chat session, mint egy Telegram csoport. "
             f"Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
             f"{topic_instruction}\n\n"
+            f"{dm_instruction}\n\n"
             f"{memory_block}"
             f"── Beszélgetés eddig ──\n{chat_context}\n\n"
             f"── Új üzenet ──\n[{sender_tag}] {content[:4000]}\n\n"
