@@ -3212,7 +3212,18 @@ echo "Status: ok"
 
     async def _on_peer_discovered(self, peer_name: str):
         """Callback when a new peer is discovered (via PG or static config).
-        Sends our skills announcement via PG broadcast — rate limited to max 1 per 60s."""
+        Sends our skills announcement via PG broadcast — rate limited to max 1 per 60s.
+        Also registers the peer's HTTP URL for the HTTP transport."""
+        # Register peer HTTP URL for HTTP transport fallback
+        try:
+            peer = self.peer_discovery._peers.get(peer_name)
+            if peer and peer.host:
+                peer_http = f"http://{peer.host}:8650"
+                if hasattr(self, '_http_transport') and hasattr(self._http_transport, 'register_peer_url'):
+                    self._http_transport.register_peer_url(peer_name, peer_http)
+        except Exception as e:
+            log.debug(f"Peer HTTP URL registration failed for {peer_name}: {e}")
+
         import time as _time
         now = _time.time()
         if now - self._last_skills_announcement < 60:

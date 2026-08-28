@@ -92,8 +92,8 @@ mesh:
       tls_enabled: true
     http:
       url: http://192.168.1.30:8650
-      health_url: http://192.168.1.30:8650/health
-      timeout: 5
+      health_url: http://192.168.1.30:8650/api/health
+      timeout: 10
       retries: 3
   discovery:
     min_target_peers: 2

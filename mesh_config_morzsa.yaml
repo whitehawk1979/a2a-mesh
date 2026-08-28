@@ -168,10 +168,10 @@ mesh:
   - http
   transports:
     http:
-      health_url: http://192.168.1.30:8198/health
+      health_url: http://localhost:8650/api/health
       retries: 3
-      timeout: 5
-      url: http://192.168.1.30:8199
+      timeout: 10
+      url: http://localhost:8650
     p2p:
       enabled: true
       idle_timeout: 300

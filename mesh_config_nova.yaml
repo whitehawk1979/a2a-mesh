@@ -95,8 +95,8 @@ mesh:
       tls_verify_peer: false
     http:
       url: http://192.168.1.30:8650
-      health_url: http://192.168.1.30:8650/health
-      timeout: 5
+      health_url: http://192.168.1.30:8650/api/health
+      timeout: 10
       retries: 3
     ssh_tunnel:
       enabled: true
