@@ -3536,22 +3536,33 @@ echo "Status: ok"
 
         Replaces the old psycopg2 synchronous connection with asyncpg pool.
         All DB operations are now async and non-blocking.
+
+        Retries up to 5 times with 2s delay — handles PG startup race condition
+        where the node starts before PG is fully ready (e.g. after deploy).
         """
-        try:
-            self._pg_pool = AsyncDBPool(self.config)
-            if not await self._pg_pool.connect():
-                log.error("Failed to create asyncpg connection pool")
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                self._pg_pool = AsyncDBPool(self.config)
+                if not await self._pg_pool.connect():
+                    log.error(f"Failed to create asyncpg connection pool (attempt {attempt + 1}/{max_retries})")
+                    self._pg_pool = None
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2)
+                    continue
+                log.info("AsyncPG connection pool established")
+                # Initialize offline queue pool
+                await self.offline_queue.init_pool(self._pg_pool)
+                await self.offline_queue.ensure_table()
+                return True
+            except Exception as e:
+                log.error(f"AsyncPG connection pool failed (attempt {attempt + 1}/{max_retries}): {e}")
                 self._pg_pool = None
-                return False
-            log.info("AsyncPG connection pool established")
-            # Initialize offline queue pool
-            await self.offline_queue.init_pool(self._pg_pool)
-            await self.offline_queue.ensure_table()
-            return True
-        except Exception as e:
-            log.error(f"AsyncPG connection pool failed: {e}")
-            self._pg_pool = None
-            return False
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+
+        log.error(f"PG write connection failed after {max_retries} retries — running in P2P-only mode")
+        return False
 
     async def _persist_message(self, message: A2AMessage):
         """Persist message to mesh.mesh_messages for reliability and NOTIFY trigger.

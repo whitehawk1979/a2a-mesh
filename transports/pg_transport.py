@@ -58,42 +58,51 @@ class PGTransport(TransportAdapter):
         """Start PG LISTEN connection using asyncpg.
 
         PG is optional — if no password or DB unreachable, gracefully degrade to P2P-only mode.
+        Retries 3 times with 2s delay on connection failure.
         """
         if not self.config.pg.password and not os.environ.get("A2A_MESH_PG_DSN"):
             log.info("PG transport disabled — no password configured (P2P-only mode)")
             self._available = False
             return False
 
-        try:
-            # Use shared pool if provided, otherwise create our own
-            if self._shared_pool and self._shared_pool.is_connected():
-                self._pool = self._shared_pool
-                log.info("PG transport using shared connection pool")
-            else:
-                self._pool = AsyncDBPool(self.config)
-                if not await self._pool.connect():
-                    log.error("Failed to create asyncpg connection pool")
-                    self._available = False
-                    return False
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Use shared pool if provided, otherwise create our own
+                if self._shared_pool and self._shared_pool.is_connected():
+                    self._pool = self._shared_pool
+                    log.info("PG transport using shared connection pool")
+                else:
+                    self._pool = AsyncDBPool(self.config)
+                    if not await self._pool.connect():
+                        log.error(f"Failed to create asyncpg connection pool (attempt {attempt + 1}/{max_retries})")
+                        self._pool = None
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2)
+                        continue
 
-            # Acquire a dedicated listener connection for NOTIFY/LISTEN
-            self._listener_conn = await self._pool._pool.acquire()
-            for channel in self._channels:
-                await self._listener_conn.execute(f"LISTEN {channel}")
-                log.info(f"PG LISTEN on {channel}")
+                # Acquire a dedicated listener connection for NOTIFY/LISTEN
+                self._listener_conn = await self._pool._pool.acquire()
+                for channel in self._channels:
+                    await self._listener_conn.execute(f"LISTEN {channel}")
+                    log.info(f"PG LISTEN on {channel}")
 
-            self._running = True
-            self._available = True
+                self._running = True
+                self._available = True
 
-            # Start async listener task
-            self._listener_task = asyncio.create_task(self._listen_loop())
-            log.info("PG transport started (asyncpg + NOTIFY/LISTEN)")
-            return True
+                # Start async listener task
+                self._listener_task = asyncio.create_task(self._listen_loop())
+                log.info("PG transport started (asyncpg + NOTIFY/LISTEN)")
+                return True
 
-        except Exception as e:
-            log.error(f"PG transport start failed: {e}")
-            self._available = False
-            return False
+            except Exception as e:
+                log.error(f"PG transport start failed (attempt {attempt + 1}/{max_retries}): {e}")
+                self._available = False
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+
+        log.warning(f"PG transport unavailable after {max_retries} retries — P2P-only mode")
+        return False
 
     async def stop(self) -> bool:
         """Stop PG connections."""
