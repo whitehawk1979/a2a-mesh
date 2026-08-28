@@ -4956,12 +4956,19 @@ echo "Status: ok"
                 log.warning(f"Stats update error: {e}")
 
     async def _memory_maintenance_loop(self):
-        """v0.40: Periodic capsule promotion + auto skill generation.
+        """v0.40.4: Periodic capsule promotion + auto skill generation + self-reflection.
 
-        Runs every 5 minutes. Promotes mature capsules to engramms,
-        then generates SKILL.md from well-referenced engramms.
+        Runs every 5 minutes. Each node:
+        1. Fetches recent mesh chat messages and creates capsules from them
+        2. Promotes mature capsules to engramms
+        3. Generates SKILL.md from well-referenced engramms
+
+        This ensures ALL nodes (not just Nova) generate memory capsules
+        and skills from their own perspective.
         """
-        from core.capsules import check_and_promote_capsules, check_and_generate_skills
+        from core.capsules import check_and_promote_capsules, check_and_generate_skills, store_capsule
+        from core.reflection import run_reflection_cycle
+        last_reflection_msg_id = 0
         while self._running:
             try:
                 await asyncio.sleep(300)  # Every 5 minutes
@@ -4970,8 +4977,60 @@ echo "Status: ok"
                 pg_pool = getattr(self, '_pg_pool', None)
                 if not pg_pool or not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
                     continue
+
+                # ── Step 1: Self-reflection from recent mesh chat messages ──
+                # Each node processes chat messages independently, creating
+                # capsules and reflections from its own perspective.
+                try:
+                    rows = await pg_pool.fetch(
+                        """SELECT id, sender, content, created_at
+                           FROM mesh.mesh_chat_messages
+                           WHERE id > $1
+                           ORDER BY id ASC LIMIT 50""",
+                        last_reflection_msg_id,
+                    )
+                    if rows and len(rows) >= 3:
+                        # Group messages by topic (simple: use time gap > 10 min as topic boundary)
+                        messages = []
+                        for r in rows:
+                            messages.append({
+                                'id': r['id'],
+                                'sender': r['sender'],
+                                'content': r['content'] or '',
+                                'created_at': r['created_at'],
+                            })
+                            last_reflection_msg_id = max(last_reflection_msg_id, r['id'])
+
+                        # Build agents list
+                        agents = list(set(m['sender'] for m in messages if m['sender']))
+                        topic = messages[0]['content'][:80] if messages else 'mesh activity'
+
+                        # Run reflection cycle (LLM deep reflection using this node's own model)
+                        ollama_url = getattr(self.config, 'ollama_url', 'http://localhost:11434')
+                        prompt_text, ref_id = await run_reflection_cycle(
+                            pg_pool, messages, topic, agents, ollama_url,
+                        )
+
+                        # Also store a capsule if we have enough messages
+                        if len(messages) >= 3 and ref_id:
+                            msg_ids = [m['id'] for m in messages]
+                            await store_capsule(
+                                pg_pool, topic,
+                                ' '.join(m['content'][:200] for m in messages[:5]),
+                                agents,
+                                min(msg_ids), max(msg_ids),
+                                ollama_url,
+                            )
+                            log.info(f"🧠 Self-reflection: {len(messages)} msgs, capsule+reflection stored for topic '{topic[:50]}'")
+                except Exception as e:
+                    log.debug(f"Self-reflection step skipped: {e}")
+
+                # ── Step 2: Promote capsules → engramms ──
                 promoted = await check_and_promote_capsules(pg_pool)
+
+                # ── Step 3: Generate skills from engramms ──
                 generated = await check_and_generate_skills(pg_pool)
+
                 if promoted or generated:
                     log.info(f"🧠 Memory maintenance: promoted={promoted}, skills_generated={generated}")
             except asyncio.CancelledError:
