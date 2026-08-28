@@ -49,7 +49,7 @@ def _safe_ascii(text: str) -> str:
     nfkd = unicodedata.normalize('NFKD', text)
     ascii_friendly = ''.join(c for c in nfkd if not unicodedata.combining(c))
     # Step 2: Encode any remaining non-ASCII as \\uXXXX
-    return ascii_friendly.encode('ascii', 'backslashreplace').decode('ascii')
+    return ascii_friendly
 
 
 class DelegationManager:

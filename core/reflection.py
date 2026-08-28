@@ -395,7 +395,7 @@ Válaszolj röviden, magyarul, objektíven. Ne ismételd amit mások mondtak."""
                     if text and len(text) > 20:
                         log.info(f"🔍 Deep reflection generated with model={model}: {text[:80]}...")
                         # ASCII-safe for SQL_ASCII PG
-                        return text.encode('ascii', 'replace').decode('ascii')
+                        return text
                 else:
                     log.warning(f"🔍 Deep reflection failed: HTTP {resp.status} from model={model}")
                 return None
@@ -446,8 +446,8 @@ async def store_reflection(
             return None
 
         # ASCII-safe
-        topic_safe = topic.encode('ascii', 'replace').decode('ascii')
-        reflection_safe = reflection_text.encode('ascii', 'replace').decode('ascii')
+        topic_safe = topic
+        reflection_safe = reflection_text
 
         # Create embedding
         from .capsules import create_embedding
@@ -664,10 +664,10 @@ async def submit_development_suggestion(
         suggestion_id = f"sugg-{node_name}-{int(time.time())}"
 
         # ASCII-safe for SQL_ASCII PG
-        title_safe = title.encode('ascii', 'replace').decode('ascii')[:200]
-        desc_safe = description.encode('ascii', 'replace').decode('ascii')[:2000]
-        rationale_safe = rationale.encode('ascii', 'replace').decode('ascii')[:500] if rationale else None
-        suggested_safe = suggested_value.encode('ascii', 'replace').decode('ascii')[:500] if suggested_value else None
+        title_safe = title[:200]
+        desc_safe = description[:2000]
+        rationale_safe = rationale[:500] if rationale else None
+        suggested_safe = suggested_value[:500] if suggested_value else None
 
         await pg_pool.execute(
             """INSERT INTO mesh.mesh_suggestions

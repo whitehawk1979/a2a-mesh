@@ -633,7 +633,7 @@ class DashboardAgentsMixin:
                 cur = conn.cursor()
                 cur.execute("SET client_encoding TO 'UTF8'")
                 # ASCII-safe sender for SQL_ASCII PG
-                safe_sender_param = sender.encode("ascii", "replace").decode("ascii") if sender else ""
+                safe_sender_param = sender if sender else ""
                 cur.execute("""
                     SELECT id, sender, recipient, msg_type, priority, payload, created_at
                     FROM mesh.mesh_messages
@@ -1302,7 +1302,7 @@ class DashboardAgentsMixin:
             cur = conn.cursor()
             payload = message.payload if isinstance(message.payload, dict) else {"text": str(message.payload)}
             # For SQL_ASCII PG: use ASCII-safe sender name
-            safe_sender = (message.sender or "unknown").encode("ascii", "replace").decode("ascii")
+            safe_sender = message.sender or "unknown"
             payload_json = json.dumps(payload, ensure_ascii=True)
 
             cur.execute(

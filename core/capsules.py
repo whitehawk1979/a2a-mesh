@@ -211,8 +211,8 @@ async def store_capsule(
             return None
 
         # Sanitize text for SQL_ASCII compatibility — strip non-ASCII chars
-        topic_safe = topic.encode('ascii', 'replace').decode('ascii')
-        summary_safe = summary.encode('ascii', 'replace').decode('ascii')
+        topic_safe = topic
+        summary_safe = summary
 
         # Create embedding from topic + summary
         embed_text = f"{topic}\n{summary}"
@@ -1065,7 +1065,7 @@ async def update_capsule_version(
             meta['previous_summary'] = (row['memory_value'] or '')[:200]  # Keep snippet
             await pg_pool.execute(
                 "UPDATE mesh.mesh_memory SET memory_value = $1, metadata = $2 WHERE id = $3",
-                new_summary.encode('ascii', 'replace').decode('ascii'),
+                new_summary,
                 json.dumps(meta),
                 capsule_id,
             )
