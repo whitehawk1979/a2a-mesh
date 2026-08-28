@@ -315,32 +315,75 @@ async def handle_chat_send(node, request, pool, user):
 
 
 async def handle_chat_messages(node, request, pool, user):
-    """GET /api/chat/messages?with=morzsa&limit=50 — Get chat history with a specific agent."""
+    """GET /api/chat/messages?with=morzsa&limit=30&before_id=123
+
+    Chat history with cursor-based pagination:
+    - Initial load: returns last `limit` messages (default 30)
+    - Scroll-up: pass before_id (oldest loaded message id) to fetch older messages
+    - Response includes total_count so the frontend knows if more history exists
+    """
     from aiohttp import web
     username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
     peer = request.query.get("with", "")
-    limit = int(request.query.get("limit", 50))
+    limit = min(int(request.query.get("limit", 30)), 200)
+    before_id = request.query.get("before_id", "")
+    try:
+        before_id = int(before_id) if before_id else None
+    except ValueError:
+        before_id = None
 
     try:
         if peer:
             # DM conversation between user and specific agent/user
-            rows = await pool.fetch(
-                """SELECT id, message_uuid, username, sender, recipient, content,
-                          msg_type, status, created_at, read_at
-                   FROM mesh.mesh_chat_messages
-                   WHERE username = $1 AND (sender = $2 OR recipient = $2)
-                   ORDER BY created_at DESC LIMIT $3""",
-                username, peer, limit
+            if before_id:
+                rows = await pool.fetch(
+                    """SELECT id, message_uuid, username, sender, recipient, content,
+                              msg_type, status, created_at, read_at
+                       FROM mesh.mesh_chat_messages
+                       WHERE username = $1 AND (sender = $2 OR recipient = $2)
+                         AND id < $3
+                       ORDER BY created_at DESC LIMIT $4""",
+                    username, peer, before_id, limit
+                )
+            else:
+                rows = await pool.fetch(
+                    """SELECT id, message_uuid, username, sender, recipient, content,
+                              msg_type, status, created_at, read_at
+                       FROM mesh.mesh_chat_messages
+                       WHERE username = $1 AND (sender = $2 OR recipient = $2)
+                       ORDER BY created_at DESC LIMIT $3""",
+                    username, peer, limit
+                )
+            # Total count for this conversation
+            total_row = await pool.fetchrow(
+                """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
+                   WHERE username = $1 AND (sender = $2 OR recipient = $2)""",
+                username, peer
             )
         else:
-            # All messages for this user
-            rows = await pool.fetch(
-                """SELECT id, message_uuid, username, sender, recipient, content,
-                          msg_type, status, created_at, read_at
-                   FROM mesh.mesh_chat_messages
-                   WHERE username = $1
-                   ORDER BY created_at DESC LIMIT $2""",
-                username, limit
+            # All messages for this user (general/broadcast channel)
+            if before_id:
+                rows = await pool.fetch(
+                    """SELECT id, message_uuid, username, sender, recipient, content,
+                              msg_type, status, created_at, read_at
+                       FROM mesh.mesh_chat_messages
+                       WHERE username = $1 AND id < $2
+                       ORDER BY created_at DESC LIMIT $3""",
+                    username, before_id, limit
+                )
+            else:
+                rows = await pool.fetch(
+                    """SELECT id, message_uuid, username, sender, recipient, content,
+                              msg_type, status, created_at, read_at
+                       FROM mesh.mesh_chat_messages
+                       WHERE username = $1
+                       ORDER BY created_at DESC LIMIT $2""",
+                    username, limit
+                )
+            total_row = await pool.fetchrow(
+                """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
+                   WHERE username = $1""",
+                username
             )
 
         messages = []
@@ -350,7 +393,18 @@ async def handle_chat_messages(node, request, pool, user):
             r["read_at"] = str(r["read_at"]) if r.get("read_at") else None
             messages.append(r)
 
-        return web.json_response({"messages": messages, "count": len(messages)})
+        total_count = total_row["cnt"] if total_row else 0
+        # has_more: are there older messages beyond what we just returned?
+        oldest_id = messages[-1]["id"] if messages else 0
+        has_more = oldest_id > 1 and len(messages) >= limit
+
+        return web.json_response({
+            "messages": messages,
+            "count": len(messages),
+            "total_count": total_count,
+            "has_more": has_more,
+            "oldest_id": oldest_id if messages else None,
+        })
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 

@@ -224,9 +224,95 @@ function switchChannel(channel) {
 function renderChannelMessages() {
   var container = document.getElementById("messages");
   container.innerHTML = "";
+  // Add "load more" indicator at top if there's more history
+  if (window._chatHasMore && window._chatOldestId) {
+    var indicator = document.createElement("div");
+    indicator.id = "load-more-indicator";
+    indicator.style.cssText = "text-align:center;padding:8px;color:#888;font-size:12px;cursor:pointer;";
+    indicator.textContent = "↑ Régebbi üzenetek betöltése…";
+    indicator.onclick = function() { loadOlderMessages(); };
+    container.appendChild(indicator);
+  }
   var msgs = channelMessages[currentChannel] || [];
   msgs.forEach(function(m) { addMessageToDOM(m, false); });
   scrollToBottom();
+}
+
+// ── Lazy-load older messages on scroll-up ──
+var _isLoadingOlder = false;
+
+function loadOlderMessages() {
+  if (_isLoadingOlder || !window._chatHasMore || !window._chatOldestId) return;
+  _isLoadingOlder = true;
+  var container = document.getElementById("messages");
+  var indicator = document.getElementById("load-more-indicator");
+  if (indicator) indicator.textContent = "Betöltés…";
+
+  // Save scroll position for restoration after prepend
+  var prevScrollHeight = container.scrollHeight;
+  var prevScrollTop = container.scrollTop;
+
+  var ch = currentChannel || "general";
+  var url = "/api/chat/messages?limit=30&before_id=" + window._chatOldestId;
+  if (ch !== "general") {
+    url = "/api/chat/messages?with=" + encodeURIComponent(ch) + "&limit=30&before_id=" + window._chatOldestId;
+  }
+
+  fetch(url).then(function(r) { return r.json(); }).then(function(d) {
+    if (!d || !d.messages) { _isLoadingOlder = false; return; }
+    // Messages come in DESC order (newest first) — reverse to chronological
+    var olderMsgs = d.messages.reverse();
+    // Prepend to channelMessages
+    var existing = channelMessages[ch] || [];
+    // Dedup by id
+    var existingIds = {};
+    existing.forEach(function(m) { existingIds[m.id] = true; });
+    var newMsgs = [];
+    olderMsgs.forEach(function(m) {
+      m.content = m.content || m.text || "";
+      m.timestamp = m.timestamp || m.created_at || "";
+      m.type = m.type || m.msg_type || "";
+      if (!existingIds[m.id]) newMsgs.push(m);
+    });
+    channelMessages[ch] = newMsgs.concat(existing);
+
+    // Update pagination state
+    window._chatHasMore = d.has_more || false;
+    window._chatOldestId = d.oldest_id || window._chatOldestId;
+
+    // Re-render with scroll position preserved
+    container.innerHTML = "";
+    if (window._chatHasMore && window._chatOldestId) {
+      var ind = document.createElement("div");
+      ind.id = "load-more-indicator";
+      ind.style.cssText = "text-align:center;padding:8px;color:#888;font-size:12px;cursor:pointer;";
+      ind.textContent = "↑ Régebbi üzenetek betöltése…";
+      ind.onclick = function() { loadOlderMessages(); };
+      container.appendChild(ind);
+    }
+    channelMessages[ch].forEach(function(m) { addMessageToDOM(m, false); });
+
+    // Restore scroll position (keep user at same visual position)
+    var newScrollHeight = container.scrollHeight;
+    container.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+
+    _isLoadingOlder = false;
+  }).catch(function(e) {
+    console.warn("[Chat] loadOlderMessages error:", e);
+    _isLoadingOlder = false;
+    if (indicator) indicator.textContent = "↑ Régebbi üzenetek betöltése…";
+  });
+}
+
+// Auto-trigger on scroll-up near top
+function _initChatScrollListener() {
+  var container = document.getElementById("messages");
+  if (!container) return;
+  container.addEventListener("scroll", function() {
+    if (container.scrollTop < 50 && window._chatHasMore && !_isLoadingOlder) {
+      loadOlderMessages();
+    }
+  });
 }
 
 function addMessageToDOM(msg, scroll) {
@@ -721,13 +807,16 @@ function loadMessages() {
     return;
   }
   var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
-  fetch("/api/chat/messages?limit=100", {
+  fetch("/api/chat/messages?limit=30", {
   }).then(function(r) {
     if (r.status === 401) { console.warn("[DM] 401 — token expired"); return null; }
     if (r.status === 429) { console.warn("[DM] 429 — rate limited"); return null; }
     return r.json();
   }).then(function(d) {
     if (!d) return; // 401/429 — keep existing messages, don't wipe
+    // Store pagination state
+    window._chatHasMore = d.has_more || false;
+    window._chatOldestId = d.oldest_id || null;
     // Filter messages based on current channel
     messageHistory = [];
     if (!channelMessages[currentChannel || "general"]) {
@@ -771,9 +860,11 @@ function loadMessages() {
         addMessage(m, false);
       }
     });
-    document.getElementById("msgCount").textContent = d.total || (d.messages || []).length;
+    document.getElementById("msgCount").textContent = d.total_count || d.total || (d.messages || []).length;
     renderChannelMessages();
     scrollToBottom();
+    // Init scroll listener for lazy loading
+    _initChatScrollListener();
   }).catch(function(e) {
     console.warn("[DM] loadMessages error:", e);
     // Keep existing messages on error — don't fallback to /api/messages
@@ -4079,13 +4170,19 @@ window.selectChatContact = function(agentName) {
 
 window._loadChatMessages = function(agentName, pollOnly) {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-  fetch('/api/chat/messages?with=' + encodeURIComponent(agentName) + '&limit=50', {
+  // Use pagination: initial load 30, subsequent polls use same endpoint
+  var loadUrl = '/api/chat/messages?with=' + encodeURIComponent(agentName) + '&limit=30';
+  // If we have oldest_id and it's not a poll, we could load more — but for DM, initial load is fine
+  fetch(loadUrl, {
     headers: { 'Authorization': 'Bearer ' + token }
   }).then(function(r) { return r.json(); })
     .then(function(d) {
       var msgs = (d.messages || []).reverse(); // oldest first
       var container = document.getElementById('messages') || document.getElementById('chatMessages');
       if (!container) return;
+      // Store pagination state for DM channel too
+      var dmKey = '_dmPagination_' + agentName;
+      window[dmKey] = { hasMore: d.has_more || false, oldestId: d.oldest_id || null, totalCount: d.total_count || 0 };
       if (!msgs.length) {
         if (!pollOnly) container.innerHTML = '<div style="color:var(--text3);font-size:13px;text-align:center;padding:20px;">Nincs üzenet. Írj valamit! 👋</div>';
         return;
@@ -4099,6 +4196,10 @@ window._loadChatMessages = function(agentName, pollOnly) {
       window[cacheKey] = lastId;
       
       var html = '';
+      // Add "load more" indicator at top if there's more history
+      if (d.has_more && d.oldest_id) {
+        html += '<div id="dm-load-more" style="text-align:center;padding:8px;color:var(--text3);font-size:12px;cursor:pointer;">↑ Régebbi üzenetek betöltése…</div>';
+      }
       var username = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || 'zsolt';
       msgs.forEach(function(m) {
         var isSent = (m.sender === username);
@@ -4117,8 +4218,86 @@ window._loadChatMessages = function(agentName, pollOnly) {
       });
       container.innerHTML = '<div style="width:100%;">' + html + '</div>';
       container.scrollTop = container.scrollHeight;
+      // Attach click handler for "load more" in DM
+      var dmLoadMore = document.getElementById('dm-load-more');
+      if (dmLoadMore) {
+        dmLoadMore.onclick = function() { _loadOlderDMMessages(agentName, container); };
+      }
+      // Also attach scroll listener for auto-load in DM
+      if (d.has_more) {
+        container.onscroll = function() {
+          if (container.scrollTop < 50 && window[dmKey] && window[dmKey].hasMore && !_isLoadingOlder) {
+            _loadOlderDMMessages(agentName, container);
+          }
+        };
+      } else {
+        container.onscroll = null;
+      }
     }).catch(function(e) {});
 };
+
+function _loadOlderDMMessages(agentName, container) {
+  if (_isLoadingOlder) return;
+  var dmKey = '_dmPagination_' + agentName;
+  var pg = window[dmKey];
+  if (!pg || !pg.hasMore || !pg.oldestId) return;
+  _isLoadingOlder = true;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var loadMoreEl = document.getElementById('dm-load-more');
+  if (loadMoreEl) loadMoreEl.textContent = 'Betöltés…';
+  var prevScrollHeight = container.scrollHeight;
+  var prevScrollTop = container.scrollTop;
+  fetch('/api/chat/messages?with=' + encodeURIComponent(agentName) + '&limit=30&before_id=' + pg.oldestId, {
+    headers: { 'Authorization': 'Bearer ' + token }
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || !d.messages) { _isLoadingOlder = false; return; }
+      var olderMsgs = d.messages.reverse(); // chronological
+      var username = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || 'zsolt';
+      // Build HTML for older messages
+      var olderHtml = '';
+      if (d.has_more && d.oldest_id) {
+        olderHtml += '<div id="dm-load-more" style="text-align:center;padding:8px;color:var(--text3);font-size:12px;cursor:pointer;">↑ Régebbi üzenetek betöltése…</div>';
+      }
+      olderMsgs.forEach(function(m) {
+        var isSent = (m.sender === username);
+        var senderName = esc(m.sender || '?');
+        var content = esc(m.content || '');
+        var time = m.created_at ? m.created_at.substring(11, 16) : '';
+        var bg = isSent ? 'var(--primary)' : 'var(--surface)';
+        var color = isSent ? '#fff' : 'var(--text)';
+        var align = isSent ? 'margin-left:auto;' : 'margin-right:auto;';
+        olderHtml += '<div style="max-width:75%;' + align + 'background:' + bg + ';color:' + color + ';border-radius:12px;padding:10px 14px;margin-bottom:6px;">';
+        if (!isSent) olderHtml += '<div style="font-size:10px;font-weight:600;margin-bottom:2px;opacity:0.7;">' + senderName + '</div>';
+        olderHtml += '<div style="font-size:13px;line-height:1.4;word-wrap:break-word;">' + content + '</div>';
+        olderHtml += '<div style="font-size:9px;text-align:right;margin-top:2px;opacity:0.6;">' + time + '</div>';
+        olderHtml += '</div>';
+      });
+      // Prepend older messages to existing content
+      var existingContent = container.innerHTML;
+      container.innerHTML = '<div style="width:100%;">' + olderHtml + '</div>';
+      // Append existing messages after older ones
+      var wrapper = container.querySelector('div');
+      if (wrapper) {
+        wrapper.insertAdjacentHTML('beforeend', existingContent.replace(/^<div style="width:100%;">/, '').replace(/<\/div>$/, ''));
+      }
+      // Restore scroll position
+      var newScrollHeight = container.scrollHeight;
+      container.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+      // Update pagination state
+      window[dmKey] = { hasMore: d.has_more || false, oldestId: d.oldest_id || pg.oldestId, totalCount: pg.totalCount };
+      // Re-attach load-more handler
+      var newLoadMore = document.getElementById('dm-load-more');
+      if (newLoadMore) {
+        newLoadMore.onclick = function() { _loadOlderDMMessages(agentName, container); };
+      }
+      _isLoadingOlder = false;
+    }).catch(function(e) {
+      console.warn('[Chat DM] loadOlder error:', e);
+      _isLoadingOlder = false;
+      if (loadMoreEl) loadMoreEl.textContent = '↑ Régebbi üzenetek betöltése…';
+    });
+}
 
 window.sendChatMessage = function() {
   console.log('[CHAT] sendChatMessage CALLED');
