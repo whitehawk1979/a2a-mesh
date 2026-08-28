@@ -3905,7 +3905,12 @@ echo "Status: ok"
                                         _p = None
                                 if isinstance(_p, dict):
                                     _chat_user = _p.get("chat_username")
+                                    _chat_type = _p.get("chat_type", "")
                                     if _chat_user:
+                                        _chat_reply_text = _p.get("text", "") or _p.get("content", "")
+                                    elif _chat_type == "agent_dm":
+                                        # Agent-to-agent DM — always accept, set chat_user to sender
+                                        _chat_user = _p.get("sender_display", msg.sender or "")
                                         _chat_reply_text = _p.get("text", "") or _p.get("content", "")
 
                             # ── Untrusted framing for peer messages ──
@@ -3916,10 +3921,24 @@ echo "Status: ok"
                             if msg.type in ("a2a_message", "agent_reply"):
                                 from .core.prompt_safety import wrap_trusted_peer
                                 trust = self._get_peer_trust_level(msg.sender)
+                                _is_agent_dm = False
+                                try:
+                                    _p2 = payload
+                                    if isinstance(_p2, str):
+                                        import json as _j3
+                                        _p2 = _j3.loads(_p2)
+                                    if isinstance(_p2, dict) and _p2.get("chat_type") == "agent_dm":
+                                        _is_agent_dm = True
+                                except Exception:
+                                    pass
                                 if trust == "full":
                                     msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
                                 elif trust == "limited":
                                     msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload) + "\n\n⚠️ LIMITED TRUST — verify all claims."
+                                elif _is_agent_dm:
+                                    # Agent-to-agent DM — always accept (mesh-internal)
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                    log.debug(f"Agent DM accepted from {msg.sender} (trust={trust})")
                                 elif _chat_user:
                                     # Chat DM from dashboard — always accept, wrap as trusted
                                     msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
