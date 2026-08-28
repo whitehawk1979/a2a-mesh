@@ -1644,7 +1644,12 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             "(nem mindenkihez), írd a válaszod így: 'DM:célagent:üzenet'. "
             "Például: 'DM:morzsa:ezt a részt neked szánom'. "
             "A rendszer csak a célagentnek küldi el. "
-            "Ha a DM után folytatod a broadcast választ, új sorba írd a többi tartalmat."
+            "Ha a DM után folytatod a broadcast választ, új sorba írd a többi tartalmat.\n\n"
+            "FEJLESZTÉSI JAVASLAT (v0.40+): Ha a beszélgetés során felismeresz egy "
+            "fejlesztési lehetőséget vagy hibát a mesh-ben, küldj javaslatot így: "
+            "'SUGGESTION: cím | leírás | prioritás(low/medium/high)'. "
+            "Például: 'SUGGESTION: Kapszula decay túl gyors | A 30 napos decay túl agresszív, 60 javasolt | medium'. "
+            "A rendszer PG-be tárolja és DM-ben értesíti Novát. Csak érdemi javaslatokat küldj!"
         )
 
         # ── Retrieve relevant memory capsules + engramms + reflections (sync — pre-fetched by caller) ──

@@ -635,3 +635,52 @@ async def run_reflection_cycle(
         )
 
     return prompt_text, reflection_id
+
+
+# ── v0.40: Development suggestion submission ──────────────────────────
+
+async def submit_development_suggestion(
+    pg_pool,
+    node_name: str,
+    title: str,
+    description: str,
+    category: str = "development",
+    priority: str = "medium",
+    rationale: str = "",
+    suggested_value: str = "",
+) -> Optional[str]:
+    """Store a development suggestion in mesh_suggestions table.
+
+    Called when an agent generates a development proposal during reflection
+    or wake-agent response. The suggestion is stored in PG for dashboard
+    tracking and Nova is notified via DM.
+
+    Returns suggestion_id on success, None on failure.
+    """
+    try:
+        if not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+            return None
+
+        suggestion_id = f"sugg-{node_name}-{int(time.time())}"
+
+        # ASCII-safe for SQL_ASCII PG
+        title_safe = title.encode('ascii', 'replace').decode('ascii')[:200]
+        desc_safe = description.encode('ascii', 'replace').decode('ascii')[:2000]
+        rationale_safe = rationale.encode('ascii', 'replace').decode('ascii')[:500] if rationale else None
+        suggested_safe = suggested_value.encode('ascii', 'replace').decode('ascii')[:500] if suggested_value else None
+
+        await pg_pool.execute(
+            """INSERT INTO mesh.mesh_suggestions
+               (suggestion_id, node, category, priority, title, description,
+                rationale, suggested_value, status, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW(), NOW())""",
+            suggestion_id, node_name, category, priority,
+            title_safe, desc_safe, rationale_safe, suggested_safe,
+        )
+
+        log.info(f"💡 Development suggestion stored: {suggestion_id} from {node_name}: {title_safe[:60]}")
+        return suggestion_id
+
+    except Exception as e:
+        log.warning(f"Failed to store development suggestion: {e}")
+        return None

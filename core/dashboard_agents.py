@@ -1038,6 +1038,7 @@ class DashboardAgentsMixin:
                         # ── DM parser: extract DM:target:message lines ──
                         dm_lines = []
                         broadcast_lines = []
+                        suggestion_lines = []
                         for line in clean_reply.split("\n"):
                             line = line.strip()
                             if not line:
@@ -1047,6 +1048,8 @@ class DashboardAgentsMixin:
                                 target = dm_match.group(1).lower()
                                 dm_text = dm_match.group(2).strip()
                                 dm_lines.append((target, dm_text))
+                            elif _re_dm.match(r"^SUGGESTION:", line, _re_dm.IGNORECASE):
+                                suggestion_lines.append(line)
                             else:
                                 broadcast_lines.append(line)
 
@@ -1070,6 +1073,45 @@ class DashboardAgentsMixin:
                                         log.info(f"📩 Agent DM {agent_name}→{target}: {dm_resp.status} — {dm_text[:80]}")
                             except Exception as dm_err:
                                 log.warning(f"📩 Agent DM to {target} failed: {dm_err}")
+
+                        # ── v0.40: Process SUGGESTION: lines → PG + DM to Nova ──
+                        if suggestion_lines:
+                            try:
+                                from core.reflection import submit_development_suggestion
+                                pg_pool = getattr(self.node, '_pg_pool', None)
+                                if pg_pool and hasattr(pg_pool, 'is_connected') and pg_pool.is_connected():
+                                    for sug_line in suggestion_lines:
+                                        # Parse: SUGGESTION: title | description | priority
+                                        parts = _re_dm.sub(r"^SUGGESTION:\s*", "", sug_line, flags=_re_dm.IGNORECASE).split("|")
+                                        title = parts[0].strip()[:200] if parts else "Untitled"
+                                        desc = parts[1].strip()[:2000] if len(parts) > 1 else title
+                                        priority = parts[2].strip().lower() if len(parts) > 2 else "medium"
+                                        if priority not in ("low", "medium", "high"):
+                                            priority = "medium"
+                                        sug_id = await submit_development_suggestion(
+                                            pg_pool, agent_name, title, desc,
+                                            category="development", priority=priority,
+                                        )
+                                        if sug_id:
+                                            # DM Nova about the suggestion
+                                            dm_payload = {
+                                                "sender": agent_name,
+                                                "recipient": "nova",
+                                                "content": f"💡 Javaslat: {title} ({priority})\n{sug_id}",
+                                                "msg_type": "a2a_message",
+                                            }
+                                            dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
+                                            async with _aiohttp2.ClientSession() as sess:
+                                                async with sess.post(
+                                                    dm_url,
+                                                    json=dm_payload,
+                                                    headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
+                                                    timeout=_aiohttp2.ClientTimeout(total=10),
+                                                ) as dm_resp:
+                                                    log.info(f"💡 Suggestion DM {agent_name}→nova: {dm_resp.status} — {title[:60]}")
+                                    log.info(f"💡 {agent_name} submitted {len(suggestion_lines)} development suggestions")
+                            except Exception as sug_err:
+                                log.warning(f"💡 Suggestion processing failed: {sug_err}")
 
                         # Send broadcast reply (non-DM lines)
                         broadcast_reply = "\n".join(broadcast_lines).strip()
