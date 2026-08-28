@@ -106,27 +106,12 @@ class HTTPTransport(TransportAdapter):
         return self._peer_urls.get(recipient.lower(), self._url.rstrip("/"))
 
     async def _get_peer_token(self, peer_url: str) -> str:
-        """Get or refresh auth token for a peer dashboard."""
-        if peer_url in self._peer_tokens:
-            return self._peer_tokens[peer_url]
-        # Try to login — mesh dashboards use same creds
-        try:
-            login_url = peer_url + "/api/auth/login"
-            async with self._session.post(login_url, json={
-                "username": "mesh", "password": "mesh2026"
-            }) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    token = data.get("token", "")
-                    if token:
-                        self._peer_tokens[peer_url] = token
-                        return token
-        except Exception as e:
-            log.debug(f"Peer auth failed for {peer_url}: {e}")
+        """No longer needed — we use X-Mesh-Token header instead of user auth.
+        Kept for backward compatibility but returns empty string."""
         return ""
 
     async def send(self, message: A2AMessage) -> SendResult:
-        """Send message via peer's /api/send endpoint."""
+        """Send message via peer's /api/send endpoint using X-Mesh-Token."""
         if not self._session:
             return SendResult(transport="http", success=False, error="not initialized")
 
@@ -136,11 +121,8 @@ class HTTPTransport(TransportAdapter):
         else:
             target_url = self._url.rstrip("/")
 
-        # Get auth token for peer
-        token = await self._get_peer_token(target_url)
-        headers = {}
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+        # Use mesh-internal shared secret — no user login needed
+        headers = {"X-Mesh-Token": "mesh-wake-secret-2026"}
 
         # Build payload for /api/send
         payload = {
@@ -161,26 +143,22 @@ class HTTPTransport(TransportAdapter):
                         self._available = True
                         return SendResult(transport="http", success=True, latency_ms=latency)
                     elif resp.status == 401:
-                        # Token expired — clear and retry
-                        self._peer_tokens.pop(target_url, None)
-                        token = await self._get_peer_token(target_url)
-                        if token:
-                            headers["Authorization"] = f"Bearer {token}"
-                        last_error = f"HTTP 401 (auth retry {attempt + 1})"
+                        # Should not happen with X-Mesh-Token — but handle gracefully
+                        last_error = f"HTTP 401 (X-Mesh-Token rejected, attempt {attempt + 1})"
+                    elif resp.status == 429:
+                        last_error = f"HTTP 429 (rate limited, attempt {attempt + 1})"
+                        await asyncio.sleep(2 ** attempt)
                     else:
                         text = await resp.text()
                         last_error = f"HTTP {resp.status}: {text[:200]}"
             except asyncio.TimeoutError:
                 last_error = f"timeout (attempt {attempt + 1}/{self._retries})"
-                # Don't mark unavailable on timeout
             except aiohttp.ClientConnectorError as e:
                 last_error = f"connection refused: {e}"
-                # Peer not reachable — mark unavailable
                 self._available = False
             except Exception as e:
                 last_error = str(e)
 
-            # Wait before retry (exponential backoff)
             if attempt < self._retries - 1:
                 await asyncio.sleep(2 ** attempt)
 

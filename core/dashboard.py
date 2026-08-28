@@ -519,8 +519,26 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/memory-page", self._api_memory_page)
         app.router.add_get("/api/logs-page", self._api_logs_page)
     def _require_auth(self, request):
-        """Extract and verify auth token from request. Returns (user, error_response)."""
+        """Extract and verify auth token from request. Returns (user, error_response).
+
+        Supports X-Mesh-Token header for mesh-internal API calls (transport, wake-agent).
+        This bypasses user auth — the shared secret authenticates mesh nodes only.
+        """
         from aiohttp import web
+
+        # ── Mesh-internal bypass: X-Mesh-Token header ──
+        mesh_token = request.headers.get("X-Mesh-Token", "")
+        if mesh_token == "mesh-wake-secret-2026":
+            # Return a synthetic system user for mesh-internal calls
+            class MeshSystemUser:
+                user_id = 0
+                username = "mesh"
+                role = "admin"
+                is_system = True
+                def to_dict(self):
+                    return {"username": "mesh", "role": "admin", "is_system": True}
+            return MeshSystemUser(), None
+
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
