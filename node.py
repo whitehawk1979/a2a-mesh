@@ -3952,12 +3952,22 @@ echo "Status: ok"
                             # Auto-ack removed — the real LLM response arrives in 15-30s
                             # and serves as the natural acknowledgment.
                             log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
-                            if msg.type == "a2a_message" and _chat_user:
-                                try:
-                                    asyncio.create_task(self._trigger_webhook(msg))
-                                    log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
-                                except Exception as e:
-                                    log.warning(f"Wake-agent trigger failed: {e}")
+                            # ── Anti-ping-pong: skip wake-agent for agent replies and agent DMs ──
+                            # Agent-generated messages must NOT trigger new wake-agent calls
+                            # on peer nodes — that creates infinite reply chains.
+                            _skip_wake_types = ("agent_reply", "agent_dm", MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT,
+                                                 "skills_announcement", "memory_sync")
+                            if msg.type == "a2a_message" and _chat_user and msg.type not in _skip_wake_types:
+                                # Check if sender is another mesh agent (not a human user)
+                                _agent_senders = ("nova", "morzsa", "runa", "tor")
+                                if msg.sender.lower() in _agent_senders:
+                                    log.info(f"🔇 Skip wake-agent for agent→agent msg from {msg.sender} (anti-ping-pong)")
+                                else:
+                                    try:
+                                        asyncio.create_task(self._trigger_webhook(msg))
+                                        log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
+                                    except Exception as e:
+                                        log.warning(f"Wake-agent trigger failed: {e}")
 
                             result = await self.router.receive(msg, from_transport)
                             if result.status == "duplicate":

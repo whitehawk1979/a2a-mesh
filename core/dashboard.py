@@ -1609,8 +1609,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             "kövesd azokat. Ne hivatkozz korábbi témákra.\n"
             "5. Ha úgy érzed, hogy már eleget mondtál és a többi agent tovább vitte "
             "a gondolatot, egy rövid 'NEM VÁLASZTOLSZ' választ adj.\n"
-            f"6. Eddig {my_msg_count} üzenetet írtál ebben a témában. "
-            f"{'Ha már 3+ üzeneted van, csak kritikus új információ esetén válaszolj.' if my_msg_count >= 3 else ''}"
+            f"6. Eddig {my_msg_count} üzenetet írtél ebben a témában. "
+            f"{'⚠️ Ha már 5+ üzeneted van, CSAK kritikus új információ esetén válaszolj. Ha a vita konklúzió felé tart, NE folytasd.' if my_msg_count >= 5 else 'Ha már 3+ üzeneted van, csak kritikus új információ esetén válaszolj.' if my_msg_count >= 3 else ''}"
+            "\n7. KONKLÚZIÓ: Ha a beszélgetés láthatóan lezárult vagy konklúziót ért, "
+            "NE adj hozzá újabb érvet — írd: 'NEM VÁLASZTOLSZ'."
         )
 
         # Anti-echo rule — always active

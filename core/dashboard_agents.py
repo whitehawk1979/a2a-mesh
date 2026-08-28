@@ -398,6 +398,27 @@ class DashboardAgentsMixin:
             clean_reply = output.strip()
             # Echo filter: strip agreement prefixes, skip pure echo
             clean_reply = strip_echo_prefix(clean_reply)
+            
+            # ── Content similarity check (self-wake path) ──
+            if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ":
+                from difflib import SequenceMatcher as _SM
+                _self_name = self.node.node_name
+                _prev_replies = getattr(self, '_recent_agent_replies', {}).get(_self_name, [])
+                _max_sim = 0.0
+                for _prev in _prev_replies[-5:]:
+                    _sim = _SM(None, clean_reply.lower()[:500], _prev.lower()[:500]).ratio()
+                    _max_sim = max(_max_sim, _sim)
+                if _max_sim > 0.70:
+                    log.info(f"🔇 Similarity check: {_self_name} reply {_max_sim:.0%} similar to previous — skipping")
+                    clean_reply = ""
+                else:
+                    if not hasattr(self, '_recent_agent_replies'):
+                        self._recent_agent_replies = {}
+                    if _self_name not in self._recent_agent_replies:
+                        self._recent_agent_replies[_self_name] = []
+                    self._recent_agent_replies[_self_name].append(clean_reply[:500])
+                    self._recent_agent_replies[_self_name] = self._recent_agent_replies[_self_name][-10:]
+            
             # Filter "NEM VÁLASZTOLSZ" — agent decided not to reply
             if not clean_reply or clean_reply.upper() == "NEM VÁLASZTOLSZ":
                 log.info(f"Nova agent chose not to reply (NEM VÁLASZTOLSZ) — skipping")
@@ -738,18 +759,41 @@ class DashboardAgentsMixin:
                 return web.json_response({"error": "Empty message"}, status=400)
 
             from .message import A2AMessage, MSG_TYPE_DIRECTIVE, MSG_TYPE_STEER
-            msg = A2AMessage(
-                sender=sender,
-                recipient=recipient,
-                type=MSG_TYPE_DIRECTIVE,
-                priority=priority,
-                payload={
-                    "text": content,
-                    "source": "agent_reply",
-                    "username": sender,
-                    "reply_to": reply_to,
-                },
-            )
+
+            # ── Anti-ping-pong: if the reply is from an agent to a broadcast chat,
+            # route it as agent_reply type (not generic directive) and send to the
+            # original sender only, NOT broadcast. This prevents peer nodes from
+            # re-triggering wake-agent on receiving this reply.
+            _agent_names = ("nova", "morzsa", "runa", "tor")
+            _is_agent_reply = sender.lower() in _agent_names
+            if _is_agent_reply and recipient == "broadcast":
+                # Agent broadcasting to chat — keep as broadcast for dashboard visibility
+                # but use agent_reply type so the receive loop's anti-ping-pong filter catches it
+                msg = A2AMessage(
+                    sender=sender,
+                    recipient=recipient,
+                    type="agent_reply",  # Use agent_reply type instead of directive
+                    priority=priority,
+                    payload={
+                        "text": content,
+                        "source": "agent_reply",
+                        "username": sender,
+                        "reply_to": reply_to,
+                    },
+                )
+            else:
+                msg = A2AMessage(
+                    sender=sender,
+                    recipient=recipient,
+                    type=MSG_TYPE_DIRECTIVE,
+                    priority=priority,
+                    payload={
+                        "text": content,
+                        "source": "agent_reply",
+                        "username": sender,
+                        "reply_to": reply_to,
+                    },
+                )
 
             # Send via mesh router so all nodes get it
             await self.node.router.send(msg)
@@ -865,6 +909,25 @@ class DashboardAgentsMixin:
             # Rate limit: prevent wake-agent storm (Ollama 429 + OOM SIGKILL root cause)
             import time as _time
             now = _time.monotonic()
+            
+            # ── Dynamic cooldown: detect ping-pong pattern ──
+            # Track wake-agent call timestamps; if 3+ calls in last 60s, increase cooldown
+            _wake_history = getattr(self, '_wake_agent_history', [])
+            # Prune entries older than 60s
+            _wake_history = [t for t in _wake_history if now - t < 60]
+            _wake_history.append(now)
+            self._wake_agent_history = _wake_history
+            
+            if len(_wake_history) >= 5:
+                # Ping-pong detected — increase cooldown to 45s
+                dynamic_cooldown = 45
+                log.warning(f"🏓 Ping-pong detected ({len(_wake_history)} wake calls in 60s) — cooldown → {dynamic_cooldown}s")
+            elif len(_wake_history) >= 3:
+                # Active debate — moderate cooldown
+                dynamic_cooldown = max(self._wake_agent_cooldown, 20)
+            else:
+                dynamic_cooldown = self._wake_agent_cooldown
+            
             if self._wake_agent_in_progress:
                 # Safety: if in_progress for >120s, the CLI crashed/stuck — reset and allow
                 stuck_elapsed = now - getattr(self, '_wake_agent_start_time', now)
@@ -875,9 +938,9 @@ class DashboardAgentsMixin:
                     log.warning(f"Wake-agent already in progress — skipping (rate limit)")
                     return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
             elapsed = now - self._last_wake_agent_time
-            if elapsed < self._wake_agent_cooldown:
-                remaining = self._wake_agent_cooldown - elapsed
-                log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining")
+            if elapsed < dynamic_cooldown:
+                remaining = dynamic_cooldown - elapsed
+                log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining (dynamic: {dynamic_cooldown}s)")
                 return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
             self._last_wake_agent_time = now
             self._wake_agent_in_progress = True
@@ -922,7 +985,7 @@ class DashboardAgentsMixin:
                 ollama_body = {
                     "model": "glm-5.2:cloud",
                     "messages": [
-                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'. Olvasd el a beszélgetést és döntsd el: van-e új érv-ed vagy csak ismétled másokat."},
+                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz.\n\nÖNSZABÁLYOZÁS:\n1. OLVASD EL a beszélgetést. Ha valaki már említette az érvedet, NE ismételd.\n2. DUPLÁZÁS-ELLENŐRZÉS: 'Igen, és pont ezért...' nem új érv.\n3. Ha már 5+ üzeneted van ebben a témában, csak KÜLÖNÖSEN fontos új infó esetén válaszolj.\n4. Ha a vita már lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz.\n5. SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. Csak ÚJ érvet vagy ellenvetést írj.\n6. Ha a beszélgetés kb. lezárult (konklúzió látszik), NE folytasd a vitát — 'NEM VÁLASZTOLSZ'."},
                         {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
@@ -944,6 +1007,29 @@ class DashboardAgentsMixin:
                 clean_reply = output.strip()
                 # Echo filter: strip agreement prefixes, skip pure echo
                 clean_reply = strip_echo_prefix(clean_reply)
+                
+                # ── Content similarity check: if reply is >70% similar to a
+                # previous reply from this agent, skip it (anti-repetition) ──
+                if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ":
+                    from difflib import SequenceMatcher
+                    _prev_replies = getattr(self, '_recent_agent_replies', {}).get(agent_name, [])
+                    _max_sim = 0.0
+                    for _prev in _prev_replies[-5:]:
+                        _sim = SequenceMatcher(None, clean_reply.lower()[:500], _prev.lower()[:500]).ratio()
+                        _max_sim = max(_max_sim, _sim)
+                    if _max_sim > 0.70:
+                        log.info(f"🔇 Similarity check: {agent_name} reply {_max_sim:.0%} similar to previous — skipping")
+                        clean_reply = ""
+                    else:
+                        # Store this reply for future similarity checks
+                        if not hasattr(self, '_recent_agent_replies'):
+                            self._recent_agent_replies = {}
+                        if agent_name not in self._recent_agent_replies:
+                            self._recent_agent_replies[agent_name] = []
+                        self._recent_agent_replies[agent_name].append(clean_reply[:500])
+                        # Keep only last 10
+                        self._recent_agent_replies[agent_name] = self._recent_agent_replies[agent_name][-10:]
+                
                 if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ" and reply_endpoint:
                     try:
                         import aiohttp as _aiohttp2
