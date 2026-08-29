@@ -316,6 +316,16 @@ async def handle_chat_send(node, request, pool, user):
                     pass
             reply_endpoint = f"http://{my_host}:{node.config.health_port}/api/agent-reply"
 
+            # ── @mention awareness: direct address in the common room ──
+            # If the message contains @agentname(s), ONLY those agents wake with a
+            # "NEKED ÍRTÁK" directive; unmentioned agents stay silent.
+            import re as _re_mention
+            _mentioned = [m.lower() for m in _re_mention.findall(r"@(\w+)", content)]
+            _valid_agents = {"nova", "morzsa", "runa", "tor"}
+            _mentioned = [a for a in _mentioned if a in _valid_agents]
+            if _mentioned:
+                log.info(f"💬 Mention detected in broadcast: {', '.join(_mentioned)} — targeted wake only")
+
             # Wake-agent on ALL online peers
             FALLBACK_PEERS = {
                 "morzsa": {"host": "192.168.1.30", "health_port": 8650},
@@ -325,17 +335,26 @@ async def handle_chat_send(node, request, pool, user):
             for peer_name, peer_info in FALLBACK_PEERS.items():
                 if peer_name == node_name:
                     continue  # Skip self
+                # Mention targeting: skip agents that were NOT mentioned
+                if _mentioned and peer_name not in _mentioned:
+                    log.info(f"💬 Skip wake {peer_name} — not @mentioned")
+                    continue
                 peer_host = peer_info["host"]
                 peer_port = peer_info["health_port"]
                 wake_url = f"http://{peer_host}:{peer_port}/api/wake-agent"
                 log.info(f"🔔 Wake-agent broadcast → {peer_name} at {wake_url}")
-                async def _wake_broadcast(pn=peer_name, url=wake_url):
+                _mentioned_direct = peer_name in _mentioned
+                async def _wake_broadcast(pn=peer_name, url=wake_url, ment=_mentioned_direct):
                     import aiohttp as _aiohttp
                     await _aio.sleep(2)  # Delay 2s — let P2P wake-agent trigger first
                     try:
+                        if ment:
+                            _b_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {content[:500]} — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
+                        else:
+                            _b_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}"
                         async with _aiohttp.ClientSession() as sess:
                             async with sess.post(url, json={
-                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}",
+                                "prompt": _b_prompt,
                                 "agent_name": pn,
                                 "sender": username,
                                 "sender_display": display_name,

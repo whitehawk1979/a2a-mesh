@@ -3977,11 +3977,29 @@ echo "Status: ok"
                                 if msg.sender.lower() in _agent_senders:
                                     log.info(f"🔇 Skip wake-agent for agent→agent msg from {msg.sender} (anti-ping-pong)")
                                 else:
+                                    # ── @mention targeting: in broadcast, only wake if @mentioned ──
+                                    _msg_text = ""
                                     try:
-                                        asyncio.create_task(self._trigger_webhook(msg))
-                                        log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}")
-                                    except Exception as e:
-                                        log.warning(f"Wake-agent trigger failed: {e}")
+                                        _mp = msg.payload
+                                        if isinstance(_mp, str):
+                                            import json as _mj
+                                            _mp = _mj.loads(_mp)
+                                        if isinstance(_mp, dict):
+                                            _msg_text = _mp.get("text", "") or ""
+                                    except Exception:
+                                        _msg_text = ""
+                                    import re as _re_ment_rx
+                                    _mentioned_here = [m.lower() for m in _re_ment_rx.findall(r"@(\w+)", _msg_text)]
+                                    _is_broadcast_msg = (msg.recipient or "") in ("", "broadcast", "*")
+                                    if _is_broadcast_msg and _mentioned_here and self.node_name.lower() not in _mentioned_here:
+                                        log.info(f"🔇 Skip wake-agent: @{'@'.join(_mentioned_here)} mentioned, not me ({self.node_name})")
+                                    else:
+                                        try:
+                                            asyncio.create_task(self._trigger_webhook(msg))
+                                            _mention_note = " (@megszólított ÖN)" if _is_broadcast_msg and self.node_name.lower() in _mentioned_here else ""
+                                            log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}{_mention_note}")
+                                        except Exception as e:
+                                            log.warning(f"Wake-agent trigger failed: {e}")
 
                             result = await self.router.receive(msg, from_transport)
                             if result.status == "duplicate":
@@ -5326,7 +5344,13 @@ echo "Status: ok"
                     _content_text = payload['content']
                     if isinstance(_p, dict):
                         _content_text = _p.get('text', _p.get('subject', str(_p)[:500]))
-                    prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:300]}"
+                    # ── @mention directive: if this node is @mentioned in a broadcast, emphasize ──
+                    import re as _re_ment_p
+                    _mentions_in_msg = [m.lower() for m in _re_ment_p.findall(r"@(\w+)", _content_text or "")]
+                    if _chat_type == "broadcast" and self.node_name.lower() in _mentions_in_msg:
+                        prompt_text = f"🔔 NEKED ÍRTÁK a közös szobában! {_chat_user} kifejezetten hozzád intézte: {_content_text[:300]} — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
+                    else:
+                        prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:300]}"
                 else:
                     prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
                 payload["prompt"] = prompt_text
