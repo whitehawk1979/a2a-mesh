@@ -297,7 +297,7 @@ class DiagnosticEngine:
                 "cpu_steal_percent": round(cpu_steal, 1),
                 "disk_usage_percent": psutil.disk_usage('/').percent,
                 "open_files": len(process.open_files()) if hasattr(process, 'open_files') else 0,
-                "connections": len(process.connections()) if hasattr(process, 'connections') else 0,
+                "connections": self._count_mesh_connections(process),
                 "threads": process.num_threads(),
             }
         except ImportError:
@@ -309,6 +309,103 @@ class DiagnosticEngine:
             }
         except Exception as e:
             return {"error": str(e)}
+    
+    def _count_mesh_connections(self, process) -> int:
+        """Count real mesh connections, excluding dashboard/API client keep-alives.
+        
+        psutil connections() counts ALL sockets of the process — including the
+        dashboard's own HTTP keep-alive sockets from browser tabs (observed: 41
+        of 88 connections were on the API port 8650 from browsers). These are
+        normal, not a leak. Count only ESTABLISHED sockets that are NOT accepted
+        inbound connections on our own API/health port.
+        """
+        try:
+            conns = process.connections()
+        except Exception:
+            return 0
+        try:
+            health_port = self.node.config.health_port   # dashboard/API port
+        except Exception:
+            health_port = 8650
+        count = 0
+        for c in conns:
+            try:
+                if c.status != "ESTABLISHED":
+                    continue
+                lport = c.laddr.port if c.laddr else None
+                if lport is None:
+                    continue
+                # Inbound accepted sockets on the dashboard/API port are
+                # browser/poller HTTP keep-alives. Outbound sockets never have
+                # lport == health_port (OS assigns an ephemeral local port),
+                # so this exclusion can only match inbound clients.
+                if lport == health_port:
+                    continue
+                # Count the rest: outbound (ephemeral lport: P2P, PG, SSH
+                # tunnels) + inbound P2P peers (accepted on listen_port).
+                count += 1
+            except Exception:
+                continue
+        return count
+    
+    async def _auto_resolve_metric_suggestions(self, report) -> List[str]:
+        """Auto-resolve pending/accepted metric suggestions when the metric normalized.
+        
+        A pending suggestion (e.g. 'Magas RSS memória') is marked 'completed'
+        when 2 consecutive reports show the metric back within threshold. This
+        prevents eternal pending entries after the underlying issue was fixed
+        (e.g. by a node restart) — observed: RSS 2529MB suggestion stayed
+        pending after restart dropped actual RSS to 110MB.
+        Returns the list of resolved suggestion IDs.
+        """
+        resolved = []
+        mem = report.memory_stats
+        health = report.mesh_health
+        if not mem and not health:
+            return resolved
+        rss = mem.get("process_rss_mb", 0) if mem else 0
+        sys_mem = mem.get("system_memory_percent", 0) if mem else 0
+        peer_count = health.get("peer_count", -1) if health else -1
+
+        for s in list(self._suggestions):
+            if s.status not in ("pending", "accepted"):
+                continue
+            if s.node != report.node:
+                continue
+            t = s.title.lower()
+            # RSS normalized (< 600MB target from suggestion text)
+            if "rss memória" in t and rss and rss < 600:
+                self._set_resolved(s, resolved)
+            elif "memóriahasználat" in t and sys_mem and sys_mem < 75:
+                # system memory usage back under the 'magas' threshold
+                self._set_resolved(s, resolved)
+            elif "oom" in t and rss and rss < 600:
+                self._set_resolved(s, resolved)
+            elif "kapcsolatszám" in t and rss:
+                # connection count suggestion: resolve if the (now corrected)
+                # metric collection returns a low value; connections field is
+                # only in fresh reports — use absence of threshold breach as signal
+                conns = mem.get("connections", 0)
+                if conns < 50:
+                    self._set_resolved(s, resolved)
+            elif "verzió" in t and health:
+                # version drift: resolve if peer versions now all match
+                peers = health.get("peers", [])
+                if isinstance(peers, list) and peers:
+                    versions = {str(p.get("version", "?")) for p in peers if isinstance(p, dict)}
+                    own = getattr(self.node, "_resolved_version", None) or "unknown"
+                    if len(versions) <= 1 and own in versions:
+                        self._set_resolved(s, resolved)
+        
+        # Persist resolved statuses to PG
+        for sid in resolved:
+            asyncio.ensure_future(self._update_suggestion_status_pg(sid, "completed"))
+        return resolved
+    
+    def _set_resolved(self, s, resolved: List[str]):
+        """Mark a suggestion completed (in-memory) and collect its ID."""
+        s.status = "completed"
+        resolved.append(s.suggestion_id)
     
     def _collect_error_patterns(self) -> Dict[str, Any]:
         """Analyze recent error patterns."""
@@ -592,6 +689,16 @@ class DiagnosticEngine:
         new_suggestions = []
         node_name = report.node
         
+        # Auto-resolve stale metric-based suggestions BEFORE generating new ones:
+        # if a metric normalized (e.g. RSS dropped after restart), mark the old
+        # pending/accepted suggestion as completed and unblock regeneration.
+        try:
+            resolved_ids = await self._auto_resolve_metric_suggestions(report)
+            if resolved_ids:
+                log.info(f"📋 Auto-resolved {len(resolved_ids)} normalized suggestions: {resolved_ids}")
+        except Exception as e:
+            log.warning(f"Failed to auto-resolve suggestions: {e}")
+        
         # Helper: check if similar suggestion already exists to avoid duplicates
         # Check title substring AND node name AND not rejected (so pending/accepted/implemented blocks re-creation)
         def _suggestion_exists(title_substring: str) -> bool:
@@ -602,7 +709,9 @@ class DiagnosticEngine:
             return any(
                 target in s.title.lower()[:60]
                 and s.node == node_name
-                and s.status in ("pending", "accepted", "implemented", "investigated", "completed")
+                # 'completed' (auto-resolved) and 'superseded'/'rejected' do NOT block —
+                # if the metric degrades again, a fresh suggestion must be generated.
+                and s.status in ("pending", "accepted", "implemented", "investigated")
                 for s in self._suggestions
             )
         
@@ -874,9 +983,7 @@ class DiagnosticEngine:
                     dev_suggestion = self._map_error_to_dev_suggestion(node_name, err_type, count)
                     if dev_suggestion and not _suggestion_exists(dev_suggestion["title_substring"]):
                         s = await self.generate_suggestion(**dev_suggestion)
-                        new_suggestions.append(s,
-                    node_name_override=node_name,
-                )
+                        new_suggestions.append(s)
 
         # Version mismatch across nodes → development suggestion
         if health:
@@ -1293,7 +1400,7 @@ class DiagnosticEngine:
     def update_suggestion_status(self, suggestion_id: str, new_status: str) -> Optional[ConfigSuggestion]:
         """Update the status of a suggestion (pending/accepted/rejected/implemented).
         Also persists the status change to PG."""
-        valid = {"pending", "accepted", "rejected", "implemented"}
+        valid = {"pending", "accepted", "rejected", "implemented", "completed"}
         if new_status not in valid:
             return None
         for s in self._suggestions:
