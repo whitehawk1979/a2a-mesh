@@ -517,6 +517,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <!-- Tabs rendered dynamically by renderOpenChatsBar() -->
     </div>
     <div class="input-area">
+      <input type="file" id="mainFileInput" style="display:none;" multiple />
+      <button id="mainAttachBtn" title="Fájl csatolása a közös szobába" style="background:var(--surface);color:var(--text);border:1px solid var(--border);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:16px;flex-shrink:0;">📎</button>
       <div id="dmAgentIndicator" style="display:none;align-items:center;gap:6px;padding:6px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;white-space:nowrap;">
         <span id="dmAgentDot" style="font-size:14px;">🔴</span>
         <span id="dmAgentName" style="font-weight:600;color:var(--text);">—</span>
@@ -1551,6 +1553,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<script src="/dashboard.js?v=1788024651"></script>
+<script src="/dashboard.js?v=1788025372"></script>
 </body>
 </html>

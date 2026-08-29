@@ -404,10 +404,33 @@ async def handle_chat_messages(node, request, pool, user):
             )
 
         messages = []
+        # Collect message_uuids of file-type messages for attachment lookup
+        _file_uuids = [r["message_uuid"] for r in rows if r.get("msg_type") == "file"]
+        _attachments = {}
+        if _file_uuids:
+            try:
+                _att_rows = await pool.fetch(
+                    """SELECT message_uuid, file_name, safe_name, file_type, mime_type, file_size
+                       FROM mesh.mesh_chat_files WHERE message_uuid = ANY($1)""",
+                    _file_uuids,
+                )
+                for _ar in _att_rows:
+                    _attachments[_ar["message_uuid"]] = dict(_ar)
+            except Exception as _ae:
+                log.debug(f"Attachment lookup failed: {_ae}")
         for row in rows:
             r = dict(row)
             r["created_at"] = str(r["created_at"]) if r.get("created_at") else None
             r["read_at"] = str(r["read_at"]) if r.get("read_at") else None
+            if r.get("msg_type") == "file" and r.get("message_uuid") in _attachments:
+                _a = _attachments[r["message_uuid"]]
+                r["attachment"] = {
+                    "file_name": _a["file_name"],
+                    "safe_name": _a["safe_name"],
+                    "mime_type": _a["mime_type"],
+                    "file_size": _a["file_size"],
+                    "url": f"/api/files/uploaded/{_a['safe_name']}",
+                }
             messages.append(r)
 
         total_count = total_row["cnt"] if total_row else 0

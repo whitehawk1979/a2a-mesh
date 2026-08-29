@@ -1897,27 +1897,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-    async def _api_send_file(self, request):
-        """Send a file to a peer via A2A file transfer."""
-        from aiohttp import web
-        user, err = self._require_auth(request)
-        if err:
-            return err
-        try:
-            data = await request.json()
-            file_path = data.get("file_path", "")
-            recipient = data.get("recipient", "broadcast")
-            if not file_path:
-                return web.json_response({"error": "file_path is required"}, status=400)
-            result, file_id = await self.node.send_file(file_path, recipient)
-            return web.json_response({
-                "ok": True,
-                "file_id": file_id,
-                "recipient": recipient,
-                "status": str(getattr(result, "status", "sent"))
-            })
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
+    # NOTE: _api_send_file lives in DashboardFilesMixin (multipart upload).
+    # The old JSON-body variant here shadowed it via MRO — removed.
 
     async def _api_message_detail(self, request):
         """Get full message detail by ID (including payload)."""

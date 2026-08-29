@@ -399,11 +399,16 @@ function addMessageToDOM(msg, scroll) {
   var div = document.createElement("div");
   div.className = "msg " + cls;
   div.id = "msg-" + (msg.id || "");
+  var _fileContent = "";
+  if (msg.attachment || (msg.type === "file" && msg.file_url)) {
+    var _att = msg.attachment || { file_name: msg.content, mime_type: msg.mime_type || "", file_size: 0, url: msg.file_url || "" };
+    _fileContent = window._fileCardHtml(_att, isSent);
+  }
   div.innerHTML =
     '<div class="sender ' + senderCls + '">' + escapeHtml(senderLabel) + recipientLabel +
       (isAdmin ? ' <button onclick="deleteMessage(\'' + (msg.id || "") + '\')" style="float:right;background:none;border:none;color:#ff5c5c;cursor:pointer;font-size:12px;" title="Törlés">✕</button>' : '') +
     '</div>' +
-    '<div>' + contentHtml + '</div>' +
+    '<div>' + contentHtml + _fileContent + '</div>' +
     '<div class="meta">' +
       '<span>' + time + '</span>' +
       '<span class="priority ' + priCls + '">' + priLabel + '</span>' +
@@ -649,6 +654,109 @@ window.hideAllTypingIndicators = function() {
   els.forEach(function(el) { el.remove(); });
   for (var k in window._typingTimers) { clearTimeout(window._typingTimers[k]); }
   window._typingTimers = {};
+};
+
+// ─────────────────────────────────────────────────────────
+// ── File attachment rendering + preview modal (chat) ──
+
+window._fileIcon = function(mime, name) {
+  var m = (mime || '').toLowerCase();
+  if (m.startsWith('image/')) return '🖼️';
+  if (m.startsWith('audio/')) return '🎵';
+  if (m.startsWith('video/')) return '🎬';
+  if (m.indexOf('pdf') >= 0) return '📄';
+  if (m.indexOf('word') >= 0 || m.indexOf('document') >= 0) return '📝';
+  if (m.indexOf('sheet') >= 0 || m.indexOf('excel') >= 0) return '📊';
+  if (m.indexOf('zip') >= 0 || m.indexOf('compress') >= 0 || m.indexOf('tar') >= 0) return '📦';
+  if (m.indexOf('json') >= 0 || m.indexOf('text') >= 0 || /\.(txt|md|csv|log|py|js|yaml|yml)$/i.test(name || '')) return '📄';
+  return '📎';
+};
+
+window._formatFileSize = function(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+};
+
+window._fileCardHtml = function(att, isSent) {
+  var icon = window._fileIcon(att.mime_type, att.file_name);
+  var size = window._formatFileSize(att.file_size);
+  var bg = isSent ? 'rgba(255,255,255,0.15)' : 'var(--surface2)';
+  var border = isSent ? 'rgba(255,255,255,0.3)' : 'var(--border)';
+  // Auth via query token — img/iframe/a tags can't send Authorization headers
+  var _tok = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var _url = att.url || '';
+  if (_url && _tok) _url += (_url.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(_tok);
+  att = Object.assign({}, att, { url: _url });
+  var html = '<div style="display:flex;align-items:center;gap:10px;background:' + bg + ';border:1px solid ' + border + ';border-radius:10px;padding:8px 12px;margin-top:4px;cursor:pointer;max-width:100%;" onclick="openFilePreviewModal(\'' + encodeURIComponent(JSON.stringify(att)) + '\')">';
+  html += '<span style="font-size:22px;">' + icon + '</span>';
+  html += '<div style="flex:1;min-width:0;">';
+  html += '<div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(att.file_name) + '</div>';
+  html += '<div style="font-size:10px;opacity:0.6;">' + esc(size) + ' • kattints a megnyitáshoz</div>';
+  html += '</div>';
+  html += '<span style="font-size:16px;opacity:0.6;">👁️</span>';
+  html += '</div>';
+  return html;
+};
+
+window.openFilePreviewModal = function(encodedAtt) {
+  var att;
+  try { att = JSON.parse(decodeURIComponent(encodedAtt)); } catch (e) { return; }
+  var overlay = document.getElementById('filePreviewOverlay');
+  if (overlay) overlay.remove();
+  overlay = document.createElement('div');
+  overlay.id = 'filePreviewOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+
+  var mime = (att.mime_type || '').toLowerCase();
+  var url = att.url || '';
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var dlUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'download=1';
+
+  var content = '';
+  if (mime.startsWith('image/')) {
+    content = '<img src="' + esc(url) + '" style="max-width:100%;max-height:60vh;border-radius:10px;display:block;margin:0 auto;" />';
+  } else if (mime.startsWith('video/')) {
+    content = '<video src="' + esc(url) + '" controls style="max-width:100%;max-height:60vh;border-radius:10px;display:block;margin:0 auto;"></video>';
+  } else if (mime.startsWith('audio/')) {
+    content = '<div style="text-align:center;font-size:48px;padding:20px;">🎵</div><audio src="' + esc(url) + '" controls style="width:100%;display:block;margin-top:12px;"></audio>';
+  } else {
+    // Document: inline iframe preview for text/pdf-like, else icon
+    if (mime.indexOf('pdf') >= 0 || mime.indexOf('text') >= 0 || mime.indexOf('json') >= 0) {
+      content = '<iframe src="' + esc(url) + '" style="width:100%;height:55vh;border:none;border-radius:10px;background:#fff;"></iframe>';
+    } else {
+      content = '<div style="text-align:center;font-size:48px;padding:40px;">' + window._fileIcon(mime, att.file_name) + '</div><div style="text-align:center;font-size:12px;opacity:0.7;margin-top:8px;">Előnézet nem elérhető ehhez a formátumhoz — töltsd le a fájl megnyitásához.</div>';
+    }
+  }
+
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;max-width:90vw;width:720px;max-height:90vh;overflow:auto;position:relative;';
+  modal.onclick = function(e) { e.stopPropagation(); };
+
+  modal.innerHTML =
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">' +
+      '<span style="font-size:22px;">' + window._fileIcon(mime, att.file_name) + '</span>' +
+      '<div style="flex:1;min-width:0;">' +
+        '<div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(att.file_name) + '</div>' +
+        '<div style="font-size:11px;opacity:0.6;">' + esc(att.mime_type || '') + ' • ' + esc(window._formatFileSize(att.file_size)) + '</div>' +
+      '</div>' +
+      '<a href="' + esc(dlUrl) + '" download="' + esc(att.file_name) + '" style="background:var(--primary);color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;white-space:nowrap;">⬇️ Letöltés</a>' +
+      '<button onclick="document.getElementById(\'filePreviewOverlay\').remove()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:14px;">✕</button>' +
+    '</div>' +
+    content;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  // ESC to close
+  document.addEventListener('keydown', function _fpEsc(e) {
+    if (e.key === 'Escape') {
+      var o = document.getElementById('filePreviewOverlay');
+      if (o) o.remove();
+      document.removeEventListener('keydown', _fpEsc);
+    }
+  });
 };
 
 // ─────────────────────────────────────────────────────────
@@ -1655,6 +1763,45 @@ if (savedToken) {
 document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
 document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
 document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
+// ── Main chat file attach (general/broadcast room) ──
+(function() {
+  var mainAttach = document.getElementById("mainAttachBtn");
+  var mainFile = document.getElementById("mainFileInput");
+  if (mainAttach && mainFile) {
+    mainAttach.onclick = function() { mainFile.click(); };
+    mainFile.onchange = function() {
+      var files = this.files;
+      if (!files || !files.length) return;
+      var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+      // DM channel active? Send to that agent; else broadcast
+      var ch = currentChannel || "general";
+      var recipient = (ch !== "general") ? ch : "";
+      var fd = new FormData();
+      for (var i = 0; i < files.length; i++) fd.append("file", files[i]);
+      fd.append("recipient", recipient);
+      fd.append("message", "Fájl megosztva a chatben");
+      mainAttach.textContent = "⏳";
+      fetch("/api/send-file", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + token },
+        body: fd
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        mainAttach.textContent = "📎";
+        if (d.ok || d.file_name) {
+          loadMessages();
+          if (ch !== "general" && typeof window._loadChatMessages === "function") window._loadChatMessages(ch, true);
+        } else {
+          alert("Fájl feltöltés hiba: " + (d.error || "ismeretlen"));
+        }
+        mainFile.value = "";
+      }).catch(function(e) {
+        mainAttach.textContent = "📎";
+        alert("Fájl feltöltés hiba: " + e.message);
+        mainFile.value = "";
+      });
+    };
+  }
+})();
 
 function loadMarveenPage(page) {
   var titleMap = {
@@ -3687,6 +3834,8 @@ function loadMarveenPage(page) {
       html += '<div id="chatHeader" style="padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600;color:var(--text);">💬 Válassz egy kontaktot a bal oldalon</div>';
       html += '<div id="chatMessages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;justify-content:center;align-items:center;color:var(--text3);font-size:13px;">← Kattints egy agent-re vagy user-re a beszélgetés megnyitásához</div>';
       html += '<div id="chatInputBar" style="padding:12px;border-top:1px solid var(--border);display:none;gap:8px;">';
+      html += '<input id="chatFileInput" type="file" style="display:none;" multiple />';
+      html += '<button id="chatAttachBtn" title="Fájl csatolása" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:16px;">📎</button>';
       html += '<input id="chatInput" type="text" placeholder="Üzenet írása... (Enter = küldés)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" />';
       html += '<button id="chatSendBtn" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤ Küldés</button>';
       html += '</div>';
@@ -4192,6 +4341,42 @@ window.selectChatContact = function(agentName) {
   var sendBtn = document.getElementById('chatSendBtn');
   if (sendBtn) {
     sendBtn.onclick = function() { window.sendChatMessage(); };
+    // ── File attach: hidden input + upload to current chat channel ──
+    var attachBtn = document.getElementById('chatAttachBtn');
+    var fileInput = document.getElementById('chatFileInput');
+    if (attachBtn && fileInput) {
+      attachBtn.onclick = function() { fileInput.click(); };
+      fileInput.onchange = function() {
+        var files = this.files;
+        if (!files || !files.length) return;
+        var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+        var ch = window._chatActiveContact || 'broadcast';
+        var recipient = (ch === 'general' || ch === 'broadcast') ? '' : ch;
+        var fd = new FormData();
+        for (var i = 0; i < files.length; i++) fd.append('file', files[i]);
+        fd.append('recipient', recipient);
+        fd.append('message', 'Fájl megosztva a chatben');
+        attachBtn.textContent = '⏳';
+        fetch('/api/send-file', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token },
+          body: fd
+        }).then(function(r) { return r.json(); }).then(function(d) {
+          attachBtn.textContent = '📎';
+          if (d.ok || d.file_name) {
+            if (typeof window._loadChatMessages === 'function') window._loadChatMessages(ch === 'general' ? 'broadcast' : ch, true);
+            if (typeof loadMessages === 'function') loadMessages();
+          } else {
+            alert('Fájl feltöltés hiba: ' + (d.error || 'ismeretlen'));
+          }
+          fileInput.value = '';
+        }).catch(function(e) {
+          attachBtn.textContent = '📎';
+          alert('Fájl feltöltés hiba: ' + e.message);
+          fileInput.value = '';
+        });
+      };
+    }
     console.log('[CHAT] send button handler attached');
   } else {
     console.warn('[CHAT] chatSendBtn NOT FOUND');
@@ -4266,6 +4451,12 @@ window._loadChatMessages = function(agentName, pollOnly) {
         html += '<div style="max-width:75%;' + align + 'background:' + bg + ';color:' + color + ';border-radius:12px;padding:10px 14px;margin-bottom:6px;">';
         if (!isSent) html += '<div style="font-size:10px;font-weight:600;margin-bottom:2px;opacity:0.7;">' + senderName + '</div>';
         html += '<div style="font-size:13px;line-height:1.4;word-wrap:break-word;">' + content + '</div>';
+        // ── File attachment card (DM view) ──
+        if (m.attachment) {
+          html += window._fileCardHtml(m.attachment, isSent);
+        } else if (m.msg_type === 'file') {
+          html += window._fileCardHtml({ file_name: m.content, mime_type: '', file_size: 0, url: '' }, isSent);
+        }
         html += '<div style="font-size:9px;text-align:right;margin-top:2px;opacity:0.6;">' + time + '</div>';
         html += '</div>';
       });
