@@ -2790,7 +2790,7 @@ echo "Status: ok"
             message.signature = self.encryption.sign_message(content)
 
         # Check if recipient is online — if not, queue for later
-        if not message.is_broadcast() and self.offline_queue.is_node_online(message.recipient) is False:
+        if not message.is_broadcast() and await self.offline_queue.is_node_online(message.recipient) is False:
             log.info(f"Recipient {message.recipient} is offline — queuing message")
             self.offline_queue.enqueue(message)
             return SendResult(transport="offline_queue", success=True, error="Queued for offline delivery")
