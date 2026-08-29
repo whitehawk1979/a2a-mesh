@@ -935,13 +935,28 @@ class DashboardAgentsMixin:
                     log.warning(f"Wake-agent stuck for {stuck_elapsed:.0f}s — force resetting flag")
                     self._wake_agent_in_progress = False
                 else:
-                    log.warning(f"Wake-agent already in progress — skipping (rate limit)")
+                    # Queue the request — process it right after the running wake finishes,
+                    # so a chat DM is never dropped just because another wake is busy.
+                    # NOTE: body was already read at the top of the handler — reuse it,
+                    # aiohttp request bodies can only be read once.
+                    _body = dict(body)
+                    if not hasattr(self, '_wake_agent_queue'):
+                        self._wake_agent_queue = []
+                    if len(self._wake_agent_queue) < 5:
+                        self._wake_agent_queue.append(_body)
+                        log.info(f"📥 Wake-agent busy — queued request (queue depth: {len(self._wake_agent_queue)})")
+                        return web.json_response({"status": "queued", "queue_depth": len(self._wake_agent_queue)}, status=202)
+                    log.warning(f"Wake-agent already in progress — queue full, skipping (rate limit)")
                     return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
-            elapsed = now - self._last_wake_agent_time
-            if elapsed < dynamic_cooldown:
-                remaining = dynamic_cooldown - elapsed
-                log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining (dynamic: {dynamic_cooldown}s)")
-                return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
+            # Human-user chat messages bypass the cooldown: replies to humans must not be
+            # throttled by dedup cooldowns designed for agent-to-agent traffic.
+            _human_chat = bool(body.get("chat_username")) and body.get("agent_name") != body.get("sender")
+            if not _human_chat:
+                elapsed = now - self._last_wake_agent_time
+                if elapsed < dynamic_cooldown:
+                    remaining = dynamic_cooldown - elapsed
+                    log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining (dynamic: {dynamic_cooldown}s)")
+                    return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
             self._last_wake_agent_time = now
             self._wake_agent_in_progress = True
             self._wake_agent_start_time = now
@@ -1161,6 +1176,29 @@ class DashboardAgentsMixin:
                 return web.json_response({"error": str(e)}, status=500)
             finally:
                 self._wake_agent_in_progress = False
+                # ── Drain wake queue: re-submit queued requests via self-POST so they get
+                # full processing after the current wake finished. Fire-and-forget.
+                _queued = getattr(self, '_wake_agent_queue', [])
+                if _queued:
+                    self._wake_agent_queue = []
+                    log.info(f"📤 Wake-agent finished — draining queue ({len(_queued)} pending)")
+                    async def _drain_wake_queue(items):
+                        import aiohttp as _d_aio
+                        import asyncio as _d_aioio
+                        _drain_url = f"http://127.0.0.1:{self.node.config.health_port}/api/wake-agent"
+                        for _qi in items:
+                            await _d_aioio.sleep(2)  # give the previous wake time to fully unwind
+                            try:
+                                async with _d_aio.ClientSession() as _d_sess:
+                                    async with _d_sess.post(_drain_url, json=_qi, timeout=_d_aio.ClientTimeout(total=150)) as _d_resp:
+                                        log.info(f"📤 Drain wake-agent: {_d_resp.status}")
+                            except Exception as _d_e:
+                                log.warning(f"📤 Drain wake-agent failed: {_d_e}")
+                    try:
+                        import asyncio as _aio_drain
+                        _aio_drain.get_event_loop().create_task(_drain_wake_queue(list(_queued)))
+                    except Exception as _d_ex:
+                        log.warning(f"Drain spawn failed: {_d_ex}")
                 
         except Exception as e:
             log.error(f"Wake-agent endpoint failed: {e}")

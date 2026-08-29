@@ -5338,17 +5338,33 @@ echo "Status: ok"
                 headers["Content-Type"] = "application/json"
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-                    if resp.status == 200:
-                        log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
-                        return  # Success, no need for fallback
-                    else:
-                        body = await resp.text()
-                        # Auth errors (401/403) mean the endpoint exists but rejects us — don't fallback to webhook
-                        if resp.status in (401, 403):
-                            log.warning(f"Wake-agent auth error {resp.status} from {wake_url}: check mesh_secret config")
-                            return  # Don't fallback — auth issue won't be solved by trying another endpoint
-                        log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
+                # Retry on 429 (another wake in progress / cooldown) — chat DMs must not be dropped.
+                # Honor retry_after when provided; otherwise back off 8s per attempt, max 4 attempts (~30s window).
+                _max_wake_attempts = 4
+                for _attempt in range(1, _max_wake_attempts + 1):
+                    async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                        if resp.status == 200:
+                            log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
+                            return  # Success, no need for fallback
+                        elif resp.status == 429 and _attempt < _max_wake_attempts:
+                            _retry_body = await resp.text()
+                            _retry_after = 8
+                            try:
+                                import json as _rj
+                                _retry_after = int(_rj.loads(_retry_body).get("retry_after", 8))
+                            except Exception:
+                                pass
+                            _retry_after = max(2, min(_retry_after, 20))
+                            log.info(f"⏳ Wake-agent 429 (busy) — attempt {_attempt}/{_max_wake_attempts}, retrying in {_retry_after}s for {message.id[:8]}")
+                            await asyncio.sleep(_retry_after)
+                            continue
+                        else:
+                            body = await resp.text()
+                            # Auth errors (401/403) mean the endpoint exists but rejects us — don't fallback to webhook
+                            if resp.status in (401, 403):
+                                log.warning(f"Wake-agent auth error {resp.status} from {wake_url}: check mesh_secret config")
+                                return  # Don't fallback — auth issue won't be solved by trying another endpoint
+                            log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
         except aiohttp.ClientError as e:
             log.debug(f"Wake-agent network error via {wake_url}: {e}")
             # Network error — try fallback URL

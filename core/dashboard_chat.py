@@ -85,18 +85,35 @@ async def handle_chat_send(node, request, pool, user):
                 try:
                     wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
                     async with _aiohttp_sw.ClientSession() as sess:
-                        async with sess.post(wake_url, json={
-                            "prompt": f"Új üzenet érkezett {username}-tól: {content[:500]}",
-                            "agent_name": node_name,
-                            "sender": username,
-                            "sender_display": display_name,
-                            "chat_username": username,
-                            "chat_msg_uuid": msg_uuid,
-                            "chat_type": "user_dm",
-                            "reply_endpoint": reply_endpoint,
-                            "mesh_secret": "mesh-wake-secret-2026"
-                        }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
-                            log.info(f"🔔 Self-wake DM: {resp.status}")
+                        # Retry on 429 (busy/cooldown) — DM replies must not be dropped
+                        _dm_attempts = 4
+                        for _att in range(1, _dm_attempts + 1):
+                            async with sess.post(wake_url, json={
+                                "prompt": f"Új üzenet érkezett {username}-tól: {content[:500]}",
+                                "agent_name": node_name,
+                                "sender": username,
+                                "sender_display": display_name,
+                                "chat_username": username,
+                                "chat_msg_uuid": msg_uuid,
+                                "chat_type": "user_dm",
+                                "reply_endpoint": reply_endpoint,
+                                "mesh_secret": "mesh-wake-secret-2026"
+                            }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
+                                if resp.status == 200:
+                                    log.info(f"🔔 Self-wake DM: {resp.status}")
+                                    return
+                                elif resp.status == 429 and _att < _dm_attempts:
+                                    _ra = 8
+                                    try:
+                                        _ra = max(2, min(int((await resp.json()).get("retry_after", 8)), 20))
+                                    except Exception:
+                                        pass
+                                    log.info(f"⏳ Self-wake DM 429 — attempt {_att}/{_dm_attempts}, retry in {_ra}s")
+                                    await _aio.sleep(_ra)
+                                    continue
+                                else:
+                                    log.info(f"🔔 Self-wake DM: {resp.status}")
+                                    return
                 except Exception as e:
                     log.warning(f"🔔 Self-wake DM failed: {e}")
             _aio.create_task(_self_wake())
