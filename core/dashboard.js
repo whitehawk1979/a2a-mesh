@@ -1785,7 +1785,9 @@ document.getElementById("messageInput").addEventListener("keydown", function(e) 
         method: "POST",
         headers: { "Authorization": "Bearer " + token },
         body: fd
-      }).then(function(r) { return r.json(); }).then(function(d) {
+      }).then(function(r) {
+        return r.text().then(function(t) { try { return JSON.parse(t); } catch(e) { throw new Error("Szerver válasz: " + r.status + " " + t.substring(0, 120)); } });
+      }).then(function(d) {
         mainAttach.textContent = "📎";
         if (d.ok || d.file_name) {
           loadMessages();
@@ -4361,7 +4363,9 @@ window.selectChatContact = function(agentName) {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + token },
           body: fd
-        }).then(function(r) { return r.json(); }).then(function(d) {
+        }).then(function(r) {
+          return r.text().then(function(t) { try { return JSON.parse(t); } catch(e) { throw new Error("Szerver válasz: " + r.status + " " + t.substring(0, 120)); } });
+        }).then(function(d) {
           attachBtn.textContent = '📎';
           if (d.ok || d.file_name) {
             if (typeof window._loadChatMessages === 'function') window._loadChatMessages(ch === 'general' ? 'broadcast' : ch, true);

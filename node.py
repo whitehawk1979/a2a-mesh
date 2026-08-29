@@ -3452,7 +3452,11 @@ echo "Status: ok"
                 return web.json_response({"ready": True})
             return web.json_response({"ready": False}, status=503)
 
-        app = web.Application()
+        app = web.Application(
+            # 60MB upload limit — aiohttp default is 1MB, which rejected real
+            # chat file uploads with 413 (server handler checks 50MB itself)
+            client_max_size=60 * 1024 * 1024,
+        )
         app.router.add_get("/health", health_handler)
         app.router.add_get("/ready", ready_handler)
 
