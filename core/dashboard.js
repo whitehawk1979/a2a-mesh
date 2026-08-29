@@ -826,7 +826,10 @@ function loadMessages() {
     var username = (authUser ? authUser.username : localStorage.getItem("a2a_username")) || "zsolt";
     // Clear current channel messages before re-adding from server (avoid duplicates)
     channelMessages[currentChannel || "general"] = [];
-    (d.messages || []).forEach(function(m) {
+    // API returns DESC (newest first) — reverse to chronological (oldest first)
+    // so renderChannelMessages appends newest at the BOTTOM, matching the DM loader.
+    var sortedMsgs = (d.messages || []).slice().reverse();
+    sortedMsgs.forEach(function(m) {
       m.content = m.content || m.text || "";
       m.timestamp = m.timestamp || m.created_at || "";
       // Normalize field names: API returns msg_type, JS expects type
