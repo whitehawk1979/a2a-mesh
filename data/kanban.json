@@ -688,318 +688,6 @@
         "reviewed_at": 1787121436.7259
       },
       {
-        "id": "card-1787213877723-35",
-        "title": "Health check",
-        "description": "Check system health",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787213877.723694,
-        "updated_at": 1787213877.7338529,
-        "created_by": "unknown",
-        "delegation_task_id": "647c3986-f23f-4608-b6f1-c8d373259aa2",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.733849
-          }
-        ]
-      },
-      {
-        "id": "card-1787213877755-36",
-        "title": "Research task",
-        "description": "Find info about X",
-        "column": "todo",
-        "priority": "low",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787213877.75599,
-        "updated_at": 1787213877.765069,
-        "created_by": "unknown",
-        "delegation_task_id": "7d3d97eb-531e-45b6-9466-7712e8ace88e",
-        "delegation_status": "available",
-        "from_agent": "test_agent",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.765065
-          }
-        ]
-      },
-      {
-        "id": "card-1787213877788-37",
-        "title": "Claim me",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787213877.7884722,
-        "updated_at": 1787213877.796253,
-        "created_by": "unknown",
-        "delegation_task_id": "486443e8-21b8-45f6-a185-a776df90eb61",
-        "delegation_status": "available",
-        "from_agent": "test_agent",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.7962492
-          }
-        ]
-      },
-      {
-        "id": "card-1787213877817-38",
-        "title": "Long task",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787213877.8171031,
-        "updated_at": 1787213877.8256052,
-        "created_by": "unknown",
-        "delegation_task_id": "bddaa4c9-e5ce-4161-931f-485fde6ad19c",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.825602
-          }
-        ]
-      },
-      {
-        "id": "card-1787213877842-39",
-        "title": "Cancel me",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787213877.842367,
-        "updated_at": 1787213877.851278,
-        "created_by": "unknown",
-        "delegation_task_id": "03cdecaf-0a36-4934-9215-53c1cff65a8d",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.851275
-          }
-        ]
-      },
-      {
-        "id": "card-1787213877869-40",
-        "title": "Parallel research",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787213877.869784,
-        "updated_at": 1787213877.877538,
-        "created_by": "unknown",
-        "delegation_task_id": "1210e9b3-c94f-4a4d-a42e-bdbccebd9233",
-        "delegation_status": "available",
-        "from_agent": "test_agent",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.8775349
-          }
-        ]
-      },
-      {
-        "id": "card-1787213877948-41",
-        "title": "Health check",
-        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "other_agent",
-        "parent_id": null,
-        "created_at": 1787213877.9486458,
-        "updated_at": 1787213877.955843,
-        "created_by": "unknown",
-        "delegation_task_id": "06723bbe-00fc-4a2c-8bf0-ed599145f798",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "other_agent",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213877.955841
-          }
-        ]
-      },
-      {
-        "id": "card-1787213878017-42",
-        "title": "Unknown type",
-        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "other_agent",
-        "parent_id": null,
-        "created_at": 1787213878.0180118,
-        "updated_at": 1787213878.027319,
-        "created_by": "unknown",
-        "delegation_task_id": "040eee1c-8b2f-4070-b7eb-febeb75afea5",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "other_agent",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213878.0273159
-          }
-        ]
-      },
-      {
-        "id": "card-1787213878043-43",
-        "title": "Will fail",
-        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "other_agent",
-        "parent_id": null,
-        "created_at": 1787213878.043353,
-        "updated_at": 1787213878.052611,
-        "created_by": "unknown",
-        "delegation_task_id": "169d9b9a-2050-4434-acf9-0a41b5abc3b5",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "other_agent",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213878.052608
-          }
-        ]
-      },
-      {
-        "id": "card-1787213878076-44",
-        "title": "Analyze dataset X",
-        "description": "Run analysis on dataset X",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "coordinator",
-        "parent_id": null,
-        "created_at": 1787213878.076677,
-        "updated_at": 1787213878.084411,
-        "created_by": "unknown",
-        "delegation_task_id": "fc31c6bf-6610-4fe2-aef7-58f0018f2b38",
-        "delegation_status": "pending",
-        "from_agent": "worker",
-        "to_agent": "coordinator",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213878.084408
-          }
-        ]
-      },
-      {
-        "id": "card-1787213878102-45",
-        "title": "Find sources about AI",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787213878.102554,
-        "updated_at": 1787213878.1124978,
-        "created_by": "unknown",
-        "delegation_task_id": "defcda7a-cea1-4007-830f-283f8b06cb70",
-        "delegation_status": "available",
-        "from_agent": "worker",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213878.1124961
-          }
-        ]
-      },
-      {
-        "id": "card-1787213878128-46",
-        "title": "Generate report",
-        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "coordinator",
-        "parent_id": null,
-        "created_at": 1787213878.128469,
-        "updated_at": 1787213878.1361768,
-        "created_by": "unknown",
-        "delegation_task_id": "0390bf0f-1351-412a-8202-c266183ab77f",
-        "delegation_status": "pending",
-        "from_agent": "worker",
-        "to_agent": "coordinator",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213878.1361752
-          }
-        ]
-      },
-      {
-        "id": "card-1787213878151-47",
-        "title": "Fan-out race",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787213878.151444,
-        "updated_at": 1787213878.1588511,
-        "created_by": "unknown",
-        "delegation_task_id": "bfafde68-1258-4b61-8b69-b5190a50b1f5",
-        "delegation_status": "available",
-        "from_agent": "worker",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787213878.158848
-          }
-        ]
-      },
-      {
         "id": "card-1787281582731-48",
         "title": "[DEPLOY] Deploy main to morzsa",
         "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 90}",
@@ -1293,18 +981,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787406196.7720802
-      },
-      {
-        "id": "card-1787553820189-53",
-        "title": "[feature] Test comment+promote flow",
-        "description": "Komment és agent promotion teszt",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787553820.1897879,
-        "updated_at": 1787553820.1897888,
-        "created_by": "unknown"
       },
       {
         "id": "card-1787566947909-54",
@@ -1796,42 +1472,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787585572.775166
-      },
-      {
-        "id": "card-1787598507927-59",
-        "title": "API Test Card",
-        "description": "Teszt",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787598507.927215,
-        "updated_at": 1787598507.927216,
-        "created_by": "unknown"
-      },
-      {
-        "id": "card-1787598795656-60",
-        "title": "Teszt delegáció",
-        "description": "Teszt",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787598795.656995,
-        "updated_at": 1787598795.676061,
-        "created_by": "unknown",
-        "delegation_task_id": "37887372-b77a-4c1e-a067-57e4e295d6ce",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787598795.676058
-          }
-        ]
       },
       {
         "id": "card-1787598795816-61",
@@ -2697,174 +2337,6 @@
         "completed_at": ""
       },
       {
-        "id": "card-1787638783354-67",
-        "title": "MEMORY_TEST: tudasmegosztas teszt",
-        "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787638783.354859,
-        "updated_at": 1787638783.370583,
-        "created_by": "unknown",
-        "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787638783.37058
-          }
-        ]
-      },
-      {
-        "id": "card-1787638783424-68",
-        "title": "MEMORY_TEST: tudasmegosztas teszt",
-        "column": "todo",
-        "priority": 5,
-        "assigned_to": "morzsa",
-        "created_at": 1787638783.424513,
-        "updated_at": 1787640167.3678138,
-        "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
-        "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
-        "task_type": "generic",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787638783.4245188
-          },
-          {
-            "agent": "morzsa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2840 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A Mesh Agent: morzsa\n  Datum: 2026-08-25 09:20:00\n============================================================\n\n================================================================\n   AZ A2A (Agent-to-Agent) MESH ARCHITEKTURA OSSZEFOGLALOJA\n====================================================",
-            "timestamp": 1787638805.953453
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "3d155e02",
-            "timestamp": 1787638806.227154
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
-            "timestamp": 1787638822.0129259
-          },
-          {
-            "agent": "morzsa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2797 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n==============================================================================\nA2A MESH ARCHITECTURE \\u2014 OSSZEFOGLALO\n==============================================================================\nAz A2A (Agent-to-Agent) Mesh Architecture egy decentralizalt halozati modell,\nahol az agensek egyenrangu csomopontokkent (peer) kommunikalnak egymassal.\nN",
-            "timestamp": 1787639041.562845
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
-            "timestamp": 1787639041.69506
-          },
-          {
-            "agent": "runa",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "bc347b1b",
-            "timestamp": 1787639041.89951
-          },
-          {
-            "agent": "morzsa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2414 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\nMEMORY_TEST: tudasmegosztas teszt\n============================================================\n\nA2A Mesh Architecture Osszefoglalo\n==================================\n\nAz A2A (Agent-to-Agent) mesh architecture egy decentralizalt halozati modell, amelyben az autonom AI agensek kozvetlenul, peer",
-            "timestamp": 1787639806.469769
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "50a8a636",
-            "timestamp": 1787639822.011832
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
-            "timestamp": 1787639834.927634
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
-            "timestamp": 1787639851.518785
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
-            "timestamp": 1787639940.753773
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
-            "timestamp": 1787640167.3682518
-          }
-        ],
-        "delegation_status": "completed",
-        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2414 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\nMEMORY_TEST: tudasmegosztas teszt\n============================================================\n\nA2A Mesh Architecture Osszefoglalo\n==================================\n\nAz A2A (Agent-to-Agent) mesh architecture egy decentralizalt halozati modell, amelyben az autonom AI agensek kozvetlenul, peer-to-peer (P2P) alapon kommunikalnak egymassal, kozponti koordinator nelkul.\n\nFobb jellemzok:\n1. Decentralizacio: Nincs kozponti vezerlo; minden agens egyenrangu csomopont.\n2. Dinamikus topologia: A halozat csomopontjai (agensek) barmikor csatlakozhatnak vagy kilephetnek, a mesh automatikusan alkalmazkodik.\n3. Aszinkron uzenetkuldes: Az agensek feladatokat, kereseket es eredmenyeket cserelnek aszinkron modon, lazan csatolt interakciokkal.\n4. Delegacio es kollaboracio: Egy agens reszfeladatokat delegalhat mas agenseknek, majd aggregalja az eredmenyeket (mesh delegation).\n5. Onfedozes (resilience): Ha egy csomopont elerhetetlenne valik, a tobbi agens alternativ utvonalakon folytatja a kommunikaciot.\n6. Szabvanyos protokoll: Az A2A protokoll biztositja az interoperabilitast a kulonbozo implementacioju agensek kozott (pl. Agent Card, JSON-RPC, SSE streaming).\n\nKomponensek:\n- Agent Card: Metaadat-leiras az agens kepessegeirol es vegpontjairol.\n- Task Manager: Feladatok lifecycle-enek kezelese (submitted, working, completed, failed).\n- Transport Layer: HTTP/JSON-RPC alapu kommunikacio, opcionalis SSE streaming.\n- Discovery: Agensek regisztracioja es megtalalasa a mesh-ben.\n\nElonyok: skalazhatosag, rugalmassag, heterogen agensek egyuttmukodese, nincs single point of failure.\nKihivasok: biztonsag, hitelesites, tranzakciok konzisztenciaja, halozati kesleltetes.\n\n",
-        "completed_at": "2026-08-25 06:24:20.255693+00:",
-        "reviewer": "tor",
-        "review_task_id": "50a8a636-4cf5-4511-9072-9491db499ade",
-        "review_status": "rejected",
-        "review_reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
-        "reviewed_at": 1787640167.367813
-      },
-      {
-        "id": "card-1787638864347-69",
-        "title": "MEMORY_TEST: tudasmegosztas teszt",
-        "description": "Masodik teszt. Most mar kell prior memory-t kapni az elozo feladatbol.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787638864.3478441,
-        "updated_at": 1787638864.366834,
-        "created_by": "unknown",
-        "delegation_task_id": "76454f24-09d5-49cc-8739-5f3c4992003a",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787638864.366831
-          }
-        ]
-      },
-      {
         "id": "card-1787638864428-70",
         "title": "MEMORY_TEST: tudasmegosztas teszt",
         "column": "done",
@@ -2991,30 +2463,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787639942.9351208
-      },
-      {
-        "id": "card-1787639047366-71",
-        "title": "MEMORY_TEST: tudasmegosztas teszt",
-        "description": "Harmadik teszt. Most mar kell latni a prior memory injection-t.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787639047.366998,
-        "updated_at": 1787639047.386313,
-        "created_by": "unknown",
-        "delegation_task_id": "d11268b7-b37f-4133-909d-783109691355",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787639047.3863099
-          }
-        ]
       },
       {
         "id": "card-1787639047451-72",
@@ -3169,30 +2617,6 @@
         "reviewed_at": 1787640470.860489
       },
       {
-        "id": "card-1787639818831-73",
-        "title": "MEMORY_TEST: tudasmogosztas teszt",
-        "description": "Negyedik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787639818.8319201,
-        "updated_at": 1787639818.859704,
-        "created_by": "unknown",
-        "delegation_task_id": "fa33d4fb-a032-4978-a400-7c4dfff1338f",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787639818.859699
-          }
-        ]
-      },
-      {
         "id": "card-1787639820749-74",
         "title": "MEMORY_TEST: tudasmogosztas teszt",
         "column": "done",
@@ -3345,30 +2769,6 @@
         "reviewed_at": 1787641888.005941
       },
       {
-        "id": "card-1787639948383-75",
-        "title": "MEMORY_TEST: tudasmegosztas teszt",
-        "description": "Otodik teszt. Vektor kereses teszt.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787639948.3833349,
-        "updated_at": 1787639948.421889,
-        "created_by": "unknown",
-        "delegation_task_id": "3f9c80d5-576b-4e92-b53b-49c3529e9f3e",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787639948.4218838
-          }
-        ]
-      },
-      {
         "id": "card-1787639948679-76",
         "title": "MEMORY_TEST: tudasmegosztas teszt",
         "column": "done",
@@ -3503,30 +2903,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787641888.117106
-      },
-      {
-        "id": "card-1787640176041-77",
-        "title": "MEMORY_TEST: tudasmogosztas teszt",
-        "description": "Harmadik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787640176.041504,
-        "updated_at": 1787640176.0877461,
-        "created_by": "unknown",
-        "delegation_task_id": "b77cc6ff-16f7-4343-a8e5-f68fd55fca6b",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787640176.087741
-          }
-        ]
       },
       {
         "id": "card-1787640176222-78",
@@ -3671,30 +3047,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787643076.7774742
-      },
-      {
-        "id": "card-1787641938440-79",
-        "title": "PostgreSQL memory architecture analysis",
-        "description": "Analyze the PostgreSQL-based memory architecture of the A2A mesh system.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787641938.440026,
-        "updated_at": 1787641938.463792,
-        "created_by": "unknown",
-        "delegation_task_id": "92999e1f-27c5-4d08-92ae-93f4d80b33e4",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787641938.463789
-          }
-        ]
       },
       {
         "id": "card-1787641938907-80",
@@ -3863,30 +3215,6 @@
         "reviewed_at": 1787643084.252372
       },
       {
-        "id": "card-1787690846072-81",
-        "title": "DM chat diagnosztika",
-        "description": "DM chat diagnosztika: A webui dashboardon (http://nova:8650/dashboard) a DM chat uzenetek nem jelennek meg helyesen. 1) A user altal kuldott DM megjelenik a kozos chatben is 2) Az auto-ack valasz nem jelenik meg a DM panelben csak a PG-ben 3) A loadMessages() JS fuggveny nem szuri megfeleloen a csatornakat. Kerdes: Nalad (Morzsa, 192.168.1.30:8650) mukodik a DM chat? Ha megnyitod a dashboardot es kuldysz egy DM-et Nova-nak, latsza a valaszt? Elemezd a core/dashboard.js loadMessages() es addMessage() fuggvenyeket es mondd mi a hiba. File: /home/openclaw/a2a_mesh/core/dashboard.js",
-        "column": "todo",
-        "priority": "low",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787690846.072295,
-        "updated_at": 1787690846.099392,
-        "created_by": "unknown",
-        "delegation_task_id": "78a96e99-7190-4d6c-9970-bd0a20d833bd",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787690846.0993888
-          }
-        ]
-      },
-      {
         "id": "card-1787690846211-82",
         "title": "DM chat diagnosztika",
         "column": "done",
@@ -3937,30 +3265,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787690900.7105641
-      },
-      {
-        "id": "card-1787690852878-83",
-        "title": "DM chat UI diagnosztika",
-        "description": "DM chat UI diagnosztika: A dashboard webuin (http://nova:8650/dashboard) a DM chat uzenetek nem jelennek meg helyesen a webuin. Problema: 1) A kuldott DM a kozos chatben jelenik meg nem a DM panelben 2) Az auto-ack valasz csak a PG-ben van de nem latjak a webuin 3) A loadMessages() JS nem szuri a csatornakat. Kerdes: Nalad (Runa, 192.168.1.100:8650) mukodik a DM chat webui? Elemezd a core/dashboard.js loadMessages() es addMessage() fuggvenyeket. File: /home/zsolt/a2a_mesh/core/dashboard.js",
-        "column": "todo",
-        "priority": "low",
-        "assigned_to": "runa",
-        "parent_id": null,
-        "created_at": 1787690852.878707,
-        "updated_at": 1787690852.905909,
-        "created_by": "unknown",
-        "delegation_task_id": "0b23b37c-00e6-4a8e-854f-2507d4415699",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "runa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787690852.905905
-          }
-        ]
       },
       {
         "id": "card-1787690853007-84",
@@ -4023,342 +3327,6 @@
         "approval_required": false,
         "approved_by": "zsolt",
         "approved_at": 1788043399.740077
-      },
-      {
-        "id": "card-1787691490135-81",
-        "title": "Health check",
-        "description": "Check system health",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787691490.1354163,
-        "updated_at": 1787691490.1445587,
-        "created_by": "unknown",
-        "delegation_task_id": "1b99bc98-8dad-4999-9d40-7d0be7bfab0c",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.1445565
-          }
-        ]
-      },
-      {
-        "id": "card-1787691490182-82",
-        "title": "Research task",
-        "description": "Find info about X",
-        "column": "todo",
-        "priority": "low",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787691490.182366,
-        "updated_at": 1787691490.1922767,
-        "created_by": "unknown",
-        "delegation_task_id": "ed219dd6-ee26-4eeb-bf7d-be95b8ea58ff",
-        "delegation_status": "available",
-        "from_agent": "test_agent",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.1922753
-          }
-        ]
-      },
-      {
-        "id": "card-1787691490237-83",
-        "title": "Claim me",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787691490.2377586,
-        "updated_at": 1787691490.2464318,
-        "created_by": "unknown",
-        "delegation_task_id": "fb71a519-bc6f-42d2-8047-4b67dcd6cb4a",
-        "delegation_status": "available",
-        "from_agent": "test_agent",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.2464306
-          }
-        ]
-      },
-      {
-        "id": "card-1787691490605-84",
-        "title": "Long task",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787691490.6055667,
-        "updated_at": 1787691490.6721902,
-        "created_by": "unknown",
-        "delegation_task_id": "cea8d962-af23-49b9-8325-769499631fa2",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.672188
-          }
-        ]
-      },
-      {
-        "id": "card-1787691490754-85",
-        "title": "Cancel me",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787691490.7545795,
-        "updated_at": 1787691490.8119333,
-        "created_by": "unknown",
-        "delegation_task_id": "53e3a1b1-4281-4638-b69f-22dde5aaf931",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.8119314
-          }
-        ]
-      },
-      {
-        "id": "card-1787691490824-86",
-        "title": "Parallel research",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787691490.8249567,
-        "updated_at": 1787691490.8346481,
-        "created_by": "unknown",
-        "delegation_task_id": "e9c75091-83cd-4690-8ba3-2815e9c1b89f",
-        "delegation_status": "available",
-        "from_agent": "test_agent",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.8346462
-          }
-        ]
-      },
-      {
-        "id": "card-1787691490958-87",
-        "title": "Health check",
-        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "other_agent",
-        "parent_id": null,
-        "created_at": 1787691490.9585328,
-        "updated_at": 1787691490.9676552,
-        "created_by": "unknown",
-        "delegation_task_id": "07a29f59-395f-4577-8b8a-65ef10515844",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "other_agent",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691490.9676533
-          }
-        ]
-      },
-      {
-        "id": "card-1787691493688-88",
-        "title": "Unknown type",
-        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "other_agent",
-        "parent_id": null,
-        "created_at": 1787691493.6883087,
-        "updated_at": 1787691493.6986942,
-        "created_by": "unknown",
-        "delegation_task_id": "4d19f3d7-f61e-4aa6-8758-e8c28003e9ca",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "other_agent",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691493.6986926
-          }
-        ]
-      },
-      {
-        "id": "card-1787691495206-89",
-        "title": "Will fail",
-        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "other_agent",
-        "parent_id": null,
-        "created_at": 1787691495.206358,
-        "updated_at": 1787691495.2247815,
-        "created_by": "unknown",
-        "delegation_task_id": "9853b79f-7090-4543-b689-8450f64efcc0",
-        "delegation_status": "pending",
-        "from_agent": "test_agent",
-        "to_agent": "other_agent",
-        "agent_history": [
-          {
-            "agent": "test_agent",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691495.224779
-          }
-        ]
-      },
-      {
-        "id": "card-1787691496718-90",
-        "title": "Analyze dataset X",
-        "description": "Run analysis on dataset X",
-        "column": "todo",
-        "priority": "high",
-        "assigned_to": "coordinator",
-        "parent_id": null,
-        "created_at": 1787691496.718442,
-        "updated_at": 1787691496.7357361,
-        "created_by": "unknown",
-        "delegation_task_id": "c1cfc3df-39c4-4fa0-be83-3cab1e051f9d",
-        "delegation_status": "pending",
-        "from_agent": "worker",
-        "to_agent": "coordinator",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691496.7357333
-          }
-        ]
-      },
-      {
-        "id": "card-1787691496775-91",
-        "title": "Find sources about AI",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787691496.7759695,
-        "updated_at": 1787691496.78817,
-        "created_by": "unknown",
-        "delegation_task_id": "d174bba7-0f5f-4001-b143-f27d5ce254fd",
-        "delegation_status": "available",
-        "from_agent": "worker",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691496.7881684
-          }
-        ]
-      },
-      {
-        "id": "card-1787691496843-92",
-        "title": "Generate report",
-        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "coordinator",
-        "parent_id": null,
-        "created_at": 1787691496.8434808,
-        "updated_at": 1787691496.85382,
-        "created_by": "unknown",
-        "delegation_task_id": "10ecbe79-e658-4da5-bec5-0dde427d1395",
-        "delegation_status": "pending",
-        "from_agent": "worker",
-        "to_agent": "coordinator",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691496.8538177
-          }
-        ]
-      },
-      {
-        "id": "card-1787691497586-93",
-        "title": "Fan-out race",
-        "description": "",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1787691497.5866594,
-        "updated_at": 1787691497.5971446,
-        "created_by": "unknown",
-        "delegation_task_id": "288e0f00-730b-498c-aa12-4a657e00dcd0",
-        "delegation_status": "available",
-        "from_agent": "worker",
-        "to_agent": "any",
-        "agent_history": [
-          {
-            "agent": "worker",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787691497.5971425
-          }
-        ]
-      },
-      {
-        "id": "card-1787744932544-98",
-        "title": "Teszt delegacio — elemzd a mesh allapotat",
-        "description": "Kerlek elemezd az A2A mesh halozat jelenlegi allapotat. Jelentsd vissza: 1) Hany node aktiv, 2) Milyen P2P kapcsolatok vannak, 3) Milyen capabilities elerhetok.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "morzsa",
-        "parent_id": null,
-        "created_at": 1787744932.5442119,
-        "updated_at": 1787744932.5715132,
-        "created_by": "unknown",
-        "delegation_task_id": "61ca1791-1c16-4e94-8c28-20cc1cfb09d3",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "morzsa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787744932.57151
-          }
-        ]
       },
       {
         "id": "card-1787744932699-99",
@@ -4473,206 +3441,6 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1787748443.702357
-      },
-      {
-        "id": "card-1787745100390-100",
-        "title": "Teszt delegacio Runanak — allapot jelentes",
-        "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
-        "column": "todo",
-        "priority": "medium",
-        "assigned_to": "runa",
-        "parent_id": null,
-        "created_at": 1787745100.3902662,
-        "updated_at": 1787745100.4222012,
-        "created_by": "unknown",
-        "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
-        "delegation_status": "pending",
-        "from_agent": "nova",
-        "to_agent": "runa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787745100.422197
-          }
-        ]
-      },
-      {
-        "id": "card-1787745100515-101",
-        "title": "Teszt delegacio Runanak — allapot jelentes",
-        "column": "todo",
-        "priority": 5,
-        "assigned_to": "runa",
-        "created_at": 1787745100.5156841,
-        "updated_at": 1787748698.69056,
-        "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
-        "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
-        "task_type": "generic",
-        "from_agent": "nova",
-        "to_agent": "runa",
-        "agent_history": [
-          {
-            "agent": "nova",
-            "role": "delegator",
-            "action": "created task",
-            "timestamp": 1787745100.515693
-          },
-          {
-            "agent": "runa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 6914 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  RUNA NODE \\u2014 ALLAPOT JELENTES\n============================================================\n  Idobelyeg: 2026-08-26T11:52:[PHONE REDACTED]+00:00\n  Node: runa\n  Platform: Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n------------------------------------------------------------\n",
-            "timestamp": 1787745129.904456
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "d7c135ef",
-            "timestamp": 1787745136.295737
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
-            "timestamp": 1787745168.2613661
-          },
-          {
-            "agent": "runa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 13297 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nCollecting node status... (this may take a few seconds)\n\n================================================================\n  A2A MESH \\u2014 NODE STATUS REPORT\n  Agent: runa | Mesh: A2A\n  Timestamp: 2026-08-26T11:53:[PHONE REDACTED]+00:00\n  psutil: available\n================================================================\n\n--- CPU ---\n  Log",
-            "timestamp": 1787746682.204351
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
-            "timestamp": 1787746693.527884
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "b55cabf6",
-            "timestamp": 1787746694.38966
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-            "timestamp": 1787746716.322467
-          },
-          {
-            "agent": "runa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 7134 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A MESH NODE ALLAPOTJELENTES\n  Agent: runa\n============================================================\n  Hostname       : UbuntuVM\n  Platform       : Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n  Python         : 3.12.3\n  Idobelyeg (UTC): 2026-08-26T12:18:[PHONE REDACTED]+00:",
-            "timestamp": 1787746899.4536471
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-            "timestamp": 1787746910.345621
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "6a208171",
-            "timestamp": 1787746910.5486982
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
-            "timestamp": 1787746912.697608
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-            "timestamp": 1787746942.213875
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-            "timestamp": 1787747398.618298
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-            "timestamp": 1787747399.3555782
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-            "timestamp": 1787747979.9203131
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-            "timestamp": 1787747980.7118888
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-            "timestamp": 1787748442.852658
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
-            "timestamp": 1787748443.4311612
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: reject",
-            "verdict": "reject",
-            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-            "timestamp": 1787748698.690992
-          }
-        ],
-        "delegation_status": "completed",
-        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 7134 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A MESH NODE ALLAPOTJELENTES\n  Agent: runa\n============================================================\n  Hostname       : UbuntuVM\n  Platform       : Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n  Python         : 3.12.3\n  Idobelyeg (UTC): 2026-08-26T12:18:[PHONE REDACTED]+00:00\n  Uptime (mp)    : 307052.74\n------------------------------------------------------------\n  [CPU]\n    Hasznalat        : 36.8%\n    Logikai magok    : 8\n    Fizikai magok    : 8\n    Load average     : ([PHONE REDACTED], [PHONE REDACTED], [PHONE REDACTED])\n------------------------------------------------------------\n  [MEMORIA]\n    Virtualis total  : 9.69 GB\n    Virtualis haszn. : 3.77 GB (42.0%)\n    Virtualis szabad : 5.62 GB\n    Swap total       : 9.72 GB\n    Swap hasznalt    : 6.73 GB (69.3%)\n------------------------------------------------------------\n  [LEMEZ]\n    /dev/mapper/ubuntu--vg-ubuntu--lv -> / (ext4)\n      Total: 351.03 GB | Hasznalt: 255.8 GB (76.1%) | Szabad: 80.36 GB\n    /dev/loop0 -> /snap/bare/5 (squashfs)\n      Total: 0.0 GB | Hasznalt: 0.0 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop2 -> /snap/core24/1587 (squashfs)\n      Total: 0.07 GB | Hasznalt: 0.07 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop5 -> /snap/firmware-updater/224 (squashfs)\n      Total: 0.02 GB | Hasznalt: 0.02 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop7 -> /snap/winbox/185 (squashfs)\n      Total: 0.04 GB | Hasznalt: 0.04 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop14 -> /snap/core24/1643 (squashfs)\n      Total: 0.07 GB | Hasznalt: 0.07 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop15 -> /snap/nvidia-core22/148 (squashfs)\n      Total: 0.4 GB | Hasznalt: 0.4 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop9 -> /snap/core20/2769 (squashfs)\n      Total: 0.06 GB | Hasznalt: 0.06 GB (100.0%) | Szabad: 0.0 GB\n ",
-        "completed_at": "2026-08-26 12:18:37.884846+00:",
-        "reviewer": "morzsa",
-        "review_task_id": "6a208171-a58d-49a6-a9ad-5417146a3b94",
-        "review_status": "rejected",
-        "review_reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
-        "reviewed_at": 1787748698.690559
       },
       {
         "id": "card-1787745785259-102",
@@ -5837,5 +4605,1328 @@
     ],
     "created_at": 1786966798.705906,
     "updated_at": 1787929909.0925329
+  },
+  {
+    "id": "board-archive-orphaned-20260830",
+    "name": "Archive — orphaned test cards (auto)",
+    "cards": [
+      {
+        "id": "card-1787213877723-35",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787213877.723694,
+        "updated_at": 1787213877.7338529,
+        "created_by": "unknown",
+        "delegation_task_id": "647c3986-f23f-4608-b6f1-c8d373259aa2",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.733849
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213877755-36",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213877.75599,
+        "updated_at": 1787213877.765069,
+        "created_by": "unknown",
+        "delegation_task_id": "7d3d97eb-531e-45b6-9466-7712e8ace88e",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.765065
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213877788-37",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213877.7884722,
+        "updated_at": 1787213877.796253,
+        "created_by": "unknown",
+        "delegation_task_id": "486443e8-21b8-45f6-a185-a776df90eb61",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.7962492
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213877817-38",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787213877.8171031,
+        "updated_at": 1787213877.8256052,
+        "created_by": "unknown",
+        "delegation_task_id": "bddaa4c9-e5ce-4161-931f-485fde6ad19c",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.825602
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213877842-39",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787213877.842367,
+        "updated_at": 1787213877.851278,
+        "created_by": "unknown",
+        "delegation_task_id": "03cdecaf-0a36-4934-9215-53c1cff65a8d",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.851275
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213877869-40",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213877.869784,
+        "updated_at": 1787213877.877538,
+        "created_by": "unknown",
+        "delegation_task_id": "1210e9b3-c94f-4a4d-a42e-bdbccebd9233",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.8775349
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213877948-41",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787213877.9486458,
+        "updated_at": 1787213877.955843,
+        "created_by": "unknown",
+        "delegation_task_id": "06723bbe-00fc-4a2c-8bf0-ed599145f798",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213877.955841
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213878017-42",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787213878.0180118,
+        "updated_at": 1787213878.027319,
+        "created_by": "unknown",
+        "delegation_task_id": "040eee1c-8b2f-4070-b7eb-febeb75afea5",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.0273159
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213878043-43",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787213878.043353,
+        "updated_at": 1787213878.052611,
+        "created_by": "unknown",
+        "delegation_task_id": "169d9b9a-2050-4434-acf9-0a41b5abc3b5",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.052608
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213878076-44",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1787213878.076677,
+        "updated_at": 1787213878.084411,
+        "created_by": "unknown",
+        "delegation_task_id": "fc31c6bf-6610-4fe2-aef7-58f0018f2b38",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.084408
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213878102-45",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213878.102554,
+        "updated_at": 1787213878.1124978,
+        "created_by": "unknown",
+        "delegation_task_id": "defcda7a-cea1-4007-830f-283f8b06cb70",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.1124961
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213878128-46",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1787213878.128469,
+        "updated_at": 1787213878.1361768,
+        "created_by": "unknown",
+        "delegation_task_id": "0390bf0f-1351-412a-8202-c266183ab77f",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.1361752
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787213878151-47",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787213878.151444,
+        "updated_at": 1787213878.1588511,
+        "created_by": "unknown",
+        "delegation_task_id": "bfafde68-1258-4b61-8b69-b5190a50b1f5",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787213878.158848
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787553820189-53",
+        "title": "[feature] Test comment+promote flow",
+        "description": "Komment és agent promotion teszt",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787553820.1897879,
+        "updated_at": 1787553820.1897888,
+        "created_by": "unknown",
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787598507927-59",
+        "title": "API Test Card",
+        "description": "Teszt",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787598507.927215,
+        "updated_at": 1787598507.927216,
+        "created_by": "unknown",
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787598795656-60",
+        "title": "Teszt delegáció",
+        "description": "Teszt",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787598795.656995,
+        "updated_at": 1787598795.676061,
+        "created_by": "unknown",
+        "delegation_task_id": "37887372-b77a-4c1e-a067-57e4e295d6ce",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787598795.676058
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787638783354-67",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787638783.354859,
+        "updated_at": 1787638783.370583,
+        "created_by": "unknown",
+        "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638783.37058
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787638783424-68",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "column": "todo",
+        "priority": 5,
+        "assigned_to": "morzsa",
+        "created_at": 1787638783.424513,
+        "updated_at": 1787640167.3678138,
+        "delegation_task_id": "29c3bd25-1507-4b41-a366-35b7c037be75",
+        "description": "Ez egy teszt feladat. Irj egy rovid osszefoglalot az A2A mesh architecture-rol.",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638783.4245188
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2840 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A Mesh Agent: morzsa\n  Datum: 2026-08-25 09:20:00\n============================================================\n\n================================================================\n   AZ A2A (Agent-to-Agent) MESH ARCHITEKTURA OSSZEFOGLALOJA\n====================================================",
+            "timestamp": 1787638805.953453
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "3d155e02",
+            "timestamp": 1787638806.227154
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
+            "timestamp": 1787638822.0129259
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2797 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n==============================================================================\nA2A MESH ARCHITECTURE \\u2014 OSSZEFOGLALO\n==============================================================================\nAz A2A (Agent-to-Agent) Mesh Architecture egy decentralizalt halozati modell,\nahol az agensek egyenrangu csomopontokkent (peer) kommunikalnak egymassal.\nN",
+            "timestamp": 1787639041.562845
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
+            "timestamp": 1787639041.69506
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "bc347b1b",
+            "timestamp": 1787639041.89951
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2414 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\nMEMORY_TEST: tudasmegosztas teszt\n============================================================\n\nA2A Mesh Architecture Osszefoglalo\n==================================\n\nAz A2A (Agent-to-Agent) mesh architecture egy decentralizalt halozati modell, amelyben az autonom AI agensek kozvetlenul, peer",
+            "timestamp": 1787639806.469769
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "50a8a636",
+            "timestamp": 1787639822.011832
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Result ends with a section header ('OSSZEFOGLALOJA') but contains no actual summary body — output is truncated/incomplete.",
+            "timestamp": 1787639834.927634
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
+            "timestamp": 1787639851.518785
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
+            "timestamp": 1787639940.753773
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
+            "timestamp": 1787640167.3682518
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for 'MEMORY_TEST: tudasmegosztas teszt' \\u2014 2414 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\nMEMORY_TEST: tudasmegosztas teszt\n============================================================\n\nA2A Mesh Architecture Osszefoglalo\n==================================\n\nAz A2A (Agent-to-Agent) mesh architecture egy decentralizalt halozati modell, amelyben az autonom AI agensek kozvetlenul, peer-to-peer (P2P) alapon kommunikalnak egymassal, kozponti koordinator nelkul.\n\nFobb jellemzok:\n1. Decentralizacio: Nincs kozponti vezerlo; minden agens egyenrangu csomopont.\n2. Dinamikus topologia: A halozat csomopontjai (agensek) barmikor csatlakozhatnak vagy kilephetnek, a mesh automatikusan alkalmazkodik.\n3. Aszinkron uzenetkuldes: Az agensek feladatokat, kereseket es eredmenyeket cserelnek aszinkron modon, lazan csatolt interakciokkal.\n4. Delegacio es kollaboracio: Egy agens reszfeladatokat delegalhat mas agenseknek, majd aggregalja az eredmenyeket (mesh delegation).\n5. Onfedozes (resilience): Ha egy csomopont elerhetetlenne valik, a tobbi agens alternativ utvonalakon folytatja a kommunikaciot.\n6. Szabvanyos protokoll: Az A2A protokoll biztositja az interoperabilitast a kulonbozo implementacioju agensek kozott (pl. Agent Card, JSON-RPC, SSE streaming).\n\nKomponensek:\n- Agent Card: Metaadat-leiras az agens kepessegeirol es vegpontjairol.\n- Task Manager: Feladatok lifecycle-enek kezelese (submitted, working, completed, failed).\n- Transport Layer: HTTP/JSON-RPC alapu kommunikacio, opcionalis SSE streaming.\n- Discovery: Agensek regisztracioja es megtalalasa a mesh-ben.\n\nElonyok: skalazhatosag, rugalmassag, heterogen agensek egyuttmukodese, nincs single point of failure.\nKihivasok: biztonsag, hitelesites, tranzakciok konzisztenciaja, halozati kesleltetes.\n\n",
+        "completed_at": "2026-08-25 06:24:20.255693+00:",
+        "reviewer": "tor",
+        "review_task_id": "50a8a636-4cf5-4511-9072-9491db499ade",
+        "review_status": "rejected",
+        "review_reason": "The result is incomplete and truncated. The text cuts off mid-sentence at 'peer', failing to provide the full A2A Mesh Architecture summary.",
+        "reviewed_at": 1787640167.367813,
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787638864347-69",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "description": "Masodik teszt. Most mar kell prior memory-t kapni az elozo feladatbol.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787638864.3478441,
+        "updated_at": 1787638864.366834,
+        "created_by": "unknown",
+        "delegation_task_id": "76454f24-09d5-49cc-8739-5f3c4992003a",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787638864.366831
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787639047366-71",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "description": "Harmadik teszt. Most mar kell latni a prior memory injection-t.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787639047.366998,
+        "updated_at": 1787639047.386313,
+        "created_by": "unknown",
+        "delegation_task_id": "d11268b7-b37f-4133-909d-783109691355",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787639047.3863099
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787639818831-73",
+        "title": "MEMORY_TEST: tudasmogosztas teszt",
+        "description": "Negyedik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787639818.8319201,
+        "updated_at": 1787639818.859704,
+        "created_by": "unknown",
+        "delegation_task_id": "fa33d4fb-a032-4978-a400-7c4dfff1338f",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787639818.859699
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787639948383-75",
+        "title": "MEMORY_TEST: tudasmegosztas teszt",
+        "description": "Otodik teszt. Vektor kereses teszt.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787639948.3833349,
+        "updated_at": 1787639948.421889,
+        "created_by": "unknown",
+        "delegation_task_id": "3f9c80d5-576b-4e92-b53b-49c3529e9f3e",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787639948.4218838
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787640176041-77",
+        "title": "MEMORY_TEST: tudasmogosztas teszt",
+        "description": "Harmadik teszt. Most mar vektor keresessel kell kapni prior memory-t.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787640176.041504,
+        "updated_at": 1787640176.0877461,
+        "created_by": "unknown",
+        "delegation_task_id": "b77cc6ff-16f7-4343-a8e5-f68fd55fca6b",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787640176.087741
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787641938440-79",
+        "title": "PostgreSQL memory architecture analysis",
+        "description": "Analyze the PostgreSQL-based memory architecture of the A2A mesh system.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787641938.440026,
+        "updated_at": 1787641938.463792,
+        "created_by": "unknown",
+        "delegation_task_id": "92999e1f-27c5-4d08-92ae-93f4d80b33e4",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787641938.463789
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787690846072-81",
+        "title": "DM chat diagnosztika",
+        "description": "DM chat diagnosztika: A webui dashboardon (http://nova:8650/dashboard) a DM chat uzenetek nem jelennek meg helyesen. 1) A user altal kuldott DM megjelenik a kozos chatben is 2) Az auto-ack valasz nem jelenik meg a DM panelben csak a PG-ben 3) A loadMessages() JS fuggveny nem szuri megfeleloen a csatornakat. Kerdes: Nalad (Morzsa, 192.168.1.30:8650) mukodik a DM chat? Ha megnyitod a dashboardot es kuldysz egy DM-et Nova-nak, latsza a valaszt? Elemezd a core/dashboard.js loadMessages() es addMessage() fuggvenyeket es mondd mi a hiba. File: /home/openclaw/a2a_mesh/core/dashboard.js",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787690846.072295,
+        "updated_at": 1787690846.099392,
+        "created_by": "unknown",
+        "delegation_task_id": "78a96e99-7190-4d6c-9970-bd0a20d833bd",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787690846.0993888
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787690852878-83",
+        "title": "DM chat UI diagnosztika",
+        "description": "DM chat UI diagnosztika: A dashboard webuin (http://nova:8650/dashboard) a DM chat uzenetek nem jelennek meg helyesen a webuin. Problema: 1) A kuldott DM a kozos chatben jelenik meg nem a DM panelben 2) Az auto-ack valasz csak a PG-ben van de nem latjak a webuin 3) A loadMessages() JS nem szuri a csatornakat. Kerdes: Nalad (Runa, 192.168.1.100:8650) mukodik a DM chat webui? Elemezd a core/dashboard.js loadMessages() es addMessage() fuggvenyeket. File: /home/zsolt/a2a_mesh/core/dashboard.js",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787690852.878707,
+        "updated_at": 1787690852.905909,
+        "created_by": "unknown",
+        "delegation_task_id": "0b23b37c-00e6-4a8e-854f-2507d4415699",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787690852.905905
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490135-81",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787691490.1354163,
+        "updated_at": 1787691490.1445587,
+        "created_by": "unknown",
+        "delegation_task_id": "1b99bc98-8dad-4999-9d40-7d0be7bfab0c",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.1445565
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490182-82",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787691490.182366,
+        "updated_at": 1787691490.1922767,
+        "created_by": "unknown",
+        "delegation_task_id": "ed219dd6-ee26-4eeb-bf7d-be95b8ea58ff",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.1922753
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490237-83",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787691490.2377586,
+        "updated_at": 1787691490.2464318,
+        "created_by": "unknown",
+        "delegation_task_id": "fb71a519-bc6f-42d2-8047-4b67dcd6cb4a",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.2464306
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490605-84",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787691490.6055667,
+        "updated_at": 1787691490.6721902,
+        "created_by": "unknown",
+        "delegation_task_id": "cea8d962-af23-49b9-8325-769499631fa2",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.672188
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490754-85",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787691490.7545795,
+        "updated_at": 1787691490.8119333,
+        "created_by": "unknown",
+        "delegation_task_id": "53e3a1b1-4281-4638-b69f-22dde5aaf931",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.8119314
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490824-86",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787691490.8249567,
+        "updated_at": 1787691490.8346481,
+        "created_by": "unknown",
+        "delegation_task_id": "e9c75091-83cd-4690-8ba3-2815e9c1b89f",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.8346462
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691490958-87",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787691490.9585328,
+        "updated_at": 1787691490.9676552,
+        "created_by": "unknown",
+        "delegation_task_id": "07a29f59-395f-4577-8b8a-65ef10515844",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691490.9676533
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691493688-88",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787691493.6883087,
+        "updated_at": 1787691493.6986942,
+        "created_by": "unknown",
+        "delegation_task_id": "4d19f3d7-f61e-4aa6-8758-e8c28003e9ca",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691493.6986926
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691495206-89",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1787691495.206358,
+        "updated_at": 1787691495.2247815,
+        "created_by": "unknown",
+        "delegation_task_id": "9853b79f-7090-4543-b689-8450f64efcc0",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691495.224779
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691496718-90",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1787691496.718442,
+        "updated_at": 1787691496.7357361,
+        "created_by": "unknown",
+        "delegation_task_id": "c1cfc3df-39c4-4fa0-be83-3cab1e051f9d",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691496.7357333
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691496775-91",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787691496.7759695,
+        "updated_at": 1787691496.78817,
+        "created_by": "unknown",
+        "delegation_task_id": "d174bba7-0f5f-4001-b143-f27d5ce254fd",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691496.7881684
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691496843-92",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1787691496.8434808,
+        "updated_at": 1787691496.85382,
+        "created_by": "unknown",
+        "delegation_task_id": "10ecbe79-e658-4da5-bec5-0dde427d1395",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691496.8538177
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787691497586-93",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1787691497.5866594,
+        "updated_at": 1787691497.5971446,
+        "created_by": "unknown",
+        "delegation_task_id": "288e0f00-730b-498c-aa12-4a657e00dcd0",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787691497.5971425
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787744932544-98",
+        "title": "Teszt delegacio — elemzd a mesh allapotat",
+        "description": "Kerlek elemezd az A2A mesh halozat jelenlegi allapotat. Jelentsd vissza: 1) Hany node aktiv, 2) Milyen P2P kapcsolatok vannak, 3) Milyen capabilities elerhetok.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1787744932.5442119,
+        "updated_at": 1787744932.5715132,
+        "created_by": "unknown",
+        "delegation_task_id": "61ca1791-1c16-4e94-8c28-20cc1cfb09d3",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787744932.57151
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787745100390-100",
+        "title": "Teszt delegacio Runanak — allapot jelentes",
+        "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1787745100.3902662,
+        "updated_at": 1787745100.4222012,
+        "created_by": "unknown",
+        "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787745100.422197
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      },
+      {
+        "id": "card-1787745100515-101",
+        "title": "Teszt delegacio Runanak — allapot jelentes",
+        "column": "todo",
+        "priority": 5,
+        "assigned_to": "runa",
+        "created_at": 1787745100.5156841,
+        "updated_at": 1787748698.69056,
+        "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
+        "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1787745100.515693
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 6914 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  RUNA NODE \\u2014 ALLAPOT JELENTES\n============================================================\n  Idobelyeg: 2026-08-26T11:52:[PHONE REDACTED]+00:00\n  Node: runa\n  Platform: Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n------------------------------------------------------------\n",
+            "timestamp": 1787745129.904456
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "d7c135ef",
+            "timestamp": 1787745136.295737
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
+            "timestamp": 1787745168.2613661
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 13297 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\nCollecting node status... (this may take a few seconds)\n\n================================================================\n  A2A MESH \\u2014 NODE STATUS REPORT\n  Agent: runa | Mesh: A2A\n  Timestamp: 2026-08-26T11:53:[PHONE REDACTED]+00:00\n  psutil: available\n================================================================\n\n--- CPU ---\n  Log",
+            "timestamp": 1787746682.204351
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
+            "timestamp": 1787746693.527884
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "b55cabf6",
+            "timestamp": 1787746694.38966
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787746716.322467
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 7134 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A MESH NODE ALLAPOTJELENTES\n  Agent: runa\n============================================================\n  Hostname       : UbuntuVM\n  Platform       : Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n  Python         : 3.12.3\n  Idobelyeg (UTC): 2026-08-26T12:18:[PHONE REDACTED]+00:",
+            "timestamp": 1787746899.4536471
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787746910.345621
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "6a208171",
+            "timestamp": 1787746910.5486982
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp is malformed/corrupted: '2026-08-26T11:52:[PHONE'; Status report lacks substantive content (no task/queue/health/metrics sections).; Output contains redaction artifact '[PHONE REDACTED]' — data corruption detected.",
+            "timestamp": 1787746912.697608
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787746942.213875
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787747398.618298
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787747399.3555782
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787747979.9203131
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787747980.7118888
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787748442.852658
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "The node status report is incomplete. It abruptly ends at the CPU section without providing memory, disk, or network status.",
+            "timestamp": 1787748443.4311612
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+            "timestamp": 1787748698.690992
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for 'Teszt delegacio Runanak \\u2014 allapot jelentes' \\u2014 7134 chars\n\n\\u2500\\u2500 Execution Output \\u2500\\u2500\n============================================================\n  A2A MESH NODE ALLAPOTJELENTES\n  Agent: runa\n============================================================\n  Hostname       : UbuntuVM\n  Platform       : Linux-7.0.0-29-generic-x86_64-with-glibc2.39\n  Python         : 3.12.3\n  Idobelyeg (UTC): 2026-08-26T12:18:[PHONE REDACTED]+00:00\n  Uptime (mp)    : 307052.74\n------------------------------------------------------------\n  [CPU]\n    Hasznalat        : 36.8%\n    Logikai magok    : 8\n    Fizikai magok    : 8\n    Load average     : ([PHONE REDACTED], [PHONE REDACTED], [PHONE REDACTED])\n------------------------------------------------------------\n  [MEMORIA]\n    Virtualis total  : 9.69 GB\n    Virtualis haszn. : 3.77 GB (42.0%)\n    Virtualis szabad : 5.62 GB\n    Swap total       : 9.72 GB\n    Swap hasznalt    : 6.73 GB (69.3%)\n------------------------------------------------------------\n  [LEMEZ]\n    /dev/mapper/ubuntu--vg-ubuntu--lv -> / (ext4)\n      Total: 351.03 GB | Hasznalt: 255.8 GB (76.1%) | Szabad: 80.36 GB\n    /dev/loop0 -> /snap/bare/5 (squashfs)\n      Total: 0.0 GB | Hasznalt: 0.0 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop2 -> /snap/core24/1587 (squashfs)\n      Total: 0.07 GB | Hasznalt: 0.07 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop5 -> /snap/firmware-updater/224 (squashfs)\n      Total: 0.02 GB | Hasznalt: 0.02 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop7 -> /snap/winbox/185 (squashfs)\n      Total: 0.04 GB | Hasznalt: 0.04 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop14 -> /snap/core24/1643 (squashfs)\n      Total: 0.07 GB | Hasznalt: 0.07 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop15 -> /snap/nvidia-core22/148 (squashfs)\n      Total: 0.4 GB | Hasznalt: 0.4 GB (100.0%) | Szabad: 0.0 GB\n    /dev/loop9 -> /snap/core20/2769 (squashfs)\n      Total: 0.06 GB | Hasznalt: 0.06 GB (100.0%) | Szabad: 0.0 GB\n ",
+        "completed_at": "2026-08-26 12:18:37.884846+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "6a208171-a58d-49a6-a9ad-5417146a3b94",
+        "review_status": "rejected",
+        "review_reason": "Timestamp contains corruption marker '[PHONE REDACTED]' — timestamp is malformed and incomplete; Timestamp '2026-08-26T12:18:[PHONE REDACTED]+00:' is not a valid ISO format datetime; Output appears truncated — no content after timestamp field",
+        "reviewed_at": 1787748698.690559,
+        "archived_reason": "orphaned: delegation deleted from PG (7d retention cleanup) or manual test card",
+        "archived_at": 1788043696.921407
+      }
+    ],
+    "created_at": 1788043696.921407
   }
 ]

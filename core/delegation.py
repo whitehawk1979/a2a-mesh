@@ -553,6 +553,7 @@ class DelegationManager:
                 await self._check_results()
                 await self._check_dependencies()
                 await self._cleanup_old_tasks()
+                await self._archive_orphaned_kanban_cards()
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
@@ -751,6 +752,67 @@ class DelegationManager:
         for task_id in stale:
             self._active_tasks.pop(task_id, None)
             log.info(f"🧹 Cleaned stale active task: {task_id}")
+
+    async def _archive_orphaned_kanban_cards(self, interval_hours: int = 1):
+        """Archive kanban cards whose delegation no longer exists in PG (deleted by the
+        7-day retention cleanup) — prevents orphaned cards piling up in the todo column.
+        Throttled to run at most once per hour."""
+        try:
+            now = time.time()
+            last = getattr(self, "_last_kanban_orphan_sweep", 0)
+            if now - last < interval_hours * 3600:
+                return
+            self._last_kanban_orphan_sweep = now
+
+            if not self.pg_pool or not self.pg_pool.is_connected():
+                return
+
+            import os as _os, json as _json
+            kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+            if not _os.path.isfile(kanban_path):
+                return
+
+            with open(kanban_path) as f:
+                boards = _json.load(f)
+
+            # Collect all live delegation task_ids from PG
+            rows = await self.pg_pool.fetch("SELECT task_id FROM shared_delegations")
+            live_ids = {str(r["task_id"]) for r in rows}
+
+            arch_id = "board-archive-orphaned-" + time.strftime("%Y%m%d")
+            arch = next((b for b in boards if b.get("id") == arch_id), None)
+            moved = 0
+            for b in boards:
+                if b.get("id") == arch_id:
+                    continue
+                keep = []
+                for c in b.get("cards", []):
+                    deleg_id = c.get("delegation_task_id")
+                    is_active_col = c.get("column") in ("todo", "in_progress", "review")
+                    if (
+                        is_active_col
+                        and deleg_id
+                        and deleg_id not in live_ids
+                        and not c.get("archived_reason")
+                    ):
+                        # Delegation gone from PG → orphan card → archive
+                        if not arch:
+                            arch = {"id": arch_id, "name": "Archive — orphaned cards (auto)", "cards": [], "created_at": now}
+                            boards.append(arch)
+                        c["archived_reason"] = "orphaned: delegation deleted from PG (retention cleanup)"
+                        c["archived_at"] = now
+                        arch["cards"].append(c)
+                        moved += 1
+                    else:
+                        keep.append(c)
+                b["cards"] = keep
+
+            if moved:
+                with open(kanban_path, "w") as f:
+                    _json.dump(boards, f, indent=2, ensure_ascii=False)
+                log.info(f"🧹 Kanban orphan sweep: archived {moved} cards whose delegations no longer exist")
+        except Exception as e:
+            log.debug(f"Kanban orphan sweep error: {e}")
 
     async def _cleanup_old_tasks(self, retention_days: int = 7):
         """Auto-cleanup completed/failed/cancelled/expired tasks older than retention_days.
