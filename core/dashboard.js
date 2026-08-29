@@ -762,13 +762,15 @@ window.openFilePreviewModal = function(encodedAtt) {
 
 // ─────────────────────────────────────────────────────────
 // ── Chat command autocomplete (Telegram-style /commands) ──
+// Format: cmd = command, args = argument format shown in palette AND inserted as
+// a selected placeholder after the command (Telegram BotFather pattern).
 window.CHAT_COMMANDS = [
-  { cmd: '/help',    desc: 'Elérhető parancsok listája' },
-  { cmd: '/status',  desc: 'Mesh és agent állapot riport' },
-  { cmd: '/debate',  desc: 'Vita indítása: /debate <téma>' },
-  { cmd: '/ask',     desc: 'Célzott kérés: /ask <agent> <kérdés>' },
-  { cmd: '/all',     desc: 'Közös elemzés: /all <kérdés>' },
-  { cmd: '/clear',   desc: 'Chat törlése ebben a szobában' }
+  { cmd: '/help',    args: '',                desc: 'Elérhető parancsok listája' },
+  { cmd: '/status',  args: '',                desc: 'Mesh és agent állapot riport' },
+  { cmd: '/debate',  args: '<téma>',          desc: 'Vita indítása minden agent részvételével' },
+  { cmd: '/all',     args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
+  { cmd: '/ask',     args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek (nova/morzsa/runa/tor)' },
+  { cmd: '/clear',   args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
 ];
 
 window.showCommandPalette = function(inputEl) {
@@ -776,39 +778,113 @@ window.showCommandPalette = function(inputEl) {
   var val = inputEl.value;
   if (!val.startsWith('/')) { window.hideCommandPalette(); return; }
   var matches = window.CHAT_COMMANDS.filter(function(c) { return c.cmd.startsWith(val); });
-  if (!matches.length || val.indexOf(' ') >= 0) { window.hideCommandPalette(); return; }
+  if (!matches.length || (val.indexOf(' ') >= 0 && !val.startsWith('/ask '))) { window.hideCommandPalette(); return; }
+
+  // ── /ask agent-name second-level autocomplete ──
+  if (val.startsWith('/ask ') && val.indexOf(' ') >= 0) {
+    var askArg = val.slice(5).split(' ')[0].toLowerCase();
+    var agents = ['nova', 'morzsa', 'runa', 'tor'].filter(function(a) { return a.startsWith(askArg); });
+    if (agents.length) {
+      window._renderPalette(inputEl, agents.map(function(a) {
+        return { cmd: '/ask ' + a, args: '<kérdés>', desc: 'Kérdés a(z) ' + a + ' agentnek', _plain: true };
+      }), val);
+    } else {
+      window.hideCommandPalette();
+    }
+    return;
+  }
+  window._renderPalette(inputEl, matches, val);
+};
+
+window._renderPalette = function(inputEl, matches, currentVal) {
   window.hideCommandPalette();
   var pal = document.createElement('div');
   pal.id = 'commandPalette';
-  pal.style.cssText = 'position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:1000;max-height:220px;overflow-y:auto;margin-bottom:4px;';
+  pal.style.cssText = 'position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.4);z-index:10000;max-height:260px;overflow-y:auto;margin-bottom:4px;';
+  window._paletteInput = inputEl;
+  window._paletteItems = matches;
+  window._paletteIndex = -1;
+
   matches.forEach(function(m, idx) {
     var row = document.createElement('div');
-    row.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;';
-    row.onmouseenter = function() { row.style.background = 'var(--surface2)'; };
-    row.onmouseleave = function() { row.style.background = ''; };
-    row.onclick = function() {
-      inputEl.value = m.cmd + ' ';
-      inputEl.focus();
-      window.hideCommandPalette();
-    };
-    row.innerHTML = '<span style="font-weight:600;color:var(--primary);font-family:monospace;">' + esc(m.cmd) + '</span><span style="color:var(--text3);font-size:11px;">' + esc(m.desc) + '</span>';
+    row.className = 'palette-row';
+    row.setAttribute('data-idx', idx);
+    row.style.cssText = 'padding:9px 12px;cursor:pointer;font-size:13px;display:flex;gap:10px;align-items:center;';
+    row.onmouseenter = function() { window._paletteHighlight(idx); };
+    row.onclick = function() { window._palettePick(idx); };
+    var argsHtml = m.args ? '<span style="color:var(--accent);font-family:monospace;font-size:12px;"> ' + esc(m.args) + '</span>' : '';
+    row.innerHTML =
+      '<span style="font-weight:600;color:var(--primary);font-family:monospace;">' + esc(m.cmd) + '</span>' +
+      argsHtml +
+      '<span style="color:var(--text3);font-size:11px;margin-left:auto;text-align:right;">' + esc(m.desc) + '</span>';
     pal.appendChild(row);
   });
-  var wrap = inputEl.closest('#chatInputBar') || inputEl.parentElement;
+
+  var wrap = inputEl.closest('#chatInputBar') || inputEl.closest('.input-area') || inputEl.parentElement;
   if (wrap && getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
   (wrap || document.body).appendChild(pal);
+};
+
+window._paletteHighlight = function(idx) {
+  var pal = document.getElementById('commandPalette');
+  if (!pal) return;
+  window._paletteIndex = idx;
+  var rows = pal.querySelectorAll('.palette-row');
+  rows.forEach(function(r, i) {
+    r.style.background = (i === idx) ? 'var(--surface2)' : '';
+  });
+};
+
+window._palettePick = function(idx) {
+  var inputEl = window._paletteInput;
+  var m = window._paletteItems && window._paletteItems[idx];
+  if (!inputEl || !m) return;
+  if (m._plain) {
+    // Second-level (/ask <agent>) — keep question placeholder empty
+    inputEl.value = m.cmd + ' ';
+  } else if (m.args) {
+    // Telegram pattern: insert command + argument placeholder, SELECT the placeholder
+    // so the user can type over it immediately
+    inputEl.value = m.cmd + ' ' + m.args + ' ';
+    var selStart = (m.cmd + ' ').length;
+    var selEnd = selStart + m.args.length;
+    try { inputEl.setSelectionRange(selStart, selEnd); } catch (e) {}
+  } else {
+    inputEl.value = m.cmd + ' ';
+  }
+  inputEl.focus();
+  window.hideCommandPalette();
 };
 
 window.hideCommandPalette = function() {
   var el = document.getElementById('commandPalette');
   if (el) el.remove();
+  window._paletteIndex = -1;
 };
 
 window.attachCommandAutocomplete = function(inputEl) {
   if (!inputEl || inputEl._cmdAttached) return;
   inputEl._cmdAttached = true;
   inputEl.addEventListener('input', function() { window.showCommandPalette(inputEl); });
-  inputEl.addEventListener('blur', function() { setTimeout(window.hideCommandPalette, 200); });
+  inputEl.addEventListener('blur', function() { setTimeout(window.hideCommandPalette, 250); });
+  // Telegram-style keyboard navigation: ↑/↓ select, Tab/Enter complete, Esc close
+  inputEl.addEventListener('keydown', function(e) {
+    var pal = document.getElementById('commandPalette');
+    if (!pal || !window._paletteItems || !window._paletteItems.length) return;
+    var n = window._paletteItems.length;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      window._paletteHighlight(((window._paletteIndex || -1) + 1) % n);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      window._paletteHighlight(((window._paletteIndex || 0) - 1 + n) % n);
+    } else if (e.key === 'Tab' || (e.key === 'Enter' && window._paletteIndex >= 0)) {
+      e.preventDefault();
+      window._palettePick(window._paletteIndex >= 0 ? window._paletteIndex : 0);
+    } else if (e.key === 'Escape') {
+      window.hideCommandPalette();
+    }
+  });
 };
 
 // ─────────────────────────────────────────────────────────
@@ -1814,7 +1890,13 @@ if (savedToken) {
 
 document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
 document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
-document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
+document.getElementById("messageInput").addEventListener("keydown", function(e) {
+  // If the command palette is open, Enter completes the command instead of sending
+  if (e.key==="Enter" && document.getElementById("commandPalette")) { return; }
+  if(e.key==="Enter") sendMessage();
+});
+// Main room input: Telegram-style /command palette (↑/↓/Tab/Enter navigation)
+window.attachCommandAutocomplete(document.getElementById("messageInput"));
 (function() {
   var mi = document.getElementById("messageInput");
   if (mi) {
@@ -4253,6 +4335,7 @@ function loadMarveenPage(page) {
             var chatInput = document.getElementById('chatInput');
             if (chatInput) {
               chatInput.onkeyup = function(e) {
+                if (e.key === 'Enter' && document.getElementById('commandPalette')) return;
                 if (e.key === 'Enter') sendChatMessage();
               };
             }
@@ -4447,6 +4530,7 @@ window.selectChatContact = function(agentName) {
   var chatInput = document.getElementById('chatInput');
   if (chatInput) {
     chatInput.onkeyup = function(e) {
+      if ((e.key === 'Enter' || e.keyCode === 13) && document.getElementById('commandPalette')) return;
       if (e.key === 'Enter' || e.keyCode === 13) { window.sendChatMessage(); }
     };
     window.attachCommandAutocomplete(chatInput);
