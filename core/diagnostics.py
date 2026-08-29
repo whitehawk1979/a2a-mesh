@@ -372,23 +372,23 @@ class DiagnosticEngine:
                 continue
             if s.node != report.node:
                 continue
-            t = s.title.lower()
+            t = _safe_ascii(s.title.lower())  # PG titles are _safe_ascii-ed
             # RSS normalized (< 600MB target from suggestion text)
-            if "rss memória" in t and rss and rss < 600:
+            if "rss memoria" in t and rss and rss < 600:
                 self._set_resolved(s, resolved)
-            elif "memóriahasználat" in t and sys_mem and sys_mem < 75:
+            elif "memoriahasznalat" in t and sys_mem and sys_mem < 75:
                 # system memory usage back under the 'magas' threshold
                 self._set_resolved(s, resolved)
             elif "oom" in t and rss and rss < 600:
                 self._set_resolved(s, resolved)
-            elif "kapcsolatszám" in t and rss:
+            elif "kapcsolatszam" in t and rss:
                 # connection count suggestion: resolve if the (now corrected)
                 # metric collection returns a low value; connections field is
                 # only in fresh reports — use absence of threshold breach as signal
                 conns = mem.get("connections", 0)
                 if conns < 50:
                     self._set_resolved(s, resolved)
-            elif "verzió" in t and health:
+            elif "verzio" in t and health:
                 # version drift: resolve if peer versions now all match
                 peers = health.get("peers", [])
                 if isinstance(peers, list) and peers:
@@ -704,10 +704,15 @@ class DiagnosticEngine:
         def _suggestion_exists(title_substring: str) -> bool:
             # Normalized check: compare first 30 chars of title (case-insensitive)
             # This catches near-duplicates like "Csak 1 peer csatlakozva" vs "Csak 1 peer csatlakozva — alacsony"
-            target = title_substring.lower().strip()[:30]
+            # ASCII-normalize BOTH sides: PG stores titles _safe_ascii-ed
+            # ("Nagy kapcsolatszam"), fresh in-memory titles keep accents
+            # ("Nagy kapcsolatszám"). Without normalization, accented search
+            # strings never match PG-loaded ASCII titles after a restart →
+            # duplicate suggestions every cycle (observed: 141, 146, 102, 113).
+            target = _safe_ascii(title_substring.lower().strip())[:30]
             # In-memory cache check
             return any(
-                target in s.title.lower()[:60]
+                target in _safe_ascii(s.title.lower())[:60]
                 and s.node == node_name
                 # 'completed' (auto-resolved) and 'superseded'/'rejected' do NOT block —
                 # if the metric degrades again, a fresh suggestion must be generated.
@@ -1551,7 +1556,10 @@ class DiagnosticEngine:
             if s.status != "pending":
                 continue
             for pattern, target_status in safe_patterns.items():
-                if pattern.lower() in s.title.lower():
+                # ASCII-normalize: fresh in-memory titles keep Hungarian accents
+                # ("Magas memóriahasználat") while safe_patterns are ASCII
+                # ("Magas memoriahasznalat") — normalize title before compare.
+                if pattern.lower() in _safe_ascii(s.title).lower():
                     self.update_suggestion_status(s.suggestion_id, target_status)
                     implemented_ids.append(s.suggestion_id)
 
