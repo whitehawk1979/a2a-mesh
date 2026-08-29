@@ -371,7 +371,7 @@ class DashboardAgentsMixin:
             try:
                 ollama_url = "http://localhost:11434/api/chat"
                 ollama_body = {
-                    "model": "glm-5.2:cloud",
+                    "model": "glm-5.3:cloud",
                     "messages": [
                         {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'. Olvasd el a beszélgetést és döntsd el: van-e új érv-ed vagy csak ismétled másokat."},
                         {"role": "user", "content": prompt[:4000]}
@@ -983,7 +983,7 @@ class DashboardAgentsMixin:
                 # Build a simple chat prompt for ollama
                 ollama_url = "http://localhost:11434/api/chat"
                 ollama_body = {
-                    "model": "glm-5.2:cloud",
+                    "model": "glm-5.3:cloud",
                     "messages": [
                         {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz.\n\nÖNSZABÁLYOZÁS:\n1. OLVASD EL a beszélgetést. Ha valaki már említette az érvedet, NE ismételd.\n2. DUPLÁZÁS-ELLENŐRZÉS: 'Igen, és pont ezért...' nem új érv.\n3. Ha már 5+ üzeneted van ebben a témában, csak KÜLÖNÖSEN fontos új infó esetén válaszolj.\n4. Ha a vita már lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz.\n5. SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. Csak ÚJ érvet vagy ellenvetést írj.\n6. Ha a beszélgetés kb. lezárult (konklúzió látszik), NE folytasd a vitát — 'NEM VÁLASZTOLSZ'."},
                         {"role": "user", "content": prompt[:4000]}

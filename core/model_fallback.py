@@ -23,7 +23,7 @@ log = logging.getLogger("model_fallback")
 STATE_FILE = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/model_fallback_state.json")
 
 DEFAULT_CHAIN = [
-    "glm-5.2:cloud",
+    "glm-5.3:cloud",
     "step-3.7-flash:free",
     "gemma4:31b-cloud",
     "smollm2:135m",

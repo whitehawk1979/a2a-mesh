@@ -26,6 +26,7 @@ COST_FILE = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/cost_ledger.json
 # Approximate cost per 1M tokens (USD)
 MODEL_COSTS = {
     "glm-5.2:cloud": {"input": 0.07, "output": 0.07},
+    "glm-5.3:cloud": {"input": 0.07, "output": 0.07},
     "step-3.7-flash:free": {"input": 0.0, "output": 0.0},
     "gemma4:31b-cloud": {"input": 0.0, "output": 0.0},
     "smollm2:135m": {"input": 0.0, "output": 0.0},

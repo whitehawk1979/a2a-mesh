@@ -341,7 +341,7 @@ async def generate_deep_reflection(
                             tags_data = await resp.json()
                             models = [m.get('name', '') for m in tags_data.get('models', [])]
                             # Prefer the largest/best model available
-                            priority = ['glm-5.2:cloud', 'gemma4:31b-cloud', 'qwen2.5:32b',
+                            priority = ['glm-5.3:cloud', 'gemma4:31b-cloud', 'qwen2.5:32b',
                                        'qwen2.5:7b', 'llama3.2', 'gemma2']
                             for pref in priority:
                                 for m in models:
