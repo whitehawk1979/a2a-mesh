@@ -368,6 +368,18 @@ class DashboardAgentsMixin:
             import os as _os
             import aiohttp as _aiohttp_ollama
             
+            # ── Telegram-style typing indicator (self-wake path) ──
+            if hasattr(self, "_broadcast_ws"):
+                try:
+                    await self._broadcast_ws({
+                        "type": "agent_typing",
+                        "agent": self.node.node_name,
+                        "chat_type": "broadcast",
+                        "chat_username": "",
+                    })
+                except Exception:
+                    pass
+            
             try:
                 ollama_url = "http://localhost:11434/api/chat"
                 ollama_body = {
@@ -505,6 +517,17 @@ class DashboardAgentsMixin:
             log.warning(f"Nova CLI wake failed: {e}")
         finally:
             self._wake_agent_in_progress = False
+            # ── Typing indicator OFF (self-wake path) ──
+            if hasattr(self, "_broadcast_ws"):
+                try:
+                    await self._broadcast_ws({
+                        "type": "agent_typing_stop",
+                        "agent": self.node.node_name,
+                        "chat_type": "broadcast",
+                        "chat_username": "",
+                    })
+                except Exception:
+                    pass
 
     async def _call_webhook(self, agent_name, webhook_url, payload, sig, original_message):
         """Call a single agent's webhook URL. Non-blocking — logs result.
@@ -994,6 +1017,19 @@ class DashboardAgentsMixin:
             import os
             import aiohttp as _aiohttp
             
+            # ── Telegram-style typing indicator: tell the frontend the agent is thinking ──
+            _chat_type = body.get("chat_type", "")
+            if hasattr(self, "_broadcast_ws"):
+                try:
+                    await self._broadcast_ws({
+                        "type": "agent_typing",
+                        "agent": agent_name,
+                        "chat_type": _chat_type,
+                        "chat_username": body.get("chat_username", ""),
+                    })
+                except Exception as _te:
+                    log.debug(f"agent_typing broadcast failed: {_te}")
+            
             try:
                 # Build a simple chat prompt for ollama
                 ollama_url = "http://localhost:11434/api/chat"
@@ -1176,6 +1212,17 @@ class DashboardAgentsMixin:
                 return web.json_response({"error": str(e)}, status=500)
             finally:
                 self._wake_agent_in_progress = False
+                # ── Typing indicator OFF: agent finished (reply or not) ──
+                if hasattr(self, "_broadcast_ws"):
+                    try:
+                        await self._broadcast_ws({
+                            "type": "agent_typing_stop",
+                            "agent": agent_name,
+                            "chat_type": _chat_type,
+                            "chat_username": body.get("chat_username", ""),
+                        })
+                    except Exception:
+                        pass
                 # ── Drain wake queue: re-submit queued requests via self-POST so they get
                 # full processing after the current wake finished. Fire-and-forget.
                 _queued = getattr(self, '_wake_agent_queue', [])

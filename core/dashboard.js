@@ -612,6 +612,46 @@ function sendMessage() {
   });
 }
 
+// ─────────────────────────────────────────────────────────
+// ── Telegram-style typing indicator (agent thinking/writing) ──
+// Shows in BOTH the general room and the active DM view.
+window._typingTimers = {};
+
+window.showTypingIndicator = function(agent, chatType) {
+  var container = document.getElementById("messages") || document.getElementById("chatMessages");
+  if (!container) return;
+  var tid = "typing-" + agent;
+  var existing = document.getElementById(tid);
+  if (existing) existing.remove();
+  var div = document.createElement("div");
+  div.className = "typing-indicator";
+  div.id = tid;
+  var label = "gondolkodik…";
+  div.innerHTML =
+    '<div class="typing-agent">' + escapeHtml(agent) + '</div>' +
+    '<div class="typing-dots"><span></span><span></span><span></span></div>' +
+    '<div class="typing-label">' + label + '</div>';
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  // Auto-remove after 120s (safety — in case the stop event is missed)
+  if (window._typingTimers[agent]) clearTimeout(window._typingTimers[agent]);
+  window._typingTimers[agent] = setTimeout(function() { window.hideTypingIndicator(agent); }, 120000);
+};
+
+window.hideTypingIndicator = function(agent) {
+  var el = document.getElementById("typing-" + agent);
+  if (el) el.remove();
+  if (window._typingTimers[agent]) { clearTimeout(window._typingTimers[agent]); delete window._typingTimers[agent]; }
+};
+
+window.hideAllTypingIndicators = function() {
+  var els = document.querySelectorAll(".typing-indicator");
+  els.forEach(function(el) { el.remove(); });
+  for (var k in window._typingTimers) { clearTimeout(window._typingTimers[k]); }
+  window._typingTimers = {};
+};
+
+// ─────────────────────────────────────────────────────────
 function scrollToBottom() {
   var el = document.getElementById("messages");
   el.scrollTop = el.scrollHeight;
@@ -751,6 +791,8 @@ function initWebSocket() {
       case "connected": nodeId = data.node; document.getElementById("nodeName").textContent = data.node; break;
       case "status": updateStatus(data.data); break;
       case "new_message":
+        // A real message from an agent replaces their typing bubble (Telegram pattern)
+        try { if (data.message && data.message.sender) window.hideTypingIndicator(data.message.sender); } catch(e) {}
         // Force-add to general channel for unified view
         if (!channelMessages["general"]) channelMessages["general"] = [];
         channelMessages["general"].push(data.message);
@@ -762,6 +804,14 @@ function initWebSocket() {
         if (_ch !== "general" && typeof window._loadChatMessages === "function") {
           window._loadChatMessages(_ch, true);
         }
+        break;
+      case "agent_typing":
+        // Telegram-style: agent started thinking — show typing bubble
+        try { window.showTypingIndicator(data.agent, data.chat_type); } catch(e) {}
+        break;
+      case "agent_typing_stop":
+        // Agent finished — remove typing bubble
+        try { window.hideTypingIndicator(data.agent); } catch(e) {}
         break;
       case "file_transfer":
         // Show file transfer notification in chat
