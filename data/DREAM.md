@@ -1,4 +1,4 @@
-# 🌙 Dream Engine — 2026-08-29T22:32:41.812480+00:00
+# 🌙 Dream Engine — 2026-08-29T22:43:48.090244+00:00
 **Node:** unknown
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -16,7 +16,7 @@
 
 *(nincs beragadt task)*
 
-Archiválható (done >7nap): 112
+Archiválható (done >7nap): 107
 
 ## 🔴 Bucket 4 — Hibák
 

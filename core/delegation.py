@@ -1240,6 +1240,41 @@ class DelegationManager:
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
 
+            # ── Kanban auto-promotion: review → done when the delegation completes ──
+            # Prevents cards stuck in review forever (the 'Ellenőrzés' pile-up bug).
+            try:
+                import os as _os, json as _json, time as _time
+                _kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+                if _os.path.isfile(_kanban_path):
+                    with open(_kanban_path) as _f:
+                        _boards = _json.load(_f)
+                    _moved_any = False
+                    for _b in _boards:
+                        for _c in _b.get("cards", []):
+                            if (
+                                _c.get("delegation_task_id") == str(task_id)
+                                and _c.get("column") in ("review", "in_progress", "todo")
+                            ):
+                                _c["column"] = "done"
+                                _c["approval_required"] = False
+                                _c["approved_by"] = f"auto:{self.node_name}"
+                                _c["approved_at"] = _time.time()
+                                _c["updated_at"] = _time.time()
+                                _c.setdefault("agent_history", []).append({
+                                    "agent": self.node_name,
+                                    "role": "executor",
+                                    "action": "auto-promoted review→done (delegation completed)",
+                                    "result": result_text[:200],
+                                    "timestamp": _time.time(),
+                                })
+                                _moved_any = True
+                                log.info(f"📋 Kanban auto-promotion: {_c['id']} review→done (delegation {task_id} completed)")
+                    if _moved_any:
+                        with open(_kanban_path, "w") as _f:
+                            _json.dump(_boards, _f, indent=2, ensure_ascii=False)
+            except Exception as _kan_err:
+                log.warning(f"Kanban auto-promotion failed (non-fatal): {_kan_err}")
+
             # Save to mesh_memory for shared knowledge across agents
             try:
                 from .hindsight_sync import HindsightSync
