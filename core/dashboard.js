@@ -1789,7 +1789,7 @@ document.getElementById("messageInput").addEventListener("keydown", function(e) 
         return r.text().then(function(t) { try { return JSON.parse(t); } catch(e) { throw new Error("Szerver válasz: " + r.status + " " + t.substring(0, 120)); } });
       }).then(function(d) {
         mainAttach.textContent = "📎";
-        if (d.ok || d.file_name) {
+        if (d.ok || d.status === 'ok' || d.file_name || d.filename) {
           loadMessages();
           if (ch !== "general" && typeof window._loadChatMessages === "function") window._loadChatMessages(ch, true);
         } else {
@@ -4367,7 +4367,7 @@ window.selectChatContact = function(agentName) {
           return r.text().then(function(t) { try { return JSON.parse(t); } catch(e) { throw new Error("Szerver válasz: " + r.status + " " + t.substring(0, 120)); } });
         }).then(function(d) {
           attachBtn.textContent = '📎';
-          if (d.ok || d.file_name) {
+          if (d.ok || d.status === 'ok' || d.file_name || d.filename) {
             if (typeof window._loadChatMessages === 'function') window._loadChatMessages(ch === 'general' ? 'broadcast' : ch, true);
             if (typeof loadMessages === 'function') loadMessages();
           } else {
