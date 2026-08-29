@@ -862,27 +862,133 @@ window.hideCommandPalette = function() {
   window._paletteIndex = -1;
 };
 
+// ── @mention autocomplete (agent picker from live /api/agents) ──
+window.MENTION_AGENTS = [];
+
+window.refreshMentionAgents = function() {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/agents', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      window.MENTION_AGENTS = (d.agents || []).map(function(a) {
+        return { name: a.name, role: a.role || 'agent', status: a.status || 'online' };
+      });
+    })
+    .catch(function() {});
+};
+
+window._mentionMatch = function(inputEl) {
+  // Find the @token currently being typed (word containing the caret)
+  var val = inputEl.value;
+  var caret = inputEl.selectionStart != null ? inputEl.selectionStart : val.length;
+  var m = /(^|\s)@(\w*)$/.exec(val.slice(0, caret));
+  return m ? { token: m[2], start: caret - m[2].length - 1 } : null; // start = index of '@'
+};
+
+window.showMentionPalette = function(inputEl) {
+  var m = window._mentionMatch(inputEl);
+  if (!m) { window.hideMentionPalette(); return false; }
+  if (!window.MENTION_AGENTS.length) window.refreshMentionAgents();
+  var matches = window.MENTION_AGENTS.filter(function(a) {
+    return a.name.toLowerCase().startsWith(m.token.toLowerCase());
+  });
+  if (!matches.length) { window.hideMentionPalette(); return false; }
+
+  window.hideCommandPalette();
+  window.hideMentionPalette();
+  var pal = document.createElement('div');
+  pal.id = 'mentionPalette';
+  pal.style.cssText = 'position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.4);z-index:10000;max-height:240px;overflow-y:auto;margin-bottom:4px;';
+  window._mentionInput = inputEl;
+  window._mentionItems = matches;
+  window._mentionIndex = -1;
+  window._mentionTokenStart = m.start;
+
+  matches.forEach(function(a, idx) {
+    var row = document.createElement('div');
+    row.className = 'mention-row';
+    row.setAttribute('data-idx', idx);
+    row.style.cssText = 'padding:9px 12px;cursor:pointer;font-size:13px;display:flex;gap:10px;align-items:center;';
+    row.onmouseenter = function() { window._mentionHighlight(idx); };
+    row.onclick = function() { window._mentionPick(idx); };
+    var dot = a.status === 'online' || a.status === 'connected' ? '🟢' : '🔴';
+    row.innerHTML =
+      '<span>' + dot + '</span>' +
+      '<span style="font-weight:600;color:var(--primary);">@' + esc(a.name) + '</span>' +
+      '<span style="color:var(--text3);font-size:11px;margin-left:auto;">' + esc(a.role || '') + '</span>';
+    pal.appendChild(row);
+  });
+
+  var wrap = inputEl.closest('#chatInputBar') || inputEl.closest('.input-area') || inputEl.parentElement;
+  if (wrap && getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+  (wrap || document.body).appendChild(pal);
+  return true;
+};
+
+window._mentionHighlight = function(idx) {
+  var pal = document.getElementById('mentionPalette');
+  if (!pal) return;
+  window._mentionIndex = idx;
+  var rows = pal.querySelectorAll('.mention-row');
+  rows.forEach(function(r, i) { r.style.background = (i === idx) ? 'var(--surface2)' : ''; });
+};
+
+window._mentionPick = function(idx) {
+  var inputEl = window._mentionInput;
+  var a = window._mentionItems && window._mentionItems[idx];
+  if (!inputEl || !a) return;
+  var val = inputEl.value;
+  var start = window._mentionTokenStart;
+  // Replace the @token with the full agent name
+  inputEl.value = val.slice(0, start) + '@' + a.name + ' ' + val.slice(inputEl.selectionStart != null ? inputEl.selectionStart : val.length);
+  var newCaret = start + a.name.length + 2;
+  try { inputEl.setSelectionRange(newCaret, newCaret); } catch (e) {}
+  inputEl.focus();
+  window.hideMentionPalette();
+};
+
+window.hideMentionPalette = function() {
+  var el = document.getElementById('mentionPalette');
+  if (el) el.remove();
+  window._mentionIndex = -1;
+};
+
 window.attachCommandAutocomplete = function(inputEl) {
   if (!inputEl || inputEl._cmdAttached) return;
   inputEl._cmdAttached = true;
-  inputEl.addEventListener('input', function() { window.showCommandPalette(inputEl); });
-  inputEl.addEventListener('blur', function() { setTimeout(window.hideCommandPalette, 250); });
+  inputEl.addEventListener('input', function() {
+    var isMention = window.showMentionPalette(inputEl);
+    if (!isMention) window.showCommandPalette(inputEl);
+  });
+  inputEl.addEventListener('blur', function() {
+    setTimeout(window.hideCommandPalette, 250);
+    setTimeout(window.hideMentionPalette, 250);
+  });
   // Telegram-style keyboard navigation: ↑/↓ select, Tab/Enter complete, Esc close
   inputEl.addEventListener('keydown', function(e) {
-    var pal = document.getElementById('commandPalette');
-    if (!pal || !window._paletteItems || !window._paletteItems.length) return;
-    var n = window._paletteItems.length;
+    var pal = document.getElementById('commandPalette') || document.getElementById('mentionPalette');
+    if (!pal) return;
+    var items = pal.id === 'commandPalette' ? window._paletteItems : window._mentionItems;
+    if (!items || !items.length) return;
+    var n = items.length;
+    var isCmd = pal.id === 'commandPalette';
+    var curIdx = isCmd ? window._paletteIndex : window._mentionIndex;
+    var highlight = isCmd ? window._paletteHighlight : window._mentionHighlight;
+    var pick = isCmd ? window._palettePick : window._mentionPick;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      window._paletteHighlight(((window._paletteIndex || -1) + 1) % n);
+      highlight(((curIdx != null ? curIdx : -1) + 1) % n);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      window._paletteHighlight(((window._paletteIndex || 0) - 1 + n) % n);
-    } else if (e.key === 'Tab' || (e.key === 'Enter' && window._paletteIndex >= 0)) {
-      e.preventDefault();
-      window._palettePick(window._paletteIndex >= 0 ? window._paletteIndex : 0);
+      highlight(((curIdx != null ? curIdx : 0) - 1 + n) % n);
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
+      if (isCmd || curIdx >= 0 || n === 1) {
+        e.preventDefault();
+        pick(curIdx >= 0 ? curIdx : 0);
+      }
     } else if (e.key === 'Escape') {
       window.hideCommandPalette();
+      window.hideMentionPalette();
     }
   });
 };
@@ -1883,7 +1989,7 @@ if (savedToken) {
         document.getElementById("authModal").style.display = "none";
         document.getElementById("userBadge").style.display = "flex";
         updateUserBadge();
-        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel(); renderOpenChatsBar();
+        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel(); renderOpenChatsBar(); window.refreshMentionAgents();
       } else { localStorage.removeItem("a2a_token"); localStorage.removeItem("mesh_token"); showAuth(); }
     }).catch(function() { showAuth(); });
 } else { showAuth(); }
