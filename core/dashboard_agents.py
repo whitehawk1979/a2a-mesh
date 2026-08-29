@@ -381,27 +381,65 @@ class DashboardAgentsMixin:
                     pass
             
             try:
-                ollama_url = "http://localhost:11434/api/chat"
-                ollama_body = {
-                    "model": "glm-5.3:cloud",
-                    "messages": [
-                        {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'. Olvasd el a beszélgetést és döntsd el: van-e új érv-ed vagy csak ismétled másokat."},
-                        {"role": "user", "content": prompt[:4000]}
-                    ],
-                    "stream": False,
-                    "options": {"temperature": 0.8, "num_predict": 1000}
-                }
-                
-                async with _aiohttp_ollama.ClientSession() as sess:
-                    async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp_ollama.ClientTimeout(total=90)) as resp:
-                        if resp.status == 200:
-                            result = await resp.json()
-                            output = result.get("message", {}).get("content", "").strip()
-                            log.info(f"Nova ollama response ({len(output)} chars): {output[:200]}")
+                # ── Full Hermes agent with TOOL ACCESS (self-wake path) ──
+                import asyncio as _aio_exec2
+                import shutil as _shutil2
+
+                _hermes_bin2 = os.environ.get("HERMES_BIN") or _shutil2.which("hermes") or os.path.expanduser("~/.local/bin/hermes")
+                output = ""
+                _cli_ok2 = False
+                if _hermes_bin2 and (os.path.isfile(_hermes_bin2) or _shutil2.which(_hermes_bin2)):
+                    _agent_sys2 = (
+                        f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
+                        "TOOL HASZNÁLAT: Ha a feladat végrehajtást igényel (parancs, fájl, keresés), használd a tooljaidat és a végeredményt röviden foglald össze. "
+                        "Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'."
+                    )
+                    _cli_prompt2 = f"{_agent_sys2}\n\n{prompt[:6000]}"
+                    try:
+                        _proc2 = await _aio_exec2.create_subprocess_exec(
+                            _hermes_bin2, "-z", _cli_prompt2, "--yolo",
+                            stdout=_aio_exec2.subprocess.PIPE,
+                            stderr=_aio_exec2.subprocess.PIPE,
+                        )
+                        try:
+                            _out_b2, _err_b2 = await _aio_exec2.wait_for(_proc2.communicate(), timeout=240)
+                        except _aio_exec2.TimeoutError:
+                            _proc2.kill()
+                            _out_b2, _err_b2 = b"", b"CLI timeout"
+                        output = (_out_b2 or b"").decode("utf-8", "replace").strip()
+                        if output:
+                            _cli_ok2 = True
+                            log.info(f"🛠️ Nova hermes-CLI response ({len(output)} chars): {output[:200]}")
                         else:
-                            err_text = await resp.text()
-                            log.warning(f"Nova ollama error {resp.status}: {err_text[:200]}")
-                            output = ""
+                            log.warning("hermes -z empty output (self-wake) — falling back to ollama")
+                    except Exception as _cli_ex2:
+                        log.warning(f"hermes -z failed (self-wake): {_cli_ex2} — falling back to ollama")
+                else:
+                    log.warning("hermes binary not found (self-wake) — falling back to ollama")
+
+                if not _cli_ok2:
+                    # ── Fallback: bare ollama (no tools) ──
+                    ollama_url = "http://localhost:11434/api/chat"
+                    ollama_body = {
+                        "model": "glm-5.3:cloud",
+                        "messages": [
+                            {"role": "system", "content": f"Te {self.node.node_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz. Ha nincs mit hozzátenned, vagy a kontextusból látod hogy már elmondták amit te mondanál, írd: 'NEM VÁLASZTOLSZ'. Olvasd el a beszélgetést és döntsd el: van-e új érv-ed vagy csak ismétled másokat."},
+                            {"role": "user", "content": prompt[:4000]}
+                        ],
+                        "stream": False,
+                        "options": {"temperature": 0.8, "num_predict": 1000}
+                    }
+                    
+                    async with _aiohttp_ollama.ClientSession() as sess:
+                        async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp_ollama.ClientTimeout(total=90)) as resp:
+                            if resp.status == 200:
+                                result = await resp.json()
+                                output = result.get("message", {}).get("content", "").strip()
+                                log.info(f"Nova ollama response ({len(output)} chars): {output[:200]}")
+                            else:
+                                err_text = await resp.text()
+                                log.warning(f"Nova ollama error {resp.status}: {err_text[:200]}")
+                                output = ""
             except Exception as ollama_err:
                 log.error(f"Nova ollama API failed: {ollama_err}")
                 output = ""
@@ -952,9 +990,10 @@ class DashboardAgentsMixin:
                 dynamic_cooldown = self._wake_agent_cooldown
             
             if self._wake_agent_in_progress:
-                # Safety: if in_progress for >120s, the CLI crashed/stuck — reset and allow
+                # Safety: if in_progress for >300s, the CLI crashed/stuck — reset and allow
+                # (300s > 240s max CLI runtime — must not fire during a legitimate long tool run)
                 stuck_elapsed = now - getattr(self, '_wake_agent_start_time', now)
-                if stuck_elapsed > 120:
+                if stuck_elapsed > 300:
                     log.warning(f"Wake-agent stuck for {stuck_elapsed:.0f}s — force resetting flag")
                     self._wake_agent_in_progress = False
                 else:
@@ -1031,28 +1070,69 @@ class DashboardAgentsMixin:
                     log.debug(f"agent_typing broadcast failed: {_te}")
             
             try:
-                # Build a simple chat prompt for ollama
-                ollama_url = "http://localhost:11434/api/chat"
-                ollama_body = {
-                    "model": "glm-5.3:cloud",
-                    "messages": [
-                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismételd mások érveit — csak új gondolatot hozz.\n\nÖNSZABÁLYOZÁS:\n1. OLVASD EL a beszélgetést. Ha valaki már említette az érvedet, NE ismételd.\n2. DUPLÁZÁS-ELLENŐRZÉS: 'Igen, és pont ezért...' nem új érv.\n3. Ha már 5+ üzeneted van ebben a témában, csak KÜLÖNÖSEN fontos új infó esetén válaszolj.\n4. Ha a vita már lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz.\n5. SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. Csak ÚJ érvet vagy ellenvetést írj.\n6. Ha a beszélgetés kb. lezárult (konklúzió látszik), NE folytasd a vitát — 'NEM VÁLASZTOLSZ'."},
-                        {"role": "user", "content": prompt[:4000]}
-                    ],
-                    "stream": False,
-                    "options": {"temperature": 0.8, "num_predict": 1000}
-                }
-                
-                async with _aiohttp.ClientSession() as sess:
-                    async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
-                        if resp.status == 200:
-                            result = await resp.json()
-                            output = result.get("message", {}).get("content", "").strip()
-                            log.info(f"Wake-agent '{agent_name}' ollama response ({len(output)} chars): {output[:200]}")
+                # ── Full Hermes agent with TOOL ACCESS ──
+                # Replaces the bare ollama call: hermes -z runs the real agent
+                # with ALL toolsets (terminal, files, web, …) — same as the
+                # Telegram/terminal interface. Fallback: bare ollama if CLI fails.
+                import asyncio as _aio_exec
+                import shutil as _shutil
+
+                _hermes_bin = os.environ.get("HERMES_BIN") or _shutil.which("hermes") or os.path.expanduser("~/.local/bin/hermes")
+                output = ""
+                _cli_ok = False
+                if _hermes_bin and os.path.isfile(_hermes_bin) or (_hermes_bin and _shutil.which(_hermes_bin)):
+                    _agent_sys = (
+                        f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
+                        "Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismétled mások érveit — csak új gondolatot hozz. "
+                        "TOOL HASZNÁLAT: Ha a feladat végrehajtást igényel (parancs, fájl, keresés), használd a tooljaidat és a végeredményt röviden foglald össze. "
+                        "ÖNSZABÁLYOZÁS: Ha a vita lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz."
+                    )
+                    _cli_prompt = f"{_agent_sys}\n\n{prompt[:6000]}"
+                    try:
+                        _proc = await _aio_exec.create_subprocess_exec(
+                            _hermes_bin, "-z", _cli_prompt, "--yolo",
+                            stdout=_aio_exec.subprocess.PIPE,
+                            stderr=_aio_exec.subprocess.PIPE,
+                        )
+                        try:
+                            _out_b, _err_b = await _aio_exec.wait_for(_proc.communicate(), timeout=240)
+                        except _aio_exec.TimeoutError:
+                            _proc.kill()
+                            _out_b, _err_b = b"", b"CLI timeout"
+                        output = (_out_b or b"").decode("utf-8", "replace").strip()
+                        if output:
+                            _cli_ok = True
+                            log.info(f"🛠️ Wake-agent '{agent_name}' hermes-CLI response ({len(output)} chars): {output[:200]}")
                         else:
-                            err_text = await resp.text()
-                            log.warning(f"Wake-agent '{agent_name}' ollama error {resp.status}: {err_text[:200]}")
-                            output = ""
+                            _err_s = (_err_b or b"").decode("utf-8", "replace")[:200]
+                            log.warning(f"hermes -z empty output for '{agent_name}': {_err_s} — falling back to ollama")
+                    except Exception as _cli_ex:
+                        log.warning(f"hermes -z failed for '{agent_name}': {_cli_ex} — falling back to ollama")
+                else:
+                    log.warning(f"hermes binary not found — falling back to ollama for '{agent_name}'")
+
+                if not _cli_ok:
+                    # ── Fallback: bare ollama chat (no tools) ──
+                    ollama_url = "http://localhost:11434/api/chat"
+                    ollama_body = {
+                        "model": "glm-5.3:cloud",
+                        "messages": [
+                            {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismétled mások érveit — csak új gondolatot hozz.\n\nÖNSZABÁLYOZÁS:\n1. OLVASD EL a beszélgetést. Ha valaki már említette az érvedet, NE ismételd.\n2. DUPLÁZÁS-ELLENŐRZÉS: 'Igen, és pont ezért...' nem új érv.\n3. Ha már 5+ üzeneted van ebben a témában, csak KÜLÖNÖSEN fontos új infó esetén válaszolj.\n4. Ha a vita már lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz.\n5. SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. Csak ÚJ érvet vagy ellenvetést írj.\n6. Ha a beszélgetés kb. lezárult (konklúzió látszik), NE folytasd a vitát — 'NEM VÁLASZTOLSZ'."},
+                            {"role": "user", "content": prompt[:4000]}
+                        ],
+                        "stream": False,
+                        "options": {"temperature": 0.8, "num_predict": 1000}
+                    }
+                    async with _aiohttp.ClientSession() as sess:
+                        async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
+                            if resp.status == 200:
+                                result = await resp.json()
+                                output = result.get("message", {}).get("content", "").strip()
+                                log.info(f"Wake-agent '{agent_name}' ollama response ({len(output)} chars): {output[:200]}")
+                            else:
+                                err_text = await resp.text()
+                                log.warning(f"Wake-agent '{agent_name}' ollama error {resp.status}: {err_text[:200]}")
+                                output = ""
                 
                 # Send the reply to the reply_endpoint
                 clean_reply = output.strip()

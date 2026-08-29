@@ -640,7 +640,7 @@ window.showTypingIndicator = function(agent, chatType) {
   container.scrollTop = container.scrollHeight;
   // Auto-remove after 120s (safety — in case the stop event is missed)
   if (window._typingTimers[agent]) clearTimeout(window._typingTimers[agent]);
-  window._typingTimers[agent] = setTimeout(function() { window.hideTypingIndicator(agent); }, 120000);
+  window._typingTimers[agent] = setTimeout(function() { window.hideTypingIndicator(agent); }, 260000);
 };
 
 window.hideTypingIndicator = function(agent) {
