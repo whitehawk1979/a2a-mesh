@@ -759,6 +759,58 @@ window.openFilePreviewModal = function(encodedAtt) {
   });
 };
 
+
+// ─────────────────────────────────────────────────────────
+// ── Chat command autocomplete (Telegram-style /commands) ──
+window.CHAT_COMMANDS = [
+  { cmd: '/help',    desc: 'Elérhető parancsok listája' },
+  { cmd: '/status',  desc: 'Mesh és agent állapot riport' },
+  { cmd: '/debate',  desc: 'Vita indítása: /debate <téma>' },
+  { cmd: '/ask',     desc: 'Célzott kérés: /ask <agent> <kérdés>' },
+  { cmd: '/all',     desc: 'Közös elemzés: /all <kérdés>' },
+  { cmd: '/clear',   desc: 'Chat törlése ebben a szobában' }
+];
+
+window.showCommandPalette = function(inputEl) {
+  if (!inputEl) return;
+  var val = inputEl.value;
+  if (!val.startsWith('/')) { window.hideCommandPalette(); return; }
+  var matches = window.CHAT_COMMANDS.filter(function(c) { return c.cmd.startsWith(val); });
+  if (!matches.length || val.indexOf(' ') >= 0) { window.hideCommandPalette(); return; }
+  window.hideCommandPalette();
+  var pal = document.createElement('div');
+  pal.id = 'commandPalette';
+  pal.style.cssText = 'position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:1000;max-height:220px;overflow-y:auto;margin-bottom:4px;';
+  matches.forEach(function(m, idx) {
+    var row = document.createElement('div');
+    row.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;';
+    row.onmouseenter = function() { row.style.background = 'var(--surface2)'; };
+    row.onmouseleave = function() { row.style.background = ''; };
+    row.onclick = function() {
+      inputEl.value = m.cmd + ' ';
+      inputEl.focus();
+      window.hideCommandPalette();
+    };
+    row.innerHTML = '<span style="font-weight:600;color:var(--primary);font-family:monospace;">' + esc(m.cmd) + '</span><span style="color:var(--text3);font-size:11px;">' + esc(m.desc) + '</span>';
+    pal.appendChild(row);
+  });
+  var wrap = inputEl.closest('#chatInputBar') || inputEl.parentElement;
+  if (wrap && getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+  (wrap || document.body).appendChild(pal);
+};
+
+window.hideCommandPalette = function() {
+  var el = document.getElementById('commandPalette');
+  if (el) el.remove();
+};
+
+window.attachCommandAutocomplete = function(inputEl) {
+  if (!inputEl || inputEl._cmdAttached) return;
+  inputEl._cmdAttached = true;
+  inputEl.addEventListener('input', function() { window.showCommandPalette(inputEl); });
+  inputEl.addEventListener('blur', function() { setTimeout(window.hideCommandPalette, 200); });
+};
+
 // ─────────────────────────────────────────────────────────
 function scrollToBottom() {
   var el = document.getElementById("messages");
@@ -1763,6 +1815,13 @@ if (savedToken) {
 document.getElementById("authUsername").addEventListener("keydown", function(e) { if(e.key==="Enter") document.getElementById("authPassword").focus(); });
 document.getElementById("authPassword").addEventListener("keydown", function(e) { if(e.key==="Enter") submitAuth(); });
 document.getElementById("messageInput").addEventListener("keydown", function(e) { if(e.key==="Enter") sendMessage(); });
+(function() {
+  var mi = document.getElementById("messageInput");
+  if (mi) {
+    mi.addEventListener("input", function() { window.showCommandPalette(mi); });
+    mi.addEventListener("blur", function() { setTimeout(window.hideCommandPalette, 200); });
+  }
+})();
 // ── Main chat file attach (general/broadcast room) ──
 (function() {
   var mainAttach = document.getElementById("mainAttachBtn");
@@ -4390,6 +4449,7 @@ window.selectChatContact = function(agentName) {
     chatInput.onkeyup = function(e) {
       if (e.key === 'Enter' || e.keyCode === 13) { window.sendChatMessage(); }
     };
+    window.attachCommandAutocomplete(chatInput);
     chatInput.focus();
     console.log('[CHAT] input handler attached, focused');
   } else {

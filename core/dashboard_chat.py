@@ -24,6 +24,88 @@ async def _ensure_chat_user(pool, username, display_name, node_name):
         log.warning(f"Failed to ensure chat user: {e}")
 
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# ── Telegram-style chat commands (/help, /status, /debate, /ask, /all) ──
+# Intercepted in handle_chat_send BEFORE mesh routing. Command replies are
+# stored as agent_reply-style system messages so they render in the chat.
+# ═══════════════════════════════════════════════════════════════════════
+
+_CHAT_COMMANDS = {
+    "help": "Elérhető parancsok listája",
+    "status": "Mesh és agent állapot riport",
+    "debate": "Vita indítása: /debate <téma> — minden agent kifejti álláspontját",
+    "ask": "Célzott kérés: /ask <agent> <kérdés> — csak az adott agent válaszol",
+    "all": "Közös elemzés: /all <kérdés> — minden agent válaszol ugyanarra",
+    "clear": "Chat üzenetek törlése ebben a szobában (csak saját üzenetek)",
+}
+
+
+async def _process_chat_command(node, pool, username, display_name, recipient, command_text):
+    """Process a / command. Returns (response_dict, True) if handled, else (None, False).
+    Command messages ARE stored in PG (so the user sees what they typed), and the
+    command's output is stored as a system agent_reply."""
+    parts = command_text.strip().split(maxsplit=1)
+    cmd = parts[0][1:].lower() if parts and parts[0].startswith("/") else ""
+    args = parts[1] if len(parts) > 1 else ""
+
+    if cmd not in _CHAT_COMMANDS:
+        return None, False  # Not a known command — treat as normal message
+
+    from aiohttp import web
+    out_content = None
+
+    if cmd == "help":
+        out_content = "🤖 **Chat parancsok:**\n"
+        for c, desc in _CHAT_COMMANDS.items():
+            out_content += f"• `/{c}` — {desc}\n"
+        out_content += "\nA parancsokat a chatbe írva használhatod (közös szoba vagy DM)."
+
+    elif cmd == "status":
+        try:
+            peers = getattr(node, 'peer_discovery', None)
+            rows = await pool.fetch(
+                "SELECT node_name, role, status, version FROM mesh.mesh_nodes ORDER BY node_name"
+            )
+            out_content = "📊 **Mesh állapot:**\n"
+            for r in rows:
+                out_content += f"• {r['node_name']}: {r['role']} — {r['status']} (v{r['version']})\n"
+        except Exception as e:
+            out_content = f"⚠️ Státusz hiba: {e}"
+
+    elif cmd == "clear":
+        try:
+            if recipient == "broadcast":
+                await pool.execute(
+                    "DELETE FROM mesh.mesh_chat_messages WHERE recipient = 'broadcast' AND username = $1",
+                    username,
+                )
+            else:
+                await pool.execute(
+                    "DELETE FROM mesh.mesh_chat_messages WHERE username = $1 AND (sender = $2 OR recipient = $2)",
+                    username, recipient,
+                )
+            out_content = "🧹 Chat törölve ebben a szobában."
+        except Exception as e:
+            out_content = f"⚠️ Törlés hiba: {e}"
+
+    elif cmd in ("debate", "ask", "all"):
+        # These are ROUTED to agents with special framing — handled by returning
+        # a directive the normal path will use. Store marker prefix in content.
+        if cmd == "debate" and not args:
+            out_content = "⚠️ Használat: `/debate <téma>` — pl. `/debate mennyi 2+2`"
+        elif cmd == "ask":
+            sub = args.split(maxsplit=1) if args else []
+            if len(sub) < 2:
+                out_content = "⚠️ Használat: `/ask <agent> <kérdés>` — pl. `/ask morzsa mi a helyzet?`"
+        elif cmd == "all" and not args:
+            out_content = "⚠️ Használat: `/all <kérdés>`"
+        else:
+            return {"route": cmd, "args": args}, True
+
+    return {"content": out_content}, True
+
+
 async def handle_chat_send(node, request, pool, user):
     """POST /api/chat/send — Send a DM from dashboard user to an agent.
 
@@ -58,6 +140,41 @@ async def handle_chat_send(node, request, pool, user):
         created_at = str(row["created_at"]) if row else None
     except Exception as e:
         return web.json_response({"error": f"DB error: {e}"}, status=500)
+
+    # ── Telegram-style /command interceptor ──
+    if content.strip().startswith("/"):
+        _cmd_result, _handled = await _process_chat_command(
+            node, pool, username, display_name, recipient, content.strip()
+        )
+        if _handled:
+            # Routing directive (debate/ask/all)? → mark content so routing picks it up
+            if isinstance(_cmd_result, dict) and _cmd_result.get("route"):
+                cmd_route = _cmd_result["route"]
+                cmd_args = _cmd_result.get("args", "")
+                # fall through to normal mesh routing with special payload below
+            else:
+                # Plain command (help/status/clear) — store the system reply and stop
+                if _cmd_result.get("content"):
+                    try:
+                        await pool.execute(
+                            """INSERT INTO mesh.mesh_chat_messages
+                               (message_uuid, username, sender, recipient, content, msg_type, status)
+                               VALUES ($1, $2, $3, $4, $5, 'agent_reply', 'sent')""",
+                            str(uuid.uuid4()), username, node_name, recipient, _cmd_result["content"],
+                        )
+                    except Exception as e:
+                        log.warning(f"Command reply store failed: {e}")
+                return web.json_response({
+                    "ok": True,
+                    "message_id": msg_uuid,
+                    "db_id": msg_id,
+                    "recipient": recipient,
+                    "command": True,
+                    "status": "sent",
+                })
+    else:
+        cmd_route = None
+        cmd_args = ""
 
     # Route to agent via mesh (if not broadcast and not self)
     # If recipient starts with "user:", it's a user→user DM — store only in PG
@@ -122,13 +239,27 @@ async def handle_chat_send(node, request, pool, user):
     elif recipient == "broadcast":
         # ── Broadcast: send to ALL peers via mesh + wake-agent ALL ──
         try:
+            # Command framing (debate/all): agents get explicit role instructions
+            _cmd_prefix = ""
+            if cmd_route == "debate":
+                _cmd_prefix = (
+                    f"🔔 VITA INDUL — téma: {cmd_args}\n"
+                    "SZEREP: Kifejted a SAJÁT álláspontodat a témáról, majd egy KÜLÖNBÖZŐ agent nevét megcímezve "
+                    "konkrét kihívást/ellenvetést fogalmazol meg neki. Rövid, éles érvelés.\n"
+                )
+            elif cmd_route == "all":
+                _cmd_prefix = (
+                    f"🔔 KÖZÖS ELEMZÉS — kérdés: {cmd_args}\n"
+                    "SZEREP: Mindegyikőtök ugyanarra a kérdésre válaszol — SAJÁT nézőpontból, különböző szemszögekből. Ne ismételj másra.\n"
+                )
             payload = {
-                "text": content,
+                "text": f"{_cmd_prefix}{content}" if _cmd_prefix else content,
                 "subject": content[:80],
                 "sender_display": display_name,
                 "chat_username": username,
                 "chat_msg_uuid": msg_uuid,
-                "chat_type": "broadcast"
+                "chat_type": "broadcast",
+                "command": cmd_route or "",
             }
             result = await node.broadcast("a2a_message", payload, priority=5)
             mesh_sent = True
@@ -250,16 +381,25 @@ async def handle_chat_send(node, request, pool, user):
         except Exception as e:
             log.warning(f"💬 Chat broadcast {username}→all: mesh send failed: {e}")
     elif recipient not in ("broadcast", ""):
+        # /ask command in a DM channel → reroute to the asked agent if specified
+        _dm_target = recipient
+        _dm_text = content
+        if cmd_route == "ask" and cmd_args:
+            _ask_parts = cmd_args.split(maxsplit=1)
+            if len(_ask_parts) == 2 and _ask_parts[0].lower() in ("nova", "morzsa", "runa", "tor"):
+                _dm_target = _ask_parts[0].lower()
+                _dm_text = f"🔔 CÉLZOTT KÉRDÉS (zsolt): {_ask_parts[1]}"
         try:
             payload = {
-                "text": content,
-                "subject": content[:80],
+                "text": _dm_text,
+                "subject": _dm_text[:80],
                 "sender_display": display_name,
                 "chat_username": username,
                 "chat_msg_uuid": msg_uuid,
-                "chat_type": "user_dm"
+                "chat_type": "user_dm",
+                "command": cmd_route or "",
             }
-            result = await node.send_direct(recipient, "a2a_message", payload, priority=5)
+            result = await node.send_direct(_dm_target, "a2a_message", payload, priority=5)
             mesh_sent = True
             log.info(f"💬 Chat DM {username}→{recipient}: sent via mesh")
             # Auto-ack removed — receiver node sends ack via P2P + wake-agent reply

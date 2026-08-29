@@ -989,6 +989,29 @@ class DashboardAgentsMixin:
             else:
                 dynamic_cooldown = self._wake_agent_cooldown
             
+            # ── Human-user chat messages: NO serialization with agent traffic ──
+            # A human asking in DM/room must not wait behind another wake (2-3 min delay
+            # root cause). Human wakes run in PARALLEL with the in-progress flag held
+            # only for agent-to-agent dedup purposes.
+            _human_chat = bool(body.get("chat_username")) and body.get("agent_name") != body.get("sender")
+            if _human_chat:
+                _human_active = getattr(self, '_human_wake_count', 0)
+                if _human_active >= 2:
+                    log.warning(f"Human wake parallel limit ({_human_active}) — queueing")
+                    _body = dict(body)
+                    if not hasattr(self, '_wake_agent_queue'):
+                        self._wake_agent_queue = []
+                    if len(self._wake_agent_queue) < 5:
+                        self._wake_agent_queue.append(_body)
+                        return web.json_response({"status": "queued", "queue_depth": len(self._wake_agent_queue)}, status=202)
+                    return web.json_response({"status": "skipped", "reason": "busy"}, status=429)
+                self._human_wake_count = _human_active + 1
+                self._wake_agent_start_time = now
+                try:
+                    return await self._run_wake_processing(body, agent_name, prompt, reply_endpoint, human=True)
+                finally:
+                    self._human_wake_count = max(0, getattr(self, '_human_wake_count', 1) - 1)
+
             if self._wake_agent_in_progress:
                 # Safety: if in_progress for >300s, the CLI crashed/stuck — reset and allow
                 # (300s > 240s max CLI runtime — must not fire during a legitimate long tool run)
@@ -1010,326 +1033,338 @@ class DashboardAgentsMixin:
                         return web.json_response({"status": "queued", "queue_depth": len(self._wake_agent_queue)}, status=202)
                     log.warning(f"Wake-agent already in progress — queue full, skipping (rate limit)")
                     return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
-            # Human-user chat messages bypass the cooldown: replies to humans must not be
-            # throttled by dedup cooldowns designed for agent-to-agent traffic.
-            _human_chat = bool(body.get("chat_username")) and body.get("agent_name") != body.get("sender")
-            if not _human_chat:
-                elapsed = now - self._last_wake_agent_time
-                if elapsed < dynamic_cooldown:
-                    remaining = dynamic_cooldown - elapsed
-                    log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining (dynamic: {dynamic_cooldown}s)")
-                    return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
+            # Agent-to-agent traffic keeps the cooldown
+            elapsed = now - self._last_wake_agent_time
+            if elapsed < dynamic_cooldown:
+                remaining = dynamic_cooldown - elapsed
+                log.warning(f"Wake-agent rate limited — cooldown {remaining:.0f}s remaining (dynamic: {dynamic_cooldown}s)")
+                return web.json_response({"status": "rate_limited", "retry_after": int(remaining)}, status=429)
             self._last_wake_agent_time = now
             self._wake_agent_in_progress = True
             self._wake_agent_start_time = now
             
-            # Pre-fetch memory capsules + engramms + reflections for this peer's context
-            try:
-                pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
-                if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
-                    capsules = await retrieve_capsules(pg_pool, prompt[:500])
-                    capsule_text = format_capsules_for_prompt(capsules)
-                    engramms = await retrieve_engramms(pg_pool, prompt[:500])
-                    engramm_text = format_engramms_for_prompt(engramms)
-                    # Reflections (past meta-analyses)
-                    from .reflection import retrieve_reflections, format_past_reflections_for_prompt
-                    past_reflections = await retrieve_reflections(pg_pool, prompt[:500])
-                    reflection_text = format_past_reflections_for_prompt(past_reflections)
-                    # Inject all memory layers before the prompt
-                    memory_prefix = ""
-                    if engramm_text:
-                        memory_prefix += f"{engramm_text}\n\n"
-                    if capsule_text:
-                        memory_prefix += f"{capsule_text}\n\n"
-                    if reflection_text:
-                        memory_prefix += f"{reflection_text}\n\n"
-                    if memory_prefix:
-                        prompt = f"{memory_prefix}{prompt}"
-                    # Periodic batch promotion + skill generation
-                    asyncio.ensure_future(check_and_promote_capsules(pg_pool))
-                    asyncio.ensure_future(check_and_generate_skills(pg_pool))
-            except Exception as e:
-                log.warning(f"Peer memory pre-fetch failed (non-blocking): {e}")
+            # ── Delegate to shared processing core (flag already set above) ──
+            return await self._run_wake_processing(body, agent_name, prompt, reply_endpoint, human=False)
+        except Exception as e:
+            log.error(f"Wake-agent endpoint failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
 
-            # Direct ollama API call (bypasses slow hermes -z CLI)
-            import asyncio as aio
-            import os
-            import aiohttp as _aiohttp
+    async def _run_wake_processing(self, body: dict, agent_name: str, prompt: str, reply_endpoint: str, human: bool = False):
+        """Shared wake processing: memory pre-fetch → typing → CLI/ollama → reply → drain.
+
+        The finally block resets _wake_agent_in_progress (no-op for human path) and
+        drains the queue. `human=True` runs without the agent dedup flag being held.
+        """
+        from aiohttp import web
+        # Pre-fetch memory capsules + engramms + reflections for this peer's context
+        try:
+            pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
+                capsules = await retrieve_capsules(pg_pool, prompt[:500])
+                capsule_text = format_capsules_for_prompt(capsules)
+                engramms = await retrieve_engramms(pg_pool, prompt[:500])
+                engramm_text = format_engramms_for_prompt(engramms)
+                # Reflections (past meta-analyses)
+                from .reflection import retrieve_reflections, format_past_reflections_for_prompt
+                past_reflections = await retrieve_reflections(pg_pool, prompt[:500])
+                reflection_text = format_past_reflections_for_prompt(past_reflections)
+                # Inject all memory layers before the prompt
+                memory_prefix = ""
+                if engramm_text:
+                    memory_prefix += f"{engramm_text}\n\n"
+                if capsule_text:
+                    memory_prefix += f"{capsule_text}\n\n"
+                if reflection_text:
+                    memory_prefix += f"{reflection_text}\n\n"
+                if memory_prefix:
+                    prompt = f"{memory_prefix}{prompt}"
+                # Periodic batch promotion + skill generation
+                asyncio.ensure_future(check_and_promote_capsules(pg_pool))
+                asyncio.ensure_future(check_and_generate_skills(pg_pool))
+        except Exception as e:
+            log.warning(f"Peer memory pre-fetch failed (non-blocking): {e}")
+
+        # Direct ollama API call (bypasses slow hermes -z CLI)
+        import asyncio as aio
+        import os
+        import aiohttp as _aiohttp
             
-            # ── Telegram-style typing indicator: tell the frontend the agent is thinking ──
-            _chat_type = body.get("chat_type", "")
+        # ── Telegram-style typing indicator: tell the frontend the agent is thinking ──
+        _chat_type = body.get("chat_type", "")
+        if hasattr(self, "_broadcast_ws"):
+            try:
+                await self._broadcast_ws({
+                    "type": "agent_typing",
+                    "agent": agent_name,
+                    "chat_type": _chat_type,
+                    "chat_username": body.get("chat_username", ""),
+                })
+            except Exception as _te:
+                log.debug(f"agent_typing broadcast failed: {_te}")
+            
+        try:
+            # ── Full Hermes agent with TOOL ACCESS ──
+            # Replaces the bare ollama call: hermes -z runs the real agent
+            # with ALL toolsets (terminal, files, web, …) — same as the
+            # Telegram/terminal interface. Fallback: bare ollama if CLI fails.
+            import asyncio as _aio_exec
+            import shutil as _shutil
+
+            _hermes_bin = os.environ.get("HERMES_BIN") or _shutil.which("hermes") or os.path.expanduser("~/.local/bin/hermes")
+            output = ""
+            _cli_ok = False
+            if _hermes_bin and os.path.isfile(_hermes_bin) or (_hermes_bin and _shutil.which(_hermes_bin)):
+                _agent_sys = (
+                    f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
+                    "Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismétled mások érveit — csak új gondolatot hozz. "
+                    "TOOL HASZNÁLAT: Ha a feladat végrehajtást igényel (parancs, fájl, keresés), használd a tooljaidat és a végeredményt röviden foglald össze. "
+                    "ÖNSZABÁLYOZÁS: Ha a vita lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz."
+                )
+                _cli_prompt = f"{_agent_sys}\n\n{prompt[:6000]}"
+                try:
+                    _proc = await _aio_exec.create_subprocess_exec(
+                        _hermes_bin, "-z", _cli_prompt, "--yolo",
+                        stdout=_aio_exec.subprocess.PIPE,
+                        stderr=_aio_exec.subprocess.PIPE,
+                    )
+                    try:
+                        _out_b, _err_b = await _aio_exec.wait_for(_proc.communicate(), timeout=240)
+                    except _aio_exec.TimeoutError:
+                        _proc.kill()
+                        _out_b, _err_b = b"", b"CLI timeout"
+                    output = (_out_b or b"").decode("utf-8", "replace").strip()
+                    if output:
+                        _cli_ok = True
+                        log.info(f"🛠️ Wake-agent '{agent_name}' hermes-CLI response ({len(output)} chars): {output[:200]}")
+                    else:
+                        _err_s = (_err_b or b"").decode("utf-8", "replace")[:200]
+                        log.warning(f"hermes -z empty output for '{agent_name}': {_err_s} — falling back to ollama")
+                except Exception as _cli_ex:
+                    log.warning(f"hermes -z failed for '{agent_name}': {_cli_ex} — falling back to ollama")
+            else:
+                log.warning(f"hermes binary not found — falling back to ollama for '{agent_name}'")
+
+            if not _cli_ok:
+                # ── Fallback: bare ollama chat (no tools) ──
+                ollama_url = "http://localhost:11434/api/chat"
+                ollama_body = {
+                    "model": "glm-5.3:cloud",
+                    "messages": [
+                        {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismétled mások érveit — csak új gondolatot hozz.\n\nÖNSZABÁLYOZÁS:\n1. OLVASD EL a beszélgetést. Ha valaki már említette az érvedet, NE ismételd.\n2. DUPLÁZÁS-ELLENŐRZÉS: 'Igen, és pont ezért...' nem új érv.\n3. Ha már 5+ üzeneted van ebben a témában, csak KÜLÖNÖSEN fontos új infó esetén válaszolj.\n4. Ha a vita már lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz.\n5. SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. Csak ÚJ érvet vagy ellenvetést írj.\n6. Ha a beszélgetés kb. lezárult (konklúzió látszik), NE folytasd a vitát — 'NEM VÁLASZTOLSZ'."},
+                        {"role": "user", "content": prompt[:4000]}
+                    ],
+                    "stream": False,
+                    "options": {"temperature": 0.8, "num_predict": 1000}
+                }
+                async with _aiohttp.ClientSession() as sess:
+                    async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
+                        if resp.status == 200:
+                            result = await resp.json()
+                            output = result.get("message", {}).get("content", "").strip()
+                            log.info(f"Wake-agent '{agent_name}' ollama response ({len(output)} chars): {output[:200]}")
+                        else:
+                            err_text = await resp.text()
+                            log.warning(f"Wake-agent '{agent_name}' ollama error {resp.status}: {err_text[:200]}")
+                            output = ""
+                
+            # Send the reply to the reply_endpoint
+            clean_reply = output.strip()
+            # Echo filter: strip agreement prefixes, skip pure echo
+            clean_reply = strip_echo_prefix(clean_reply)
+                
+            # ── Content similarity check: if reply is >70% similar to a
+            # previous reply from this agent, skip it (anti-repetition) ──
+            if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ":
+                from difflib import SequenceMatcher
+                _prev_replies = getattr(self, '_recent_agent_replies', {}).get(agent_name, [])
+                _max_sim = 0.0
+                for _prev in _prev_replies[-5:]:
+                    _sim = SequenceMatcher(None, clean_reply.lower()[:500], _prev.lower()[:500]).ratio()
+                    _max_sim = max(_max_sim, _sim)
+                if _max_sim > 0.70:
+                    log.info(f"🔇 Similarity check: {agent_name} reply {_max_sim:.0%} similar to previous — skipping")
+                    clean_reply = ""
+                else:
+                    # Store this reply for future similarity checks
+                    if not hasattr(self, '_recent_agent_replies'):
+                        self._recent_agent_replies = {}
+                    if agent_name not in self._recent_agent_replies:
+                        self._recent_agent_replies[agent_name] = []
+                    self._recent_agent_replies[agent_name].append(clean_reply[:500])
+                    # Keep only last 10
+                    self._recent_agent_replies[agent_name] = self._recent_agent_replies[agent_name][-10:]
+                
+            if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ" and reply_endpoint:
+                try:
+                    import aiohttp as _aiohttp2
+                    import re as _re_dm
+
+                    # ── DM parser: extract DM:target:message lines ──
+                    dm_lines = []
+                    broadcast_lines = []
+                    suggestion_lines = []
+                    for line in clean_reply.split("\n"):
+                        line = line.strip()
+                        if not line:
+                            continue
+                        dm_match = _re_dm.match(r"^DM:(\w+):(.+)", line, _re_dm.IGNORECASE)
+                        if dm_match:
+                            target = dm_match.group(1).lower()
+                            dm_text = dm_match.group(2).strip()
+                            dm_lines.append((target, dm_text))
+                        elif _re_dm.match(r"^SUGGESTION:", line, _re_dm.IGNORECASE):
+                            suggestion_lines.append(line)
+                        else:
+                            broadcast_lines.append(line)
+
+                    # Send DMs via /api/agent-dm
+                    for target, dm_text in dm_lines:
+                        try:
+                            dm_payload = {
+                                "sender": agent_name,
+                                "recipient": target,
+                                "content": dm_text[:2000],
+                                "msg_type": "a2a_message",
+                            }
+                            dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
+                            async with _aiohttp2.ClientSession() as sess:
+                                async with sess.post(
+                                    dm_url,
+                                    json=dm_payload,
+                                    headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
+                                    timeout=_aiohttp2.ClientTimeout(total=10),
+                                ) as dm_resp:
+                                    log.info(f"📩 Agent DM {agent_name}→{target}: {dm_resp.status} — {dm_text[:80]}")
+                        except Exception as dm_err:
+                            log.warning(f"📩 Agent DM to {target} failed: {dm_err}")
+
+                    # ── v0.40: Process SUGGESTION: lines → PG + DM to Nova ──
+                    if suggestion_lines:
+                        try:
+                            from core.reflection import submit_development_suggestion
+                            pg_pool = getattr(self.node, '_pg_pool', None)
+                            if pg_pool and hasattr(pg_pool, 'is_connected') and pg_pool.is_connected():
+                                for sug_line in suggestion_lines:
+                                    # Parse: SUGGESTION: title | description | priority
+                                    parts = _re_dm.sub(r"^SUGGESTION:\s*", "", sug_line, flags=_re_dm.IGNORECASE).split("|")
+                                    title = parts[0].strip()[:200] if parts else "Untitled"
+                                    desc = parts[1].strip()[:2000] if len(parts) > 1 else title
+                                    priority = parts[2].strip().lower() if len(parts) > 2 else "medium"
+                                    if priority not in ("low", "medium", "high"):
+                                        priority = "medium"
+                                    sug_id = await submit_development_suggestion(
+                                        pg_pool, agent_name, title, desc,
+                                        category="development", priority=priority,
+                                    )
+                                    if sug_id:
+                                        # DM Nova about the suggestion
+                                        dm_payload = {
+                                            "sender": agent_name,
+                                            "recipient": "nova",
+                                            "content": f"💡 Javaslat: {title} ({priority})\n{sug_id}",
+                                            "msg_type": "a2a_message",
+                                        }
+                                        dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
+                                        async with _aiohttp2.ClientSession() as sess:
+                                            async with sess.post(
+                                                dm_url,
+                                                json=dm_payload,
+                                                headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
+                                                timeout=_aiohttp2.ClientTimeout(total=10),
+                                            ) as dm_resp:
+                                                log.info(f"💡 Suggestion DM {agent_name}→nova: {dm_resp.status} — {title[:60]}")
+                                log.info(f"💡 {agent_name} submitted {len(suggestion_lines)} development suggestions")
+                        except Exception as sug_err:
+                            log.warning(f"💡 Suggestion processing failed: {sug_err}")
+
+                    # Send broadcast reply (non-DM lines)
+                    broadcast_reply = "\n".join(broadcast_lines).strip()
+                    reply_content = broadcast_reply if dm_lines else clean_reply
+                    if reply_content and reply_content.upper() != "NEM VÁLASZTOLSZ":
+                        # MARVEEN: Reply to the original sender, not broadcast
+                        original_sender = body.get("original_sender", "broadcast")
+                        reply_body = json.dumps({
+                            "sender": agent_name,
+                            "content": reply_content[:2000],
+                            "recipient": original_sender,
+                            "priority": 5,
+                            "reply_to": body.get("mesh_message_id", ""),
+                            "chat_username": body.get("chat_username", ""),
+                            "chat_type": body.get("chat_type", "user_dm"),
+                        })
+                        async with _aiohttp2.ClientSession() as sess:
+                            async with sess.post(
+                                reply_endpoint,
+                                data=reply_body.encode(),
+                                headers={"Content-Type": "application/json"},
+                                timeout=_aiohttp2.ClientTimeout(total=15),
+                            ) as resp:
+                                log.info(f"Agent reply sent to {reply_endpoint}: {resp.status}")
+                    elif dm_lines and not broadcast_lines:
+                        log.info(f"Agent {agent_name} sent only DMs (no broadcast reply)")
+                except Exception as reply_err:
+                    log.warning(f"Failed to send agent reply to {reply_endpoint}: {reply_err}")
+                
+            return web.json_response({
+                "status": "completed",
+                "agent": agent_name,
+                "output_length": len(output),
+                "output_preview": output[:200],
+            })
+                
+        except asyncio.TimeoutError:
+            log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
+            return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
+        except FileNotFoundError:
+            log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")
+            if not human:
+                self._wake_agent_in_progress = False
+            return web.json_response({"error": "Hermes CLI not found"}, status=500)
+        except Exception as e:
+            log.error(f"Wake-agent CLI failed: {e}")
+            if not human:
+                self._wake_agent_in_progress = False
+            return web.json_response({"error": str(e)}, status=500)
+        finally:
+            if not human:
+                # Only the agent-dedup path owns this flag — human runs must not clear it
+                self._wake_agent_in_progress = False
+            # ── Typing indicator OFF: agent finished (reply or not) ──
             if hasattr(self, "_broadcast_ws"):
                 try:
                     await self._broadcast_ws({
-                        "type": "agent_typing",
+                        "type": "agent_typing_stop",
                         "agent": agent_name,
                         "chat_type": _chat_type,
                         "chat_username": body.get("chat_username", ""),
                     })
-                except Exception as _te:
-                    log.debug(f"agent_typing broadcast failed: {_te}")
-            
-            try:
-                # ── Full Hermes agent with TOOL ACCESS ──
-                # Replaces the bare ollama call: hermes -z runs the real agent
-                # with ALL toolsets (terminal, files, web, …) — same as the
-                # Telegram/terminal interface. Fallback: bare ollama if CLI fails.
-                import asyncio as _aio_exec
-                import shutil as _shutil
-
-                _hermes_bin = os.environ.get("HERMES_BIN") or _shutil.which("hermes") or os.path.expanduser("~/.local/bin/hermes")
-                output = ""
-                _cli_ok = False
-                if _hermes_bin and os.path.isfile(_hermes_bin) or (_hermes_bin and _shutil.which(_hermes_bin)):
-                    _agent_sys = (
-                        f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). "
-                        "Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismétled mások érveit — csak új gondolatot hozz. "
-                        "TOOL HASZNÁLAT: Ha a feladat végrehajtást igényel (parancs, fájl, keresés), használd a tooljaidat és a végeredményt röviden foglald össze. "
-                        "ÖNSZABÁLYOZÁS: Ha a vita lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz."
-                    )
-                    _cli_prompt = f"{_agent_sys}\n\n{prompt[:6000]}"
-                    try:
-                        _proc = await _aio_exec.create_subprocess_exec(
-                            _hermes_bin, "-z", _cli_prompt, "--yolo",
-                            stdout=_aio_exec.subprocess.PIPE,
-                            stderr=_aio_exec.subprocess.PIPE,
-                        )
+                except Exception:
+                    pass
+            # ── Drain wake queue: re-submit queued requests via self-POST so they get
+            # full processing after the current wake finished. Fire-and-forget.
+            _queued = getattr(self, '_wake_agent_queue', [])
+            if _queued:
+                self._wake_agent_queue = []
+                log.info(f"📤 Wake-agent finished — draining queue ({len(_queued)} pending)")
+                async def _drain_wake_queue(items):
+                    import aiohttp as _d_aio
+                    import asyncio as _d_aioio
+                    _drain_url = f"http://127.0.0.1:{self.node.config.health_port}/api/wake-agent"
+                    for _qi in items:
+                        await _d_aioio.sleep(2)  # give the previous wake time to fully unwind
                         try:
-                            _out_b, _err_b = await _aio_exec.wait_for(_proc.communicate(), timeout=240)
-                        except _aio_exec.TimeoutError:
-                            _proc.kill()
-                            _out_b, _err_b = b"", b"CLI timeout"
-                        output = (_out_b or b"").decode("utf-8", "replace").strip()
-                        if output:
-                            _cli_ok = True
-                            log.info(f"🛠️ Wake-agent '{agent_name}' hermes-CLI response ({len(output)} chars): {output[:200]}")
-                        else:
-                            _err_s = (_err_b or b"").decode("utf-8", "replace")[:200]
-                            log.warning(f"hermes -z empty output for '{agent_name}': {_err_s} — falling back to ollama")
-                    except Exception as _cli_ex:
-                        log.warning(f"hermes -z failed for '{agent_name}': {_cli_ex} — falling back to ollama")
-                else:
-                    log.warning(f"hermes binary not found — falling back to ollama for '{agent_name}'")
-
-                if not _cli_ok:
-                    # ── Fallback: bare ollama chat (no tools) ──
-                    ollama_url = "http://localhost:11434/api/chat"
-                    ollama_body = {
-                        "model": "glm-5.3:cloud",
-                        "messages": [
-                            {"role": "system", "content": f"Te {agent_name} 🤖 vagy, egy A2A Mesh chat résztvevő. Válaszolj röviden, természetesen, magyarul (max 500 karakter). Ha az üzenet konkrét témát és szerepeket tartalmaz, követd azokat. Ne ismétled mások érveit — csak új gondolatot hozz.\n\nÖNSZABÁLYOZÁS:\n1. OLVASD EL a beszélgetést. Ha valaki már említette az érvedet, NE ismételd.\n2. DUPLÁZÁS-ELLENŐRZÉS: 'Igen, és pont ezért...' nem új érv.\n3. Ha már 5+ üzeneted van ebben a témában, csak KÜLÖNÖSEN fontos új infó esetén válaszolj.\n4. Ha a vita már lefutott vagy nincs mit hozzátenned, írd: 'NEM VÁLASZTOLSZ'. Csend is válasz.\n5. SZABÁLY: Tilos 'igazad van', 'jó pont', 'egyetértek' üres értelés. Csak ÚJ érvet vagy ellenvetést írj.\n6. Ha a beszélgetés kb. lezárult (konklúzió látszik), NE folytasd a vitát — 'NEM VÁLASZTOLSZ'."},
-                            {"role": "user", "content": prompt[:4000]}
-                        ],
-                        "stream": False,
-                        "options": {"temperature": 0.8, "num_predict": 1000}
-                    }
-                    async with _aiohttp.ClientSession() as sess:
-                        async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
-                            if resp.status == 200:
-                                result = await resp.json()
-                                output = result.get("message", {}).get("content", "").strip()
-                                log.info(f"Wake-agent '{agent_name}' ollama response ({len(output)} chars): {output[:200]}")
-                            else:
-                                err_text = await resp.text()
-                                log.warning(f"Wake-agent '{agent_name}' ollama error {resp.status}: {err_text[:200]}")
-                                output = ""
+                            async with _d_aio.ClientSession() as _d_sess:
+                                async with _d_sess.post(_drain_url, json=_qi, timeout=_d_aio.ClientTimeout(total=150)) as _d_resp:
+                                    log.info(f"📤 Drain wake-agent: {_d_resp.status}")
+                        except Exception as _d_e:
+                            log.warning(f"📤 Drain wake-agent failed: {_d_e}")
+                try:
+                    import asyncio as _aio_drain
+                    _aio_drain.get_event_loop().create_task(_drain_wake_queue(list(_queued)))
+                except Exception as _d_ex:
+                    log.warning(f"Drain spawn failed: {_d_ex}")
                 
-                # Send the reply to the reply_endpoint
-                clean_reply = output.strip()
-                # Echo filter: strip agreement prefixes, skip pure echo
-                clean_reply = strip_echo_prefix(clean_reply)
-                
-                # ── Content similarity check: if reply is >70% similar to a
-                # previous reply from this agent, skip it (anti-repetition) ──
-                if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ":
-                    from difflib import SequenceMatcher
-                    _prev_replies = getattr(self, '_recent_agent_replies', {}).get(agent_name, [])
-                    _max_sim = 0.0
-                    for _prev in _prev_replies[-5:]:
-                        _sim = SequenceMatcher(None, clean_reply.lower()[:500], _prev.lower()[:500]).ratio()
-                        _max_sim = max(_max_sim, _sim)
-                    if _max_sim > 0.70:
-                        log.info(f"🔇 Similarity check: {agent_name} reply {_max_sim:.0%} similar to previous — skipping")
-                        clean_reply = ""
-                    else:
-                        # Store this reply for future similarity checks
-                        if not hasattr(self, '_recent_agent_replies'):
-                            self._recent_agent_replies = {}
-                        if agent_name not in self._recent_agent_replies:
-                            self._recent_agent_replies[agent_name] = []
-                        self._recent_agent_replies[agent_name].append(clean_reply[:500])
-                        # Keep only last 10
-                        self._recent_agent_replies[agent_name] = self._recent_agent_replies[agent_name][-10:]
-                
-                if clean_reply and clean_reply.upper() != "NEM VÁLASZTOLSZ" and reply_endpoint:
-                    try:
-                        import aiohttp as _aiohttp2
-                        import re as _re_dm
-
-                        # ── DM parser: extract DM:target:message lines ──
-                        dm_lines = []
-                        broadcast_lines = []
-                        suggestion_lines = []
-                        for line in clean_reply.split("\n"):
-                            line = line.strip()
-                            if not line:
-                                continue
-                            dm_match = _re_dm.match(r"^DM:(\w+):(.+)", line, _re_dm.IGNORECASE)
-                            if dm_match:
-                                target = dm_match.group(1).lower()
-                                dm_text = dm_match.group(2).strip()
-                                dm_lines.append((target, dm_text))
-                            elif _re_dm.match(r"^SUGGESTION:", line, _re_dm.IGNORECASE):
-                                suggestion_lines.append(line)
-                            else:
-                                broadcast_lines.append(line)
-
-                        # Send DMs via /api/agent-dm
-                        for target, dm_text in dm_lines:
-                            try:
-                                dm_payload = {
-                                    "sender": agent_name,
-                                    "recipient": target,
-                                    "content": dm_text[:2000],
-                                    "msg_type": "a2a_message",
-                                }
-                                dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
-                                async with _aiohttp2.ClientSession() as sess:
-                                    async with sess.post(
-                                        dm_url,
-                                        json=dm_payload,
-                                        headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
-                                        timeout=_aiohttp2.ClientTimeout(total=10),
-                                    ) as dm_resp:
-                                        log.info(f"📩 Agent DM {agent_name}→{target}: {dm_resp.status} — {dm_text[:80]}")
-                            except Exception as dm_err:
-                                log.warning(f"📩 Agent DM to {target} failed: {dm_err}")
-
-                        # ── v0.40: Process SUGGESTION: lines → PG + DM to Nova ──
-                        if suggestion_lines:
-                            try:
-                                from core.reflection import submit_development_suggestion
-                                pg_pool = getattr(self.node, '_pg_pool', None)
-                                if pg_pool and hasattr(pg_pool, 'is_connected') and pg_pool.is_connected():
-                                    for sug_line in suggestion_lines:
-                                        # Parse: SUGGESTION: title | description | priority
-                                        parts = _re_dm.sub(r"^SUGGESTION:\s*", "", sug_line, flags=_re_dm.IGNORECASE).split("|")
-                                        title = parts[0].strip()[:200] if parts else "Untitled"
-                                        desc = parts[1].strip()[:2000] if len(parts) > 1 else title
-                                        priority = parts[2].strip().lower() if len(parts) > 2 else "medium"
-                                        if priority not in ("low", "medium", "high"):
-                                            priority = "medium"
-                                        sug_id = await submit_development_suggestion(
-                                            pg_pool, agent_name, title, desc,
-                                            category="development", priority=priority,
-                                        )
-                                        if sug_id:
-                                            # DM Nova about the suggestion
-                                            dm_payload = {
-                                                "sender": agent_name,
-                                                "recipient": "nova",
-                                                "content": f"💡 Javaslat: {title} ({priority})\n{sug_id}",
-                                                "msg_type": "a2a_message",
-                                            }
-                                            dm_url = f"http://127.0.0.1:{self.node.config.health_port}/api/agent-dm"
-                                            async with _aiohttp2.ClientSession() as sess:
-                                                async with sess.post(
-                                                    dm_url,
-                                                    json=dm_payload,
-                                                    headers={"X-Mesh-Token": "mesh-wake-secret-2026"},
-                                                    timeout=_aiohttp2.ClientTimeout(total=10),
-                                                ) as dm_resp:
-                                                    log.info(f"💡 Suggestion DM {agent_name}→nova: {dm_resp.status} — {title[:60]}")
-                                    log.info(f"💡 {agent_name} submitted {len(suggestion_lines)} development suggestions")
-                            except Exception as sug_err:
-                                log.warning(f"💡 Suggestion processing failed: {sug_err}")
-
-                        # Send broadcast reply (non-DM lines)
-                        broadcast_reply = "\n".join(broadcast_lines).strip()
-                        reply_content = broadcast_reply if dm_lines else clean_reply
-                        if reply_content and reply_content.upper() != "NEM VÁLASZTOLSZ":
-                            # MARVEEN: Reply to the original sender, not broadcast
-                            original_sender = body.get("original_sender", "broadcast")
-                            reply_body = json.dumps({
-                                "sender": agent_name,
-                                "content": reply_content[:2000],
-                                "recipient": original_sender,
-                                "priority": 5,
-                                "reply_to": body.get("mesh_message_id", ""),
-                                "chat_username": body.get("chat_username", ""),
-                                "chat_type": body.get("chat_type", "user_dm"),
-                            })
-                            async with _aiohttp2.ClientSession() as sess:
-                                async with sess.post(
-                                    reply_endpoint,
-                                    data=reply_body.encode(),
-                                    headers={"Content-Type": "application/json"},
-                                    timeout=_aiohttp2.ClientTimeout(total=15),
-                                ) as resp:
-                                    log.info(f"Agent reply sent to {reply_endpoint}: {resp.status}")
-                        elif dm_lines and not broadcast_lines:
-                            log.info(f"Agent {agent_name} sent only DMs (no broadcast reply)")
-                    except Exception as reply_err:
-                        log.warning(f"Failed to send agent reply to {reply_endpoint}: {reply_err}")
-                
-                return web.json_response({
-                    "status": "completed",
-                    "agent": agent_name,
-                    "output_length": len(output),
-                    "output_preview": output[:200],
-                })
-                
-            except asyncio.TimeoutError:
-                log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
-                return web.json_response({"status": "timeout", "agent": agent_name}, status=504)
-            except FileNotFoundError:
-                log.error(f"Wake-agent: hermes binary not found at {hermes_bin}")
-                self._wake_agent_in_progress = False
-                return web.json_response({"error": "Hermes CLI not found"}, status=500)
-            except Exception as e:
-                log.error(f"Wake-agent CLI failed: {e}")
-                self._wake_agent_in_progress = False
-                return web.json_response({"error": str(e)}, status=500)
-            finally:
-                self._wake_agent_in_progress = False
-                # ── Typing indicator OFF: agent finished (reply or not) ──
-                if hasattr(self, "_broadcast_ws"):
-                    try:
-                        await self._broadcast_ws({
-                            "type": "agent_typing_stop",
-                            "agent": agent_name,
-                            "chat_type": _chat_type,
-                            "chat_username": body.get("chat_username", ""),
-                        })
-                    except Exception:
-                        pass
-                # ── Drain wake queue: re-submit queued requests via self-POST so they get
-                # full processing after the current wake finished. Fire-and-forget.
-                _queued = getattr(self, '_wake_agent_queue', [])
-                if _queued:
-                    self._wake_agent_queue = []
-                    log.info(f"📤 Wake-agent finished — draining queue ({len(_queued)} pending)")
-                    async def _drain_wake_queue(items):
-                        import aiohttp as _d_aio
-                        import asyncio as _d_aioio
-                        _drain_url = f"http://127.0.0.1:{self.node.config.health_port}/api/wake-agent"
-                        for _qi in items:
-                            await _d_aioio.sleep(2)  # give the previous wake time to fully unwind
-                            try:
-                                async with _d_aio.ClientSession() as _d_sess:
-                                    async with _d_sess.post(_drain_url, json=_qi, timeout=_d_aio.ClientTimeout(total=150)) as _d_resp:
-                                        log.info(f"📤 Drain wake-agent: {_d_resp.status}")
-                            except Exception as _d_e:
-                                log.warning(f"📤 Drain wake-agent failed: {_d_e}")
-                    try:
-                        import asyncio as _aio_drain
-                        _aio_drain.get_event_loop().create_task(_drain_wake_queue(list(_queued)))
-                    except Exception as _d_ex:
-                        log.warning(f"Drain spawn failed: {_d_ex}")
-                
-        except Exception as e:
-            log.error(f"Wake-agent endpoint failed: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"status": "internal_error"}, status=500)
 
     async def _api_agent_card(self, request):
         """GET /.well-known/agent-card.json or /api/agent-card — A2A capability discovery.
