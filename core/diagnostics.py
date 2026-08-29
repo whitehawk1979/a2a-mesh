@@ -462,7 +462,7 @@ class DiagnosticEngine:
         mem = report.memory_stats
         if mem:
             rss = mem.get("process_rss_mb", 0)
-            if rss > 500:
+            if rss > 800:
                 recs.append(f"High memory usage ({rss}MB) — consider restarting or investigating memory leaks")
             sys_mem = mem.get("system_memory_percent", 0)
             if sys_mem > 85:
@@ -598,6 +598,7 @@ class DiagnosticEngine:
             # Normalized check: compare first 30 chars of title (case-insensitive)
             # This catches near-duplicates like "Csak 1 peer csatlakozva" vs "Csak 1 peer csatlakozva — alacsony"
             target = title_substring.lower().strip()[:30]
+            # In-memory cache check
             return any(
                 target in s.title.lower()[:60]
                 and s.node == node_name
@@ -637,14 +638,14 @@ class DiagnosticEngine:
                 new_suggestions.append(s)
             
             rss = mem.get("process_rss_mb", 0)
-            if rss > 500 and not _suggestion_exists("RSS memória"):
+            if rss > 800 and not _suggestion_exists("RSS memória"):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="high",
                     title=f"Magas RSS memória ({rss:.0f}MB) — lehetséges memóriaszivárgás",
                     description=f"A {node_name} agent folyamata {rss:.0f}MB RSS memóriát használ. Ez memóriaszivárgásra utalhat.",
                     current_value=f"{rss:.0f}MB",
-                    suggested_value="<400MB",
+                    suggested_value="<600MB",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Az agent újraindítása ideiglenesen megoldja, de a root cause vizsgálata szükséges.",
                     affected_nodes=[node_name],
                     node_name_override=node_name,
@@ -908,14 +909,14 @@ class DiagnosticEngine:
         # OOM risk → development suggestion for restart resilience
         if mem:
             rss = mem.get("process_rss_mb", 0)
-            if rss > 300 and not _suggestion_exists("OOM védelem"):
+            if rss > 800 and not _suggestion_exists("OOM védelem"):
                 s = await self.generate_suggestion(
                     category="development",
                     priority="medium",
                     title=f"OOM védelem javítása — {node_name} RSS: {rss:.0f}MB",
                     description=f"A {node_name} agent folyamata {rss:.0f}MB memóriát használ. A Restart=always beállítás véd, de a root cause (memóriaszivárgás) vizsgálata javasolt.",
                     current_value=f"{rss:.0f}MB RSS",
-                    suggested_value="<200MB RSS",
+                    suggested_value="<600MB RSS",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Restart=always biztosítja az újraindítást, de a szivárgás forrását is meg kell találni.",
                     affected_nodes=[node_name],
                     node_name_override=node_name,
@@ -1156,9 +1157,9 @@ class DiagnosticEngine:
         if mem:
             rss = mem.get("process_rss_mb", 0)
             sys_mem = mem.get("system_memory_percent", 0)
-            if rss > 1000 or sys_mem > 95:
+            if rss > 1200 or sys_mem > 95:
                 return "critical"
-            if rss > 500 or sys_mem > 85:
+            if rss > 800 or sys_mem > 85:
                 return "warning"
         
         # Isolated node (0 peers) = warning
