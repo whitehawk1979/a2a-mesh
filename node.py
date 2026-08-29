@@ -2789,10 +2789,17 @@ echo "Status: ok"
             content = message.sign_content()
             message.signature = self.encryption.sign_message(content)
 
-        # Check if recipient is online — if not, queue for later
-        if not message.is_broadcast() and await self.offline_queue.is_node_online(message.recipient) is False:
+        # Check if recipient is online — if not, queue for later.
+        # NOTE: skip the check for empty/None recipients (heartbeat forwards) and
+        # non-broadcast forwarding paths — only queue for real directed recipients.
+        if (
+            not message.is_broadcast()
+            and message.recipient
+            and message.recipient not in ("", "*", "broadcast")
+            and await self.offline_queue.is_node_online(message.recipient) is False
+        ):
             log.info(f"Recipient {message.recipient} is offline — queuing message")
-            self.offline_queue.enqueue(message)
+            await self.offline_queue.enqueue(message)
             return SendResult(transport="offline_queue", success=True, error="Queued for offline delivery")
 
         # Track for ACK (non-broadcast only)
