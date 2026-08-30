@@ -827,6 +827,9 @@ class DashboardAgentsMixin:
             # re-triggering wake-agent on receiving this reply.
             _agent_names = ("nova", "morzsa", "runa", "tor")
             _is_agent_reply = sender.lower() in _agent_names
+            # chat_username: the human user this reply belongs to (for per-user history persistence
+            # in on_mesh_message — without it the reply shows live via WS but vanishes on reload)
+            _chat_username = body.get("chat_username", "") or body.get("username", "")
             if _is_agent_reply and recipient == "broadcast":
                 # Agent broadcasting to chat — keep as broadcast for dashboard visibility
                 # but use agent_reply type so the receive loop's anti-ping-pong filter catches it
@@ -840,6 +843,7 @@ class DashboardAgentsMixin:
                         "source": "agent_reply",
                         "username": sender,
                         "reply_to": reply_to,
+                        "chat_username": _chat_username,
                     },
                 )
             else:
@@ -853,6 +857,7 @@ class DashboardAgentsMixin:
                         "source": "agent_reply",
                         "username": sender,
                         "reply_to": reply_to,
+                        "chat_username": _chat_username,
                     },
                 )
 
