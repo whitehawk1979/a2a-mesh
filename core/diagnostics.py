@@ -388,6 +388,28 @@ class DiagnosticEngine:
                 conns = mem.get("connections", 0)
                 if conns < 50:
                     self._set_resolved(s, resolved)
+            elif "steal" in t and mem:
+                # CPU steal normalized below the 10% target from suggestion text
+                # (observed: runa steal=31% suggestion stayed pending while
+                #  live steal was 0.0% — no resolve branch existed)
+                steal = mem.get("cpu_steal_percent")
+                if steal is not None and steal < 10:
+                    self._set_resolved(s, resolved)
+            elif "lemezterulet" in t and mem:
+                # disk usage back under the 85% threshold (observed: morzsa
+                # 88% suggestion stuck 'accepted' while disk is now 77%)
+                disk = mem.get("disk_usage_percent")
+                if disk is not None and disk < 85:
+                    self._set_resolved(s, resolved)
+            elif "peer csatlakozva" in t and peer_count >= 2:
+                # mesh resilience restored: min target peers connected again
+                # covers both "Nincs peer csatlakozva" and "Csak 1 peer csatlakozva"
+                self._set_resolved(s, resolved)
+            elif "gyakori restart" in t and health:
+                # uptime recovered: node stable >= 1h since the restart alert
+                uptime_s = health.get("uptime_seconds", 0)
+                if uptime_s and uptime_s >= 3600:
+                    self._set_resolved(s, resolved)
             elif "verzio" in t and health:
                 # version drift: resolve if peer versions now all match
                 peers = health.get("peers", [])
@@ -1441,8 +1463,13 @@ class DiagnosticEngine:
             if not pg_pool:
                 log.debug("No PG pool available for loading suggestions")
                 return
+            # Load only ACTIVE suggestions: pending/accepted/implemented/
+            # investigated. Completed/superseded history must not consume the
+            # 100-row window — observed: stuck 'accepted' version-drift entries
+            # from Aug 28-29 fell out of the top-100 and were never resolvable.
             rows = await pg_pool.fetch(
-                """SELECT * FROM mesh.mesh_suggestions 
+                """SELECT * FROM mesh.mesh_suggestions
+                   WHERE status IN ('pending', 'accepted', 'implemented', 'investigated')
                    ORDER BY created_at DESC LIMIT 100"""
             )
             for row in rows:
