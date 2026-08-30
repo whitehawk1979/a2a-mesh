@@ -68,7 +68,7 @@ class MeshDiscovery:
             local_ip = host_ip or self._get_local_ip()
 
             # Create Zeroconf instance with InterfaceChoice.Default
-            self._zeroconf = Zeroconf(interfaces=InterfaceChoice.Default)
+            self._zeroconf = Zeroconf(interfaces=InterfaceChoice.Default, use_asyncio=False)
 
             # Build TXT records with node metadata
             properties = {
@@ -94,7 +94,16 @@ class MeshDiscovery:
                 port=self.port,
                 properties=properties,
             )
-            self._zeroconf.register_service(self._service_info, allow_name_change=True)
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                _fut = _ex.submit(
+                    self._zeroconf.register_service, self._service_info, allow_name_change=True
+                )
+                try:
+                    _fut.result(timeout=10)
+                except Exception:
+                    _fut.cancel()
+                    raise
             log.info(f"mDNS: Registered {self.node_name} at {local_ip}:{self.port} as {self.service_type}")
 
             # Start browsing for other services
