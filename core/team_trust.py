@@ -56,18 +56,30 @@ def is_trusted_peer(agent_a, agent_b):
     """Check if agent_a trusts agent_b.
     Symmetric: if either side acknowledges, both trust each other."""
     graph = load_trust_graph()
-    trust_a_to_b = graph.get(agent_a, {}).get(agent_b, "none")
-    trust_b_to_a = graph.get(agent_b, {}).get(agent_a, "none")
+    _ga = graph.get(agent_a) or graph.get(_norm(agent_a).capitalize()) or graph.get(_norm(agent_a)) or {}
+    _gb = graph.get(agent_b) or graph.get(_norm(agent_b).capitalize()) or graph.get(_norm(agent_b)) or {}
+    trust_a_to_b = _ga.get(agent_b) or _ga.get(_norm(agent_b).capitalize()) or _ga.get(_norm(agent_b)) or "none"
+    trust_b_to_a = _gb.get(agent_a) or _gb.get(_norm(agent_a).capitalize()) or _gb.get(_norm(agent_a)) or "none"
     # Symmetric: take the higher trust level
     level = max(TRUST_LEVELS.get(trust_a_to_b, 0), TRUST_LEVELS.get(trust_b_to_a, 0))
     return level >= TRUST_LEVELS["limited"]
 
 
+def _norm(name):
+    """Normalize agent name for trust lookups — node names are lowercase in the
+    mesh (nova, morzsa, runa, tor) but the trust graph historically stores
+    capitalized keys (Nova, Morzsa...). Case-insensitive lookup prevents
+    'Rejected message from untrusted peer' false negatives."""
+    return (name or "").strip().lower()
+
 def get_trust_level(agent_a, agent_b):
     """Get trust level between two agents. Returns 'full', 'limited', or 'none'."""
     graph = load_trust_graph()
-    trust_a_to_b = graph.get(agent_a, {}).get(agent_b, "none")
-    trust_b_to_a = graph.get(agent_b, {}).get(agent_a, "none")
+    # Case-insensitive lookup: graph keys may be capitalized while node names are lowercase
+    _ga = graph.get(agent_a) or graph.get(_norm(agent_a).capitalize()) or graph.get(_norm(agent_a)) or {}
+    _gb = graph.get(agent_b) or graph.get(_norm(agent_b).capitalize()) or graph.get(_norm(agent_b)) or {}
+    trust_a_to_b = _ga.get(agent_b) or _ga.get(_norm(agent_b).capitalize()) or _ga.get(_norm(agent_b)) or "none"
+    trust_b_to_a = _gb.get(agent_a) or _gb.get(_norm(agent_a).capitalize()) or _gb.get(_norm(agent_a)) or "none"
     level = max(TRUST_LEVELS.get(trust_a_to_b, 0), TRUST_LEVELS.get(trust_b_to_a, 0))
     for name, val in TRUST_LEVELS.items():
         if val == level:
