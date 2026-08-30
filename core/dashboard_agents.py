@@ -402,7 +402,7 @@ class DashboardAgentsMixin:
                             stderr=_aio_exec2.subprocess.PIPE,
                         )
                         try:
-                            _out_b2, _err_b2 = await _aio_exec2.wait_for(_proc2.communicate(), timeout=240)
+                            _out_b2, _err_b2 = await _aio_exec2.wait_for(_proc2.communicate(), timeout=int(__import__('os').environ.get("A2A_CLI_TIMEOUT_S", "240")))
                         except _aio_exec2.TimeoutError:
                             _proc2.kill()
                             _out_b2, _err_b2 = b"", b"CLI timeout"
@@ -1127,8 +1127,14 @@ class DashboardAgentsMixin:
                         stdout=_aio_exec.subprocess.PIPE,
                         stderr=_aio_exec.subprocess.PIPE,
                     )
+                    # Node-specific CLI timeout: slow containers (e.g. HAOS addon)
+                    # need much longer than a workstation — env A2A_CLI_TIMEOUT_S overrides the default
                     try:
-                        _out_b, _err_b = await _aio_exec.wait_for(_proc.communicate(), timeout=240)
+                        _cli_timeout = int(os.environ.get("A2A_CLI_TIMEOUT_S", "240"))
+                    except ValueError:
+                        _cli_timeout = 240
+                    try:
+                        _out_b, _err_b = await _aio_exec.wait_for(_proc.communicate(), timeout=_cli_timeout)
                     except _aio_exec.TimeoutError:
                         _proc.kill()
                         _out_b, _err_b = b"", b"CLI timeout"
