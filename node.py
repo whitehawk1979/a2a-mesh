@@ -5326,9 +5326,17 @@ echo "Status: ok"
                     try:
                         _p = _j.loads(_p)
                     except Exception:
+                        # Wrapped/trusted-peer envelope (not raw JSON) — regex-extract the
+                        # chat_username field so per-user history persistence survives framing
+                        import re as _re_cu
+                        _m = _re_cu.search(r"'chat_username':\s*'([^']+)'", _p)
+                        if not _m:
+                            _m = _re_cu.search(r'"chat_username":\s*"([^"]+)"', _p)
+                        if _m:
+                            _chat_user = _m.group(1)
                         _p = {}
                 if isinstance(_p, dict):
-                    _chat_user = _p.get("chat_username")
+                    _chat_user = _p.get("chat_username") or _chat_user
             except Exception:
                 pass
             if _chat_user:
