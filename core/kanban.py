@@ -197,9 +197,9 @@ class KanbanManager:
                     continue
                 age_status = _card_age_status(card)
                 if age_status == "stale":
-                    stale.append({"board": board["title"], "card": card["title"], "id": card["id"], "board_id": board["id"]})
+                    stale.append({"board": board.get("title") or board.get("name", "?"), "card": card.get("title", "?"), "id": card.get("id", "?"), "board_id": board.get("id", "?")})
                 elif age_status == "dead":
-                    dead.append({"board": board["title"], "card": card["title"], "id": card["id"], "board_id": board["id"]})
+                    dead.append({"board": board.get("title") or board.get("name", "?"), "card": card.get("title", "?"), "id": card.get("id", "?"), "board_id": board.get("id", "?")})
         
         return {
             "stale_count": len(stale),

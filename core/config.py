@@ -42,6 +42,7 @@ class P2PConfig:
     enabled: bool = True
     listen_host: str = "0.0.0.0"
     listen_port: int = 8645
+    advertise_host: str = ""   # LAN IP to advertise for Docker/HAOS nodes (bridge IP is unreachable)
     max_connections: int = 50
     idle_timeout: int = 120  # seconds (was 300, reduced for faster peer detection)
     reconnect_interval: int = 5  # base retry interval in seconds (exponential backoff)
@@ -443,6 +444,7 @@ class MeshConfig:
                 enabled=p2p_data.get('enabled', config.p2p.enabled),
                 listen_host=p2p_data.get('listen_host', config.p2p.listen_host),
                 listen_port=p2p_data.get('listen_port', config.p2p.listen_port),
+                advertise_host=p2p_data.get('advertise_host', config.p2p.advertise_host),
                 max_connections=p2p_data.get('max_connections', config.p2p.max_connections),
                 idle_timeout=p2p_data.get('idle_timeout', config.p2p.idle_timeout),
                 reconnect_interval=p2p_data.get('reconnect_interval', config.p2p.reconnect_interval),
