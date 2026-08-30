@@ -1497,6 +1497,65 @@ class DashboardAdminMixin:
                 except Exception as e:
                     log.warning(f"Topology: SSH tunnel status failed: {e}")
 
+            # ── Peer-originated SSH tunnels (e.g. tor→peers run on the tor node) ──
+            # The dashboard host only knows its OWN tunnels; tunnels other nodes originate
+            # (tor→morzsa/runa/nova) are invisible here. Fetch each peer's /health in
+            # parallel (3s cap) and add their ssh_tunnel edges so the topology is complete.
+            async def _fetch_peer_ssh_tunnels():
+                import aiohttp
+                peer_targets = []
+                for name, info in nodes.items():
+                    if name == self.node.node_name:
+                        continue
+                    host = info.get("host") or ""
+                    port = info.get("port") or 8650
+                    if not host or str(host).startswith("0.0.0.0"):
+                        continue
+                    peer_targets.append((name, f"http://{host}:{port}/health"))
+                results = []
+                if not peer_targets:
+                    return results
+                async def _one(name, url):
+                    try:
+                        timeout = aiohttp.ClientTimeout(total=3)
+                        async with aiohttp.ClientSession(timeout=timeout) as sess:
+                            async with sess.get(url) as resp:
+                                if resp.status != 200:
+                                    return None
+                                d = await resp.json(content_type=None)
+                                ts = d.get("ssh_tunnel") or {}
+                                return (name, ts)
+                    except Exception:
+                        return None
+                gathered = await asyncio.gather(*[_one(n, u) for n, u in peer_targets])
+                return [r for r in gathered if r]
+
+            try:
+                peer_tunnel_results = await _fetch_peer_ssh_tunnels()
+                for peer_name, ts_dict in peer_tunnel_results:
+                    if not isinstance(ts_dict, dict):
+                        continue
+                    for target_name, tstate in ts_dict.items():
+                        if not isinstance(tstate, dict) or not tstate.get("connected"):
+                            continue
+                        # Avoid duplicating an edge the local node already reported
+                        already = any(
+                            c.get("transport") == "ssh_tunnel"
+                            and c.get("source") == peer_name
+                            and c.get("target") == target_name
+                            for c in connections
+                        )
+                        if not already:
+                            connections.append({
+                                "source": peer_name,
+                                "target": target_name,
+                                "transport": "ssh_tunnel",
+                                "status": "connected",
+                                "uptime_seconds": tstate.get("uptime_seconds", 0),
+                            })
+            except Exception as e:
+                log.debug(f"Topology: peer tunnel fetch failed (non-blocking): {e}")
+
             # ── PG connections (all registered agents not on P2P) ────────
             for name in list(nodes.keys()):
                 if name != self.node.node_name and name not in p2p_peers:
