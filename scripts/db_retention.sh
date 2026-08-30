@@ -15,7 +15,9 @@
 
 set -euo pipefail
 
-PG_HOST="${PG_HOST:-192.168.1.30}"
+# PG_HOST: Tailscale IP has priority — the macOS Local Network (TCC) permission blocks the unsigned Homebrew psql towards LAN IPs (192.168.1.x), while the utun5 interface is exempt.
+# 2026-08-30: the daily cron has been silently failing since its setup due to this!
+PG_HOST="${PG_HOST:-100.65.232.47}"
 PG_PORT="${PG_PORT:-5432}"
 PG_DB="${PG_DB:-agent_memory}"
 PG_USER="${PG_USER:-nova}"
