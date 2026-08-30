@@ -299,10 +299,11 @@ class SSHTunnelTransport(TransportAdapter):
             return False
 
         # Wait for tunnel to be ready (SSH connects to remote)
-        # Give it a few seconds, then try to connect
-        await asyncio.sleep(2)
-
-        # Check if SSH process is still running
+        # POLL instead of fixed sleep: slow containers (e.g. HAOS addon) take 5-15s
+        # for the SSH handshake + local forward bind. A single attempt after 2s fails
+        # with Errno 111 → retry storm → backoff, while the ssh process itself is fine.
+        # Try connecting repeatedly until connect_timeout elapses or process dies.
+        await asyncio.sleep(1)
         if peer.process is None:
             log.error(f"SSH process for {peer.name} is None (already closed)")
             return False
@@ -319,14 +320,27 @@ class SSHTunnelTransport(TransportAdapter):
             return False
 
         # Connect to local tunnel endpoint (with TLS if P2P uses TLS)
-        try:
-            ssl_ctx = self._ssl_client_context
-            peer.reader, peer.writer = await asyncio.wait_for(
-                asyncio.open_connection("127.0.0.1", peer.local_port, ssl=ssl_ctx),
-                timeout=self._config.connect_timeout
-            )
-        except Exception as e:
-            log.error(f"Could not connect to SSH tunnel local endpoint for {peer.name}: {e}")
+        # RETRY LOOP: the ssh -L forward may bind the local port up to several
+        # seconds after process start (handshake latency on slow hosts). Retry
+        # connection until the process dies or connect_timeout elapses.
+        ssl_ctx = self._ssl_client_context
+        _deadline = asyncio.get_event_loop().time() + self._config.connect_timeout
+        _last_err = None
+        peer.reader = peer.writer = None
+        while peer.process is not None and peer.process.returncode is None \
+                and asyncio.get_event_loop().time() < _deadline:
+            try:
+                peer.reader, peer.writer = await asyncio.wait_for(
+                    asyncio.open_connection("127.0.0.1", peer.local_port, ssl=ssl_ctx),
+                    timeout=max(1.0, _deadline - asyncio.get_event_loop().time()),
+                )
+                _last_err = None
+                break
+            except Exception as e:
+                _last_err = e
+                await asyncio.sleep(0.5)
+        if peer.reader is None or peer.writer is None:
+            log.error(f"Could not connect to SSH tunnel local endpoint for {peer.name}: {_last_err}")
             await self._close_tunnel(peer)
             return False
 
