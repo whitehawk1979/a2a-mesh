@@ -1500,7 +1500,9 @@ class DashboardAdminMixin:
             # ── Peer-originated SSH tunnels (e.g. tor→peers run on the tor node) ──
             # The dashboard host only knows its OWN tunnels; tunnels other nodes originate
             # (tor→morzsa/runa/nova) are invisible here. Fetch each peer's /health in
-            # parallel (3s cap) and add their ssh_tunnel edges so the topology is complete.
+            # parallel (8s cap — the HAOS container is loaded and 3s flakes) and add their
+            # ssh_tunnel edges. Cache the last good state per peer so a brief health spike
+            # doesn't blank the edges (they were flapping 3→2→0 before).
             async def _fetch_peer_ssh_tunnels():
                 import aiohttp
                 peer_targets = []
@@ -1517,18 +1519,28 @@ class DashboardAdminMixin:
                     return results
                 async def _one(name, url):
                     try:
-                        timeout = aiohttp.ClientTimeout(total=3)
+                        timeout = aiohttp.ClientTimeout(total=8)
                         async with aiohttp.ClientSession(timeout=timeout) as sess:
                             async with sess.get(url) as resp:
                                 if resp.status != 200:
                                     return None
                                 d = await resp.json(content_type=None)
                                 ts = d.get("ssh_tunnel") or {}
+                                if isinstance(ts, dict) and ts:
+                                    self._peer_tunnel_cache = getattr(self, "_peer_tunnel_cache", {})
+                                    self._peer_tunnel_cache[name] = ts
                                 return (name, ts)
                     except Exception:
                         return None
                 gathered = await asyncio.gather(*[_one(n, u) for n, u in peer_targets])
-                return [r for r in gathered if r]
+                live = [r for r in gathered if r]
+                # Fall back to cached state for peers whose health fetch failed this round
+                cache = getattr(self, "_peer_tunnel_cache", {})
+                live_names = {name for name, _ in live}
+                for cname, cts in cache.items():
+                    if cname not in live_names:
+                        live.append((cname, cts))
+                return live
 
             try:
                 peer_tunnel_results = await _fetch_peer_ssh_tunnels()
