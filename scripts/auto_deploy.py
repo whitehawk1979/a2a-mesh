@@ -72,6 +72,8 @@ CORE_FILES = [
     "core/dashboard_delegations.py",
     "core/dashboard_diagnostics.py",
     "node.py",
+    "discovery/mdns.py",
+    "discovery/udp_broadcast.py",
     "transports/p2p_transport.py",
     "data/projects.json",
 ]
