@@ -1445,6 +1445,31 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         if len(self._message_history) > self._max_history:
             self._message_history = self._message_history[-self._max_history:]
 
+        # ── Persist agent replies to mesh_chat_messages ──
+        # Without this, agent replies (tor/morzsa/runa/nova) appear live via WS but
+        # VANISH after a page reload — the history pull reads PG only. The history
+        # query is per-USER (username = the human who chatted), so store under the
+        # chat_username from the payload (falls back to broadcast viewers = sender).
+        try:
+            _pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+            if _pool and msg_type in ("agent_reply", "a2a_message") and content:
+                _chat_user = payload.get("chat_username") or payload.get("username") or ""
+                if _chat_user and _chat_user != message.sender:
+                    # Reply to a human chat user — store under their view (DM + broadcast)
+                    await _pool.execute(
+                        """INSERT INTO mesh.mesh_chat_messages
+                           (message_uuid, username, sender, recipient, content, msg_type, status)
+                           VALUES ($1, $2, $3, $4, $5, 'chat', 'sent')
+                           ON CONFLICT (message_uuid) DO NOTHING""",
+                        str(message.id),
+                        _chat_user,
+                        message.sender or "unknown",
+                        payload.get("reply_to") or message.recipient or "broadcast",
+                        content[:4000],
+                    )
+        except Exception as e:
+            log.debug(f"Agent reply persist failed (non-blocking): {e}")
+
         await self._broadcast_ws({
             "type": "new_message",
             "message": self._message_history[-1],
