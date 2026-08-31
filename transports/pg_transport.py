@@ -84,6 +84,14 @@ class PGTransport(TransportAdapter):
 
                 # Acquire a dedicated listener connection for NOTIFY/LISTEN
                 self._listener_conn = await self._pool._pool.acquire()
+                # Exempt listener from idle_session_timeout (PG15+): LISTEN conns
+                # are idle by definition (server pushes); without exemption the
+                # server reaps them every idle_session_timeout interval.
+                try:
+                    await self._listener_conn.execute("SET idle_session_timeout = 0")
+                    log.debug("PG listener exempted from idle_session_timeout")
+                except Exception as e:
+                    log.debug(f"idle_session_timeout exemption skipped: {e}")
                 for channel in self._channels:
                     await self._listener_conn.execute(f"LISTEN {channel}")
                     log.info(f"PG LISTEN on {channel}")
