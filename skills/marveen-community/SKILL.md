@@ -7,10 +7,13 @@ created: 2026-09-01
 tags: [marveen, community, login, browser]
 ---
 
-# Marveen.io közösség — csatlakozás skill
+# Marveen.io közösség — csatlakozás + tanulási skill
 
-## Cél
-Belépés a marveen.io közösségbe (app.marveen.io) Nova agentként, a Feed/Channel/Kurzusok/Tagok oldalak olvasására és használatára. A fiók: Zsolt community accountja (Próbaidőszak: 14 nap, utána FREE szint).
+## Cél — KÉTOLDALÚ MISSZIÓ
+**1. Tanulás (fő cél):** A marveen.io a Marveen project közösségi oldala — innen az A2A Mesh agentek (Nova, Morzsa, Runa, Tor) **tudást, skilleket és use-case-eket tanulhatnak** a mesh fejlesztéséhez. A feed posztjai, csatornák és (később) kurzusok mind tudásforrások.
+**2. Böngészés:** Feed/Channel/Kurzusok/Tagok oldalak olvasása, poszt-írás.
+
+A fiók: Zsolt community accountja (Próbaidőszak 14 nap, utána FREE szint).
 
 ## Belépési adatok
 - **URL:** https://app.marveen.io/login
@@ -87,3 +90,23 @@ A feed tetején textarea: "Írj egy posztot a közösségnek..."
 - **Kurzusok:** "Még nincs elérhető kurzus" — hamarosan érkeznek, a skill frissítendő ha megjönnek.
 - **A Marveen open source (MIT)**: https://github.com/Szotasz/marveen — Claude Code-alapú multi-agent keretrendszer, Telegram/Slack csatornákkal. Ez az inspirációja az A2A Mesh Marveen-featureinek.
 - **Community account:** Próbaidőszak 14 napig minden csatorna elérhető, utána FREE szintre vált (nem vesz el semmit).
+
+## Tanulási rutin (mesh-agenteknek)
+A marveen.io tartalma az A2A Mesh fejlesztésének **tudásforrása** — a posztok, csatornák és (jövőbeli) kurzusok ötleteket, skilleket és use-case-eket adnak a mesh-hez. Rutin, amikor "marveen tudás" felmerül:
+
+1. **Login** (fenti folyamat) vagy session-újrahasznosítás
+2. **Csatornák ellenőrzése:**
+   - `altalanos` — közösségi beszélgetés
+   - `ugynok-csapatok` — ügynök-csapat építési minták (**legrelevánsabb az A2A Mesh-hez**)
+   - `hasznos-skillek` — konkrét skill-ötletek
+   - `otletek-use-case` — működő use-case-ek
+3. **Posztok elolvasása** — poszt-linkre navigálás, `innerText` kinyerés, "Tovább" gombbal a teljes szöveg
+4. **Tudás → mesh-funkció**: ha egy poszt konkrét feature/technika:
+   - Kerüljön a `mesh.mesh_suggestions` PG-táblába `SUGGESTION: <cím> | <leírás> | <prioritás>` formában (wake-agent válaszban) — a coordinator (Nova) feldolgozza
+   - vagy feature-request issue a Gitea `nova/a2a-mesh` repo-ba
+5. **Biztonsági figyelmeztetés** (a közösség kitűzött posztjából): *"mielőtt bármit telepítetek vagy alkalmaznátok az itt olvasottak közül, kérjétek ki fő ügynökötök véleményét róla biztonság és alkalmazhatóság szempontjából"* — minden ötlet előtt security-review a mesh-építésnél is.
+
+### Kontextus (2026-09-01)
+- A Marveen inspirálta az A2A Mesh v0.29.0 Marveen-feature-setjét (SmartRouter capability routing, untrusted framing, per-category autonomy)
+- A `marveen-integration` skill (auto-generált) a feature-integrációs munkát rögzíti; ez a skill a közösségi/tanulási oldalt fedezi
+- Kurzusok: "hamarosan" — amikor megjönnek, a struktúrájuk ide kerül
