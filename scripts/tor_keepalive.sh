@@ -59,6 +59,7 @@ start_tunnel() {
   setsid nohup ssh -N \
     -R 127.0.0.1:18645:127.0.0.1:8645 \
     -R 127.0.0.1:18650:127.0.0.1:8650 \
+    -R 127.0.0.1:18222:127.0.0.1:2222 \
     -p 22 \
     -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
