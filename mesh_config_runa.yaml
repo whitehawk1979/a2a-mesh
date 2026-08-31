@@ -65,7 +65,7 @@ mesh:
   log_file: ~/a2a_mesh/a2a_mesh.log
   auth_mode: open
   health_port: 8650
-  wake_agent_on_message: true  # Wake local agent on incoming messages (non-blocking, mesh infra unaffected)
+  wake_agent_on_message: true
   transports:
     pg_notify:
       host: 192.168.1.30
@@ -97,8 +97,8 @@ mesh:
       retries: 3
     ssh_tunnel:
       enabled: true
-      default_ssh_user: ""
-      default_identity_file: "~/.ssh/id_ed25519_openclaw"
+      default_ssh_user: ''
+      default_identity_file: ~/.ssh/id_ed25519_openclaw
       local_port_start: 9200
       connect_timeout: 15
       keepalive_interval: 30
@@ -106,17 +106,23 @@ mesh:
       reconnect_interval: 10
       peers:
         nova:
-          ssh_host: "192.168.1.8"
-          ssh_user: "zsolt"
+          ssh_host: 192.168.1.8
+          ssh_user: zsolt
           ssh_port: 22
           remote_port: 8645
-          identity_file: "~/.ssh/id_ed25519_openclaw"
+          identity_file: ~/.ssh/id_ed25519_openclaw
         morzsa:
-          ssh_host: "192.168.1.30"
-          ssh_user: "openclaw"
+          ssh_host: 192.168.1.30
+          ssh_user: openclaw
           ssh_port: 22
           remote_port: 8645
-          identity_file: "~/.ssh/id_ed25519_openclaw"
+          identity_file: ~/.ssh/id_ed25519_openclaw
+        tor:
+          ssh_host: 100.74.221.46
+          ssh_user: root
+          ssh_port: 2222
+          remote_port: 8645
+          identity_file: ~/.ssh/id_ed25519_openclaw
   discovery:
     min_target_peers: 2
     mdns:
@@ -199,7 +205,7 @@ mesh:
     enable_route_cache: true
     route_cache_ttl: 300
   gossipsub:
-    flood_threshold: 6  # ≤6 peers → flood mode; above → gossipsub mesh
+    flood_threshold: 6
   topology_tuning:
     enabled: true
     check_interval: 300
