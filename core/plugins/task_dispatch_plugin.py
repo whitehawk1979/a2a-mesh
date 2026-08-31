@@ -86,6 +86,12 @@ class TaskDispatchPlugin(MeshPlugin):
         allowed = self._config.get("allowed_actions",
                                    ["shell", "scan", "status", "ping", "custom"])
         if action not in allowed and "*" not in allowed:
+            if "action" not in payload:
+                # Delegation/broadcast messages carry no explicit action — they
+                # belong to the delegation system, not this plugin. Ignore
+                # silently instead of sending a false "rejected" result.
+                self.log.debug(f"Message without action field, ignoring: {task_id}")
+                return None
             self.log.warning(f"Action not allowed: {action}")
             return await self._send_result(
                 recipient=reply_to, task_id=task_id, original_id=original_msg_id,
