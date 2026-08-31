@@ -776,6 +776,21 @@ class MeshNode:
         # Wire up health scorer with PG pool for persistence
         if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
             self.router._health_scorer.set_pg_pool(self._pg_pool, self.node_name)
+            # Restrict health records to real mesh agents (self + known peers).
+            # Without this, load_from_pg() skips EVERYTHING (empty
+            # valid_node_names regression from 2026-08-31 patch) or loads
+            # phantom entries ("unknown", "http", "pg_notify", human names).
+            valid_names = {self.node_name}
+            try:
+                if self.peer_discovery:
+                    for pname in (self.peer_discovery.get_all_peers() or {}):
+                        valid_names.add(pname)
+            except Exception as e:
+                log.debug(f"Could not enumerate peers for health scorer: {e}")
+            try:
+                self.router._health_scorer.set_valid_node_names(valid_names)
+            except Exception as e:
+                log.debug(f"set_valid_node_names failed: {e}")
             # Load previous health scores from PG
             asyncio.create_task(self.router._health_scorer.load_from_pg())
             # Start background persistence (60s interval)
@@ -2922,6 +2937,15 @@ echo "Status: ok"
         """Callback when a P2P heartbeat is received — update peer version + provider health."""
         if not self.peer_discovery:
             return
+        # Late-discovered peers must be allowed into the health scorer
+        # (valid_node_names is seeded at startup when discovery may be empty).
+        try:
+            if hasattr(self, 'router') and self.router and hasattr(self.router, '_health_scorer'):
+                hs = self.router._health_scorer
+                if peer_name not in hs.valid_node_names:
+                    hs.valid_node_names.add(peer_name)
+        except Exception:
+            pass
         peer = self.peer_discovery.get_peer(peer_name)
         if peer:
             if not peer.version or peer.version == 'unknown' or peer.version == '1.0.0':

@@ -98,6 +98,14 @@ class AsyncDBPool:
             return False
 
         try:
+            # idle_session_timeout (PG15+): if a client leaks/abandons a raw
+            # connection (no pool lifetime management), the server reaps it in 60s
+            # instead of holding a slot forever (300-slot exhaustion 2026-08-31).
+            server_settings = {}
+            try:
+                server_settings["idle_session_timeout"] = "300s"
+            except Exception:
+                pass
             self._pool = await asyncpg.create_pool(
                 dsn=self._dsn,
                 min_size=self._min_size,
@@ -105,12 +113,22 @@ class AsyncDBPool:
                 command_timeout=30,
                 max_inactive_connection_lifetime=300,
                 setup=self._setup_connection,
+                server_settings=server_settings or None,
             )
             log.info("AsyncDB connection pool established")
             return True
         except Exception as e:
             log.error(f"AsyncDB connection pool failed: {e}")
-            self._pool = None
+            # If create_pool partially succeeded (e.g. min_size conns opened, then
+            # TooManyConnections on a later conn), terminate before dropping the
+            # reference — otherwise those backends leak on the server until the
+            # process exits (300-slot exhaustion observed 2026-08-31).
+            if self._pool is not None:
+                try:
+                    await self._pool.terminate()
+                except Exception:
+                    pass
+                self._pool = None
             return False
 
     async def close(self):
