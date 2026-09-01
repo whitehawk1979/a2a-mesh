@@ -376,7 +376,12 @@ class MeshRouter:
         # All transports failed — enqueue in offline queue for later delivery
         self._stats["errors"] += 1
         # Health scorer: record failure for recipient
-        self._health_scorer.record_failure(message.recipient or "unknown")
+        # Skip empty recipients (broadcasts) — they must not pollute the scorer
+        # with a phantom "unknown" peer (was: 72k+ consecutive ghost failures).
+        if message.recipient:
+            self._health_scorer.record_failure(message.recipient)
+        elif message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
+            log.debug(f"Transport failure for broadcast {message.id[:8]} not recorded in health scorer")
         error_detail = "; ".join(failures)
         log.warning(f"All transports failed for {message.id[:8]}: {error_detail}")
 

@@ -196,6 +196,12 @@ class TopologyTuner:
 
         # Evaluate each node
         for node_name, score in all_scores.items():
+            # Only evaluate REAL mesh peers. The scorer also holds transport
+            # entries ("http", "pg_notify") and phantom recipients ("unknown",
+            # "test", human names from dashboard chat) — those have no mesh
+            # topology role and must never trigger promote/demote actions.
+            if node_name not in known_peers:
+                continue
             record = health_scorer.get_record(node_name)
 
             # Skip if not enough observations
