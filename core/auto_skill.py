@@ -187,6 +187,55 @@ Keep it practical and concise. Output only the SKILL.md content."""
         with open(skill_path, "w") as f:
             f.write(skill_content)
         
+        # ── Skill-sync (P1): publish the generated skill to the shared PG so ALL
+        # nodes can pull it (mesh_skill_files — same table /api/skills/publish uses).
+        # Idempotent (ON CONFLICT update); silent failure — local skill still works.
+        try:
+            import asyncpg as _apg
+            import asyncio as _aio
+            _pg_dsn_env = os.environ.get("A2A_MESH_PG_DSN", "")
+            async def _publish():
+                conn = None
+                try:
+                    if _pg_dsn_env:
+                        conn = await _apg.connect(_pg_dsn_env)
+                    else:
+                        conn = await _apg.connect(
+                            host=os.environ.get("A2A_PG_HOST", "192.168.1.30"),
+                            port=int(os.environ.get("A2A_PG_PORT", "5432")),
+                            user=os.environ.get("A2A_PG_USER", "nova"),
+                            password=os.environ.get("A2A_PG_PASSWORD", ""),
+                            database=os.environ.get("A2A_PG_DBNAME", "agent_memory"),
+                        )
+                    await conn.execute("""
+                        CREATE TABLE IF NOT EXISTS mesh.mesh_skill_files (
+                            skill_id TEXT NOT NULL,
+                            filename TEXT NOT NULL,
+                            content TEXT NOT NULL,
+                            updated_at REAL NOT NULL,
+                            PRIMARY KEY (skill_id, filename)
+                        )
+                    """)
+                    await conn.execute(
+                        """INSERT INTO mesh.mesh_skill_files (skill_id, filename, content, updated_at)
+                           VALUES ($1, 'SKILL.md', $2, $3)
+                           ON CONFLICT (skill_id, filename)
+                           DO UPDATE SET content = EXCLUDED.content, updated_at = EXCLUDED.updated_at""",
+                        f"auto-{skill_name}", skill_content, time.time(),
+                    )
+                    return True
+                except Exception as pg_err:
+                    log.debug(f"Skill-sync publish failed (non-fatal): {pg_err}")
+                    return False
+                finally:
+                    if conn:
+                        await conn.close()
+            published = await _publish()
+            if published:
+                log.info(f"📦 Skill-sync: 'auto-{skill_name}' published to shared PG (all nodes can pull)")
+        except Exception as sync_err:
+            log.debug(f"Skill-sync module error (non-fatal): {sync_err}")
+        
         log.info(f"✅ Auto-skill generated: {skill_name} ({tool_calls} tool calls, retry={had_retry})")
         _daily_count += 1
         return skill_name
