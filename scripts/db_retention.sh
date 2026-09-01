@@ -49,6 +49,10 @@ log "=== A2A Mesh DB Retention ==="
 
 # 0. Delete old heartbeats (>24 hours) — they are 99% of mesh_messages volume
 #    4 nodes x 30s heartbeat = ~11.5K rows/day/node; 7d retention let the table grow to 12GB.
+# 0. Ensure retention index (idempotent, fast after first cleanup)
+log "Ensuring retention index on mesh_messages (msg_type, created_at)..."
+psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "CREATE INDEX IF NOT EXISTS idx_mesh_messages_retention ON mesh.mesh_messages (msg_type, created_at);" 2>&1 | head -1
+
 log "Cleaning mesh_messages heartbeats (>24h)..."
 DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
     DELETE FROM mesh.mesh_messages 
