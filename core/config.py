@@ -413,6 +413,15 @@ class MeshConfig:
         if tp and isinstance(tp, list):
             config.transport_priority = tp
 
+        # Vault resolution — 'vault:NAME' references resolve from the OS keyring
+        # (or file/env fallback). Plaintext values still work (incremental migration).
+        try:
+            from .vault import resolve_config_value
+            def _vault(obj):
+                return resolve_config_value(obj)
+        except Exception:
+            _vault = lambda x: x
+
         # PG config — support A2A_MESH_PG_DSN env var for easy setup
         pg_dsn = os.environ.get("A2A_MESH_PG_DSN", "")
         pg_data = mesh.get('transports', {}).get('pg_notify', {})
@@ -425,7 +434,7 @@ class MeshConfig:
                 config.pg.port = pg_data.get('port', config.pg.port)
                 config.pg.dbname = pg_data.get('dbname', config.pg.dbname)
                 config.pg.user = pg_data.get('user', config.pg.user)
-                config.pg.password = pg_data.get('password', config.pg.password)
+                config.pg.password = _vault(pg_data.get('password', config.pg.password))
                 config.pg.channels = pg_data.get('channels', config.pg.channels)
         elif pg_data:
             config.pg = PGConfig(
@@ -433,7 +442,7 @@ class MeshConfig:
                 port=pg_data.get('port', config.pg.port),
                 dbname=pg_data.get('dbname', config.pg.dbname),
                 user=pg_data.get('user', config.pg.user),
-                password=pg_data.get('password', config.pg.password),
+                password=_vault(pg_data.get('password', config.pg.password)),
                 channels=pg_data.get('channels', config.pg.channels),
             )
 

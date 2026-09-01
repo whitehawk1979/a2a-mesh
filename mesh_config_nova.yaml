@@ -200,7 +200,7 @@ mesh:
       - diagnostic_channel
       dbname: agent_memory
       host: 192.168.1.30
-      password: nova_agent_2026
+      password: vault:MESH/PG_PASSWORD
       port: 5432
       user: nova
     ssh_tunnel:

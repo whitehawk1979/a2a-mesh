@@ -1,169 +1,148 @@
-"""
-Vault — encrypted credential storage for A2A Mesh.
+"""Vault — OS-keychain-backed secret storage for mesh credentials.
 
-Inspired by Marveen's vault:
-  - AES-256-GCM encrypted secrets at rest
-  - Key derived via scrypt from master password
-  - Atomic writes (rename for crash safety)
-  - Entries: id, label, type, encrypted value
+Marveen-inspired (vault.md: AES-256-GCM vault with OS key store): mesh secrets
+(PG passwords, mTLS/HMAC secrets, webhook tokens) should not sit in plaintext
+config YAMLs on 4 different machines.
 
-For A2A Mesh:
-  - Store API keys, passwords, tokens encrypted
-  - Key from env var or keychain
-  - CRUD API for dashboard
+Design (deterministic, no LLM):
+  - OS keyring via `keyring` lib: macOS Keychain / Linux gnome-keyring(libsecret)
+  - Secret REFERENCE format in config: `vault:MESH/<NAME>` — config loader
+    resolves these at startup, values exist only in process memory.
+  - Fallback: if no OS backend (e.g. headless HAOS container), a
+    `$A2A_VAULT_FILE` (0600, host-local) file vault is used; if that is absent
+    too, the raw value passes through (legacy plaintext still works —
+    migration is incremental, nothing breaks).
+
+Usage in mesh_config.yaml:
+    pg_notify:
+      password: vault:MESH/PG_PASSWORD      # resolved from keychain
+    webhook_secret: vault:MESH/WEBHOOK_SECRET
+
+Setup (one-time per machine):
+    python3 -m core.vault set MESH/PG_PASSWORD
+    python3 -m core.vault set MESH/WEBHOOK_SECRET
+    python3 -m core.vault list
 """
 
 import os
-import json
-import time
-import hashlib
-import secrets
-import logging
-from pathlib import Path
+import sys
+from typing import Optional
 
-log = logging.getLogger("vault")
-
-VAULT_DIR = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data")
-VAULT_FILE = os.path.join(VAULT_DIR, "vault.json")
-VAULT_KEY_FILE = os.path.join(VAULT_DIR, ".vault-key")
-ALGORITHM = "aes-256-gcm"
-
-try:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    HAS_CRYPTO = True
-except ImportError:
-    HAS_CRYPTO = False
+_SERVICE_PREFIX = "MESH"
 
 
-def _get_or_create_key():
-    """Get or create the master key."""
+def _get_backend():
     try:
-        with open(VAULT_KEY_FILE, "r") as f:
-            return f.read().strip()
-    except FileNotFoundError:
-        key = secrets.token_hex(32)
-        os.makedirs(VAULT_DIR, exist_ok=True)
-        with open(VAULT_KEY_FILE, "w") as f:
-            f.write(key)
-        os.chmod(VAULT_KEY_FILE, 0o600)
-        return key
+        import keyring
+        backend = keyring.get_keyring()
+        # A "fail" backend means no OS keyring available
+        if backend and not getattr(backend, "priority", 0) < 0:
+            return ("os", keyring)
+        return ("none", None)
+    except Exception:
+        return ("none", None)
 
 
-def _derive_key(password):
-    """Derive a 256-bit key from password using scrypt-like derivation."""
-    return hashlib.scrypt(
-        password.encode(),
-        salt=b"a2a-mesh-vault-salt",
-        n=16384,
-        r=8,
-        p=1,
-        dklen=32,
-    )
-
-
-def _encrypt(plaintext, key_bytes):
-    """Encrypt with AES-256-GCM."""
-    if not HAS_CRYPTO:
-        return {"_plain": plaintext}  # Fallback: store plain (not recommended)
-    nonce = secrets.token_bytes(12)
-    aesgcm = AESGCM(key_bytes)
-    ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), None)
-    return {
-        "nonce": nonce.hex(),
-        "ciphertext": ciphertext.hex(),
-    }
-
-
-def _decrypt(encrypted, key_bytes):
-    """Decrypt with AES-256-GCM."""
-    if "_plain" in encrypted:
-        return encrypted["_plain"]
-    if not HAS_CRYPTO:
-        return None
-    nonce = bytes.fromhex(encrypted["nonce"])
-    ciphertext = bytes.fromhex(encrypted["ciphertext"])
-    aesgcm = AESGCM(key_bytes)
-    return aesgcm.decrypt(nonce, ciphertext, None).decode()
-
-
-def store_secret(label, secret, secret_type="generic"):
-    """Store a secret in the vault."""
-    key = _get_or_create_key()
-    key_bytes = _derive_key(key)
-    
-    vault = _load_vault()
-    entry_id = hashlib.sha256(f"{label}:{time.time()}".encode()).hexdigest()[:12]
-    
-    vault["entries"].append({
-        "id": entry_id,
-        "label": label,
-        "type": secret_type,
-        "encrypted": _encrypt(secret, key_bytes),
-        "created_at": time.time(),
-    })
-    
-    _save_vault(vault)
-    return {"id": entry_id, "label": label, "stored": True}
-
-
-def retrieve_secret(entry_id):
-    """Retrieve a secret from the vault."""
-    key = _get_or_create_key()
-    key_bytes = _derive_key(key)
-    
-    vault = _load_vault()
-    for entry in vault["entries"]:
-        if entry["id"] == entry_id:
-            return _decrypt(entry["encrypted"], key_bytes)
+def _vault_file() -> Optional[str]:
+    p = os.environ.get("A2A_VAULT_FILE")
+    if p and os.path.isfile(p):
+        return p
+    default = os.path.expanduser("~/.hermes/.mesh_vault")
+    if os.path.isfile(default):
+        return default
     return None
 
 
-def list_secrets():
-    """List all vault entries (without revealing secrets)."""
-    vault = _load_vault()
-    return [
-        {
-            "id": e["id"],
-            "label": e["label"],
-            "type": e["type"],
-            "created_at": e["created_at"],
-        }
-        for e in vault["entries"]
-    ]
+def get_secret(name: str) -> Optional[str]:
+    """Resolve a secret by NAME (e.g. 'MESH/PG_PASSWORD')."""
+    service, _, key = name.partition("/")
+    service = service or _SERVICE_PREFIX
+    kind, keyring = _get_backend()
+    if kind == "os":
+        try:
+            v = keyring.get_password(service, key)
+            if v:
+                return v
+        except Exception:
+            pass
+    vf = _vault_file()
+    if vf:
+        try:
+            with open(vf, "r", encoding="utf-8") as f:
+                for line in f:
+                    k, _, val = line.rstrip("\n").partition("=")
+                    if k.strip() == f"{service}/{key}":
+                        return val or None
+        except OSError:
+            pass
+    # Legacy: raw env override
+    env_key = "A2A_VAULT_" + key.upper().replace("-", "_")
+    return os.environ.get(env_key)
 
 
-def delete_secret(entry_id):
-    """Delete a secret from the vault."""
-    vault = _load_vault()
-    before = len(vault["entries"])
-    vault["entries"] = [e for e in vault["entries"] if e["id"] != entry_id]
-    _save_vault(vault)
-    return len(vault["entries"]) < before
+def set_secret(name: str, value: str) -> bool:
+    service, _, key = name.partition("/")
+    service = service or _SERVICE_PREFIX
+    kind, keyring = _get_backend()
+    if kind == "os":
+        try:
+            keyring.set_password(service, key, value)
+            return True
+        except Exception as e:
+            print(f"OS keyring set failed ({e}); falling back to file vault", file=sys.stderr)
+    vf = os.environ.get("A2A_VAULT_FILE") or os.path.expanduser("~/.hermes/.mesh_vault")
+    os.makedirs(os.path.dirname(vf), exist_ok=True)
+    entries = {}
+    if os.path.isfile(vf):
+        with open(vf, "r", encoding="utf-8") as f:
+            for line in f:
+                k, _, val = line.rstrip("\n").partition("=")
+                entries[k.strip()] = val
+    entries[f"{service}/{key}"] = value
+    with open(vf, "w", encoding="utf-8") as f:
+        for k, val in entries.items():
+            f.write(f"{k}={val}\n")
+    os.chmod(vf, 0o600)
+    return True
 
 
-def _load_vault():
-    try:
-        with open(VAULT_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"entries": []}
+def resolve_config_value(value):
+    """Resolve 'vault:NAME' references in config values. Passthrough otherwise."""
+    if isinstance(value, str) and value.startswith("vault:"):
+        name = value[len("vault:"):].strip()
+        secret = get_secret(name)
+        if secret is not None:
+            return secret
+        # Unresolved reference — return original (caller logs a warning)
+        return value
+    return value
 
 
-def _save_vault(vault):
-    os.makedirs(VAULT_DIR, exist_ok=True)
-    tmp = VAULT_FILE + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(vault, f, indent=2)
-    os.rename(tmp, VAULT_FILE)
-    os.chmod(VAULT_FILE, 0o600)
+def _cli():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(0)
+    cmd = sys.argv[1]
+    if cmd == "set" and len(sys.argv) >= 4:
+        name, value = sys.argv[2], sys.argv[3]
+        ok = set_secret(name, value)
+        print("stored" if ok else "FAILED")
+    elif cmd == "get" and len(sys.argv) >= 3:
+        v = get_secret(sys.argv[2])
+        print(v if v else "(not found)")
+    elif cmd == "list":
+        kind, _ = _get_backend()
+        vf = _vault_file()
+        print(f"backend: {'OS keyring' if kind == 'os' else 'file/env fallback'}")
+        if vf:
+            print(f"file vault: {vf}")
+            with open(vf, "r", encoding="utf-8") as f:
+                for line in f:
+                    k = line.split("=", 1)[0]
+                    print(f"  {k}")
+    else:
+        print("usage: python3 -m core.vault set|get|list [NAME] [VALUE]")
 
 
-def get_vault_status():
-    """Get vault status."""
-    vault = _load_vault()
-    return {
-        "initialized": os.path.exists(VAULT_FILE),
-        "encrypted": HAS_CRYPTO,
-        "entry_count": len(vault["entries"]),
-        "entries": [e["label"] for e in vault["entries"]],
-    }
+if __name__ == "__main__":
+    _cli()
