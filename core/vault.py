@@ -279,3 +279,61 @@ def _cli():
 
 if __name__ == "__main__":
     _cli()
+
+# ── Legacy API compatibility layer (dashboard_admin.py endpoints) ──────────
+# v0.38 dashboard endpoints expect these functions; the ceca47e refactor
+# removed them, breaking /api/vault* (500 ImportError). Implemented on top
+# of the new 3-tier vault (keyring → encrypted file → env).
+
+def list_secrets():
+    """List all vault entries (no secrets revealed). Covers file vault + env."""
+    entries = []
+    for name, meta in _read_store().items():
+        entries.append({
+            "id": name,
+            "label": name,
+            "type": meta.get("mode", "generic"),
+            "backend": "file",
+            "created_at": meta.get("created_at"),
+        })
+    for k in sorted(os.environ):
+        if k.startswith("A2A_VAULT_"):
+            entries.append({
+                "id": k[len("A2A_VAULT_"):].lower().replace("_", "/"),
+                "label": k[len("A2A_VAULT_"):],
+                "type": "env",
+                "backend": "env",
+                "created_at": None,
+            })
+    return entries
+
+
+def store_secret(label, secret, secret_type="generic"):
+    """Store a secret (new-style: keyring preferred, file vault fallback)."""
+    if not label or not isinstance(secret, str) or not secret:
+        return {"error": "label and secret required"}
+    ok = set_secret(label, secret)
+    return {"id": label, "label": label, "stored": bool(ok)}
+
+
+def delete_secret(entry_id):
+    """Delete a secret from the file vault by full name."""
+    store = _read_store()
+    if entry_id in store:
+        store.pop(entry_id, None)
+        _write_store(store)
+        return True
+    return False
+
+
+def get_vault_status():
+    """Get vault status (legacy shape, new backend info)."""
+    store = _read_store()
+    return {
+        "initialized": os.path.exists(_vault_path()),
+        "encrypted": True,
+        "entry_count": len(store),
+        "entries": list(store.keys()),
+        "backend": backend_info(),
+        "keyring_available": _keyring_lib() is not None,
+    }
