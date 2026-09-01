@@ -4,6 +4,7 @@
 #
 # Retention policy:
 #   mesh_messages:       7 days (delivered/read/acknowledged/sent)
+#   mesh_messages heartbeat: 24 hours (99% of table volume; 4 nodes x 30s = 3GB/day at 7d equilibrium)
 #   mesh_debug_logs:     3 days (all levels)
 #   mesh_suggestions:    7 days (superseded status only)
 #   shared_dlq:          7 days (processed entries)
@@ -45,6 +46,25 @@ log "Using PG host: $PG_HOST"
 
 
 log "=== A2A Mesh DB Retention ==="
+
+# 0. Delete old heartbeats (>24 hours) — they are 99% of mesh_messages volume
+#    4 nodes x 30s heartbeat = ~11.5K rows/day/node; 7d retention let the table grow to 12GB.
+log "Cleaning mesh_messages heartbeats (>24h)..."
+DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
+    DELETE FROM mesh.mesh_messages 
+    WHERE msg_type = 'heartbeat' 
+    AND created_at < now() - interval '24 hours';
+" 2>&1 | head -1)
+log "  mesh_messages heartbeats: $DELETED rows deleted"
+
+# 0b. Same for diagnostic noise types (>48h)
+log "Cleaning mesh_messages skills/diagnostic noise (>48h)..."
+DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
+    DELETE FROM mesh.mesh_messages 
+    WHERE msg_type IN ('skills_announcement', 'diagnostic_report', 'config_suggestion')
+    AND created_at < now() - interval '48 hours';
+" 2>&1 | head -1)
+log "  mesh_messages skills/diag noise: $DELETED rows deleted"
 
 # 1. Delete old mesh messages (>7 days)
 log "Cleaning mesh_messages (>7 days)..."
