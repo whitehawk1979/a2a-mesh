@@ -56,6 +56,7 @@ class DelegationManager:
     """Manages task delegation between mesh nodes via shared_delegations table."""
 
     MAX_CONCURRENT_TASKS = 8  # Max concurrent delegation tasks per node
+    MAX_WIP_TASKS = 3        # WIP-limit: max claimed-but-unfinished tasks per node (P2)
 
     def __init__(self, pg_pool, node_name: str):
         self.pg_pool = pg_pool  # AsyncDBPool instance
@@ -937,7 +938,16 @@ class DelegationManager:
         Only claim tasks where: (a) we have a handler for the task_type,
         (b) the task was NOT sent by us (avoid claiming our own tasks),
         (c) we haven't already claimed a fan-out sibling with same from+subject.
-        Priority-aware: high-priority tasks (7-10) only claimed if CPU load is low."""
+        Priority-aware: high-priority tasks (7-10) only claimed if CPU load is low.
+
+        WIP-limit (P2, Marveen kanban pattern): if this node is already
+        running MAX_WIP_TASKS tasks, claim NOTHING — leave tasks for peers
+        instead of hoarding them (prevents claim-queue congestion)."""
+        # ── WIP-limit: cap in-flight work before considering new claims ──
+        active_count = len(self._active_tasks)
+        if active_count >= self.MAX_WIP_TASKS:
+            log.debug(f"_poll_available: WIP-limit reached ({active_count}/{self.MAX_WIP_TASKS}) — not claiming")
+            return
         # Check our own load for priority-aware claiming
         cpu_load = 0.0
         try:
