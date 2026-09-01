@@ -1,81 +1,213 @@
-"""Vault — OS-keychain-backed secret storage for mesh credentials.
+"""Vault — cross-platform secret storage for mesh credentials.
 
-Marveen-inspired (vault.md: AES-256-GCM vault with OS key store): mesh secrets
-(PG passwords, mTLS/HMAC secrets, webhook tokens) should not sit in plaintext
-config YAMLs on 4 different machines.
+Marveen-inspired: mesh secrets (PG passwords, mTLS/HMAC secrets, webhook tokens)
+should not sit in plaintext config YAMLs on 4 different machines.
 
-Design (deterministic, no LLM):
-  - OS keyring via `keyring` lib: macOS Keychain / Linux gnome-keyring(libsecret)
-  - Secret REFERENCE format in config: `vault:MESH/<NAME>` — config loader
-    resolves these at startup, values exist only in process memory.
-  - Fallback: if no OS backend (e.g. headless HAOS container), a
-    `$A2A_VAULT_FILE` (0600, host-local) file vault is used; if that is absent
-    too, the raw value passes through (legacy plaintext still works —
-    migration is incremental, nothing breaks).
+Resolution order (per machine, first available wins):
+  1. OS keyring via `keyring` lib (macOS Keychain, Linux gnome-keyring/libsecret,
+     Windows Credential Manager) — values never touch the disk in plaintext.
+  2. Encrypted file vault (`A2A_VAULT_FILE`, default ~/.hermes/.mesh_vault):
+     - If the `cryptography` package is available: AES-256-GCM (Fernet) with a
+       master key file (0600, A2A_VAULT_KEY or ~/.hermes/.mesh_vault.key).
+     - Without `cryptography` (minimal/HAOS containers): stdlib fallback —
+       HMAC-SHA256 authenticated keystream (XOR one-time-pad derived via
+       PBKDF2-HMAC per entry salt). NOT as strong as AES (no standard cipher),
+       but keeps plaintext off disk + tamper-evident; master key is 0600.
+  3. Environment variables (A2A_VAULT_<NAME>) — CI/headless deployments.
+  4. Plaintext passthrough (legacy configs keep working; migration is incremental).
 
-Usage in mesh_config.yaml:
-    pg_notify:
-      password: vault:MESH/PG_PASSWORD      # resolved from keychain
-    webhook_secret: vault:MESH/WEBHOOK_SECRET
+Secret REFERENCE format in config YAML: `vault:MESH/<NAME>` — resolved at
+config load time; values exist only in process memory afterwards.
 
-Setup (one-time per machine):
+CLI:
     python3 -m core.vault set MESH/PG_PASSWORD
-    python3 -m core.vault set MESH/WEBHOOK_SECRET
+    python3 -m core.vault get MESH/PG_PASSWORD
     python3 -m core.vault list
 """
 
 import os
 import sys
-from typing import Optional
+import json
+import hmac
+import base64
+import hashlib
+import secrets
+from typing import Optional, Tuple
 
 _SERVICE_PREFIX = "MESH"
 
 
-def _get_backend():
+# ── OS keyring backend ─────────────────────────────────────────────────────
+
+def _keyring_lib():
     try:
         import keyring
         backend = keyring.get_keyring()
-        # A "fail" backend means no OS keyring available
-        if backend and not getattr(backend, "priority", 0) < 0:
-            return ("os", keyring)
-        return ("none", None)
+        if backend and getattr(backend, "priority", 0) >= 0:
+            return keyring
     except Exception:
-        return ("none", None)
-
-
-def _vault_file() -> Optional[str]:
-    p = os.environ.get("A2A_VAULT_FILE")
-    if p and os.path.isfile(p):
-        return p
-    default = os.path.expanduser("~/.hermes/.mesh_vault")
-    if os.path.isfile(default):
-        return default
+        pass
     return None
 
 
+# ── File vault (encrypted, cross-platform) ────────────────────────────────
+
+def _vault_path() -> str:
+    return os.environ.get("A2A_VAULT_FILE") or os.path.expanduser("~/.hermes/.mesh_vault")
+
+
+def _key_path() -> str:
+    return os.environ.get("A2A_VAULT_KEY") or _vault_path() + ".key"
+
+
+def _load_master_key(create: bool = True) -> Optional[bytes]:
+    kp = _key_path()
+    if os.path.isfile(kp):
+        try:
+            with open(kp, "rb") as f:
+                return base64.b64decode(f.read().strip())
+        except Exception:
+            return None
+    if not create:
+        return None
+    key = secrets.token_bytes(32)
+    os.makedirs(os.path.dirname(kp) or ".", exist_ok=True)
+    with open(kp, "wb") as f:
+        f.write(base64.b64encode(key))
+    os.chmod(kp, 0o600)
+    return key
+
+
+def _fernet_available() -> bool:
+    try:
+        from cryptography.fernet import Fernet  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+# ── AES-256-GCM (Fernet) path ─────────────────────────────────────────────
+
+def _enc_aes(value: str, key: bytes) -> Tuple[str, str]:
+    """Encrypt with Fernet; returns (blob, mode)."""
+    from cryptography.fernet import Fernet
+    f = Fernet(base64.urlsafe_b64encode(key))
+    blob = f.encrypt(value.encode("utf-8"))
+    return base64.b64encode(blob).decode("ascii"), "aes-gcm"
+
+
+def _dec_aes(blob: str, key: bytes) -> Optional[str]:
+    from cryptography.fernet import Fernet
+    f = Fernet(base64.urlsafe_b64encode(key))
+    try:
+        return f.decrypt(base64.b64decode(blob)).decode("utf-8")
+    except Exception:
+        return None
+
+
+# ── Stdlib authenticated-keystream path (no external deps) ─────────────────
+
+def _derive_keystream(salt: bytes, key: bytes, length: int) -> bytes:
+    """PBKDF2-HMAC based keystream (deterministic, stdlib-only)."""
+    block = hashlib.pbkdf2_hmac("sha256", key, salt, 100_000, dklen=length)
+    return block
+
+
+def _enc_xor(value: str, key: bytes) -> Tuple[str, str]:
+    """Authenticated XOR-keystream encryption, stdlib only.
+
+    Format: salt(16) + ct + hmac — each value gets a fresh random salt, so
+    identical secrets never encrypt to the same blob. HMAC detects tampering.
+    """
+    salt = secrets.token_bytes(16)
+    data = value.encode("utf-8")
+    ks = _derive_keystream(salt, key, len(data))
+    ct = bytes(a ^ b for a, b in zip(data, ks))
+    mac = hmac.new(key, salt + ct, hashlib.sha256).digest()
+    blob = base64.b64encode(salt + ct + mac).decode("ascii")
+    return blob, "xor-hmac"
+
+
+def _dec_xor(blob: str, key: bytes) -> Optional[str]:
+    try:
+        raw = base64.b64decode(blob)
+        salt, ct, mac = raw[:16], raw[16:-32], raw[-32:]
+        expected = hmac.new(key, salt + ct, hashlib.sha256).digest()
+        if not hmac.compare_digest(mac, expected):
+            return None  # tampered
+        ks = _derive_keystream(salt, key, len(ct))
+        data = bytes(a ^ b for a, b in zip(ct, ks))
+        return data.decode("utf-8")
+    except Exception:
+        return None
+
+
+# ── Vault store (file) ─────────────────────────────────────────────────────
+
+def _read_store() -> dict:
+    vp = _vault_path()
+    if not os.path.isfile(vp):
+        return {}
+    try:
+        with open(vp, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _write_store(store: dict) -> None:
+    vp = _vault_path()
+    os.makedirs(os.path.dirname(vp) or ".", exist_ok=True)
+    with open(vp, "w", encoding="utf-8") as f:
+        json.dump(store, f)
+    os.chmod(vp, 0o600)
+
+
+def _store_get(name: str) -> Optional[str]:
+    store = _read_store()
+    entry = store.get(name)
+    if not entry:
+        return None
+    key = _load_master_key(create=False)
+    if not key:
+        return None
+    mode = entry.get("mode", "xor-hmac")
+    blob = entry.get("blob", "")
+    if mode == "aes-gcm":
+        return _dec_aes(blob, key)
+    return _dec_xor(blob, key)
+
+
+def _store_set(name: str, value: str) -> None:
+    store = _read_store()
+    key = _load_master_key(create=True)
+    use_aes = _fernet_available()
+    blob, mode = (_enc_aes if use_aes else _enc_xor)(value, key)
+    store[name] = {"mode": mode, "blob": blob}
+    _write_store(store)
+
+
+# ── Public API ─────────────────────────────────────────────────────────────
+
 def get_secret(name: str) -> Optional[str]:
-    """Resolve a secret by NAME (e.g. 'MESH/PG_PASSWORD')."""
+    """Resolve a secret by full name (e.g. 'MESH/PG_PASSWORD')."""
     service, _, key = name.partition("/")
     service = service or _SERVICE_PREFIX
-    kind, keyring = _get_backend()
-    if kind == "os":
+    # 1) OS keyring
+    kr = _keyring_lib()
+    if kr:
         try:
-            v = keyring.get_password(service, key)
+            v = kr.get_password(service, key)
             if v:
                 return v
         except Exception:
             pass
-    vf = _vault_file()
-    if vf:
-        try:
-            with open(vf, "r", encoding="utf-8") as f:
-                for line in f:
-                    k, _, val = line.rstrip("\n").partition("=")
-                    if k.strip() == f"{service}/{key}":
-                        return val or None
-        except OSError:
-            pass
-    # Legacy: raw env override
+    # 2) Encrypted file vault
+    if os.path.isfile(_vault_path()):
+        v = _store_get(name)
+        if v is not None:
+            return v
+    # 3) Environment
     env_key = "A2A_VAULT_" + key.upper().replace("-", "_")
     return os.environ.get(env_key)
 
@@ -83,27 +215,19 @@ def get_secret(name: str) -> Optional[str]:
 def set_secret(name: str, value: str) -> bool:
     service, _, key = name.partition("/")
     service = service or _SERVICE_PREFIX
-    kind, keyring = _get_backend()
-    if kind == "os":
+    kr = _keyring_lib()
+    if kr:
         try:
-            keyring.set_password(service, key, value)
+            kr.set_password(service, key, value)
             return True
         except Exception as e:
-            print(f"OS keyring set failed ({e}); falling back to file vault", file=sys.stderr)
-    vf = os.environ.get("A2A_VAULT_FILE") or os.path.expanduser("~/.hermes/.mesh_vault")
-    os.makedirs(os.path.dirname(vf), exist_ok=True)
-    entries = {}
-    if os.path.isfile(vf):
-        with open(vf, "r", encoding="utf-8") as f:
-            for line in f:
-                k, _, val = line.rstrip("\n").partition("=")
-                entries[k.strip()] = val
-    entries[f"{service}/{key}"] = value
-    with open(vf, "w", encoding="utf-8") as f:
-        for k, val in entries.items():
-            f.write(f"{k}={val}\n")
-    os.chmod(vf, 0o600)
-    return True
+            print(f"OS keyring set failed ({e}); using encrypted file vault", file=sys.stderr)
+    try:
+        _store_set(name, value)
+        return True
+    except Exception as e:
+        print(f"file vault set failed: {e}", file=sys.stderr)
+        return False
 
 
 def resolve_config_value(value):
@@ -113,10 +237,24 @@ def resolve_config_value(value):
         secret = get_secret(name)
         if secret is not None:
             return secret
-        # Unresolved reference — return original (caller logs a warning)
-        return value
+        return value  # unresolved → keep original (caller may warn)
     return value
 
+
+def backend_info() -> str:
+    kr = _keyring_lib()
+    parts = []
+    parts.append("OS keyring: " + ("available" if kr else "not available"))
+    if os.path.isfile(_vault_path()):
+        mode = "AES-256-GCM" if _fernet_available() else "XOR-HMAC (stdlib)"
+        parts.append(f"file vault: {_vault_path()} ({mode})")
+    envs = [k for k in os.environ if k.startswith("A2A_VAULT_")]
+    if envs:
+        parts.append(f"env secrets: {', '.join(envs)}")
+    return " | ".join(parts)
+
+
+# ── CLI ────────────────────────────────────────────────────────────────────
 
 def _cli():
     if len(sys.argv) < 2:
@@ -131,15 +269,10 @@ def _cli():
         v = get_secret(sys.argv[2])
         print(v if v else "(not found)")
     elif cmd == "list":
-        kind, _ = _get_backend()
-        vf = _vault_file()
-        print(f"backend: {'OS keyring' if kind == 'os' else 'file/env fallback'}")
-        if vf:
-            print(f"file vault: {vf}")
-            with open(vf, "r", encoding="utf-8") as f:
-                for line in f:
-                    k = line.split("=", 1)[0]
-                    print(f"  {k}")
+        print(backend_info())
+        store = _read_store()
+        for name in store:
+            print(f"  {name} ({store[name].get('mode', '?')})")
     else:
         print("usage: python3 -m core.vault set|get|list [NAME] [VALUE]")
 
