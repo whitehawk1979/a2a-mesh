@@ -1780,6 +1780,23 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
         nfkd = unicodedata.normalize('NFKD', lower_raw)
         lower = ''.join(c for c in nfkd if not unicodedata.combining(c))
 
+        # --- Research / analysis / comparison tasks → LLM text answer (NO code exec) ---
+        # These must NOT reach the code-generation path: the LLM there treats the
+        # description as a spec to program from (observed: it tried to execute the
+        # task text as Python → SyntaxError). Research tasks need an ANSWER.
+        # Trigger: explicit type in JSON description, or research-y keywords.
+        _explicit_type = ""
+        if isinstance(desc_ctx, dict):
+            _explicit_type = str(desc_ctx.get("type", "")).lower()
+        research_kws = ("felmérés", "felmeres", "felmérését", "survey", "research", "összehasonlít", "osszehasonlit",
+                        "comparison", "compare", "elemzés", "elemzes", "analysis", "evaluation", "értékelés",
+                        "ertekeles", "marveen.io", "marveen io", "review a projekt", "vélemény", "velemeny")
+        if _explicit_type == "research" or any(kw in lower_raw for kw in research_kws):
+            research_result = await self._task_llm_research(node, now, subject, desc_text)
+            if research_result:
+                return research_result
+            # LLM unreachable → fall through to the normal paths below
+
         # --- Development suggestions / LLM analysis (check BEFORE system analysis) ---
         if any(kw in lower for kw in ("javaslat", "suggestion", "fejlesztesi", "development", "improvement", "optimalizal", "optimize", "refactor", "hiba", "bug", "fix", "problema", "problem", "issue", "hiány", "missing", "javit", "improve")):
             return await self._task_code_generation(node, now, subject, desc_text)
@@ -1990,6 +2007,108 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
                         "size": len(content.encode("utf-8"))}],
             "context_updates": {"task_type": "file_ops", "path": path},
         }
+
+    async def _task_llm_research(self, node: str, now, subject: str, desc_text: str) -> dict | None:
+        """Handle research/analysis/comparison tasks via LLM (text answer, NO code execution).
+
+        The code-generation path treats the description as a spec to write a program
+        from — for research tasks (surveys, comparisons, evaluations) that is the
+        wrong tool: the LLM once tried to run the task text itself as Python
+        (SyntaxError on the first em-dash). This handler asks the LLM to ANSWER
+        the question instead, in the style of the code-review handler.
+        Returns a result dict, or None if no LLM is reachable (caller falls back).
+        """
+        import aiohttp
+        import json as _json
+
+        ollama_url = getattr(self, '_ollama_url', None)
+        if not ollama_url:
+            for url in ["http://localhost:11434", "http://127.0.0.1:11434"]:
+                try:
+                    import urllib.request
+                    urllib.request.urlopen(f"{url}/api/tags", timeout=2)
+                    ollama_url = url
+                    self._ollama_url = url
+                    break
+                except Exception:
+                    continue
+        if not ollama_url:
+            return None
+
+        # Pick model (same preference list as code review)
+        preferred_models = ["glm-5.2", "glm-5.1", "glm-4.7", "gemma4:31b", "kimi-k2.5", "qwen2.5:7b", "qwen2.5:3b"]
+        model = None
+        try:
+            import urllib.request
+            resp = urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3)
+            models_data = _json.loads(resp.read())
+            available = [m["name"] for m in models_data.get("models", [])]
+            for pref in preferred_models:
+                for avail in available:
+                    if pref in avail:
+                        model = avail
+                        break
+                if model:
+                    break
+            if not model and available:
+                model = available[0]
+        except Exception:
+            pass
+        if not model:
+            return None
+
+        prompt = f"""You are the '{node}' agent of the A2A Mesh — a decentralized multi-agent
+network (4 nodes: nova/macOS, morzsa+runa/Linux, tor/HAOS container; each agent runs
+on its OWN machine with its OWN local LLM; core mesh features are deterministic,
+LLM is an optional layer). You are completing a RESEARCH task delegated to you.
+
+Task subject: {subject}
+
+Task description:
+{desc_text[:12000]}
+
+Answer the task as a research agent would — structured TEXT, not code:
+1. Do what the task asks (analysis, comparison, evaluation, survey).
+2. Structure the answer with clear sections/bullet lists.
+3. If the task names external sources, reason about them from your knowledge
+   and clearly mark what you could NOT verify.
+4. If the task expects concrete suggestions, list them explicitly
+   (e.g. 'SUGGESTION: <title> | <description> | <priority>').
+Answer in Hungarian unless the task is in another language."""
+
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3, "num_predict": 4096},
+                }
+                async with session.post(f"{ollama_url}/api/generate", json=payload) as resp:
+                    if resp.status != 200:
+                        log.warning(f"[{node}] research LLM HTTP {resp.status}")
+                        return None
+                    data = await resp.json()
+                    answer = data.get("response", "").strip()
+
+            if not answer or len(answer) < 20:
+                return None
+
+            result_text = f"[{node}] Research via {model}\nTask: {subject[:80]}\n\n{answer}"
+            answer_file = {
+                "filename": f"research_{now.strftime('%Y%m%d_%H%M%S')}.md",
+                "content_type": "text/markdown",
+                "content": answer,
+                "size": len(answer),
+            }
+            return {
+                "result": result_text,
+                "files": [answer_file],
+                "context_updates": {"task_type": "research", "model": model, "llm": True},
+            }
+        except Exception as e:
+            log.warning(f"[{node}] research LLM error: {e}")
+            return None
 
     async def _task_llm_generate(self, node: str, now, subject: str, desc_text: str) -> dict | None:
         """Try to generate code using Ollama LLM. Returns result dict or None."""
