@@ -798,9 +798,13 @@ class MeshNode:
         # Register built-in task handlers
         self.delegation.register_handler("monitoring", self._handle_monitoring_task)
         self.delegation.register_handler("generic", self._handle_generic_task)
-        self.delegation.register_handler("research", self._handle_generic_task)
+        # Research/analysis: dedicated handler — the keyword dispatcher inside
+        # _handle_generic_task misroutes research tasks with "teszt"/"validalas"/"generate"
+        # wording into code-generation. task_type is the EXPLICIT signal: honor it.
+        self.delegation.register_handler("research", self._handle_research_task)
+        self.delegation.register_handler("analysis", self._handle_research_task)
+        self.delegation.register_handler("web_search", self._handle_research_task)
         self.delegation.register_handler("code", self._handle_generic_task)
-        self.delegation.register_handler("analysis", self._handle_generic_task)
         self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
         self.delegation.register_handler("deploy", self._handle_deploy_task)
         self.delegation.register_handler("code_review", self._handle_code_review_task)
@@ -1734,6 +1738,43 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
         except Exception as e:
             steps.append(f"[{node}] LLM review error: {e}")
             return {"result": "\n".join(steps), "files": [], "context_updates": {"review_status": "error"}}
+
+    async def _handle_research_task(self, task: dict, context: dict) -> dict:
+        """Dedicated handler for research/analysis task types.
+
+        task_type='research'|'analysis'|'web_search' is the EXPLICIT route: it goes
+        straight to the LLM text-answer path (_task_llm_research) without passing
+        through the keyword dispatcher, which can misroute research-y wording
+        ("teszt", "validalas", "generate") into code generation. Falls back to
+        the generic handler when no LLM is reachable on this node.
+        """
+        import json as _json
+        from datetime import datetime, timezone
+
+        subject = task.get("subject", "unknown")
+        desc_raw = task.get("description", "")
+        now = datetime.now(timezone.utc)
+        node = self.node_name
+
+        # Extract description text (same parsing as the generic handler)
+        desc_text = ""
+        try:
+            d = _json.loads(desc_raw) if isinstance(desc_raw, str) else desc_raw
+            desc_text = d.get("description", "") if isinstance(d, dict) else str(desc_raw)
+        except (ValueError, TypeError, AttributeError):
+            desc_text = desc_raw if desc_raw else subject
+
+        # Inject prior memory if available in context
+        if isinstance(context, dict) and context.get("prior_memory"):
+            desc_text = desc_text + "\n\n--- Prior Memory ---\n" + context["prior_memory"]
+
+        result = await self._task_llm_research(node, now, subject, desc_text)
+        if result:
+            return result
+
+        # No LLM on this node → let the generic handler try its deterministic paths
+        log.info(f"[{node}] research: no LLM reachable, falling back to generic handler")
+        return await self._handle_generic_task(task, context)
 
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
         """Handle generic delegated tasks. Parses description for instructions
