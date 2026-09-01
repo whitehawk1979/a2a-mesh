@@ -1221,7 +1221,10 @@ class DelegationManager:
             result_text = ""
             result_file_id = None
             if isinstance(handler_result, dict):
-                result_text = _safe_ascii(str(handler_result.get("result", "")))[:4000]
+                # 16k limit: PG result column is TEXT (unbounded); the old 4k cap
+                # truncated research/analysis answers mid-sentence, which the
+                # deterministic reviewer then correctly rejected as "csonkolt".
+                result_text = _safe_ascii(str(handler_result.get("result", "")))[:16000]
                 # Store files in shared_files table (base64-encoded to avoid SQL_ASCII issues)
                 import base64
                 files = handler_result.get("files", [])
@@ -1261,7 +1264,7 @@ class DelegationManager:
                     except Exception as ctx_err:
                         log.warning(f"Context update failed for {key}: {ctx_err}")
             else:
-                result_text = _safe_ascii(str(handler_result))[:4000]
+                result_text = _safe_ascii(str(handler_result))[:16000]
 
             # ── Governance/Egress Gate (Marveen-inspired) ──
             try:
@@ -1419,7 +1422,7 @@ class DelegationManager:
                     """UPDATE shared_delegations 
                        SET status = $1, result = $2, completed_at = NOW()
                        WHERE task_id = $3""",
-                    STATUS_FAILED, _safe_ascii(str(e))[:4000], task_id,
+                    STATUS_FAILED, _safe_ascii(str(e))[:16000], task_id,
                 )
                 await self.add_note(task_id, f"Task failed permanently after {max_retries} retries: {str(e)[:150]}")
 
