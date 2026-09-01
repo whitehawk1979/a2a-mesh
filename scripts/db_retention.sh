@@ -15,17 +15,34 @@
 
 set -euo pipefail
 
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
 # PG_HOST: Tailscale IP has priority — the macOS Local Network (TCC) permission blocks the unsigned Homebrew psql towards LAN IPs (192.168.1.x), while the utun5 interface is exempt.
 # 2026-08-30: the daily cron has been silently failing since its setup due to this!
-PG_HOST="${PG_HOST:-100.65.232.47}"
+# 2026-09-01: tailscaled died on Morzsa (LXC, missing /dev/net/tun after Proxmox kernel update) -> TS IP unreachable, psql hung 60s+ with NO connect timeout.
+#   Fix: try each host with pg_isready (5s probe), fall back to LAN 192.168.1.30. PGCONNECT_TIMEOUT caps every psql call at 10s.
 PG_PORT="${PG_PORT:-5432}"
 PG_DB="${PG_DB:-agent_memory}"
 PG_USER="${PG_USER:-nova}"
 export PGPASSWORD="${PGPASSWORD:-nova_agent_2026}"
+export PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-10}"
 
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-}
+PG_HOSTS=("${PG_HOST:-100.65.232.47}" "192.168.1.30")
+PG_HOST=""
+for _h in "${PG_HOSTS[@]}"; do
+    if pg_isready -h "$_h" -p "$PG_PORT" -t 5 >/dev/null 2>&1; then
+        PG_HOST="$_h"
+        break
+    fi
+done
+if [[ -z "$PG_HOST" ]]; then
+    log "ERROR: no reachable PG host (${PG_HOSTS[*]}) — aborting."
+    exit 1
+fi
+log "Using PG host: $PG_HOST"
+
 
 log "=== A2A Mesh DB Retention ==="
 
