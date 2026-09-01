@@ -210,7 +210,14 @@ class DashboardAgentsMixin:
                 from .prompt_safety import wrap_untrusted, wrap_trusted_peer, UNTRUSTED_PREAMBLE
                 if sender != agent_name:
                     if is_human:
-                        framed = wrap_untrusted(sender, content_text[:4000])
+                        # Quarantine reader: ACTIVELY neutralize instruction-like
+                        # patterns in human/dashboard-chat content (prompt-injection
+                        # defense — the chat is the public-facing surface).
+                        try:
+                            from .quarantine_reader import quarantine
+                            framed = quarantine(sender, content_text[:8000])
+                        except Exception:
+                            framed = wrap_untrusted(sender, content_text[:4000])
                     else:
                         framed = wrap_trusted_peer(sender, content_text[:4000])
                 else:
