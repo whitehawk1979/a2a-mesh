@@ -1951,13 +1951,22 @@ class DelegationManager:
                                 result_text: str, assigned_agent: str, kanban_card_id: str):
         """Delegate review to a 3rd-party agent (or delegator as fallback)."""
         try:
-            # Dedup: use in-memory set to prevent repeated review
-            if not hasattr(self, '_reviewed_tasks'):
-                self._reviewed_tasks = set()
-            task_key = str(original_task_id)
-            if task_key in self._reviewed_tasks:
+            # Dedup: prevent concurrent duplicate reviews of the SAME execution.
+            # The old in-memory set blocked re-review after a REJECT too — but a
+            # rejected task is re-queued as available and, when another agent
+            # completes it, THAT new result must be reviewed again. Track
+            # (task_id, result-hash) pairs instead of task_id alone.
+            if not hasattr(self, '_reviewed_results'):
+                self._reviewed_results = set()
+            import hashlib as _hl
+            result_hash = _hl.md5((result_text or "")[:2000].encode("utf-8", "replace")).hexdigest()[:12]
+            review_key = f"{str(original_task_id)}:{result_hash}"
+            if review_key in self._reviewed_results:
                 return
-            self._reviewed_tasks.add(task_key)
+            self._reviewed_results.add(review_key)
+            # Keep the set bounded
+            if len(self._reviewed_results) > 200:
+                self._reviewed_results = set(sorted(self._reviewed_results)[-100:])
             from_agent = self.node_name
             reviewer = await self._select_reviewer(from_agent, assigned_agent)
             if not reviewer:
