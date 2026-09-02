@@ -46,17 +46,28 @@ def make_implement_fn(node, pg_pool):
             return None
         import json as _j
         desc = {
-            "type": "generic",
-            "description": (row["description"] or "")[:4000],
+            "type": "code_generation",
+            "language": "python",
+            "language_hint": "python",
+            "description": (
+                f"A2A Mesh repó implementáció. Ötlet: {row['title']}\n\n"
+                f"Kontextus: {(row['description'] or '')[:3000]}\n\n"
+                "A munkakönyvtár az a2a_mesh git repó. A feladat az ötlet tényleges "
+                "kód-implementációja: hozz létre vagy módosíts .py fájlokat a repóban, "
+                "amik az ötlet funkcionalitását megvalósítják. Generálj futtatható, "
+                "önálló Python kódot, ami a repó gyökeréből futtatható."
+            ),
             "idea_id": idea_id,
             "source": "otletlada_auto",
+            "repo": "a2a_mesh",
+            "target": "mesh",
         }
         assigned = row["assigned_to"] or ""
         task_id = await delegation.delegate_task(
             to_agent=assigned or "any",
             subject=f"[ötletláda] {row['title']}"[:500],
             description=_j.dumps(desc),
-            task_type="generic",
+            task_type="code_generation",
             priority=7,
             available=not assigned,
         )

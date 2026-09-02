@@ -4414,7 +4414,12 @@ class DashboardAdminMixin:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _implement_idea_internal(self, row, idea_id: str):
-        """Közös megvalósítás-logika: approved ötlet → P7 available delegáció + in_progress + Kanban sync."""
+        """Közös megvalósítás-logika: approved ötlet → P7 available delegáció + in_progress + Kanban sync.
+
+        v0.42: A delegáció task_type='code_generation' a specifikációval —
+        a végrehajtó node az a2a_mesh repóban dolgozik, generált kód
+        auto-futtatással. A cél: az ötlet VALÓDI implementációja, nem csak elemzés.
+        """
         node = getattr(self, 'node', None) or getattr(self, '_node_ref', None) or self
         delegation = getattr(node, 'delegation', None)
         if not delegation:
@@ -4422,16 +4427,27 @@ class DashboardAdminMixin:
         assigned_to = row["assigned_to"] or ""
         import json as _json_desc
         desc = {
-            "type": "generic",
-            "description": (row["description"] or "")[:4000],
+            "type": "code_generation",
+            "language": "python",
+            "language_hint": "python",
+            "description": (
+                f"A2A Mesh repó implementáció. Ötlet: {row['title']}\n\n"
+                f"Kontextus: {(row['description'] or '')[:3000]}\n\n"
+                "A munkakönyvtár az a2a_mesh git repó. A feladat az ötlet tényleges "
+                "kód-implementációja: hozz létre vagy módosíts .py fájlokat a repóban, "
+                "amik az ötlet funkcionalitását megvalósítják. Generálj futtatható, "
+                "önálló Python kódot, ami a repó gyökeréből futtatható."
+            ),
             "idea_id": idea_id,
             "source": "otletlada_implement",
+            "repo": "a2a_mesh",
+            "target": "mesh",
         }
         task_id = await delegation.delegate_task(
             to_agent=assigned_to or "any",
             subject=f"[ötletláda] {row['title']}"[:500],
             description=_json_desc.dumps(desc),
-            task_type="generic",
+            task_type="code_generation",
             priority=7,
             available=not assigned_to,
         )
