@@ -8008,7 +8008,7 @@
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1788355044.6517482,
-        "updated_at": 1788355880.237797,
+        "updated_at": 1788359477.0439732,
         "created_by": "unknown",
         "delegation_task_id": "bf4fc0d4-e6e8-4c95-b1fe-2c3837893a4e",
         "delegation_status": "completed",
@@ -8086,6 +8086,30 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1788355880.238422
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788358814.223209
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788359127.6973922
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788359477.044501
           }
         ],
         "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] IMPL-FINAL-TEST: heti token-statisztik' — 13130 chars\n\n── Execution Output ──\n[weekly_token_stats] Nem talalhato adatbazis a repoban.\n[weekly_token_stats] Demo adatbazis letrehozasa: data/a2a_mesh.db\n\n\n── Execution Error ──\nTraceback (most recent call last):\n  File \"/tmp/a2a_task_runa_20260902_131730.py\", line 400, in <module>\n    sys.exit(main())\n             ^^^^^^\n  File \"/tmp/a2a_task_runa_20260902_131730.py\", line 361, in main\n    os.makedirs(data_dir, exist_ok=True)\n  File \"<frozen os>\", line 225, in makedirs\nPermissionError: [Errno 13] Permission denied: '/data'\n",
@@ -8094,7 +8118,7 @@
         "review_task_id": "0a2a8df6-eccf-4faa-806f-a95268687cef",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788355880.237795
+        "reviewed_at": 1788359477.043972
       },
       {
         "id": "card-1788355548342-116",
@@ -8231,10 +8255,182 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1788356497.692822
+      },
+      {
+        "id": "card-1788358863779-118",
+        "title": "[ötletláda] INTEGR-TEST: heti delegacio riport generator",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: INTEGR-TEST: heti delegacio riport generator\\n\\nKontextus: Keszits egy core/delegation_report.py modult, ami a shared_delegations adataibol heti riportot keszit (feladatok szama allapot szerint, atlagos vegrehajtasi ido). Futtathato: python3 core/delegation_report.py\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_5e06e8da990c\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "review",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788358863.779969,
+        "updated_at": 1788359477.401501,
+        "created_by": "unknown",
+        "delegation_task_id": "92140681-e41d-43e5-aef9-a4320e867f08",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788358863.851588
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-TEST: heti delegacio riport gen' — 18109 chars\n\n── Execution Output ──\n  [INFO] Nincs elerheto shared_delegations adat.\n  [INFO] Demo adatokkal futtatas...\n\n======================================================================\n  HETI DELEGACIO RIPORT — 2026-W36\n======================================================================\n  Generalva: 2026-09-02T17:22:[PHONE REDACTED]\n\n  --- OSSZEGZO ---\n  Osszes feladat:          10\n  B",
+            "timestamp": 1788358939.291957
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "4cb15d22",
+            "timestamp": 1788358945.190697
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-TEST: heti delegacio riport gen' — 18109 chars\n\n── Execution Output ──\n  [INFO] Nincs elerheto shared_delegations adat.\n  [INFO] Demo adatokkal futtatas...\n\n======================================================================\n  HETI DELEGACIO RIPORT — 2026-W36\n======================================================================\n  Generalva: 2026-09-02T17:22:[PHONE REDACTED]\n\n  --- OSSZEGZO ---\n  Osszes feladat:          10\n  B",
+            "timestamp": 1788359126.5315468
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "e0973072",
+            "timestamp": 1788359128.5480351
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788359152.960821
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788359476.112493
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-TEST: heti delegacio riport gen' — 18109 chars\n\n── Execution Output ──\n  [INFO] Nincs elerheto shared_delegations adat.\n  [INFO] Demo adatokkal futtatas...\n\n======================================================================\n  HETI DELEGACIO RIPORT — 2026-W36\n======================================================================\n  Generalva: 2026-09-02T17:22:[PHONE REDACTED]\n\n  --- OSSZEGZO ---\n  Osszes feladat:          10\n  B",
+            "timestamp": 1788359476.19859
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "5a7abe92",
+            "timestamp": 1788359477.401495
+          }
+        ],
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-TEST: heti delegacio riport gen' — 18109 chars\n\n── Execution Output ──\n  [INFO] Nincs elerheto shared_delegations adat.\n  [INFO] Demo adatokkal futtatas...\n\n======================================================================\n  HETI DELEGACIO RIPORT — 2026-W36\n======================================================================\n  Generalva: 2026-09-02T17:22:[PHONE REDACTED]\n\n  --- OSSZEGZO ---\n  Osszes feladat:          10\n  Befejezett:              5\n  Sikeresseg arany:        50.0%\n  Atlagos vegrehajtasi ido:120.67s\n  (csak befejezettek):     63.86s\n  Idoadasu feladatok:      7\n\n  --- ALLOT SZERINT ---\n  Fuggoben                 1  █\n  Folyamatban              1  █\n  Befejezett               5  █████\n  Sikertelen               1  █\n  Megszakitva              1  █\n  Idotullpes               1  █\n\n  --- AGENT TELEJTESMENY ---\n  Agent                      Osszes   Kesz   Hiba    Sik%   AtlagIdo\n  ------------------------- ------- ------ ------ ------- ----------\n  agent_alpha                     3      1      0   33.3%      45.2s\n  agent_beta                      3      2      0   66.7%     120.5s\n  agent_delta                     2      0      1    0.0%       0.0s\n  agent_gamma                     2      2      0  100.0%     121.8s\n\n======================================================================\n\n\n✅ Repoba integralva: ideas/idea_5e06e8da990c_tletl_da__INTEGR-TEST__heti_delegacio.py (git commit)",
+        "completed_at": "2026-09-02 14:22:14.229671+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "5a7abe92-0e73-46cc-97aa-54e64b27ffe3",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788359476.111935
+      },
+      {
+        "id": "card-1788359230192-119",
+        "title": "[ötletláda] INTEGR-FINAL: node memory riport modul",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: INTEGR-FINAL: node memory riport modul\\n\\nKontextus: Keszits egy core/memory_report.py modult, ami a node-ok memorianak hasznalatat riportalja (ps output alapjan, top folyamatok). Futtathato: python3 core/memory_report.py\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_73d71611e8d3\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788359230.192886,
+        "updated_at": 1788359530.252372,
+        "created_by": "unknown",
+        "delegation_task_id": "b2806aa1-1126-46d2-ba84-2926154eeaf3",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788359230.294123
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-FINAL: node memory riport modul' — 13271 chars\n\n── Execution Output ──\n╔══════════════════════════════════════════════════════════════╗\n║          A2A MESH — NODE MEMORY REPORT                       ║\n╚══════════════════════════════════════════════════════════════╝\nTimestamp:        2026-09-02T17:27:53\nTotal processes:  653\nMesh nodes found: 4\n\nSystem Memory Summary (/proc/meminfo)\n========================================\n  Total:",
+            "timestamp": 1788359278.5289779
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "483d1601",
+            "timestamp": 1788359285.3147678
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Report appears truncated; missing memory fields: ['Free:', 'Available:', 'Cached:', 'SwapTotal:']; Report too short (11 non-empty lines), likely incomplete",
+            "timestamp": 1788359333.687479
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-FINAL: node memory riport modul' — 14407 chars\n\n── Execution Output ──\n========================================================================\nA2A Mesh — Node Memory Report\n========================================================================\nTimestamp : 2026-09-02T14:29:[PHONE REDACTED]+00:00\nHostname  : openclaw\nPlatform  : Linux 6.8.12-23-pve (linux)\nMachine   : x86_64 / unknown\nPython    : 3.11.2\nAgent PID : 150434\n-----",
+            "timestamp": 1788359462.451465
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: reject",
+            "verdict": "reject",
+            "reason": "Report appears truncated; missing memory fields: ['Free:', 'Available:', 'Cached:', 'SwapTotal:']; Report too short (11 non-empty lines), likely incomplete",
+            "timestamp": 1788359474.716799
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "611f6cdf",
+            "timestamp": 1788359475.843414
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788359530.252919
+          }
+        ],
+        "delegation_result": "[morzsa] LLM (glm-5.2:cloud) generated code for '[otletlada] INTEGR-FINAL: node memory riport modul' — 14407 chars\n\n── Execution Output ──\n========================================================================\nA2A Mesh — Node Memory Report\n========================================================================\nTimestamp : 2026-09-02T14:29:[PHONE REDACTED]+00:00\nHostname  : openclaw\nPlatform  : Linux 6.8.12-23-pve (linux)\nMachine   : x86_64 / unknown\nPython    : 3.11.2\nAgent PID : 150434\n------------------------------------------------------------------------\nSystem Memory:\n  Source     : /proc/meminfo\n  Total      : 16384.0 MB (16.0 GB)\n  Used       : 8612.94 MB\n  Available  : 7771.06 MB\n  Free       : 768.06 MB\n  Buffers    : 0.0 MB\n  Cached     : 7214.14 MB\n  Usage %    : 52.57 %\n  Swap Total : 8196.0 MB\n  Swap Used  : 4474.74 MB\n  Swap Free  : 3721.26 MB\n------------------------------------------------------------------------\nTop 10 Processes by RSS Memory:\n     PID      RSS MB      VSZ MB  Command\n------------------------------------------------------------------------\n  936166     3153.27     5626.31  mesh-llm serve --gguf /root/.mesh-llm...\n  135992     1921.32    84583.89  ./qdrant\n 2518968       751.3    64160.31  /usr/bin/node /home/openclaw/.npm-glo...\n 4078394      434.34     1803.71  /home/openclaw/.local/share/uv/tools/...\n  144780      368.46     2824.41  /usr/local/bin/ollama runner --ollama...\n     369      291.14    73267.34  /home/openclaw/.opencode/bin/opencode...\n 4001685       269.7     3726.77  /home/openclaw/.hermes/hermes-agent/v...\n  148989      173.63     1726.17  /usr/bin/python3 /home/openclaw/.loca...\n 1463579      159.92      255.96  /lib/systemd/systemd-journald\n  148121      149.89      230.88  postgres: 15/main: nova agent_memory ...\n------------------------------------------------------------------------\nTop processes total RSS: 7672.97 MB\n========================================================================\n\n\n✅ Repoba integra",
+        "completed_at": "2026-09-02 14:29:51.621052+00:",
+        "reviewer": "tor",
+        "review_task_id": "611f6cdf-474d-42c9-9e50-6b22d89d90a4",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788359530.2523699
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788355995.7162082
+    "updated_at": 1788359476.6294641
   },
   {
     "id": "board-archive-orphaned-20260830",

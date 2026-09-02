@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import uuid
 
 from .capsules import (
     strip_echo_prefix, retrieve_capsules, format_capsules_for_prompt,
@@ -885,6 +886,32 @@ class DashboardAgentsMixin:
                     mark_read(reply_to)
                 except Exception as nudge_err:
                     log.warning(f"Inbox mark_read failed: {nudge_err}")
+
+            # ── Ötletláda-auto-beküldés: a [ÖTLET] jelölővel küldött javaslatok
+            # automatikusan a mesh ötletládába kerülnek (a2a-mesh fejlesztési
+            # javaslatok /debate-vitákból). Determinisztikus: a jelölő dönt, nem LLM.
+            try:
+                import re as _re_idea
+                _idea_lines = _re_idea.findall(r"\[ÖTLET\]\s*(.+)", content or "")
+                if _idea_lines:
+                    _pool = getattr(self, '_pg_pool', None) or getattr(self, 'pg_pool', None) or (getattr(self, 'dashboard', None) and getattr(self.dashboard, 'pg_pool', None))
+                    if _pool:
+                        for _suggestion in _idea_lines[:3]:  # max 3 ötlet válaszonként
+                            _suggestion = _suggestion.strip()[:500]
+                            if len(_suggestion) < 5:
+                                continue
+                            await _pool.execute(
+                                """INSERT INTO mesh.mesh_ideas
+                                   (idea_id, title, description, category, priority, status, submitted_by, source_type, tags)
+                                   VALUES ($1, $2, $3, 'feature', 'medium', 'idea', $4, 'agent', ARRAY['debate'])""",
+                                f"idea_{uuid.uuid4().hex[:12]}",
+                                _suggestion[:120],
+                                f"Debate-javaslat (automatikus beküldés)\n\nEredeti hozzászólás: {content[:400]}\n\nBeküldte: {sender}",
+                                sender,
+                            )
+                            log.info(f"🗳️ [ÖTLET] auto-beküldve az ötletládába ({sender}): {_suggestion[:60]}")
+            except Exception as _idea_auto_err:
+                log.warning(f"Ötletláda auto-beküldés (non-fatal): {_idea_auto_err}")
 
             # MARVEEN: Conversation log
             try:

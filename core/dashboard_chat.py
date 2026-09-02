@@ -37,6 +37,7 @@ _CHAT_COMMANDS = {
     "debate": "Vita indítása: /debate <téma> — minden agent kifejti álláspontját",
     "ask": "Célzott kérés: /ask <agent> <kérdés> — csak az adott agent válaszol",
     "all": "Közös elemzés: /all <kérdés> — minden agent válaszol ugyanarra",
+    "ideas": "Ötletgyűjtés: /ideas <téma> — minden agent javaslatot ad, [ÖTLET]-jelölve → Ötletláda",
     "clear": "Chat üzenetek törlése ebben a szobában (csak saját üzenetek)",
 }
 
@@ -89,7 +90,7 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
         except Exception as e:
             out_content = f"⚠️ Törlés hiba: {e}"
 
-    elif cmd in ("debate", "ask", "all"):
+    elif cmd in ("debate", "ask", "all", "ideas"):
         # These are ROUTED to agents with special framing — handled by returning
         # a directive the normal path will use. Store marker prefix in content.
         if cmd == "debate" and not args:
@@ -100,6 +101,8 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                 out_content = "⚠️ Használat: `/ask <agent> <kérdés>` — pl. `/ask morzsa mi a helyzet?`"
         elif cmd == "all" and not args:
             out_content = "⚠️ Használat: `/all <kérdés>`"
+        elif cmd == "ideas" and not args:
+            out_content = "⚠️ Használat: `/ideas <téma>` — pl. `/ideas hogyan lehetne gyorsabb a mesh P2P réteg?`"
         else:
             return {"route": cmd, "args": args}, True
 
@@ -246,11 +249,24 @@ async def handle_chat_send(node, request, pool, user):
                     f"🔔 VITA INDUL — téma: {cmd_args}\n"
                     "SZEREP: Kifejted a SAJÁT álláspontodat a témáról, majd egy KÜLÖNBÖZŐ agent nevét megcímezve "
                     "konkrét kihívást/ellenvetést fogalmazol meg neki. Rövid, éles érvelés.\n"
+                    "ÖTLETLÁDA: Ha a vitából konkrét a2a-mesh-fejlesztési javaslatod születik, azt MINDIG "
+                    "külön sorban jelöld: [ÖTLET] <javaslat> — ez automatikusan az Ötletládába kerül.\n"
                 )
             elif cmd_route == "all":
                 _cmd_prefix = (
                     f"🔔 KÖZÖS ELEMZÉS — kérdés: {cmd_args}\n"
                     "SZEREP: Mindegyikőtök ugyanarra a kérdésre válaszol — SAJÁT nézőpontból, különböző szemszögekből. Ne ismételj másra.\n"
+                )
+            elif cmd_route == "ideas":
+                _cmd_prefix = (
+                    f"🗳️ ÖTLETSZERVERTÉS — téma: {cmd_args}\n"
+                    "SZEREP: Összedöntöd a legjobb a2a-mesh-fejlesztési ÖTLETEIDET ehhez a témához. "
+                    "MINDEN javaslatot KÜLÖN sorban, pontosan így jelölve adj meg:\n"
+                    "[ÖTLET] <konkrét, megvalósítható javaslat>\n"
+                    "Például:\n"
+                    "[ÖTLET] P2P keepalive ping-ek batchelése a forgalom csökkentésére\n"
+                    "[ÖTLET] Kanban kártyák automatikus archiválása 30 nap után\n"
+                    "A jelölt sorok AUTOMATIKUSAN az Ötletládába kerülnek. Rövid indoklás is elfér.\n"
                 )
             payload = {
                 "text": f"{_cmd_prefix}{content}" if _cmd_prefix else content,
