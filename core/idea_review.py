@@ -95,8 +95,12 @@ def _notify_ready_to_build(title: str, idea_id: str) -> None:
         f"Dashboard: Ötletláda → kártya → „🔨 Beépítés jóváhagyása\" gomb."
     )
     try:
+        _hermes_bin = "/Users/zsolt/.hermes/hermes-agent/venv/bin/hermes"
+        import os as _os_env
+        if not _os_env.path.exists(_hermes_bin):
+            _hermes_bin = _os_env.popen("command -v hermes").read().strip() or "hermes"
         subprocess.Popen(
-            ["hermes", "send", "--telegram", OWNER_TELEGRAM, msg],
+            [_hermes_bin, "send", "--telegram", OWNER_TELEGRAM, msg],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         log.info(f"📤 Beépítés-jóváhagyásra vár: {idea_id} — Zsolt értesítve")
@@ -437,8 +441,12 @@ def _notify_owner(idea_row, verdict: dict) -> None:
         f"Dashboard: Ötletláda → Elfogadás gomb a döntéshez."
     )
     try:
+        _hermes_bin = "/Users/zsolt/.hermes/hermes-agent/venv/bin/hermes"
+        import os as _os_env
+        if not _os_env.path.exists(_hermes_bin):
+            _hermes_bin = _os_env.popen("command -v hermes").read().strip() or "hermes"
         subprocess.Popen(
-            ["hermes", "send", "--telegram", OWNER_TELEGRAM, msg],
+            [_hermes_bin, "send", "--telegram", OWNER_TELEGRAM, msg],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         log.info(f"📤 Tulajdonos értesítve: buildable idea {idea_row['idea_id']}")
