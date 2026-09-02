@@ -472,6 +472,45 @@ class MeshNode:
                 log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
             return
 
+        # Handle vault share protocol — per-agent vault access + cross-node secret sharing
+        if message.type in ("vault_request", "vault_share", "vault_response"):
+            from .core.vault_share import (
+                handle_vault_request, handle_vault_response, handle_vault_share,
+            )
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                if message.type == "vault_request":
+                    resp_payload = handle_vault_request(payload)
+                    if isinstance(resp_payload, dict):
+                        resp_payload.setdefault("node", self.node_name)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        type="vault_response",
+                        payload=resp_payload,
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                elif message.type == "vault_share":
+                    resp_payload = handle_vault_share(payload)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        type="vault_response",
+                        payload=resp_payload,
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                elif message.type == "vault_response":
+                    handle_vault_response(payload)
+            except Exception as e:
+                log.warning(f"vault_share protocol error from {message.sender}: {e}")
+            return
+
         # Handle peer_offline / peer_online status broadcasts — update peer_discovery
         if message.type in ("peer_offline", "peer_online"):
             payload = message.payload if isinstance(message.payload, dict) else {}

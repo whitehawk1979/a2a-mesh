@@ -3222,15 +3222,40 @@ function loadMarveenPage(page) {
     vault: function(d) {
       if (d.error) return errorBox(d.error);
       var items = d.items || d.secrets || d.entries || [];
+      if (!Array.isArray(items) && typeof items === 'object') items = Object.keys(items).map(function(k) { return items[k] || {}; });
       var html = '';
+      // ── Agent-váltó: melyik node vaultját nézzük ──
+      html += '<div id="vault-agent-bar" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;"></div>';
       html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
       html += '<button onclick="showVaultAddModal()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">➕ Új Vault Entry</button>';
+      html += '<button onclick="vaultShowMeshOverview()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">🌐 Mesh áttekintés</button>';
       html += '</div>';
-      if (!items.length) return html + empty('Nincs vault adat');
-      html += '<div style="display:flex;flex-direction:column;gap:6px;">';
-      items.forEach(function(i) {
-        var iid = i.id || i.key || i.name || '';
-        html += card('<div style="display:flex;align-items:center;gap:8px;"><strong style="font-size:12px;flex:1;">' + esc(i.key || i.name || '?') + '</strong><span style="font-size:10px;color:var(--text3);">' + fmtTime(i.created_at) + '</span><button onclick="vaultDelete(\'' + esc(iid) + '\')" style="font-size:10px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button></div>');
+      html += '<div id="vault-entries"></div>';
+      html += '<div id="vault-mesh-section" style="margin-top:12px;"></div>';
+      return html;
+    },
+
+    vaultMesh: function(d) {
+      // /api/vault/mesh válasz — minden node vault státusza
+      var html = '<h3 style="margin:0 0 10px;font-size:13px;color:var(--text2);">🔐 Vault minden node-on</h3>';
+      var nodes = d.nodes || {};
+      html += '<div style="display:flex;flex-direction:column;gap:8px;">';
+      Object.keys(nodes).forEach(function(name) {
+        var nd = nodes[name] || {};
+        var vs = nd.vault_status || {};
+        var backend = vs.backend || '?';
+        var count = vs.entry_count != null ? vs.entry_count : (vs.entries || []).length;
+        var healthy = vs.initialized || nd.local;
+        html += card('<div style="display:flex;align-items:center;gap:10px;">' +
+          '<div style="width:36px;height:36px;border-radius:50%;background:' + (healthy ? 'var(--success)' : 'var(--warning)') + ';display:flex;align-items:center;justify-content:center;font-size:16px;">🔐</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:13px;">' + esc(name) + '</strong>' +
+            (nd.local ? badge('helyi', 'var(--primary)') : badge('távoli', '#c084fc')) +
+            '</div>' +
+            '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Bejegyzések: <strong style="color:var(--text);">' + esc(count) + '</strong> • backend: ' + esc(String(backend).substring(0, 60)) + '</div>' +
+          '</div>' +
+          '<button onclick="vaultSelectAgent(\'' + esc(name) + '\')" style="font-size:11px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:6px 10px;border-radius:6px;cursor:pointer;">📂 Megnyitás</button>' +
+        '</div>');
       });
       html += '</div>';
       return html;
@@ -5348,6 +5373,126 @@ window.vaultDelete = function(id) {
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
+// ── Vault Share: per-agent vault böngészés + mesh megosztás ──
+
+window._vaultCurrentAgent = null; // null = helyi node
+
+window._vaultToken = function() { return localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || ''; };
+
+window._vaultRenderEntries = function(entries, agentName, isLocal) {
+  var el = document.getElementById('vault-entries');
+  if (!el) return;
+  var h = '';
+  if (!entries.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px;">Nincs bejegyzés ebben a vaultban</div>'; return; }
+  entries.forEach(function(i) {
+    var iid = i.id || i.key || i.label || i.name || '';
+    var type = i.type || i.mode || 'generic';
+    var backend = i.backend || '';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<strong style="font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🔑 ' + esc(iid) + '</strong>' +
+        '<span style="font-size:9px;color:var(--text3);padding:2px 6px;background:var(--surface2);border-radius:8px;">' + esc(type) + (backend ? ' / ' + esc(backend) : '') + '</span>' +
+        (isLocal ? '<button onclick="vaultDelete(\'' + esc(iid) + '\')" title="Törlés" style="font-size:10px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button>' : '') +
+        '<button onclick="vaultShareEntry(\'' + esc(iid) + '\', \'' + esc(agentName) + '\')" title="Megosztás más node-okra" style="font-size:10px;background:rgba(139,92,246,.2);color:#c084fc;border:1px solid #c084fc;padding:4px 8px;border-radius:4px;cursor:pointer;">📤</button>' +
+      '</div></div>';
+  });
+  el.innerHTML = h;
+};
+
+window._vaultRenderAgentBar = function(meshNodes, current) {
+  var el = document.getElementById('vault-agent-bar');
+  if (!el) return;
+  var h = '<span style="font-size:11px;color:var(--text3);margin-right:4px;">Agent vault:</span>';
+  Object.keys(meshNodes).forEach(function(name) {
+    var active = (current === name) || (current === null && meshNodes[name].local);
+    var label = meshNodes[name].local ? name + ' (helyi)' : name;
+    h += '<button onclick="vaultSelectAgent(\'' + esc(name) + '\')" style="font-size:11px;padding:6px 12px;border-radius:14px;cursor:pointer;border:1px solid ' + (active ? 'var(--primary)' : 'var(--border)') + ';background:' + (active ? 'var(--primary)' : 'var(--surface)') + ';color:' + (active ? '#fff' : 'var(--text2)') + ';">' + esc(label) + '</button>';
+  });
+  el.innerHTML = h;
+};
+
+window.vaultSelectAgent = function(nodeName) {
+  window._vaultCurrentAgent = nodeName;
+  var token = window._vaultToken();
+  var bar = document.getElementById('vault-agent-bar');
+  if (bar) bar.innerHTML = '<span style="font-size:11px;color:var(--text3);">⏳ Betöltés: ' + esc(nodeName) + '…</span>';
+  var meshSection = document.getElementById('vault-mesh-section');
+  if (meshSection) meshSection.innerHTML = '';
+  fetch('/api/vault/remote/' + encodeURIComponent(nodeName), { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); window.vaultShowMeshOverview(); return; }
+      window._vaultRenderEntries(d.entries || [], d.node || nodeName, !!d.local);
+      // Agent-bar frissítése a mesh áttekintésből
+      return fetch('/api/vault/mesh', { headers: { 'Authorization': 'Bearer ' + token } })
+        .then(function(r) { return r.json(); })
+        .then(function(md) { window._vaultRenderAgentBar(md.nodes || {}, d.local ? null : d.node); })
+        .catch(function() {});
+    })
+    .catch(function(e) {
+      alert('Nem sikerült betölteni: ' + e.message);
+      window.vaultShowMeshOverview();
+    });
+};
+
+window.vaultShowMeshOverview = function(cb) {
+  window._vaultCurrentAgent = null;
+  var token = window._vaultToken();
+  var meshSection = document.getElementById('vault-mesh-section');
+  if (!meshSection) { if (cb) cb({}); return; }
+  meshSection.innerHTML = '<div style="color:var(--text3);font-size:11px;">⏳ Mesh vault státusz betöltése…</div>';
+  fetch('/api/vault/mesh', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var nodes = d.nodes || {};
+      window._vaultRenderAgentBar(nodes, null);
+      // Újrahasznosítjuk a vaultMesh renderer-t a szekcióhoz
+      var h = '<h3 style="margin:12px 0 8px;font-size:13px;color:var(--text2);">🌐 Mesh áttekintés</h3>';
+      Object.keys(nodes).forEach(function(name) {
+        var nd = nodes[name] || {};
+        var vs = nd.vault_status || {};
+        var count = vs.entry_count != null ? vs.entry_count : (vs.entries || []).length;
+        var healthy = vs.initialized || nd.local;
+        h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px;">' +
+          '<div style="width:32px;height:32px;border-radius:50%;background:' + (healthy ? 'var(--success)' : 'var(--warning)') + ';display:flex;align-items:center;justify-content:center;">🔐</div>' +
+          '<div style="flex:1;"><strong style="font-size:12px;">' + esc(name) + '</strong> <span style="font-size:10px;color:var(--text3);">' + (nd.local ? '(helyi)' : '(távoli)') + ' • ' + esc(count) + ' bejegyzés</span></div>' +
+          '<button onclick="vaultSelectAgent(\'' + esc(name) + '\')" style="font-size:10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 10px;border-radius:6px;cursor:pointer;">📂</button>' +
+        '</div>';
+      });
+      meshSection.innerHTML = h;
+      if (cb) cb(nodes);
+    })
+    .catch(function(e) { meshSection.innerHTML = '<div style="color:var(--danger);font-size:11px;">Hiba: ' + e.message + '</div>'; if (cb) cb({}); });
+};
+
+window.vaultShareEntry = function(name, fromNode) {
+  if (!confirm('Tétel: ' + name + '\nMely node-okra osztod meg? (OK → mesh node lista)')) return;
+  var token = window._vaultToken();
+  fetch('/api/vault/mesh', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var nodes = d.nodes || {};
+      var options = Object.keys(nodes).filter(function(n) { return n !== fromNode; });
+      if (!options.length) { alert('Nincs elérhető cél node'); return; }
+      var targetsStr = prompt('Cél node-ok (vesszővel elválasztva):\n' + options.join('\n') + '\n\n(minden = mind)', '');
+      if (!targetsStr) return;
+      var targets = targetsStr.trim().toLowerCase() === 'minden' ? options : targetsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+      if (!targets.length) return;
+      fetch('/api/vault/share', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, targets: targets }) })
+        .then(function(r) { return r.json(); })
+        .then(function(res) {
+          var results = res.results || {};
+          var lines = Object.keys(results).map(function(t) {
+            return t + ': ' + (results[t].ok ? '✅ megosztva' : '❌ ' + (results[t].error || 'hiba'));
+          });
+          alert('Megosztás eredménye:\n' + lines.join('\n'));
+          window.vaultSelectAgent(fromNode);
+        })
+        .catch(function(e) { alert('Megosztási hiba: ' + e.message); });
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
 window.showRecoveryNoteModal = function() {
   var node = prompt('Target node:');
   if (!node) return;
@@ -6525,11 +6670,32 @@ window._loadSysinfoExtras = function() {
         else if (page === 'security') { window._loadSecurityExtras(); window._loadSessionInfo(); }
         else if (page === 'sysinfo') window._loadSysinfoExtras();
         else if (page === 'health') window._loadHealthExtras();
+        else if (page === 'vault') window._loadVaultExtras();
       }, 100);
     };
     window.loadMarveenPage._hooked = true;
   }
 })();
+
+// ── Vault extras: mesh áttekintés + helyi bejegyzések automatikus betöltése ──
+window._loadVaultExtras = function() {
+  var token = window._vaultToken();
+  // Mesh áttekintés: agent-bar + node kártyák + helyi node bejegyzései
+  window.vaultShowMeshOverview(function(meshNodes) {
+    // Helyi node megkeresése a mesh válaszból
+    var localName = null;
+    Object.keys(meshNodes || {}).forEach(function(n) {
+      if ((meshNodes[n] || {}).local) localName = n;
+    });
+    if (!localName) return;
+    fetch('/api/vault/remote/' + encodeURIComponent(localName), { headers: { 'Authorization': 'Bearer ' + token } })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d && d.entries) window._vaultRenderEntries(d.entries, d.node || localName, true);
+      })
+      .catch(function() {});
+  });
+};
 
 // ── Health extras: node erőforrások + P2P hálózat ──
 window._loadHealthExtras = function() {
