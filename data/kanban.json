@@ -6775,7 +6775,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1788341842.4757152,
-        "updated_at": 1788343589.7836952,
+        "updated_at": 1788344829.1460428,
         "delegation_task_id": "3371184a-cc84-4f68-850f-141c60cb3ce0",
         "description": "Altalanos teszt v2",
         "task_type": "generic",
@@ -6839,6 +6839,14 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1788343589.784394
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788344829.146556
           }
         ],
         "delegation_status": "completed",
@@ -6848,7 +6856,7 @@
         "review_task_id": "4aff56f8-aa0a-4673-8bb8-5ee34c433b3f",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788343589.783694
+        "reviewed_at": 1788344829.1460412
       },
       {
         "id": "card-1788342218443-117",
@@ -6917,7 +6925,7 @@
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1788343868.729147,
-        "updated_at": 1788344262.957073,
+        "updated_at": 1788344861.8022468,
         "created_by": "unknown",
         "delegation_task_id": "67d2fdba-18a9-40d8-b5cf-5624274458fe",
         "delegation_status": "completed",
@@ -6951,19 +6959,49 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1788344262.958612
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Network check completed: 4/4 OK",
+            "timestamp": 1788344827.2849002
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788344827.35139
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "95b8309a",
+            "timestamp": 1788344829.723316
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788344861.8028438
           }
         ],
         "delegation_result": "[runa] Network check completed: 4/4 OK",
         "completed_at": "2026-09-02 10:11:17.210774+00:",
         "reviewer": "morzsa",
-        "review_task_id": "301dffd3-7886-4c64-8dec-a47103305484",
+        "review_task_id": "95b8309a-c4c5-4a52-98f4-d2e4f7be4e30",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788344262.957067
+        "reviewed_at": 1788344861.8022459
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788343884.463381
+    "updated_at": 1788344827.836888
   },
   {
     "id": "board-archive-orphaned-20260830",
@@ -8059,12 +8097,12 @@
         "id": "card-1787744932544-98",
         "title": "Teszt delegacio — elemzd a mesh allapotat",
         "description": "Kerlek elemezd az A2A mesh halozat jelenlegi allapotat. Jelentsd vissza: 1) Hany node aktiv, 2) Milyen P2P kapcsolatok vannak, 3) Milyen capabilities elerhetok.",
-        "column": "todo",
+        "column": "done",
         "priority": "medium",
         "assigned_to": "morzsa",
         "parent_id": null,
         "created_at": 1787744932.5442119,
-        "updated_at": 1787744932.5715132,
+        "updated_at": 1788344961.888381,
         "created_by": "unknown",
         "delegation_task_id": "61ca1791-1c16-4e94-8c28-20cc1cfb09d3",
         "delegation_status": "pending",
@@ -8085,12 +8123,12 @@
         "id": "card-1787745100390-100",
         "title": "Teszt delegacio Runanak — allapot jelentes",
         "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
-        "column": "todo",
+        "column": "done",
         "priority": "medium",
         "assigned_to": "runa",
         "parent_id": null,
         "created_at": 1787745100.3902662,
-        "updated_at": 1787745100.4222012,
+        "updated_at": 1788344961.888381,
         "created_by": "unknown",
         "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
         "delegation_status": "pending",
@@ -8110,11 +8148,11 @@
       {
         "id": "card-1787745100515-101",
         "title": "Teszt delegacio Runanak — allapot jelentes",
-        "column": "todo",
+        "column": "done",
         "priority": 5,
         "assigned_to": "runa",
         "created_at": 1787745100.5156841,
-        "updated_at": 1787748698.69056,
+        "updated_at": 1788344961.888381,
         "delegation_task_id": "3ad7a48c-95a1-49f6-a791-46741358beec",
         "description": "Kerlek jelentsd be a node allapotodat: CPU, memoria, lemez, P2P kapcsolatok.",
         "task_type": "generic",
