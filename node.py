@@ -1916,6 +1916,14 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
             d = _json.loads(desc_raw)
             desc_text = d.get("description", "")
             desc_ctx = d.get("context", {})
+            # Ötletláda-meta: az idea_id és source maradjon elérhető a végrehajtó
+            # útvonalak számára (a JSON top-level mezői egyébként elvesznének itt)
+            if isinstance(d, dict) and d.get("idea_id"):
+                desc_ctx = dict(desc_ctx) if desc_ctx else {}
+                desc_ctx["idea_id"] = d.get("idea_id")
+                desc_ctx["idea_source"] = d.get("source", "")
+                # A desc_text végére is ráfűzzük, hogy a kód-integrációs blokk megtalálja
+                desc_text = (desc_text or "") + f"\n\n[idea_id: {d.get('idea_id')}]"
         except (ValueError, TypeError, AttributeError):
             desc_text = desc_raw if desc_raw else subject
 
@@ -2543,6 +2551,8 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                 if not _idea_id and desc_text and "idea_id" in desc_text:
                     import re as _re2
                     _m = _re2.search(r'"idea_id"\s*:\s*"([^"]+)"', desc_text)
+                    if not _m:
+                        _m = _re2.search(r'\[idea_id:\s*([a-zA-Z0-9_]+)\]', desc_text)
                     if _m:
                         _idea_id = _m.group(1)
                 if _idea_id and lang in ("python", "bash", "js", "javascript", "html"):
