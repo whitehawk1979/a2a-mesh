@@ -4408,6 +4408,89 @@ class DashboardAdminMixin:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _api_idea_implement(self, request):
+        """POST /api/ideas/{id}/implement — Megvalósítás indítása: approved ötlet → in_progress + available delegáció.
+
+        A koordinátor (ezen node, ha az) létrehozza a delegációt 'available' státusszal,
+        így bármelyik agent claimelheti. Az ötlet in_progress-be kerül, a hozzá tartozó
+        Kanban kártya (ha van) szinkronban frissül.
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            idea_id = request.match_info.get("id", "")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG unavailable"}, status=503)
+            row = await pool.fetchrow(
+                "SELECT idea_id, title, description, status, assigned_to, category, priority FROM mesh.mesh_ideas WHERE idea_id = $1",
+                idea_id,
+            )
+            if not row:
+                return web.json_response({"error": "Idea not found"}, status=404)
+            if row["status"] not in ("approved", "idea"):
+                return web.json_response({"error": f"Csak approved ötlet indítható (jelenleg: {row['status']})"}, status=400)
+
+            # Delegáció létrehozása available-ként (bármelyik agent claimelheti)
+            node = getattr(self, 'node', None) or getattr(self, '_node_ref', None) or self
+            delegation = getattr(node, 'delegation', None)
+            assigned_to = row["assigned_to"] or ""
+            desc = {
+                "type": "generic",
+                "description": (row["description"] or "")[:4000],
+                "idea_id": idea_id,
+                "source": "otletlada_implement",
+            }
+            import json as _json_desc
+            task_id = await delegation.delegate_task(
+                to_agent=assigned_to or "any",
+                subject=f"[ötletláda] {row['title']}"[:500],
+                description=_json_desc.dumps(desc),
+                task_type="generic",
+                priority=7,
+                available=not assigned_to,
+            )
+            # Ötlet → in_progress
+            await pool.execute(
+                "UPDATE mesh.mesh_ideas SET status = 'in_progress', assigned_to = COALESCE(NULLIF($2, ''), assigned_to), updated_at = NOW() WHERE idea_id = $1",
+                idea_id, assigned_to,
+            )
+            # Kanban kártya szinkron (ha van hozzá)
+            try:
+                km = self._get_kanban()
+                boards = km.get_boards()
+                if boards:
+                    for b in boards:
+                        for c in (b.get("cards") or []):
+                            if str(c.get("delegation_idea_id", "")) == idea_id or (row["title"][:60] in str(c.get("title", ""))):
+                                km.update_card(b["id"], c["id"], {
+                                    "column": "in_progress",
+                                    "assigned_to": assigned_to or c.get("assigned_to", ""),
+                                    "delegation_task_id": str(task_id),
+                                })
+                                break
+            except Exception as e:
+                log.warning(f"Kanban sync failed for idea {idea_id}: {e}")
+            # Mesh értesítés
+            try:
+                if hasattr(node, 'broadcast'):
+                    await node.broadcast("a2a_message", {
+                        "text": f"🔨 Ötlet megvalósítás indul: {row['title'][:80]} (delegáció {str(task_id)[:8]}, available)",
+                        "subject": f"Idea implement: {row['title'][:60]}",
+                        "idea_id": idea_id,
+                        "task_id": str(task_id),
+                    }, priority=7)
+            except Exception as e:
+                log.warning(f"Idea implement broadcast failed: {e}")
+            return web.json_response({
+                "ok": True, "idea_id": idea_id, "status": "in_progress",
+                "task_id": str(task_id), "assigned_to": assigned_to or "any",
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _api_ideas_diagnostic_import(self, request):
         """POST /api/ideas/import-diagnostics — import pending diagnostic suggestions as ideas.
         Each diagnostic suggestion with status 'pending' becomes an idea in the board.

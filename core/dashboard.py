@@ -514,6 +514,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/ideas/{id}/comments", self._api_idea_comment_add)
         app.router.add_post("/api/ideas/{id}/promote-agent", self._api_idea_promote_agent)
         app.router.add_post("/api/ideas/import-diagnostics", self._api_ideas_diagnostic_import)
+        app.router.add_post("/api/ideas/{id}/implement", self._api_idea_implement)
         app.router.add_get("/api/docs", self._api_docs)
         app.router.add_get("/api/connectors", self._api_connectors)
         app.router.add_get("/api/mcp-registry", self._api_mcp_registry)

@@ -3072,6 +3072,13 @@ function loadMarveenPage(page) {
         {id: 'done', title: '✔️ Kész', color: '#22c55e'},
         {id: 'rejected', title: '❌ Elutasított', color: '#ef4444'}
       ];
+      // Kattintható kártyák + idea cache a részletes nézethez
+      window._ideasCache = {};
+      ideas.forEach(function(i) { window._ideasCache[i.id] = i; });
+      // Sidebar számláló frissítés
+      var openCount = ideas.filter(function(i) { return i.status === 'idea'; }).length;
+      var cnt = document.getElementById('idea-counter');
+      if (cnt) { cnt.textContent = openCount; cnt.style.display = openCount > 0 ? 'inline-block' : 'none'; }
 
       html += '<div style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;">';
       columns.forEach(function(col) {
@@ -3081,45 +3088,22 @@ function loadMarveenPage(page) {
           '<div style="display:flex;flex-direction:column;gap:8px;">';
         colIdeas.forEach(function(idea) {
           var priColor = idea.priority === 'high' ? 'var(--danger)' : idea.priority === 'low' ? 'var(--text3)' : 'var(--primary)';
-          var sourceBadge = idea.source_type === 'agent' ? '<span style="font-size:9px;background:#3b1f5f;color:#c084fc;padding:1px 6px;border-radius:8px;">🤖 agent</span>' : '';
-          html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;cursor:default;" id="idea-' + esc(idea.id) + '">' +
+          var sourceBadge = idea.source_type === 'agent' ? '<span style="font-size:9px;background:#3b1f5f;color:#c084fc;padding:1px 6px;border-radius:8px;">🤖</span>' : '';
+          html += '<div onclick="showIdeaDetail(\'' + esc(idea.id) + '\')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;transition:border-color .15s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'" id="idea-' + esc(idea.id) + '">' +
             '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;">' +
             '<strong style="font-size:13px;flex:1;">' + esc(idea.title) + '</strong>' +
             '<span style="font-size:9px;background:' + priColor + '22;color:' + priColor + ';padding:1px 6px;border-radius:8px;flex-shrink:0;">' + esc(idea.priority) + '</span>' +
             '</div>';
           if (idea.description) {
-            html += '<div style="font-size:11px;color:var(--text3);line-height:1.4;margin-bottom:6px;">' + esc(idea.description.substring(0, 120)) + (idea.description.length > 120 ? '...' : '') + '</div>';
+            html += '<div style="font-size:11px;color:var(--text3);line-height:1.4;margin-bottom:6px;">' + esc(idea.description.substring(0, 90)) + (idea.description.length > 90 ? '…' : '') + '</div>';
           }
-          if (idea.tags && idea.tags.length) {
-            html += '<div style="margin-bottom:6px;">';
-            idea.tags.forEach(function(t) {
-              html += '<span style="font-size:9px;background:var(--surface2);color:var(--text3);padding:1px 6px;border-radius:8px;margin-right:4px;">#' + esc(t) + '</span>';
-            });
-            html += '</div>';
-          }
-          html += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">' +
-            '<button onclick="voteIdea(\'' + esc(idea.id) + '\', \'up\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:#4ade80;" title="Fel szavazat">👍 ' + esc(idea.upvotes) + '</button>' +
-            '<button onclick="voteIdea(\'' + esc(idea.id) + '\', \'down\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:#ef4444;" title="Le szavazat">👎 ' + esc(idea.downvotes) + '</button>' +
-            '<span style="font-size:11px;font-weight:600;color:' + (idea.score > 0 ? '#4ade80' : idea.score < 0 ? '#ef4444' : 'var(--text3)') + ';">' + (idea.score > 0 ? '+' : '') + esc(idea.score) + '</span>' +
-            '<span style="margin-left:auto;font-size:10px;color:var(--text3);">' + sourceBadge + ' ' + esc(idea.submitted_by) + '</span>' +
+          html += '<div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;">' +
+            '<span style="color:#4ade80;">👍 ' + esc(idea.upvotes) + '</span>' +
+            '<span style="color:#ef4444;">👎 ' + esc(idea.downvotes) + '</span>' +
+            '<span style="font-weight:600;color:' + (idea.score > 0 ? '#4ade80' : idea.score < 0 ? '#ef4444' : 'var(--text3)') + ';">' + (idea.score > 0 ? '+' : '') + esc(idea.score) + '</span>' +
+            '<span style="margin-left:auto;color:var(--text3);">' + sourceBadge + ' ' + esc(idea.submitted_by) + '</span>' +
+            '</div>' +
             '</div>';
-          // Status dropdown
-          html += '<select onchange="changeIdeaStatus(\'' + esc(idea.id) + '\', this.value)" style="width:100%;margin-top:6px;padding:4px 8px;font-size:11px;border-radius:4px;background:var(--surface2);border:1px solid var(--border);color:var(--text);">' +
-            '<option value="idea"' + (idea.status === 'idea' ? ' selected' : '') + '>💡 Ötlet</option>' +
-            '<option value="approved"' + (idea.status === 'approved' ? ' selected' : '') + '>✅ Elfogadott</option>' +
-            '<option value="in_progress"' + (idea.status === 'in_progress' ? ' selected' : '') + '>🔄 Folyamatban</option>' +
-            '<option value="done"' + (idea.status === 'done' ? ' selected' : '') + '>✔️ Kész</option>' +
-            '<option value="rejected"' + (idea.status === 'rejected' ? ' selected' : '') + '>❌ Elutasított</option>' +
-            '</select>';
-          // Delete button
-          html += '<button onclick="deleteIdea(\'' + esc(idea.id) + '\')" style="width:100%;margin-top:4px;padding:3px;font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;">🗑️ Törlés</button>';
-          // Comment button
-          html += '<button onclick="showIdeaComments(\'' + esc(idea.id) + '\')" style="width:100%;margin-top:4px;padding:3px;font-size:10px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;">💬 Kommentek</button>';
-          // Promote to agent button (only if score >= 2 and not already approved)
-          if (idea.score >= 2 && idea.status === 'idea') {
-            html += '<button onclick="promoteIdeaToAgent(\'' + esc(idea.id) + '\')" style="width:100%;margin-top:4px;padding:4px;font-size:11px;background:var(--success);border:none;border-radius:4px;color:#fff;cursor:pointer;font-weight:600;">🚀 Elfogadás & Agent felvétel</button>';
-          }
-          html += '</div>';
         });
         if (!colIdeas.length) {
           html += '<div style="text-align:center;padding:20px;color:var(--text3);font-size:11px;">Üres</div>';
@@ -5145,6 +5129,116 @@ window.submitIdea = function() {
     .then(function(d) {
       if (d.ok) { loadMarveenPage('research'); }
       else { alert('Hiba: ' + (d.error || 'ismeretlen')); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.showIdeaDetail = function(id) {
+  var idea = window._ideasCache && window._ideasCache[id];
+  if (!idea) { loadMarveenPage('research'); return; }
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  var priColor = idea.priority === 'high' ? 'var(--danger)' : idea.priority === 'low' ? 'var(--text3)' : 'var(--primary)';
+  var stColors = { idea: '#60a5fa', approved: '#4ade80', in_progress: '#fbbf24', done: '#22c55e', rejected: '#ef4444' };
+  var stNames = { idea: '💡 Ötlet', approved: '✅ Elfogadott', in_progress: '🔄 Folyamatban', done: '✔️ Kész', rejected: '❌ Elutasított' };
+  var h = '';
+  // Fejléc
+  h += '<div style="font-size:15px;font-weight:700;margin-bottom:4px;color:var(--text);">' + esc(idea.title) + '</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">' +
+    '<span style="font-size:10px;padding:2px 8px;border-radius:8px;background:' + (stColors[idea.status] || '#888') + '22;color:' + (stColors[idea.status] || '#888') + ';">' + (stNames[idea.status] || idea.status) + '</span>' +
+    '<span style="font-size:10px;padding:2px 8px;border-radius:8px;background:' + priColor + '22;color:' + priColor + ';">' + esc(idea.priority) + '</span>' +
+    '<span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--surface2);color:var(--text3);">' + esc(idea.category || 'general') + '</span>' +
+    (idea.source_type === 'agent' ? '<span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#3b1f5f;color:#c084fc;">🤖 agent</span>' : '') +
+    '</div>';
+  // Leírás
+  if (idea.description) {
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;white-space:pre-wrap;">' + esc(idea.description) + '</div>';
+  }
+  // Meta
+  h += '<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:var(--text3);margin-bottom:12px;">' +
+    '<span>👤 Beküldte: <strong style="color:var(--text2);">' + esc(idea.submitted_by) + '</strong></span>' +
+    '<span>📅 ' + esc(String(idea.created_at || '').substring(0, 19)) + '</span>' +
+    '<span>👍 ' + esc(idea.upvotes) + ' 👎 ' + esc(idea.downvotes) + ' (score: ' + (idea.score > 0 ? '+' : '') + esc(idea.score) + ')</span>' +
+    '</div>';
+  // Tags
+  if (idea.tags && idea.tags.length) {
+    h += '<div style="margin-bottom:12px;">' + idea.tags.map(function(t) { return '<span style="font-size:10px;background:var(--surface2);color:var(--text3);padding:2px 8px;border-radius:8px;margin-right:4px;">#' + esc(t) + '</span>'; }).join('') + '</div>';
+  }
+  // Szavazás gombok
+  h += '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+    '<button onclick="voteIdea(\'' + esc(id) + '\',\'up\');window._closeVaultModal()" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:#4ade80;cursor:pointer;font-size:13px;">👍 Fel</button>' +
+    '<button onclick="voteIdea(\'' + esc(id) + '\',\'down\');window._closeVaultModal()" style="flex:1;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:#ef4444;cursor:pointer;font-size:13px;">👎 Le</button>' +
+    '</div>';
+  // Akciók: status váltás mindig látható
+  h += '<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">Státusz módosítása:</div>';
+  h += '<select id="idea-detail-status" style="width:100%;padding:8px;font-size:12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);color:var(--text);margin-bottom:12px;">' +
+    '<option value="idea"' + (idea.status === 'idea' ? ' selected' : '') + '>💡 Ötlet</option>' +
+    '<option value="approved"' + (idea.status === 'approved' ? ' selected' : '') + '>✅ Elfogadott</option>' +
+    '<option value="in_progress"' + (idea.status === 'in_progress' ? ' selected' : '') + '>🔄 Folyamatban</option>' +
+    '<option value="done"' + (idea.status === 'done' ? ' selected' : '') + '>✔️ Kész</option>' +
+    '<option value="rejected"' + (idea.status === 'rejected' ? ' selected' : '') + '>❌ Elutasított</option>' +
+    '</select>';
+  // Elfogadás / megvalósítás gombok
+  if (idea.status === 'idea') {
+    h += '<button onclick="promoteIdeaToAgent(\'' + esc(id) + '\')" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--success);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">🚀 Elfogadás → Kanban + mesh értesítés</button>';
+  }
+  if (idea.status === 'approved') {
+    h += '<button onclick="implementIdea(\'' + esc(id) + '\')" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">🔨 Megvalósítás indítása (delegáció a mesh-be)</button>';
+  }
+  // Kommentek betöltés (ide, a modalba)
+  h += '<div id="idea-detail-comments" style="margin-top:12px;"></div>';
+  // Gombok
+  window._showVaultModal('💡 Ötlet részletei', h, [
+    { label: '🗑️ Törlés', onclick: 'deleteIdea(\'' + esc(id) + '\');window._closeVaultModal()' },
+    { label: '💬 Komment írása', onclick: 'addIdeaComment(\'' + esc(id) + '\')' },
+    { label: '💾 Státusz mentés', primary: true, onclick: 'window._saveIdeaStatus(\'' + esc(id) + '\')' }
+  ]);
+  // Kommentek betöltése
+  fetch('/api/ideas/' + id + '/comments', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var cel = document.getElementById('idea-detail-comments');
+      if (!cel) return;
+      var ch = '<div style="font-size:11px;color:var(--text3);margin-bottom:6px;">💬 Kommentek:</div>';
+      var comments = d.comments || [];
+      if (!comments.length) { ch += '<div style="font-size:11px;color:var(--text3);">Még nincs komment.</div>'; }
+      comments.forEach(function(c) {
+        var isReview = c.author === 'coordinator_review';
+        ch += '<div style="background:' + (isReview ? 'rgba(79,140,255,.08)' : 'var(--surface)') + ';border:1px solid ' + (isReview ? 'var(--primary)' : 'var(--border)') + ';border-radius:8px;padding:8px;margin-bottom:6px;font-size:11px;">' +
+          '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">' +
+          '<strong style="color:' + (isReview ? 'var(--primary)' : 'var(--text2)') + ';">' + (isReview ? '🛡️ Koordinátor-review' : esc(c.author)) + '</strong>' +
+          '<span style="color:var(--text3);font-size:9px;">' + esc(String(c.created_at || '').substring(0, 16)) + '</span>' +
+          '</div>' +
+          '<div style="color:var(--text2);white-space:pre-wrap;line-height:1.4;">' + esc(c.comment) + '</div>' +
+          '</div>';
+      });
+      cel.innerHTML = ch;
+    })
+    .catch(function() {});
+};
+
+window._saveIdeaStatus = function(id) {
+  var sel = document.getElementById('idea-detail-status');
+  var newStatus = sel ? sel.value : 'idea';
+  window._closeVaultModal();
+  changeIdeaStatus(id, newStatus);
+};
+
+window.implementIdea = function(id) {
+  if (!confirm('Megvalósítás: a koordinátor (nova) átnézi a Kanban kártyát és delegálja a feladatot a mesh-be. Indítsuk?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  window._closeVaultModal();
+  fetch('/api/ideas/' + id + '/implement', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({})
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        alert('🔨 Megvalósítás elindítva!\nDelegáció: ' + (d.task_id || '?') + '\nCél: ' + (d.assigned_to || 'bárki (available)'));
+        loadMarveenPage('research');
+      } else {
+        alert('Hiba: ' + (d.error || 'ismeretlen'));
+      }
     })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
