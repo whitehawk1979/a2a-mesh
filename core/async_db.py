@@ -106,12 +106,17 @@ class AsyncDBPool:
                 server_settings["idle_session_timeout"] = "300s"
             except Exception:
                 pass
+            # RACE-FIX (2026-09-02): max_inactive_connection_lifetime (240s) < a szerver
+            # idle_session_timeout (300s) — így a POOL cseréli ki saját kapcsolatait,
+            # mielőtt a szerver kilőné azokat. A korábbi 300/300 race szerver-oldali
+            # kilövéseket okozott ("connection closed mid-operation") — a pool ezek után
+            # "not connected" állapotba került, és csak következő connect-próbán állt helyre.
             self._pool = await asyncpg.create_pool(
                 dsn=self._dsn,
                 min_size=self._min_size,
                 max_size=self._max_size,
                 command_timeout=30,
-                max_inactive_connection_lifetime=300,
+                max_inactive_connection_lifetime=240,
                 setup=self._setup_connection,
                 server_settings=server_settings or None,
             )

@@ -5007,7 +5007,11 @@ echo "Status: ok"
                 # 1. PG connection check + auto-reconnect
                 pg_ok = False
                 if self._pg_pool:
-                    pg_ok = self._pg_pool.is_connected()
+                    # ASYNC check: a szinkron is_connected() csak a pool-objektum
+                    # létezését nézi — az elhalt kapcsolatok ("closed mid-operation")
+                    # láthatatlanok maradnak neki, és a pool 30+ percig "élőnek"
+                    # tűnik. Az async verzió VALÓDI SELECT 1 health-checket futtat.
+                    pg_ok = await self._pg_pool.is_connected_async()
                     if not pg_ok:
                         log.warning("[self-heal] PG pool disconnected — attempting reconnect")
                         try:
