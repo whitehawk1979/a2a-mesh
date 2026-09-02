@@ -94,7 +94,18 @@ DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
     WHERE status = 'superseded' 
     AND updated_at < now() - interval '7 days';
 " 2>&1 | head -1)
-log "  mesh_suggestions: $DELETED rows deleted"
+log "  mesh_suggestions superseded: $DELETED rows deleted"
+
+# 3b. Delete completed suggestions (>7 days) — auto-resolved suggestions
+# accumulate indefinitely without this (observed: 445 completed rows, mostly
+# disk-usage churn noise). Completed = issue auto-resolved, safe to purge.
+log "Cleaning mesh_suggestions (completed >7 days)..."
+DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
+    DELETE FROM mesh_suggestions 
+    WHERE status = 'completed' 
+    AND updated_at < now() - interval '7 days';
+" 2>&1 | head -1)
+log "  mesh_suggestions completed: $DELETED rows deleted"
 
 # 4. Delete old DLQ entries (>7 days)
 log "Cleaning shared_dlq (>7 days)..."
