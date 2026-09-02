@@ -4202,13 +4202,9 @@ class DashboardAdminMixin:
             if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
             node = getattr(self, 'node', None) or getattr(self, '_node_ref', None) or self
-            implement_fn = None
-            if hasattr(self, '_implement_idea_internal'):
-                async def implement_fn(row, idea_id):
-                    return await self._implement_idea_internal(row, idea_id)
-            else:
-                implement_fn = make_implement_fn(node, pool)
-            result = await apply_vote_with_rules(pool, idea_id, voter, vote, implement_fn=implement_fn)
+            # EMBERI KAPU: a szavazás csak approved-ig visz — implement_fn nélkül,
+            # a beépítés a „Beépítés jóváhagyása" gombbal indul (implement endpoint)
+            result = await apply_vote_with_rules(pool, idea_id, voter, vote)
             if not result.get("ok") and result.get("already_voted"):
                 return web.json_response(result, status=409)
             if not result.get("ok"):
@@ -4395,23 +4391,17 @@ class DashboardAdminMixin:
                         await node.broadcast("a2a_message", payload, priority=5)
                 except Exception as e:
                     log.warning(f"Failed to broadcast idea promotion: {e}")
-            # 4. AUTO-IMPLEMENT: elfogadás → azonnal in_progress + delegáció.
-            # A kézi 'Megvalósítás indítása' gomb megszűnik szűk keresztmetszet lenni:
-            # az elfogadott ötlet a folyamatba kerül, anélkül hogy újabb kézi lépés kellene.
-            implement_result = None
-            try:
-                implement_result = await self._implement_idea_internal(row, idea_id)
-            except Exception as impl_err:
-                log.warning(f"Auto-implement failed for {idea_id} (non-fatal, manual implement available): {impl_err}")
+            # 4. EMBERI KAPU: az elfogadás NEM indít automatikus implementációt.
+            # Az ötlet approved-ba kerül, a beépítés a „Beépítés jóváhagyása"
+            # gombbal (implement endpoint) indul — Zsolt explicit döntése.
             return web.json_response({
                 "ok": True,
                 "idea_id": idea_id,
-                "status": "in_progress" if implement_result else "approved",
+                "status": "approved",
                 "score": score,
                 "kanban_card_created": True,
                 "mesh_notified": True,
-                "auto_implemented": bool(implement_result),
-                "task_id": (implement_result or {}).get("task_id"),
+                "awaiting_build_approval": True,
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)

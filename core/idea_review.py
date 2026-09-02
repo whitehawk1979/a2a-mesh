@@ -86,16 +86,36 @@ def make_implement_fn(node, pg_pool):
     return _impl
 
 
+def _notify_ready_to_build(title: str, idea_id: str) -> None:
+    """Telegram-jelzés: az ötlet elérte az elfogadási küszöböt — beépítés-jóváhagyásra vár."""
+    msg = (
+        f"✅ ÖTLET ELFOGADVA — beépítés-jóváhagyásra vár\n\n"
+        f"Ötlet: {title[:80]}\n"
+        f"A szavazás/elérés küszöbét elérte, de a beépítés CSAK a te jóváhagyásoddal indul.\n"
+        f"Dashboard: Ötletláda → kártya → „🔨 Beépítés jóváhagyása\" gomb."
+    )
+    try:
+        subprocess.Popen(
+            ["hermes", "send", "--telegram", OWNER_TELEGRAM, msg],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        log.info(f"📤 Beépítés-jóváhagyásra vár: {idea_id} — Zsolt értesítve")
+    except Exception as e:
+        log.warning(f"Telegram értesítés sikertelen: {e}")
+
+
 async def apply_vote_with_rules(pg_pool, idea_id: str, voter: str, vote: str,
                                 implement_fn=None) -> dict:
     """Szavazat rögzítése + determinisztikus továbbléptetési szabályok.
 
     Szabályok (csak 'idea' státuszúnál):
-      score >= +2 → auto-elfogadás (+ implement_fn: azonnali megvalósítás)
+      score >= +2 → auto-elfogadás (approved — a BEÉPÍTÉS jóváhagyásra vár!)
       score <= -2 → auto-elutasítás
 
     A szavazat mindenki számára azonos: owner (dashboard), agentek (P2P idea_vote),
     koordinátor-review (buildable → +1, nem buildable → -1).
+    A tényleges implementáció NEM automatikus: az approved ötlethez a dashboardon
+    a „🔨 Beépítés jóváhagyása" gomb kell (Zsolt emberi kapuja a beépítés előtt).
     """
     if not pg_pool:
         return {"ok": False, "error": "PG unavailable"}
@@ -134,14 +154,9 @@ async def apply_vote_with_rules(pg_pool, idea_id: str, voter: str, vote: str,
                 idea_id,
             )
             result["action"] = "auto_approved"
-            if implement_fn:
-                try:
-                    impl = await implement_fn(row, idea_id)
-                    if impl:
-                        result["implement"] = impl
-                        result["action"] = "auto_implemented"
-                except Exception as e:
-                    log.warning(f"Auto-implement failed after vote on {idea_id}: {e}")
+            # ⚠️ NEM automatikus implementáció: az ötlet approved-ba kerül,
+            # a beépítés a dashboard „Beépítés jóváhagyása" gombbal indul (emberi kapu).
+            _notify_ready_to_build(row["title"], idea_id)
         elif score <= AUTO_REJECT_SCORE:
             await pg_pool.execute(
                 "UPDATE mesh.mesh_ideas SET status = 'rejected', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1",
@@ -250,15 +265,10 @@ async def apply_age_rules(node, pg_pool) -> list:
                 idea_id,
             )
             action = "age_approved"
-            if impl_fn:
-                try:
-                    impl = await impl_fn(r, idea_id)
-                    if impl:
-                        action = "age_implemented"
-                except Exception as e:
-                    log.warning(f"Age-implement failed for {idea_id}: {e}")
+            # Emberi kapu: a beépítés jóváhagyása gombbal indul, nem automatikusan
+            _notify_ready_to_build(r["title"], idea_id)
             actions.append({"idea_id": idea_id, "action": action, "age_h": round(age), "score": score})
-            log.info(f"⏳ Age-approve: {idea_id} ({round(age)}h, score {score}) → {action}")
+            log.info(f"⏳ Age-approve: {idea_id} ({round(age)}h, score {score}) → {action} (beépítés-jóváhagyásra vár)")
         elif age >= AGE_REVIEW_HOURS and score == 0:
             # 0 score, 48h: koordinátor LLM-review dönt — buildable → elfogadás
             try:
@@ -274,14 +284,9 @@ async def apply_age_rules(node, pg_pool) -> list:
                         idea_id,
                     )
                     action = "age_review_approved"
-                    if impl_fn:
-                        try:
-                            impl = await impl_fn(r, idea_id)
-                            if impl:
-                                action = "age_review_implemented"
-                        except Exception:
-                            pass
-                    log.info(f"⏳ Age-review approve: {idea_id} (48h, score 0, buildable) → {action}")
+                    # Emberi kapu: beépítés jóváhagyásra vár
+                    _notify_ready_to_build(r["title"], idea_id)
+                    log.info(f"⏳ Age-review approve: {idea_id} (48h, score 0, buildable) → {action} (jóváhagyásra vár)")
                 else:
                     await pg_pool.execute(
                         "UPDATE mesh.mesh_ideas SET status = 'rejected', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1",

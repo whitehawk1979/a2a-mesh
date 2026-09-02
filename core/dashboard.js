@@ -5260,7 +5260,11 @@ window.showIdeaDetail = function(id) {
     h += '<button onclick="promoteIdeaToAgent(\'' + esc(id) + '\')" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--success);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">🚀 Elfogadás → Kanban + mesh értesítés</button>';
   }
   if (idea.status === 'approved') {
-    h += '<button onclick="implementIdea(\'' + esc(id) + '\')" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px;">🔨 Megvalósítás indítása (delegáció a mesh-be)</button>';
+    h += '<div style="background:#3b2f0f;border:1px solid var(--warning);border-radius:8px;padding:10px;margin-bottom:8px;">' +
+      '<div style="font-size:11px;color:#fbbf24;font-weight:600;">✅ Elfogadva — beépítés-jóváhagyásra vár</div>' +
+      '<div style="font-size:10px;color:var(--text3);margin-top:2px;">A megvalósítás csak a te jóváhagyásoddal indul.</div>' +
+      '</div>';
+    h += '<button onclick="implementIdea(\'' + esc(id) + '\')" style="width:100%;padding:14px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;">🔨 BEÉPÍTÉS JÓVÁHAGYÁSA → delegáció a mesh-be</button>';
   }
   // Kommentek betöltés (ide, a modalba)
   h += '<div id="idea-detail-comments" style="margin-top:12px;"></div>';
@@ -5333,11 +5337,11 @@ window.voteIdea = function(id, vote) {
         if (d.action === 'auto_implemented') {
           showToast('🗳️ Score +' + d.score + ' → ötlet automatikusan ELFOGADVA és megvalósításra indul!', 'success');
         } else if (d.action === 'auto_approved') {
-          showToast('✅ Score +' + d.score + ' → automatikusan elfogadva', 'success');
+          showToast('✅ Score +' + d.score + ' → elfogadva! ⏳ BEÉPÍTÉS-JÓVÁHAGYÁSRA VÁR — kattints a kártyára és jóváhagyás a beépítést!', 'success');
         } else if (d.action === 'auto_rejected') {
           showToast('❌ Score ' + d.score + ' → automatikusan elutasítva', 'error');
         } else {
-          showToast('Szavazat rögzítve (score: ' + (d.score > 0 ? '+' : '') + d.score + ', küszöb: ±2)', 'info');
+          showToast('Szavazat rögzítve (score: ' + (d.score > 0 ? '+' : '') + d.score + ', küszöb: ±2, 48h után +1 is elég)', 'info');
         }
         loadMarveenPage('research');
       }

@@ -8711,10 +8711,170 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1788360101.351321
+      },
+      {
+        "id": "card-1788379102421-120",
+        "title": "[feature] Keepalive ping-ek batchelese 30 masodperces ablakokban",
+        "description": "Debate-javaslat (automatikus beküldés)\n\nEredeti hozzászólás: Az eny allaspontom: a P2P keepalive tulsagosan cseveg. [OTLET] Keepalive ping-ek batchelese 30 masodperces ablakokban\n\nBeküldte: tor",
+        "column": "in_progress",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788379102.421042,
+        "updated_at": 1788379107.117573,
+        "created_by": "unknown",
+        "delegation_task_id": "153daa27-e35d-4a49-9b98-9899de9b37db"
+      },
+      {
+        "id": "card-1788379103088-121",
+        "title": "[ötletláda] Keepalive ping-ek batchelese 30 masodperces ablakokban",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: Keepalive ping-ek batchelese 30 masodperces ablakokban\\n\\nKontextus: Debate-javaslat (automatikus bek\\u00fcld\\u00e9s)\\n\\nEredeti hozz\\u00e1sz\\u00f3l\\u00e1s: Az eny allaspontom: a P2P keepalive tulsagosan cseveg. [OTLET] Keepalive ping-ek batchelese 30 masodperces ablakokban\\n\\nBek\\u00fcldte: tor\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_4812ea6c5300\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "review",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788379103.088193,
+        "updated_at": 1788379175.3576698,
+        "created_by": "unknown",
+        "delegation_task_id": "3e40dcd4-46d8-4ae4-9990-2259151bca25",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788379103.2112541
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Keepalive ping-ek batchelese 30 masodp' — 11086 chars\n\n── Execution Output ──\n\n============================================================\nKEEPALIVE BATCHER DEMO — SUMMARY\n============================================================\nWindows run:          5\nTotal pings sent:     25\nPings succeeded:      22\nPings failed:         3\nPeers marked dead:    0\nDead peers list:      []\nTransport log entries: 25\n\nPeer status:\n  peer_00 @ 10.0.0.1",
+            "timestamp": 1788379161.9920902
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "895b6c8d",
+            "timestamp": 1788379175.357663
+          }
+        ],
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Keepalive ping-ek batchelese 30 masodp' — 11086 chars\n\n── Execution Output ──\n\n============================================================\nKEEPALIVE BATCHER DEMO — SUMMARY\n============================================================\nWindows run:          5\nTotal pings sent:     25\nPings succeeded:      22\nPings failed:         3\nPeers marked dead:    0\nDead peers list:      []\nTransport log entries: 25\n\nPeer status:\n  peer_00 @ 10.0.0.1:9000 — ALIVE (last_seen=Wed Sep  2 22:59:15 2026)\n  peer_01 @ 10.0.0.2:9000 — ALIVE (last_seen=Wed Sep  2 22:59:12 2026)\n  peer_02 @ 10.0.0.3:9000 — ALIVE (last_seen=Wed Sep  2 22:59:15 2026)\n  peer_03 @ 10.0.0.4:9000 — ALIVE (last_seen=Wed Sep  2 22:59:15 2026)\n  peer_04 @ 10.0.0.5:9000 — ALIVE (last_seen=Wed Sep  2 22:59:12 2026)\n============================================================\n\n\n✅ Repoba integralva: ideas/idea_4812ea6c5300_tletl_da__Keepalive_ping-ek_batchelese.py (git commit)",
+        "completed_at": "2026-09-02 19:59:17.416274+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "895b6c8d-218d-465e-9856-9db8b2e27bed"
+      },
+      {
+        "id": "card-1788379105736-122",
+        "title": "[feature] Keepalive ping-ek batchelese 30 masodperces ablakokban",
+        "description": "Debate-javaslat (automatikus beküldés)\n\nEredeti hozzászólás: Az eny allaspontom: a P2P keepalive tulsagosan cseveg. [OTLET] Keepalive ping-ek batchelese 30 masodperces ablakokban\n\nBeküldte: tor",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788379105.7365701,
+        "updated_at": 1788379105.7365701,
+        "created_by": "unknown"
+      },
+      {
+        "id": "card-1788379106091-123",
+        "title": "[ötletláda] Keepalive ping-ek batchelese 30 masodperces ablakokban",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: Keepalive ping-ek batchelese 30 masodperces ablakokban\\n\\nKontextus: Debate-javaslat (automatikus bek\\u00fcld\\u00e9s)\\n\\nEredeti hozz\\u00e1sz\\u00f3l\\u00e1s: Az eny allaspontom: a P2P keepalive tulsagosan cseveg. [OTLET] Keepalive ping-ek batchelese 30 masodperces ablakokban\\n\\nBek\\u00fcldte: tor\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_4812ea6c5300\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788379106.091684,
+        "updated_at": 1788379161.824296,
+        "created_by": "unknown",
+        "delegation_task_id": "153daa27-e35d-4a49-9b98-9899de9b37db",
+        "delegation_status": "cancelled",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788379106.211781
+          }
+        ],
+        "delegation_result": "Fan-out: sibling completed by runa",
+        "result_file": "",
+        "completed_at": ""
+      },
+      {
+        "id": "card-1788379172793-124",
+        "title": "[feature] Replay-mód: append-only üzenetnapló + determinisztikus újrajátszás — ugyanaz bemenet, ugyanaz kimenet, minden hiba repro",
+        "description": "Debate-javaslat (automatikus beküldés)\n\nEredeti hozzászólás: Sziasztok! Az én hármasom — oracle, determinizmus, speed:\n\n[ÖTLET] Sablon-validátor: küldés ELŐTT assert, hogy minden placeholder ki volt cserélve — a mostani `{}` bug így sosem jutott volna ki élesbe, hanem első próbánál reject+log\n[ÖTLET] Golden-file oracle: minden üzenettípushoz referencia-payload tesztlaborban, CI diff-fel — regresszió (mint az @-csonkolódás) azonnal kiderül, nem 3 nap múlva\n[\n\nBeküldte: morzsa",
+        "column": "in_progress",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788379172.793961,
+        "updated_at": 1788379175.6823418,
+        "created_by": "unknown",
+        "delegation_task_id": "54504624-ae77-42a8-b435-1222ddb711f1"
+      },
+      {
+        "id": "card-1788379175078-125",
+        "title": "[ötletláda] Replay-mód: append-only üzenetnapló + determinisztikus újrajátszás —",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: Replay-m\\u00f3d: append-only \\u00fczenetnapl\\u00f3 + determinisztikus \\u00fajraj\\u00e1tsz\\u00e1s \\u2014 ugyanaz bemenet, ugyanaz kimenet, minden hiba repro\\n\\nKontextus: Debate-javaslat (automatikus bek\\u00fcld\\u00e9s)\\n\\nEredeti hozz\\u00e1sz\\u00f3l\\u00e1s: Sziasztok! Az \\u00e9n h\\u00e1rmasom \\u2014 oracle, determinizmus, speed:\\n\\n[\\u00d6TLET] Sablon-valid\\u00e1tor: k\\u00fcld\\u00e9s EL\\u0150TT assert, hogy minden placeholder ki volt cser\\u00e9lve \\u2014 a mostani `{}` bug \\u00edgy sosem jutott volna ki \\u00e9lesbe, hanem els\\u0151 pr\\u00f3b\\u00e1n\\u00e1l reject+log\\n[\\u00d6TLET] Golden-file oracle: minden \\u00fczenett\\u00edpushoz referencia-payload tesztlaborban, CI diff-fel \\u2014 regresszi\\u00f3 (mint az @-csonkol\\u00f3d\\u00e1s) azonnal kider\\u00fcl, nem 3 nap m\\u00falva\\n[\\n\\nBek\\u00fcldte: morzsa\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_69cbd794fbfa\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788379175.0780458,
+        "updated_at": 1788379268.549106,
+        "created_by": "unknown",
+        "delegation_task_id": "54504624-ae77-42a8-b435-1222ddb711f1",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788379175.224119
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Replay-mod: append-only uzenetnaplo + ' — 18282 chars\n\n── Execution Output ──\n\n\n── Execution Error ──\nusage: a2a_task_runa_20260902_195938.py [-h] [--log LOG]\n                                        {record,replay,verify,inspect,demo}\n                                        ...\na2a_task_runa_20260902_195938.py: error: the following arguments are required: command\n\n\n✅ Repoba integralva: ideas/idea_69cbd794fbfa_tletl_da__Replay-m_d__append",
+            "timestamp": 1788379248.0285969
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "00bba117",
+            "timestamp": 1788379252.242081
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788379268.549823
+          }
+        ],
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Replay-mod: append-only uzenetnaplo + ' — 18282 chars\n\n── Execution Output ──\n\n\n── Execution Error ──\nusage: a2a_task_runa_20260902_195938.py [-h] [--log LOG]\n                                        {record,replay,verify,inspect,demo}\n                                        ...\na2a_task_runa_20260902_195938.py: error: the following arguments are required: command\n\n\n✅ Repoba integralva: ideas/idea_69cbd794fbfa_tletl_da__Replay-m_d__append-only__zen.py (git commit)",
+        "completed_at": "2026-09-02 20:00:45.351010+00:",
+        "reviewer": "tor",
+        "review_task_id": "00bba117-e75a-43b4-a863-d862531bacc7",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788379268.549098
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788360030.08068
+    "updated_at": 1788379251.8431518
   },
   {
     "id": "board-archive-orphaned-20260830",
