@@ -150,10 +150,10 @@ class AlertManager:
             ),
             AlertRule(
                 id="dedup_cache_large",
-                name="Dedup cache size above 500",
+                name="Dedup cache size above 1500",
                 metric="dedup_cache_size",
                 operator=">",
-                threshold=500,
+                threshold=1500,
                 severity=AlertSeverity.INFO,
                 cooldown=600,
                 autonomy_level=1,    # Notify only
