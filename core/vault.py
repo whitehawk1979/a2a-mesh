@@ -32,6 +32,7 @@ import hmac
 import base64
 import hashlib
 import secrets
+import time
 from typing import Optional, Tuple
 
 _SERVICE_PREFIX = "MESH"
@@ -212,13 +213,55 @@ def get_secret(name: str) -> Optional[str]:
     return os.environ.get(env_key)
 
 
+def _index_path() -> str:
+    return _vault_path() + ".keyring_index"
+
+
+def _index_add(name: str) -> None:
+    """Track keyring-stored names (Keychain not listable without security prompts)."""
+    try:
+        idx = {}
+        ip = _index_path()
+        if os.path.isfile(ip):
+            try:
+                with open(ip, "r", encoding="utf-8") as f:
+                    idx = json.load(f)
+            except Exception:
+                idx = {}
+        if name not in idx:
+            idx[name] = {"backend": "keyring", "ts": time.time()}
+            os.makedirs(os.path.dirname(ip) or ".", exist_ok=True)
+            with open(ip, "w", encoding="utf-8") as f:
+                json.dump(idx, f)
+            os.chmod(ip, 0o600)
+    except Exception:
+        pass
+
+
+def _index_remove(name: str) -> None:
+    try:
+        ip = _index_path()
+        if not os.path.isfile(ip):
+            return
+        with open(ip, "r", encoding="utf-8") as f:
+            idx = json.load(f)
+        if name in idx:
+            idx.pop(name, None)
+            with open(ip, "w", encoding="utf-8") as f:
+                json.dump(idx, f)
+    except Exception:
+        pass
+
+
 def set_secret(name: str, value: str) -> bool:
+    """Store a secret: OS keyring preferred, encrypted file vault fallback."""
     service, _, key = name.partition("/")
     service = service or _SERVICE_PREFIX
     kr = _keyring_lib()
     if kr:
         try:
             kr.set_password(service, key, value)
+            _index_add(name)
             return True
         except Exception as e:
             print(f"OS keyring set failed ({e}); using encrypted file vault", file=sys.stderr)
@@ -273,6 +316,9 @@ def _cli():
         store = _read_store()
         for name in store:
             print(f"  {name} ({store[name].get('mode', '?')})")
+        for name in _keyring_index_names():
+            if name not in store:
+                print(f"  {name} (keyring)")
     else:
         print("usage: python3 -m core.vault set|get|list [NAME] [VALUE]")
 
@@ -286,9 +332,11 @@ if __name__ == "__main__":
 # of the new 3-tier vault (keyring → encrypted file → env).
 
 def list_secrets():
-    """List all vault entries (no secrets revealed). Covers file vault + env."""
+    """List all vault entries (no secrets revealed). Covers file vault + keyring index + env."""
     entries = []
+    seen = set()
     for name, meta in _read_store().items():
+        seen.add(name)
         entries.append({
             "id": name,
             "label": name,
@@ -296,6 +344,17 @@ def list_secrets():
             "backend": "file",
             "created_at": meta.get("created_at"),
         })
+    # OS keyring bejegyzések (indexből — Keychain nem listázható prompt nélkül)
+    for name in _keyring_index_names():
+        if name not in seen:
+            seen.add(name)
+            entries.append({
+                "id": name,
+                "label": name,
+                "type": "keyring",
+                "backend": "keyring",
+                "created_at": None,
+            })
     for k in sorted(os.environ):
         if k.startswith("A2A_VAULT_"):
             entries.append({
@@ -333,17 +392,32 @@ def delete_secret(entry_id):
             deleted = True
         except Exception:
             pass
+    _index_remove(entry_id)
     return deleted
 
 
 def get_vault_status():
     """Get vault status (legacy shape, new backend info)."""
     store = _read_store()
+    keyring_names = _keyring_index_names()
+    all_names = sorted(set(list(store.keys()) + keyring_names))
     return {
-        "initialized": os.path.exists(_vault_path()),
+        "initialized": os.path.exists(_vault_path()) or bool(keyring_names),
         "encrypted": True,
-        "entry_count": len(store),
-        "entries": list(store.keys()),
+        "entry_count": len(all_names),
+        "entries": all_names,
         "backend": backend_info(),
         "keyring_available": _keyring_lib() is not None,
     }
+
+
+def _keyring_index_names() -> list:
+    """Names stored in the OS keyring (tracked via index file)."""
+    try:
+        ip = _index_path()
+        if os.path.isfile(ip):
+            with open(ip, "r", encoding="utf-8") as f:
+                return sorted(json.load(f).keys())
+    except Exception:
+        pass
+    return []
