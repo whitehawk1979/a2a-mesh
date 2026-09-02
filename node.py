@@ -492,7 +492,7 @@ class MeshNode:
                     resp = A2AMessage.create(
                         sender=self.node_name,
                         recipient=message.sender,
-                        type="vault_response",
+                        msg_type="vault_response",
                         payload=resp_payload,
                     )
                     asyncio.create_task(self.router.send(resp))
@@ -501,7 +501,7 @@ class MeshNode:
                     resp = A2AMessage.create(
                         sender=self.node_name,
                         recipient=message.sender,
-                        type="vault_response",
+                        msg_type="vault_response",
                         payload=resp_payload,
                     )
                     asyncio.create_task(self.router.send(resp))
