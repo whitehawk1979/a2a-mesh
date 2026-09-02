@@ -39,7 +39,7 @@ log = logging.getLogger("vault_share")
 # ── Request/response registry (per node, in-memory) ────────────────────────
 
 _pending: Dict[str, asyncio.Future] = {}
-_TIMEOUT = 12.0  # seconds
+_TIMEOUT = 25.0  # seconds — P2P válaszvárás; ssh_tunnel fallback útvonal lassabb lehet restart után
 
 
 def _new_request_id() -> str:
