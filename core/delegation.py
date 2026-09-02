@@ -1323,15 +1323,16 @@ class DelegationManager:
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
 
-            # ── Ötletláda szinkron: ha a delegáció egy ötlethez tartozik (description.idea_id),
+            # ── Ötletláda szinkron: ha a delegáció egy ötlethez tartozik (desc.idea_id),
             # az ötlet done-ba kerül, + Kanban kártya auto-promotion ──
             try:
                 import json as _json_idea
                 _idea_id = None
                 try:
-                    _desc_d = _json_idea.loads(description) if isinstance(description, str) else (description or {})
-                    if isinstance(_desc_d, dict):
-                        _idea_id = _desc_d.get("idea_id") or _desc_d.get("context", {}).get("idea_id") if isinstance(_desc_d.get("context"), dict) else _desc_d.get("idea_id")
+                    if isinstance(desc, dict):
+                        _idea_id = desc.get("idea_id")
+                        if not _idea_id and isinstance(desc.get("context"), dict):
+                            _idea_id = desc["context"].get("idea_id")
                 except Exception:
                     _idea_id = None
                 if _idea_id:
