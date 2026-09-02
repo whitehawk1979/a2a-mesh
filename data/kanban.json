@@ -482,8 +482,8 @@
         "priority": 5,
         "assigned_to": "",
         "created_at": 1787090718.742094,
-        "updated_at": 1787091017.770528,
-        "delegation_task_id": "221669ea-71ed-4c5f-b845-f3d35b2f91d2",
+        "updated_at": 1788352610.464512,
+        "delegation_task_id": "e3073c47-c4ca-4b3c-8d1d-21961a15afa7",
         "description": "Írj egy 4 soros verset a tengerről.",
         "task_type": "code_generation",
         "review_status": "accept",
@@ -6912,30 +6912,30 @@
         "reviewed_at": 1788342568.046321
       },
       {
-        "id": "card-1788343855311-118",
-        "title": "[feature] OTLET-REVIEW-TEST: automatikus heti token-riport telegramon",
-        "description": "Hetente egyszer a token-felhasznalas osszesitese telegram uzenetben a tulajdonosnak, per-node bontasban",
+        "id": "card-1788352245220-110",
+        "title": "[diagnostic_network] Nagy kapcsolatszam (186)",
+        "description": "A nova node 186 aktiv kapcsolattal rendelkezik. Ez kapcsolatszivargasra utalhat.\n\nJelenlegi: 186 kapcsolat\nJavasolt: <50 kapcsolat\nIndoklás: A felesleges kapcsolatok eroforrasokat fogyasztanak es kapcsolatszivargasra utalnak.",
         "column": "done",
         "priority": "medium",
         "assigned_to": "",
         "parent_id": null,
-        "created_at": 1788343855.311102,
-        "updated_at": 1788343869.957321,
+        "created_at": 1788352245.220801,
+        "updated_at": 1788352580.68979,
         "created_by": "unknown",
-        "delegation_task_id": "67d2fdba-18a9-40d8-b5cf-5624274458fe"
+        "delegation_task_id": "66958131-ab2e-4060-8d5c-947cfeb7d2c2"
       },
       {
-        "id": "card-1788343868729-119",
-        "title": "[ötletláda] OTLET-REVIEW-TEST: automatikus heti token-riport telegramon",
-        "description": "{\"type\": \"generic\", \"description\": \"Hetente egyszer a token-felhasznalas osszesitese telegram uzenetben a tulajdonosnak, per-node bontasban\", \"idea_id\": \"idea_e5e2a8beddfa\", \"source\": \"otletlada_implement\"}",
+        "id": "card-1788352245557-111",
+        "title": "[ötletláda] Nagy kapcsolatszam (186)",
+        "description": "{\"type\": \"generic\", \"description\": \"A nova node 186 aktiv kapcsolattal rendelkezik. Ez kapcsolatszivargasra utalhat.\\n\\nJelenlegi: 186 kapcsolat\\nJavasolt: <50 kapcsolat\\nIndokl\\u00e1s: A felesleges kapcsolatok eroforrasokat fogyasztanak es kapcsolatszivargasra utalnak.\", \"idea_id\": \"idea_7d9314a61d3f\", \"source\": \"otletlada_implement\"}",
         "column": "done",
         "priority": "high",
         "assigned_to": "",
         "parent_id": null,
-        "created_at": 1788343868.729147,
-        "updated_at": 1788345641.678226,
+        "created_at": 1788352245.557066,
+        "updated_at": 1788352580.68979,
         "created_by": "unknown",
-        "delegation_task_id": "67d2fdba-18a9-40d8-b5cf-5624274458fe",
+        "delegation_task_id": "66958131-ab2e-4060-8d5c-947cfeb7d2c2",
         "delegation_status": "completed",
         "from_agent": "nova",
         "to_agent": "any",
@@ -6944,21 +6944,21 @@
             "agent": "nova",
             "role": "delegator",
             "action": "created task",
-            "timestamp": 1788343868.848138
+            "timestamp": 1788352245.65417
           },
           {
             "agent": "runa",
             "role": "executor",
             "action": "completed task",
-            "result": "[runa] Network check completed: 4/4 OK",
-            "timestamp": 1788343879.4035552
+            "result": "[runa] Acknowledged task '[otletlada] Nagy kapcsolatszam (186)' at 2026-09-02T12:30:[PHONE REDACTED]+00:00",
+            "timestamp": 1788352254.2859678
           },
           {
             "agent": "morzsa",
             "role": "reviewer",
             "action": "review delegated",
-            "review_task_id": "301dffd3",
-            "timestamp": 1788343885.3105521
+            "review_task_id": "db5d0990",
+            "timestamp": 1788352256.076724
           },
           {
             "agent": "morzsa",
@@ -6966,14 +6966,14 @@
             "action": "review: accept",
             "verdict": "accept",
             "reason": "",
-            "timestamp": 1788344262.958612
+            "timestamp": 1788352263.5509381
           },
           {
             "agent": "runa",
             "role": "executor",
             "action": "completed task",
-            "result": "[runa] Network check completed: 4/4 OK",
-            "timestamp": 1788344827.2849002
+            "result": "[runa] Acknowledged task '[otletlada] Nagy kapcsolatszam (186)' at 2026-09-02T12:30:[PHONE REDACTED]+00:00",
+            "timestamp": 1788352354.559724
           },
           {
             "agent": "morzsa",
@@ -6981,128 +6981,36 @@
             "action": "review: accept",
             "verdict": "accept",
             "reason": "",
-            "timestamp": 1788344827.35139
+            "timestamp": 1788352354.628497
           },
           {
             "agent": "morzsa",
             "role": "reviewer",
             "action": "review delegated",
-            "review_task_id": "95b8309a",
-            "timestamp": 1788344829.723316
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788344861.8028438
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345253.8358989
-          },
-          {
-            "agent": "runa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[runa] Network check completed: 4/4 OK",
-            "timestamp": 1788345254.278108
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345254.3450692
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "ab528f3c",
-            "timestamp": 1788345256.088713
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345267.667302
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345628.102859
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345628.698577
-          },
-          {
-            "agent": "runa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[runa] Network check completed: 4/4 OK",
-            "timestamp": 1788345629.60607
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345629.6842828
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "dfde482e",
-            "timestamp": 1788345631.036833
-          },
-          {
-            "agent": "morzsa",
-            "role": "reviewer",
-            "action": "review: accept",
-            "verdict": "accept",
-            "reason": "",
-            "timestamp": 1788345641.678766
+            "review_task_id": "f2352fef",
+            "timestamp": 1788352357.204017
           }
         ],
-        "delegation_result": "[runa] Network check completed: 4/4 OK",
-        "completed_at": "2026-09-02 10:11:17.210774+00:",
+        "delegation_result": "[runa] Acknowledged task '[otletlada] Nagy kapcsolatszam (186)' at 2026-09-02T12:30:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-09-02 12:30:50.427305+00:",
         "reviewer": "morzsa",
-        "review_task_id": "dfde482e-bffc-4e5e-9fd2-9cb9862743fd",
+        "review_task_id": "f2352fef-353c-480e-a4c1-1d753b976ec7",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788345641.6782238
+        "reviewed_at": 1788352354.6279309
       },
       {
-        "id": "card-1788345331463-108",
-        "title": "[ötletláda] AUTO-IMPL-TEST: elfogadas utan automatikus folyamatba kerules",
-        "description": "{\"type\": \"generic\", \"description\": \"Teszt: a promote-nak automatikusan in_progress-be kell tenni az otletet es delegaciot inditania\", \"idea_id\": \"idea_e43bdf2349bf\", \"source\": \"otletlada_implement\"}",
+        "id": "card-1788352415092-111",
+        "title": "[ötletláda] test",
+        "description": "{\"type\": \"generic\", \"description\": \"test\", \"idea_id\": \"idea_05324d3db801\", \"source\": \"otletlada_implement\"}",
         "column": "done",
         "priority": "high",
         "assigned_to": "",
         "parent_id": null,
-        "created_at": 1788345331.463691,
-        "updated_at": 1788345724.522358,
+        "created_at": 1788352415.0927029,
+        "updated_at": 1788352526.914409,
         "created_by": "unknown",
-        "delegation_task_id": "fcda820c-f7d2-475e-a374-11939537b5e0",
+        "delegation_task_id": "e3073c47-c4ca-4b3c-8d1d-21961a15afa7",
         "delegation_status": "completed",
         "from_agent": "nova",
         "to_agent": "any",
@@ -7111,65 +7019,157 @@
             "agent": "nova",
             "role": "delegator",
             "action": "created task",
-            "timestamp": 1788345331.543489
+            "timestamp": 1788352415.188736
           },
           {
             "agent": "runa",
             "role": "executor",
             "action": "completed task",
-            "result": "[runa] System analysis completed at 2026-09-02T10:35:[PHONE REDACTED]+00:00",
-            "timestamp": 1788345345.936337
+            "result": "[runa] System analysis completed at 2026-09-02T12:34:[PHONE REDACTED]+00:00",
+            "timestamp": 1788352485.256452
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "999f7959",
+            "timestamp": 1788352489.126834
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788352526.915176
+          }
+        ],
+        "delegation_result": "[runa] System analysis completed at 2026-09-02T12:34:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-09-02 12:34:42.613823+00:",
+        "reviewer": "tor",
+        "review_task_id": "999f7959-f136-4ef2-b464-0b4c979e60f9",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788352526.9144058
+      },
+      {
+        "id": "card-1788352417224-112",
+        "title": "[ötletláda] Verzioelteres a mesh-ben (0.37.2, 0.37.4)",
+        "description": "{\"type\": \"generic\", \"description\": \"A morzsa node es a peer-ek kozott verzioelteres van: 0.37.2, 0.37.4. Ez kompatibilitasi problemakat okozhat.\\n\\nJelenlegi: 0.37.2, 0.37.4\\nJavasolt: Egyetlen verzio\\nIndokl\\u00e1s: A verzioelteres miatt delegaciok, uzenetek es funkciok nem kompatibilisek lehetnek. Minden node frissitese ajanlott.\", \"idea_id\": \"idea_3c3642dbd378\", \"source\": \"otletlada_implement\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788352417.225009,
+        "updated_at": 1788352588.870304,
+        "created_by": "unknown",
+        "delegation_task_id": "ccb1b4dd-b589-42a4-a6d7-e0ec7bf1e64b",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788352417.310827
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Verzioelteres a mesh-ben (0.37.2, 0.37' — 28224 chars\n\n── Execution Output ──\n======================================================================\nA2A MESH — VERZIOELTERES JELENTES\n======================================================================\n\nIdobelyeg:     2026-09-02 15:35:50\nNode-ok:       6 (5 online)\nVerziok:       0.37.2, 0.37.4\nEgeszseges:    NEM\n\n----------------------------------------------------------------------\nVE",
+            "timestamp": 1788352552.388586
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "40713b23",
+            "timestamp": 1788352565.6027
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788352588.87082
+          }
+        ],
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Verzioelteres a mesh-ben (0.37.2, 0.37' — 28224 chars\n\n── Execution Output ──\n======================================================================\nA2A MESH — VERZIOELTERES JELENTES\n======================================================================\n\nIdobelyeg:     2026-09-02 15:35:50\nNode-ok:       6 (5 online)\nVerziok:       0.37.2, 0.37.4\nEgeszseges:    NEM\n\n----------------------------------------------------------------------\nVERZIO ELOSZLAS\n----------------------------------------------------------------------\n  0.37.2       | ███ (3 node)\n  0.37.4       | ███ (3 node)\n\n----------------------------------------------------------------------\nVERZIOELTERESEK ES KOMPATIBILITASI PROBLEMAK\n----------------------------------------------------------------------\n  [HIGH    ] morzsa-001 <-> peer-alpha\n           Verziok: 0.37.2 vs 0.37.4\n           Kompatibilitas: partial\n           Erintett funkciok: delegation_protocol_v2, message_envelope_schema, capability_negotiation\n\n  [HIGH    ] morzsa-001 <-> peer-beta\n           Verziok: 0.37.2 vs 0.37.4\n           Kompatibilitas: partial\n           Erintett funkciok: delegation_protocol_v2, message_envelope_schema, capability_negotiation\n\n  [HIGH    ] morzsa-001 <-> relay-001\n           Verziok: 0.37.2 vs 0.37.4\n           Kompatibilitas: partial\n           Erintett funkciok: delegation_protocol_v2, message_envelope_schema, capability_negotiation\n\n  [HIGH    ] peer-alpha <-> peer-gamma\n           Verziok: 0.37.4 vs 0.37.2\n           Kompatibilitas: partial\n           Erintett funkciok: delegation_protocol_v2, message_envelope_schema, capability_negotiation\n\n  [HIGH    ] peer-alpha <-> bootstrap-001\n           Verziok: 0.37.4 vs 0.37.2\n           Kompatibilitas: partial\n           Erintett funkciok: delegation_protocol_v2, message_envelope_schema, capability_negotiation\n\n  [HIGH    ] peer-beta <-> peer-gamma\n           Verziok: 0.37.4 vs 0.37.2\n           Kompatibil",
+        "completed_at": "2026-09-02 12:35:51.554985+00:",
+        "reviewer": "tor",
+        "review_task_id": "40713b23-4d80-4f62-8c33-7ad9291b5d70",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788352588.870301
+      },
+      {
+        "id": "card-1788352418884-113",
+        "title": "[ötletláda] Teszt ötlet",
+        "description": "{\"type\": \"generic\", \"description\": \"Teszt\", \"idea_id\": \"idea_7a5c484d3515\", \"source\": \"otletlada_implement\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788352418.884485,
+        "updated_at": 1788352503.338741,
+        "created_by": "unknown",
+        "delegation_task_id": "b3b36777-c6ec-46bd-a083-7a1e509529aa",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788352418.974845
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Acknowledged task '[otletlada] Teszt otlet' at 2026-09-02T12:34:[PHONE REDACTED]+00:00",
+            "timestamp": 1788352486.939322
           },
           {
             "agent": "morzsa",
             "role": "reviewer",
             "action": "review delegated",
-            "review_task_id": "bcb49d65",
-            "timestamp": 1788345347.923051
+            "review_task_id": "e5d6cd8f",
+            "timestamp": 1788352490.14037
           },
           {
-            "agent": "runa",
-            "role": "executor",
-            "action": "completed task",
-            "result": "[runa] System analysis completed at 2026-09-02T10:35:[PHONE REDACTED]+00:00",
-            "timestamp": 1788345626.448828
-          },
-          {
-            "agent": "tor",
-            "role": "reviewer",
-            "action": "review delegated",
-            "review_task_id": "f54483de",
-            "timestamp": 1788345628.837004
-          },
-          {
-            "agent": "tor",
+            "agent": "morzsa",
             "role": "reviewer",
             "action": "review: accept",
             "verdict": "accept",
             "reason": "",
-            "timestamp": 1788345724.5229309
+            "timestamp": 1788352503.3399858
           }
         ],
-        "delegation_result": "[runa] System analysis completed at 2026-09-02T10:35:[PHONE REDACTED]+00:00",
-        "completed_at": "2026-09-02 10:35:42.991303+00:",
-        "reviewer": "tor",
-        "review_task_id": "f54483de-b9cf-4c37-a318-2cbe567abe9e",
+        "delegation_result": "[runa] Acknowledged task '[otletlada] Teszt otlet' at 2026-09-02T12:34:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-09-02 12:34:38.661191+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "e5d6cd8f-5737-4965-a525-3c4cdda82395",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788345724.522354
+        "reviewed_at": 1788352503.338737
       },
       {
-        "id": "card-1788345751830-110",
-        "title": "[ötletláda] FULL-CYCLE-TEST: bekuldes→elfogadas→autoimplement→done",
-        "description": "{\"type\": \"generic\", \"description\": \"Teljes kor teszt a 45dd03a fixszel\", \"idea_id\": \"idea_763b55ffa859\", \"source\": \"otletlada_implement\"}",
+        "id": "card-1788352420906-114",
+        "title": "[ötletláda] Test: Diagnostic comment system",
+        "description": "{\"type\": \"generic\", \"description\": \"Teszt \\u00f6tlet a komment rendszerhez\", \"idea_id\": \"idea_f763af79f573\", \"source\": \"otletlada_implement\"}",
         "column": "done",
         "priority": "high",
         "assigned_to": "",
         "parent_id": null,
-        "created_at": 1788345751.83039,
-        "updated_at": 1788345806.721835,
+        "created_at": 1788352420.906752,
+        "updated_at": 1788352525.6543832,
         "created_by": "unknown",
-        "delegation_task_id": "18ed6254-1a28-4594-bfd6-a7bb0b30ae0f",
+        "delegation_task_id": "17f34dda-2f36-4f1f-97e8-660e7c758130",
         "delegation_status": "completed",
         "from_agent": "nova",
         "to_agent": "any",
@@ -7178,21 +7178,21 @@
             "agent": "nova",
             "role": "delegator",
             "action": "created task",
-            "timestamp": 1788345751.8997738
+            "timestamp": 1788352421.000135
           },
           {
             "agent": "runa",
             "role": "executor",
             "action": "completed task",
-            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] FULL-CYCLE-TEST: bekuldes→elfogadas→au' — 7413 chars\n\n── Execution Output ──\n============================================================\nFULL-CYCLE-TEST | fix=45dd03a\nworkdir=/tmp/fullcycle__vt53lt1\n============================================================\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | bekuldes | submission_created | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | elfogadas |",
-            "timestamp": 1788345781.665042
+            "result": "[runa] System analysis completed at 2026-09-02T12:34:[PHONE REDACTED]+00:00",
+            "timestamp": 1788352494.203083
           },
           {
             "agent": "tor",
             "role": "reviewer",
             "action": "review delegated",
-            "review_task_id": "0240726b",
-            "timestamp": 1788345792.925025
+            "review_task_id": "ce64d80b",
+            "timestamp": 1788352496.666811
           },
           {
             "agent": "tor",
@@ -7200,20 +7200,20 @@
             "action": "review: accept",
             "verdict": "accept",
             "reason": "",
-            "timestamp": 1788345806.7223701
+            "timestamp": 1788352525.6549141
           }
         ],
-        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] FULL-CYCLE-TEST: bekuldes→elfogadas→au' — 7413 chars\n\n── Execution Output ──\n============================================================\nFULL-CYCLE-TEST | fix=45dd03a\nworkdir=/tmp/fullcycle__vt53lt1\n============================================================\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | bekuldes | submission_created | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | elfogadas | transition | -> elfogadas\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | elfogadas | accepted | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | autoimplement | transition | -> autoimplement\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | autoimplement | implemented | patch=/tmp/fullcycle__vt53lt1/patches/45dd03a.patch.json\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | done | transition | -> done\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | done | done | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | done | transition_blocked | Illegal transition: done -> bekuldes\n============================================================\nRESULT: done | accepted=True | implemented=True\nhistory events: 8\n============================================================\nReport written: /tmp/fullcycle__vt53lt1/report.json\nFULL-CYCLE-TEST PASSED\nWorkdir retained at: /tmp/fullcycle__vt53lt1\n",
-        "completed_at": "2026-09-02 10:42:56.609557+00:",
+        "delegation_result": "[runa] System analysis completed at 2026-09-02T12:34:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-09-02 12:34:49.424641+00:",
         "reviewer": "tor",
-        "review_task_id": "0240726b-5683-4620-beb4-dfe2b03f9560",
+        "review_task_id": "ce64d80b-c012-4f76-afa5-47f1b0d52f95",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788345806.7218292
+        "reviewed_at": 1788352525.654379
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788345792.4098308
+    "updated_at": 1788352563.360252
   },
   {
     "id": "board-archive-orphaned-20260830",
@@ -8541,38 +8541,7 @@
   {
     "id": "board-archive-orphaned-20260902",
     "name": "Archive — orphaned cards (auto)",
-    "cards": [
-      {
-        "id": "card-1788345331107-107",
-        "title": "[feature] AUTO-IMPL-TEST: elfogadas utan automatikus folyamatba kerules",
-        "description": "Teszt: a promote-nak automatikusan in_progress-be kell tenni az otletet es delegaciot inditania",
-        "column": "in_progress",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1788345331.107053,
-        "updated_at": 1788345332.309303,
-        "created_by": "unknown",
-        "delegation_task_id": "fcda820c-f7d2-475e-a374-11939537b5e0",
-        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
-        "archived_at": 1788349232.7606888
-      },
-      {
-        "id": "card-1788345751489-109",
-        "title": "[feature] FULL-CYCLE-TEST: bekuldes→elfogadas→autoimplement→done",
-        "description": "Teljes kor teszt a 45dd03a fixszel",
-        "column": "in_progress",
-        "priority": "medium",
-        "assigned_to": "",
-        "parent_id": null,
-        "created_at": 1788345751.48963,
-        "updated_at": 1788345752.464463,
-        "created_by": "unknown",
-        "delegation_task_id": "18ed6254-1a28-4594-bfd6-a7bb0b30ae0f",
-        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
-        "archived_at": 1788349232.7606888
-      }
-    ],
+    "cards": [],
     "created_at": 1788349232.7606888
   }
 ]
