@@ -1323,6 +1323,26 @@ class DelegationManager:
                 )
             await self.add_note(task_id, f"Task completed: {result_text[:200]}")
 
+            # ── Ötletláda szinkron: ha a delegáció egy ötlethez tartozik (description.idea_id),
+            # az ötlet done-ba kerül, + Kanban kártya auto-promotion ──
+            try:
+                import json as _json_idea
+                _idea_id = None
+                try:
+                    _desc_d = _json_idea.loads(description) if isinstance(description, str) else (description or {})
+                    if isinstance(_desc_d, dict):
+                        _idea_id = _desc_d.get("idea_id") or _desc_d.get("context", {}).get("idea_id") if isinstance(_desc_d.get("context"), dict) else _desc_d.get("idea_id")
+                except Exception:
+                    _idea_id = None
+                if _idea_id:
+                    await self.pg_pool.execute(
+                        "UPDATE mesh.mesh_ideas SET status = 'done', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1 AND status IN ('in_progress', 'approved', 'idea')",
+                        _idea_id,
+                    )
+                    log.info(f"💡 Ötletláda szinkron: idea {_idea_id} → done (delegáció {str(task_id)[:8]} completed)")
+            except Exception as _idea_err:
+                log.debug(f"Ötletláda sync (non-fatal): {_idea_err}")
+
             # ── Kanban auto-promotion: review → done when the delegation completes ──
             # Prevents cards stuck in review forever (the 'Ellenőrzés' pile-up bug).
             try:
