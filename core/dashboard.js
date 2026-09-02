@@ -4096,6 +4096,7 @@ function loadMarveenPage(page) {
     'topology': function(d) {
       if (d.error) return errorBox(d.error);
       var nodes = d.nodes || [];
+      if (!Array.isArray(nodes) && typeof nodes === 'object') nodes = Object.keys(nodes).map(function(k) { var n = nodes[k] || {}; n.name = n.name || k; return n; });
       var conns = d.connections || [];
       var localNode = d.local_node || '?';
       var html = '';
@@ -4208,9 +4209,10 @@ function loadMarveenPage(page) {
       }
       html += '</div>';
       // Circuit breakers
-      if (d.circuit_breakers && d.circuit_breakers.length) {
+      if (d.circuit_breakers && (Array.isArray(d.circuit_breakers) ? d.circuit_breakers.length : Object.keys(d.circuit_breakers).length)) {
+        var cbs = Array.isArray(d.circuit_breakers) ? d.circuit_breakers : Object.keys(d.circuit_breakers).map(function(k) { var cb = d.circuit_breakers[k] || {}; cb.name = cb.name || k; return cb; });
         html += '<h3 style="margin:0 0 8px;font-size:13px;">⚡ Circuit Breakerek</h3>';
-        d.circuit_breakers.forEach(function(cb) {
+        cbs.forEach(function(cb) {
           var cbColor = cb.state === 'closed' ? 'var(--success)' : cb.state === 'open' ? 'var(--danger)' : 'var(--warning)';
           html += card('<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:9px;padding:2px 6px;border-radius:4px;background:' + cbColor + '22;color:' + cbColor + ';">' + esc(cb.state || '?') + '</span><strong style="font-size:12px;flex:1;">' + esc(cb.name || cb.target || '?') + '</strong><span style="font-size:10px;color:var(--text3);">Failures: ' + esc(cb.failures || 0) + '</span></div>');
         });
@@ -4243,14 +4245,13 @@ function loadMarveenPage(page) {
       return html;
     },
     'alerts': function(d) {
-      var html = '';
-      html += '<div style="margin-bottom:12px;"><button onclick="showAlertRuleEditor()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új szabály</button></div>';
       if (d.error) return errorBox(d.error);
       var running = d.running;
       var totalRules = d.total_rules || 0;
       var firing = d.firing || 0;
       var rules = d.rules || [];
       var html = '';
+      html += '<div style="margin-bottom:12px;"><button onclick="showAlertRuleEditor()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új szabály</button></div>';
       html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
       html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:' + (running ? 'var(--success)' : 'var(--danger)') + ';">' + (running ? 'Aktív' : 'Leállt') + '</div><div style="font-size:10px;color:var(--text3);">Státusz</div></div>';
       html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--primary);">' + totalRules + '</div><div style="font-size:10px;color:var(--text3);">Szabályok</div></div>';
@@ -4274,6 +4275,7 @@ function loadMarveenPage(page) {
     'health': function(d) {
       if (d.error) return errorBox(d.error);
       var agents = d.agents || [];
+      if (!Array.isArray(agents) && typeof agents === 'object') agents = Object.keys(agents).map(function(k) { var a = agents[k] || {}; a.name = a.name || a.agent || k; return a; });
       var agentCount = d.agent_count || agents.length;
       var html = '';
       html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
