@@ -4245,12 +4245,14 @@ echo "Status: ok"
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
-                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "peer_offline", "peer_online"):
+                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "peer_offline", "peer_online",
+                                                    "vault_request", "vault_share", "vault_response"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
                                 # regardless of priority level (file_transfer, memory_sync, diagnostic)
-                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online"):
+                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online",
+                                                "vault_request", "vault_share", "vault_response"):
                                     log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:
