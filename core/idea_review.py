@@ -31,8 +31,15 @@ MIN_VOTES_FOR_REVIEW = 0  # minden ötletet megnéz, ami legalább ennyi szavaza
 
 # ── P2P: agent → ötletláda ─────────────────────────────────────────────────
 
-AUTO_APPROVE_SCORE = 2   # +2 → automatikus elfogadás + megvalósítás
-AUTO_REJECT_SCORE = -2    # -2 → automatikus elutasítás
+AUTO_APPROVE_SCORE = 2   # +2 → azonnali automatikus elfogadás + megvalósítás
+AUTO_REJECT_SCORE = -2    # -2 → azonnali automatikus elutasítás
+
+# ── Idő-alapú érés (age-based promotion) ────────────────────────────────────
+# Az ötlet nem ragadhat örökre egy +1-es szavazaton. A review-loop minden körben
+# (6h) ellenőrzi a korokat és determinisztikus idő-szabályokat alkalmaz:
+AGE_APPROVE_HOURS = 48    # 48h után score >= +1 → auto-elfogadás
+AGE_REVIEW_HOURS = 48     # 48h után score == 0  → koordinátor-review dönt
+AGE_REJECT_HOURS = 72     # 72h után score <= -1 → auto-elutasítás
 
 
 def make_implement_fn(node, pg_pool):
@@ -195,6 +202,97 @@ def _is_coordinator(node) -> bool:
     except Exception:
         pass
     return False
+
+
+async def apply_age_rules(node, pg_pool) -> list:
+    """Idő-alapú érés: a nyitott ötletek kora szerinti determinisztikus továbbléptetés.
+
+    A review-loop minden körében (6h) fut, CSAK a coordinatoron:
+      - 48h-nál idősebb, score >= +1  → auto-elfogadás (+ implement)
+      - 48h-nál idősebb, score == 0   → LLM-review dönt (buildable → elfogadás)
+      - 72h-nál idősebb, score <= -1  → auto-elutasítás
+
+    Így a +1-es ötletek sem ragadnak be örökre: ha 2 napig senki nem ellenezte,
+    az egy pozitív szavazat is elegendő az induláshoz.
+    """
+    if not pg_pool:
+        return []
+    _coord = f"coordinator:{getattr(node, 'node_name', 'coordinator')}"
+    actions = []
+    try:
+        rows = await pg_pool.fetch(
+            """SELECT idea_id, title, description, assigned_to, category, priority,
+                      upvotes, downvotes, (upvotes - downvotes) AS score,
+                      EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 AS age_hours
+               FROM mesh.mesh_ideas
+               WHERE status = 'idea'
+               ORDER BY created_at ASC LIMIT 50""",
+        )
+    except Exception as e:
+        log.warning(f"age-rules query failed: {e}")
+        return []
+
+    impl_fn = getattr(node, "_idea_implement_fn", None)
+    for r in rows:
+        age = float(r["age_hours"] or 0)
+        score = int(r["score"] or 0)
+        idea_id = r["idea_id"]
+        if age >= AGE_REJECT_HOURS and score <= -1:
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_ideas SET status = 'rejected', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1",
+                idea_id,
+            )
+            actions.append({"idea_id": idea_id, "action": "age_rejected", "age_h": round(age), "score": score})
+            log.info(f"⏳ Age-reject: {idea_id} ({round(age)}h, score {score}) → rejected")
+        elif age >= AGE_APPROVE_HOURS and score >= 1:
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_ideas SET status = 'approved', updated_at = NOW() WHERE idea_id = $1",
+                idea_id,
+            )
+            action = "age_approved"
+            if impl_fn:
+                try:
+                    impl = await impl_fn(r, idea_id)
+                    if impl:
+                        action = "age_implemented"
+                except Exception as e:
+                    log.warning(f"Age-implement failed for {idea_id}: {e}")
+            actions.append({"idea_id": idea_id, "action": action, "age_h": round(age), "score": score})
+            log.info(f"⏳ Age-approve: {idea_id} ({round(age)}h, score {score}) → {action}")
+        elif age >= AGE_REVIEW_HOURS and score == 0:
+            # 0 score, 48h: koordinátor LLM-review dönt — buildable → elfogadás
+            try:
+                verdict = await _llm_review_idea(node, r)
+                await pg_pool.execute(
+                    "INSERT INTO mesh.mesh_idea_comments (idea_id, author, comment) VALUES ($1, $2, $3)",
+                    idea_id, "coordinator_review",
+                    _format_review_comment(verdict, r) + "\n\n⏳ Idő-alapú review (48h, 0 score): a koordinátor döntött.",
+                )
+                if verdict.get("buildable"):
+                    await pg_pool.execute(
+                        "UPDATE mesh.mesh_ideas SET status = 'approved', updated_at = NOW() WHERE idea_id = $1",
+                        idea_id,
+                    )
+                    action = "age_review_approved"
+                    if impl_fn:
+                        try:
+                            impl = await impl_fn(r, idea_id)
+                            if impl:
+                                action = "age_review_implemented"
+                        except Exception:
+                            pass
+                    log.info(f"⏳ Age-review approve: {idea_id} (48h, score 0, buildable) → {action}")
+                else:
+                    await pg_pool.execute(
+                        "UPDATE mesh.mesh_ideas SET status = 'rejected', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1",
+                        idea_id,
+                    )
+                    action = "age_review_rejected"
+                    log.info(f"⏳ Age-review reject: {idea_id} (48h, score 0, nem buildable)")
+                actions.append({"idea_id": idea_id, "action": action, "age_h": round(age), "score": score})
+            except Exception as e:
+                log.warning(f"Age-review failed for {idea_id}: {e}")
+    return actions
 
 
 async def review_ideas_with_llm(node, pg_pool) -> list:
@@ -360,6 +458,11 @@ async def start_review_loop(node) -> Optional[asyncio.Task]:
                     await asyncio.sleep(REVIEW_INTERVAL)
                     continue
                 pg_pool = getattr(node, "_pg_pool", None)
+                # 1. Idő-alapú érés: régi ötletek determinisztikus továbbléptetése
+                age_actions = await apply_age_rules(node, pg_pool)
+                if age_actions:
+                    log.info(f"⏳ Age-rules: {len(age_actions)} ötlet idő-szabály alapján továbblépve")
+                # 2. LLM-review az újaknak
                 results = await review_ideas_with_llm(node, pg_pool)
                 if results:
                     log.info(f"🛡️ Idea review kör: {len(results)} ötlet felülvizsgálva")

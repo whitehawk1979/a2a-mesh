@@ -3133,6 +3133,27 @@ function loadMarveenPage(page) {
           var priColor = idea.priority === 'high' ? 'var(--danger)' : idea.priority === 'low' ? 'var(--text3)' : 'var(--primary)';
           var sourceBadge = idea.source_type === 'agent' ? '<span style="font-size:9px;background:#3b1f5f;color:#c084fc;padding:1px 6px;border-radius:8px;">🤖</span>' : '';
           var integratedBadge = idea.integrated ? '<span style="font-size:9px;background:#14532d;color:#4ade80;padding:1px 6px;border-radius:8px;font-weight:600;" title="Beépült a repóba: ' + esc(idea.integrated_file || '') + '">📦 beépítve</span>' : '';
+          // Idő-alapú továbblépés jelzése: hátralévő órák a 48h/72h küszöbig
+          var ageBadge = '';
+          if (idea.status === 'idea' && idea.created_at) {
+            var ageH = Math.floor((Date.now() - new Date(idea.created_at).getTime()) / 3600000);
+            var remaining = 48 - ageH;
+            if (idea.score >= 1) {
+              ageBadge = remaining > 0
+                ? '<span style="font-size:9px;background:#1e3a5f;color:#60a5fa;padding:1px 6px;border-radius:8px;" title="48h után score ≥ +1 esetén automatikus elfogadás">⏳ ' + remaining + 'h → auto</span>'
+                : '<span style="font-size:9px;background:#14532d;color:#4ade80;padding:1px 6px;border-radius:8px;">⏳ küszöb elérve</span>';
+            } else if (idea.score === 0) {
+              var remainingR = 48 - ageH;
+              ageBadge = remainingR > 0
+                ? '<span style="font-size:9px;background:#3b2f5f;color:#a78bfa;padding:1px 6px;border-radius:8px;" title="48h után 0 score-nál koordinátor-review dönt">⏳ ' + remainingR + 'h → review</span>'
+                : '<span style="font-size:9px;background:#3b2f5f;color:#c084fc;padding:1px 6px;border-radius:8px;">⏳ review dönt</span>';
+            } else {
+              var remainingRej = 72 - ageH;
+              ageBadge = remainingRej > 0
+                ? '<span style="font-size:9px;background:#5f1e1e;color:#f87171;padding:1px 6px;border-radius:8px;" title="72h után negatív score-nál automatikus elutasítás">⏳ ' + remainingRej + 'h →reject</span>'
+                : '<span style="font-size:9px;background:#5f1e1e;color:#ef4444;padding:1px 6px;border-radius:8px;">⏳ reject küszöb</span>';
+            }
+          }
           html += '<div onclick="showIdeaDetail(\'' + esc(idea.id) + '\')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;transition:border-color .15s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'" id="idea-' + esc(idea.id) + '">' +
             '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;">' +
             '<strong style="font-size:13px;flex:1;">' + esc(idea.title) + '</strong>' +
@@ -3145,7 +3166,7 @@ function loadMarveenPage(page) {
             '<span style="color:#4ade80;">👍 ' + esc(idea.upvotes) + '</span>' +
             '<span style="color:#ef4444;">👎 ' + esc(idea.downvotes) + '</span>' +
             '<span style="font-weight:600;color:' + (idea.score > 0 ? '#4ade80' : idea.score < 0 ? '#ef4444' : 'var(--text3)') + ';">' + (idea.score > 0 ? '+' : '') + esc(idea.score) + '</span>' +
-            '<span style="margin-left:auto;color:var(--text3);">' + integratedBadge + ' ' + sourceBadge + ' ' + esc(idea.submitted_by) + '</span>' +
+            '<span style="margin-left:auto;color:var(--text3);">' + ageBadge + ' ' + integratedBadge + ' ' + sourceBadge + ' ' + esc(idea.submitted_by) + '</span>' +
             '</div>' +
             '</div>';
         });
