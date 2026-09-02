@@ -1348,11 +1348,19 @@ class DelegationManager:
                         _integrated_file = _m.group(1) if _m else None
                     await self.pg_pool.execute(
                         """UPDATE mesh.mesh_ideas
-                           SET status = 'done', updated_at = NOW(), closed_at = NOW(),
-                               integrated = $2,
-                               integrated_at = CASE WHEN $2 THEN NOW() ELSE integrated_at END,
-                               integrated_file = COALESCE($3, integrated_file)
+                           SET status = 'done', updated_at = NOW(), closed_at = NOW()
                            WHERE idea_id = $1 AND status IN ('in_progress', 'approved', 'idea')""",
+                        _idea_id,
+                    )
+                    # Beépítettség külön UPDATE: soha nem rollbackol (false-ra nem ír
+                    # felül true-t), és a done-státuszt is eléri — a fan-out race miatt
+                    # több szinkron is futhat ugyanarra az ötletre.
+                    await self.pg_pool.execute(
+                        """UPDATE mesh.mesh_ideas
+                           SET integrated = (integrated OR $2),
+                               integrated_at = CASE WHEN $2 AND integrated_at IS NULL THEN NOW() ELSE integrated_at END,
+                               integrated_file = COALESCE($3, integrated_file)
+                           WHERE idea_id = $1""",
                         _idea_id, _integrated, _integrated_file,
                     )
                     log.info(f"💡 Ötletláda szinkron: idea {_idea_id} → done (delegáció {str(task_id)[:8]} completed, integrated={_integrated})")
