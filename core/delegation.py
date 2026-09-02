@@ -980,6 +980,14 @@ class DelegationManager:
             task_id = task_dict.get("task_id", "")
             from_agent = task_dict.get("from_agent", "")
             priority = int(task_dict.get("priority", 5))
+
+            # Distribute-mode targeting: if the task is aimed at a SPECIFIC
+            # agent (to_agent != 'any'), only that agent may claim it.
+            # Without this, the fastest poller hoards all distribute children.
+            row_to_agent = task_dict.get("to_agent", "") or "any"
+            if row_to_agent not in ("", "any", self.node_name):
+                log.debug(f"Skipping task {task_id}: distribute-targeted at '{row_to_agent}', not us ({self.node_name})")
+                continue
             
             # Don't claim our own tasks — let other agents handle them
             # EXCEPTION: local_maintenance tasks MUST be executed by the owner node
