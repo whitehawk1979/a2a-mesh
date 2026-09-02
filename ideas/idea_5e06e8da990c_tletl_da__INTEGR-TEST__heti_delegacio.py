@@ -360,7 +360,7 @@ def format_duration(seconds: float) -> str:
         return f"{seconds:.1f}s"
     if seconds < 3600:
         return f"{seconds / 60:.1f}p"
-    return f"{seconds / 3600:.2h}".replace("h", "ó") if seconds < 86400 else f"{seconds / 3600:.1f}ó"
+    return f"{seconds / 3600:.2f}ó" if seconds < 86400 else f"{seconds / 3600:.1f}ó"
 
 
 def print_report(report: Dict[str, Any]) -> None:
