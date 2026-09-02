@@ -4277,22 +4277,64 @@ function loadMarveenPage(page) {
       var agents = d.agents || [];
       if (!Array.isArray(agents) && typeof agents === 'object') agents = Object.keys(agents).map(function(k) { var a = agents[k] || {}; a.name = a.name || a.agent || k; return a; });
       var agentCount = d.agent_count || agents.length;
+      // Score normalizáció: API 0-1 skálát ad (1.0 = tökéletes), megjelenítés 0-100
+      agents.forEach(function(a) { var s = Number(a.score || a.health_score || 0); a._score = (s > 0 && s <= 1) ? Math.round(s * 100) : Math.round(s); });
+      var avgScore = agents.length ? Math.round(agents.reduce(function(t, a) { return t + a._score; }, 0) / agents.length) : 0;
+      var totReq = agents.reduce(function(t, a) { return t + (a.requests || 0); }, 0);
+      var totSucc = agents.reduce(function(t, a) { return t + (a.successes || 0); }, 0);
+      var totFail = agents.reduce(function(t, a) { return t + (a.failures || 0); }, 0);
+      var avgLat = agents.length ? Math.round(agents.reduce(function(t, a) { return t + (a.avg_latency_ms || 0); }, 0) / agents.length) : 0;
+      var totDeleg = agents.reduce(function(t, a) { return t + (a.active_delegations || 0); }, 0);
+      var failRate = totReq ? Math.round(totFail / totReq * 100) : 0;
+      var avgColor = avgScore >= 80 ? 'var(--success)' : avgScore >= 50 ? 'var(--warning)' : 'var(--danger)';
       var html = '';
-      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
-      html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;"><div style="font-size:18px;font-weight:700;color:var(--primary);">' + agentCount + '</div><div style="font-size:10px;color:var(--text3);">Agentek</div></div>';
+      // ── Összesítő stat kártyák ──
+      html += '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">';
+      var stats = [
+        {l: 'Agentek', v: agentCount, c: 'var(--primary)'},
+        {l: 'Átlag score', v: avgScore + '%', c: avgColor},
+        {l: 'Kérések', v: totReq, c: 'var(--text)'},
+        {l: 'Sikeres', v: totSucc, c: 'var(--success)'},
+        {l: 'Hibás', v: totFail + ' (' + failRate + '%)', c: totFail ? 'var(--danger)' : 'var(--success)'},
+        {l: 'Átlag latency', v: avgLat + 'ms', c: 'var(--warning)'},
+        {l: 'Aktív delegek', v: totDeleg, c: '#c084fc'}
+      ];
+      stats.forEach(function(s) {
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;text-align:center;min-width:74px;flex:1;"><div style="font-size:16px;font-weight:700;color:' + s.c + ';">' + esc(s.v) + '</div><div style="font-size:9px;color:var(--text3);margin-top:2px;">' + esc(s.l) + '</div></div>';
+      });
       html += '</div>';
       if (!agents.length) return html + empty('Nincs egészség adat');
+      // ── Agent kártyák ──
+      html += '<h3 style="margin:0 0 8px;font-size:13px;color:var(--text2);">🩺 Agent állapot</h3>';
       html += '<div style="display:flex;flex-direction:column;gap:8px;">';
       agents.forEach(function(a) {
-        var score = a.score || a.health_score || 0;
+        var score = a._score;
         var scoreColor = score >= 80 ? 'var(--success)' : score >= 50 ? 'var(--warning)' : 'var(--danger)';
-        html += card('<div style="display:flex;align-items:center;gap:8px;">' +
-          '<div style="width:40px;height:40px;border-radius:50%;background:' + scoreColor + ';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;">' + esc(Math.round(score)) + '</div>' +
-          '<div style="flex:1;"><strong style="font-size:13px;">' + esc(a.name || a.agent || '—') + '</strong>' +
-          '<div style="font-size:10px;color:var(--text3);margin-top:2px;">Sikeres: ' + esc(a.successes || 0) + ' • Hibás: ' + esc(a.failures || 0) + ' • Utolsó: ' + fmtTime(a.last_seen || a.last_success) + '</div>' +
+        var stateColor = a.agent_state === 'idle' ? 'var(--success)' : a.agent_state === 'busy' ? 'var(--warning)' : 'var(--danger)';
+        html += card('<div style="display:flex;align-items:center;gap:10px;">' +
+          '<div style="width:44px;height:44px;border-radius:50%;background:' + scoreColor + ';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;">' + score + '</div>' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;"><strong style="font-size:13px;">' + esc(a.name || '—') + '</strong>' +
+            badge(a.agent_state || 'ismeretlen', stateColor) +
+            (a.consecutive_failures > 0 ? badge('⚠ ' + a.consecutive_failures + ' sorozathiba', 'var(--danger)') : '') +
+            (a.active_delegations > 0 ? badge('📋 ' + a.active_delegations + ' delegálás', '#c084fc') : '') +
+            '</div>' +
+            '<div style="display:flex;gap:10px;margin-top:4px;font-size:10px;color:var(--text3);flex-wrap:wrap;">' +
+              '<span>📤 ' + esc(a.requests || 0) + ' kérés</span>' +
+              '<span style="color:var(--success);">✅ ' + esc(a.successes || 0) + '</span>' +
+              '<span style="color:' + (a.failures ? 'var(--danger)' : 'var(--text3)') + ';">❌ ' + esc(a.failures || 0) + '</span>' +
+              '<span>⚡ ' + esc(a.avg_latency_ms || 0) + 'ms</span>' +
+            '</div>' +
+            '<div style="display:flex;gap:4px;margin-top:4px;font-size:9px;flex-wrap:wrap;">' +
+              '<span style="padding:1px 6px;border-radius:8px;background:var(--surface2);color:var(--text3);">Primary: ' + esc(a.provider_primary || '?') + '</span>' +
+              '<span style="padding:1px 6px;border-radius:8px;background:var(--surface2);color:var(--text3);">Fallback: ' + esc(a.provider_fallback || '?') + '</span>' +
+            '</div>' +
           '</div></div>');
       });
       html += '</div>';
+      // ── Extras placeholder-ek (async betöltés) ──
+      html += '<div id="health-nodes-section" style="margin-top:12px;"></div>';
+      html += '<div id="health-p2p-section" style="margin-top:12px;"></div>';
       return html;
     },
     'diagnostics': function(d) {
@@ -6482,11 +6524,74 @@ window._loadSysinfoExtras = function() {
         else if (page === 'network') window._loadNetworkExtras();
         else if (page === 'security') { window._loadSecurityExtras(); window._loadSessionInfo(); }
         else if (page === 'sysinfo') window._loadSysinfoExtras();
+        else if (page === 'health') window._loadHealthExtras();
       }, 100);
     };
     window.loadMarveenPage._hooked = true;
   }
 })();
+
+// ── Health extras: node erőforrások + P2P hálózat ──
+window._loadHealthExtras = function() {
+  function _hb(text, color) {
+    var c = color || 'var(--primary)';
+    return '<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:' + c + '22;color:' + c + ';">' + String(text == null ? '' : text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span>';
+  }
+  // Node CPU/mem/disk
+  window._fetchSection('/api/health/nodes', 'health-nodes-section', function(d) {
+    var nodes = d.nodes || [];
+    if (!Array.isArray(nodes) && typeof nodes === 'object') nodes = Object.keys(nodes).map(function(k) { var n = nodes[k] || {}; n.node_name = n.node_name || k; return n; });
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;color:var(--text2);">🖥️ Node erőforrások</h3>';
+    if (!nodes.length) return h + '<div style="color:var(--text3);font-size:11px;">Nincs node adat</div>';
+    h += '<div style="display:flex;flex-direction:column;gap:6px;">';
+    nodes.forEach(function(n) {
+      function bar(pct, warn) {
+        var color = pct >= 90 ? 'var(--danger)' : pct >= (warn || 70) ? 'var(--warning)' : 'var(--success)';
+        return '<div style="display:flex;align-items:center;gap:6px;">' +
+          '<div style="flex:1;height:8px;background:var(--surface2);border-radius:4px;overflow:hidden;min-width:60px;"><div style="width:' + Math.min(pct, 100) + '%;height:100%;background:' + color + ';border-radius:4px;"></div></div>' +
+          '<span style="font-size:10px;color:var(--text2);min-width:36px;text-align:right;">' + (pct >= 100 ? '100' : Math.round(pct)) + '%</span></div>';
+      }
+      var stColor = n.status === 'active' ? 'var(--success)' : 'var(--danger)';
+      h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+          '<strong style="font-size:12px;">' + esc(n.node_name || '?') + '</strong>' +
+          _hb(n.status || '?', stColor) +
+          '<span style="font-size:9px;color:var(--text3);margin-left:auto;">frissítve: ' + esc(n.last_seen ? n.last_seen.substring(11, 16) : '?') + '</span>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:9px;color:var(--text3);">' +
+          '<div>CPU' + bar(n.cpu_pct || 0, 80) + '</div>' +
+          '<div>MEM' + bar(n.memory_pct || 0, 80) + '</div>' +
+          '<div>DISK' + bar(n.disk_pct || 0, 85) + '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    h += '</div>';
+    return h;
+  });
+  // P2P hálózat
+  window._fetchSection('/api/p2p/status', 'health-p2p-section', function(d) {
+    var peers = d.peers || [];
+    var backoff = d.backoff_peers || [];
+    var h = '<h3 style="margin:0 0 8px;font-size:13px;color:var(--text2);">📡 P2P hálózat</h3>';
+    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:11px;color:var(--text3);">';
+    h += '<div style="margin-bottom:6px;display:flex;gap:10px;flex-wrap:wrap;">' +
+      '<span>Port: <strong style="color:var(--text);">' + esc(d.listen_port || '?') + '</strong></span>' +
+      '<span>TLS: <strong style="color:' + (d.tls_enabled ? 'var(--success)' : 'var(--danger)') + ';">' + (d.tls_enabled ? '✅ aktív' : '❌ nincs') + '</strong></span>' +
+      '<span>Peerek: <strong style="color:var(--text);">' + esc(d.peer_count || peers.length) + '</strong></span>' +
+      '<span>Bejövő sor: <strong style="color:var(--text);">' + esc(d.incoming_queue || 0) + '</strong></span>' +
+    '</div>';
+    h += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+    if (peers.length) {
+      peers.forEach(function(p) { h += _hb('🟢 ' + esc(p), 'var(--success)'); });
+    } else { h += '<span style="color:var(--text3);">Nincs kapcsolódott peer</span>'; }
+    h += '</div>';
+    if (backoff && backoff.length) {
+      h += '<div style="margin-top:6px;font-size:10px;color:var(--danger);">Backoff: ' + backoff.map(function(b) { return esc(b); }).join(', ') + '</div>';
+    }
+    h += '</div>';
+    return h;
+  });
+};
 
 // ─── Settings Functions ──────────────────────────────────
 function showSettings() {
