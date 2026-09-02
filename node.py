@@ -542,6 +542,37 @@ class MeshNode:
                 log.warning(f"idea_submit error from {message.sender}: {e}")
             return
 
+        # Handle idea_vote — agents vote on ideas (determinisztikus szabályokkal)
+        if message.type == "idea_vote":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                from .core.idea_review import apply_vote_with_rules, make_implement_fn
+                idea_id = (payload or {}).get("idea_id", "")
+                vote = (payload or {}).get("vote", "up")
+                pg_pool = getattr(self, "_pg_pool", None)
+                if idea_id and pg_pool:
+                    voter = f"agent:{message.sender}"
+                    implement_fn = make_implement_fn(self, pg_pool)
+                    result = await apply_vote_with_rules(pg_pool, idea_id, voter, vote, implement_fn=implement_fn)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        msg_type="idea_vote_ack",
+                        payload={"idea_id": idea_id, "ok": bool(result.get("ok")),
+                                 "score": result.get("score"), "action": result.get("action", "none")},
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                    log.info(f"🗳️ idea_vote from {message.sender} on {idea_id}: {vote} → {result.get('action')}")
+            except Exception as e:
+                log.warning(f"idea_vote error from {message.sender}: {e}")
+            return
+
         # Handle peer_offline / peer_online status broadcasts — update peer_discovery
         if message.type in ("peer_offline", "peer_online"):
             payload = message.payload if isinstance(message.payload, dict) else {}
@@ -815,7 +846,9 @@ class MeshNode:
 
         # v0.41: Coordinator idea-review loop — ötletláda felülvizsgálat (csak coordinatoron fut)
         try:
-            from .core.idea_review import start_review_loop
+            from .core.idea_review import start_review_loop, make_implement_fn
+            # Az auto-approve a node delegációján keresztül valósítson meg:
+            self._idea_implement_fn = make_implement_fn(self, getattr(self, "_pg_pool", None))
             review_task = await start_review_loop(self)
             if review_task:
                 self._tasks.append(review_task)
@@ -4286,13 +4319,15 @@ echo "Status: ok"
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
                                 if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "peer_offline", "peer_online",
-                                                    "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack"):
+                                                    "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack",
+                                                    "idea_vote", "idea_vote_ack"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
                                 # regardless of priority level (file_transfer, memory_sync, diagnostic)
                                 if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online",
-                                                "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack"):
+                                                "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack",
+                                                "idea_vote", "idea_vote_ack"):
                                     log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:

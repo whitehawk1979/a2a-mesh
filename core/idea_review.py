@@ -31,6 +31,108 @@ MIN_VOTES_FOR_REVIEW = 0  # minden ötletet megnéz, ami legalább ennyi szavaza
 
 # ── P2P: agent → ötletláda ─────────────────────────────────────────────────
 
+AUTO_APPROVE_SCORE = 2   # +2 → automatikus elfogadás + megvalósítás
+AUTO_REJECT_SCORE = -2    # -2 → automatikus elutasítás
+
+
+def make_implement_fn(node, pg_pool):
+    """Standard megvalósítás-logika (delegáció + in_progress) P2P/review-útvonalhoz.
+
+    A dashboard HTTP-útvonala a saját mixin-helperét használja (_implement_idea_internal);
+    ez itt a node-oldali (P2P idea_vote + coordinator review) megfelelője."""
+    async def _impl(row, idea_id):
+        delegation = getattr(node, "delegation", None)
+        if not delegation or not pg_pool:
+            return None
+        import json as _j
+        desc = {
+            "type": "generic",
+            "description": (row["description"] or "")[:4000],
+            "idea_id": idea_id,
+            "source": "otletlada_auto",
+        }
+        assigned = row["assigned_to"] or ""
+        task_id = await delegation.delegate_task(
+            to_agent=assigned or "any",
+            subject=f"[ötletláda] {row['title']}"[:500],
+            description=_j.dumps(desc),
+            task_type="generic",
+            priority=7,
+            available=not assigned,
+        )
+        await pg_pool.execute(
+            "UPDATE mesh.mesh_ideas SET status = 'in_progress', updated_at = NOW() WHERE idea_id = $1",
+            idea_id,
+        )
+        return {"task_id": str(task_id)}
+    return _impl
+
+
+async def apply_vote_with_rules(pg_pool, idea_id: str, voter: str, vote: str,
+                                implement_fn=None) -> dict:
+    """Szavazat rögzítése + determinisztikus továbbléptetési szabályok.
+
+    Szabályok (csak 'idea' státuszúnál):
+      score >= +2 → auto-elfogadás (+ implement_fn: azonnali megvalósítás)
+      score <= -2 → auto-elutasítás
+
+    A szavazat mindenki számára azonos: owner (dashboard), agentek (P2P idea_vote),
+    koordinátor-review (buildable → +1, nem buildable → -1).
+    """
+    if not pg_pool:
+        return {"ok": False, "error": "PG unavailable"}
+    row = await pg_pool.fetchrow(
+        """SELECT idea_id, title, description, status, assigned_to, category, priority, voters, upvotes, downvotes
+           FROM mesh.mesh_ideas WHERE idea_id = $1""",
+        idea_id,
+    )
+    if not row:
+        return {"ok": False, "error": "Idea not found"}
+    voters = list(row["voters"]) if row["voters"] else []
+    if voter in voters:
+        return {"ok": False, "error": "Already voted", "already_voted": True,
+                "upvotes": row["upvotes"], "downvotes": row["downvotes"],
+                "score": row["upvotes"] - row["downvotes"]}
+    voters.append(voter)
+    if vote == "down":
+        await pg_pool.execute(
+            "UPDATE mesh.mesh_ideas SET downvotes = downvotes + 1, voters = $2, updated_at = NOW() WHERE idea_id = $1",
+            idea_id, voters,
+        )
+    else:
+        await pg_pool.execute(
+            "UPDATE mesh.mesh_ideas SET upvotes = upvotes + 1, voters = $2, updated_at = NOW() WHERE idea_id = $1",
+            idea_id, voters,
+        )
+    row2 = await pg_pool.fetchrow(
+        "SELECT upvotes, downvotes, status FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
+    score = row2["upvotes"] - row2["downvotes"]
+    result = {"ok": True, "upvotes": row2["upvotes"], "downvotes": row2["downvotes"],
+              "score": score, "action": "none"}
+    if row2["status"] == "idea":
+        if score >= AUTO_APPROVE_SCORE:
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_ideas SET status = 'approved', updated_at = NOW() WHERE idea_id = $1",
+                idea_id,
+            )
+            result["action"] = "auto_approved"
+            if implement_fn:
+                try:
+                    impl = await implement_fn(row, idea_id)
+                    if impl:
+                        result["implement"] = impl
+                        result["action"] = "auto_implemented"
+                except Exception as e:
+                    log.warning(f"Auto-implement failed after vote on {idea_id}: {e}")
+        elif score <= AUTO_REJECT_SCORE:
+            await pg_pool.execute(
+                "UPDATE mesh.mesh_ideas SET status = 'rejected', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1",
+                idea_id,
+            )
+            result["action"] = "auto_rejected"
+    return result
+
+
 def parse_idea_submit(payload: dict) -> Optional[dict]:
     """Bejövő idea_submit üzenet validálása és normalizálása."""
     if not isinstance(payload, dict):
@@ -134,9 +236,21 @@ async def review_ideas_with_llm(node, pg_pool) -> list:
                 r["idea_id"], "coordinator_review", comment_text,
             )
             results.append({"idea_id": r["idea_id"], "verdict": verdict})
-            # Buildable → tulajdonos értesítése Telegramon
-            if verdict.get("buildable"):
-                _notify_owner(r, verdict)
+            # A review szavazat is: buildable → +1, nem buildable → -1.
+            # A koordinátor szavazata a +2 küszöbbe számít bele — így a
+            # "koordinátor szerint jó + owner/agent jóváhagyása" = azonnali indul.
+            try:
+                impl = getattr(node, "_idea_implement_fn", None)
+                vote_result = await apply_vote_with_rules(
+                    pg_pool, r["idea_id"], f"coordinator:{getattr(node, 'node_name', 'coordinator')}",
+                    "up" if verdict.get("buildable") else "down",
+                    implement_fn=impl,
+                )
+                log.info(f"🛡️ Review-vote {r['idea_id']}: {vote_result.get('action')} (score {vote_result.get('score')})")
+                if verdict.get("buildable"):
+                    _notify_owner(r, verdict)
+            except Exception as vote_err:
+                log.warning(f"Review-vote failed for {r['idea_id']}: {vote_err}")
         except Exception as e:
             log.warning(f"Idea review failed for {r.get('idea_id')}: {e}")
     return results

@@ -4180,42 +4180,37 @@ class DashboardAdminMixin:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _api_ideas_vote(self, request):
-        """POST /api/ideas/{id}/vote — upvote or downvote an idea."""
+        """POST /api/ideas/{id}/vote — szavazat + determinisztikus szabályok.
+
+        score >= +2 → automatikus elfogadás + megvalósítás
+        score <= -2 → automatikus elutasítás
+        """
         from aiohttp import web
+        from .idea_review import apply_vote_with_rules, make_implement_fn
         user, err = self._require_auth(request)
         if err:
             return err
         try:
             idea_id = request.match_info.get("id", "")
             data = await request.json()
-            vote = data.get("vote", "up")  # "up" or "down"
+            vote = data.get("vote", "up")
             voter = data.get("voter", getattr(user, 'username', None) or getattr(user, 'name', None) or "user")
             pool = self._get_pg_pool()
             if not pool:
                 return web.json_response({"error": "PG unavailable"}, status=503)
-
-            row = await pool.fetchrow("SELECT voters, upvotes, downvotes FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
-            if not row:
-                return web.json_response({"error": "Idea not found"}, status=404)
-
-            voters = list(row["voters"]) if row["voters"] else []
-            if voter in voters:
-                return web.json_response({"error": "Already voted", "upvotes": row["upvotes"], "downvotes": row["downvotes"]}, status=409)
-
-            voters.append(voter)
-            if vote == "down":
-                await pool.execute(
-                    "UPDATE mesh.mesh_ideas SET downvotes = downvotes + 1, voters = $2, updated_at = NOW() WHERE idea_id = $1",
-                    idea_id, voters
-                )
+            node = getattr(self, 'node', None) or getattr(self, '_node_ref', None) or self
+            implement_fn = None
+            if hasattr(self, '_implement_idea_internal'):
+                async def implement_fn(row, idea_id):
+                    return await self._implement_idea_internal(row, idea_id)
             else:
-                await pool.execute(
-                    "UPDATE mesh.mesh_ideas SET upvotes = upvotes + 1, voters = $2, updated_at = NOW() WHERE idea_id = $1",
-                    idea_id, voters
-                )
-
-            row2 = await pool.fetchrow("SELECT upvotes, downvotes FROM mesh.mesh_ideas WHERE idea_id = $1", idea_id)
-            return web.json_response({"ok": True, "upvotes": row2["upvotes"], "downvotes": row2["downvotes"], "score": row2["upvotes"] - row2["downvotes"]})
+                implement_fn = make_implement_fn(node, pool)
+            result = await apply_vote_with_rules(pool, idea_id, voter, vote, implement_fn=implement_fn)
+            if not result.get("ok") and result.get("already_voted"):
+                return web.json_response(result, status=409)
+            if not result.get("ok"):
+                return web.json_response(result, status=404)
+            return web.json_response(result)
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 

@@ -6775,7 +6775,7 @@
         "priority": 5,
         "assigned_to": "morzsa",
         "created_at": 1788341842.4757152,
-        "updated_at": 1788344829.1460428,
+        "updated_at": 1788345255.711155,
         "delegation_task_id": "3371184a-cc84-4f68-850f-141c60cb3ce0",
         "description": "Altalanos teszt v2",
         "task_type": "generic",
@@ -6847,6 +6847,14 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1788344829.146556
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345255.7116659
           }
         ],
         "delegation_status": "completed",
@@ -6856,7 +6864,7 @@
         "review_task_id": "4aff56f8-aa0a-4673-8bb8-5ee34c433b3f",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788344829.1460412
+        "reviewed_at": 1788345255.7111528
       },
       {
         "id": "card-1788342218443-117",
@@ -6925,7 +6933,7 @@
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1788343868.729147,
-        "updated_at": 1788344861.8022468,
+        "updated_at": 1788345641.678226,
         "created_by": "unknown",
         "delegation_task_id": "67d2fdba-18a9-40d8-b5cf-5624274458fe",
         "delegation_status": "completed",
@@ -6989,19 +6997,223 @@
             "verdict": "accept",
             "reason": "",
             "timestamp": 1788344861.8028438
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345253.8358989
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Network check completed: 4/4 OK",
+            "timestamp": 1788345254.278108
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345254.3450692
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "ab528f3c",
+            "timestamp": 1788345256.088713
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345267.667302
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345628.102859
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345628.698577
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Network check completed: 4/4 OK",
+            "timestamp": 1788345629.60607
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345629.6842828
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "dfde482e",
+            "timestamp": 1788345631.036833
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345641.678766
           }
         ],
         "delegation_result": "[runa] Network check completed: 4/4 OK",
         "completed_at": "2026-09-02 10:11:17.210774+00:",
         "reviewer": "morzsa",
-        "review_task_id": "95b8309a-c4c5-4a52-98f4-d2e4f7be4e30",
+        "review_task_id": "dfde482e-bffc-4e5e-9fd2-9cb9862743fd",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788344861.8022459
+        "reviewed_at": 1788345641.6782238
+      },
+      {
+        "id": "card-1788345331463-108",
+        "title": "[ötletláda] AUTO-IMPL-TEST: elfogadas utan automatikus folyamatba kerules",
+        "description": "{\"type\": \"generic\", \"description\": \"Teszt: a promote-nak automatikusan in_progress-be kell tenni az otletet es delegaciot inditania\", \"idea_id\": \"idea_e43bdf2349bf\", \"source\": \"otletlada_implement\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788345331.463691,
+        "updated_at": 1788345724.522358,
+        "created_by": "unknown",
+        "delegation_task_id": "fcda820c-f7d2-475e-a374-11939537b5e0",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788345331.543489
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] System analysis completed at 2026-09-02T10:35:[PHONE REDACTED]+00:00",
+            "timestamp": 1788345345.936337
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "bcb49d65",
+            "timestamp": 1788345347.923051
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] System analysis completed at 2026-09-02T10:35:[PHONE REDACTED]+00:00",
+            "timestamp": 1788345626.448828
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "f54483de",
+            "timestamp": 1788345628.837004
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345724.5229309
+          }
+        ],
+        "delegation_result": "[runa] System analysis completed at 2026-09-02T10:35:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-09-02 10:35:42.991303+00:",
+        "reviewer": "tor",
+        "review_task_id": "f54483de-b9cf-4c37-a318-2cbe567abe9e",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788345724.522354
+      },
+      {
+        "id": "card-1788345751830-110",
+        "title": "[ötletláda] FULL-CYCLE-TEST: bekuldes→elfogadas→autoimplement→done",
+        "description": "{\"type\": \"generic\", \"description\": \"Teljes kor teszt a 45dd03a fixszel\", \"idea_id\": \"idea_763b55ffa859\", \"source\": \"otletlada_implement\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788345751.83039,
+        "updated_at": 1788345806.721835,
+        "created_by": "unknown",
+        "delegation_task_id": "18ed6254-1a28-4594-bfd6-a7bb0b30ae0f",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788345751.8997738
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] FULL-CYCLE-TEST: bekuldes→elfogadas→au' — 7413 chars\n\n── Execution Output ──\n============================================================\nFULL-CYCLE-TEST | fix=45dd03a\nworkdir=/tmp/fullcycle__vt53lt1\n============================================================\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | bekuldes | submission_created | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | elfogadas |",
+            "timestamp": 1788345781.665042
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "0240726b",
+            "timestamp": 1788345792.925025
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788345806.7223701
+          }
+        ],
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] FULL-CYCLE-TEST: bekuldes→elfogadas→au' — 7413 chars\n\n── Execution Output ──\n============================================================\nFULL-CYCLE-TEST | fix=45dd03a\nworkdir=/tmp/fullcycle__vt53lt1\n============================================================\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | bekuldes | submission_created | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | elfogadas | transition | -> elfogadas\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | elfogadas | accepted | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | autoimplement | transition | -> autoimplement\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | autoimplement | implemented | patch=/tmp/fullcycle__vt53lt1/patches/45dd03a.patch.json\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | done | transition | -> done\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | done | done | fix_id=45dd03a\n[2026-09-02T10:42:[PHONE REDACTED]+00:00] sub_7afb09f259f0 | done | transition_blocked | Illegal transition: done -> bekuldes\n============================================================\nRESULT: done | accepted=True | implemented=True\nhistory events: 8\n============================================================\nReport written: /tmp/fullcycle__vt53lt1/report.json\nFULL-CYCLE-TEST PASSED\nWorkdir retained at: /tmp/fullcycle__vt53lt1\n",
+        "completed_at": "2026-09-02 10:42:56.609557+00:",
+        "reviewer": "tor",
+        "review_task_id": "0240726b-5683-4620-beb4-dfe2b03f9560",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788345806.7218292
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788344827.836888
+    "updated_at": 1788345792.4098308
   },
   {
     "id": "board-archive-orphaned-20260830",
@@ -8325,5 +8537,42 @@
       }
     ],
     "created_at": 1788043696.921407
+  },
+  {
+    "id": "board-archive-orphaned-20260902",
+    "name": "Archive — orphaned cards (auto)",
+    "cards": [
+      {
+        "id": "card-1788345331107-107",
+        "title": "[feature] AUTO-IMPL-TEST: elfogadas utan automatikus folyamatba kerules",
+        "description": "Teszt: a promote-nak automatikusan in_progress-be kell tenni az otletet es delegaciot inditania",
+        "column": "in_progress",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788345331.107053,
+        "updated_at": 1788345332.309303,
+        "created_by": "unknown",
+        "delegation_task_id": "fcda820c-f7d2-475e-a374-11939537b5e0",
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788349232.7606888
+      },
+      {
+        "id": "card-1788345751489-109",
+        "title": "[feature] FULL-CYCLE-TEST: bekuldes→elfogadas→autoimplement→done",
+        "description": "Teljes kor teszt a 45dd03a fixszel",
+        "column": "in_progress",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788345751.48963,
+        "updated_at": 1788345752.464463,
+        "created_by": "unknown",
+        "delegation_task_id": "18ed6254-1a28-4594-bfd6-a7bb0b30ae0f",
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788349232.7606888
+      }
+    ],
+    "created_at": 1788349232.7606888
   }
 ]

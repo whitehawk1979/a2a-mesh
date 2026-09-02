@@ -5251,8 +5251,19 @@ window.voteIdea = function(id, vote) {
     body: JSON.stringify({ vote: vote })
   }).then(function(r) { return r.json(); })
     .then(function(d) {
-      if (d.ok) { loadMarveenPage('research'); }
-      else if (d.error === 'Already voted') { /* silent */ }
+      if (d.ok) {
+        if (d.action === 'auto_implemented') {
+          showToast('🗳️ Score +' + d.score + ' → ötlet automatikusan ELFOGADVA és megvalósításra indul!', 'success');
+        } else if (d.action === 'auto_approved') {
+          showToast('✅ Score +' + d.score + ' → automatikusan elfogadva', 'success');
+        } else if (d.action === 'auto_rejected') {
+          showToast('❌ Score ' + d.score + ' → automatikusan elutasítva', 'error');
+        } else {
+          showToast('Szavazat rögzítve (score: ' + (d.score > 0 ? '+' : '') + d.score + ', küszöb: ±2)', 'info');
+        }
+        loadMarveenPage('research');
+      }
+      else if (d.error === 'Already voted') { showToast('Már szavaztál erre az ötletre', 'info'); }
       else { console.error('Vote error:', d.error); }
     })
     .catch(function(e) { console.error('Vote failed:', e); });
