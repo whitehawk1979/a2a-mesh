@@ -1337,12 +1337,14 @@ class DelegationManager:
                     _idea_id = None
                 if _idea_id:
                     # Beépítettség: a végrehajtó node a result-ban jelzi, ha a kód
-                    # a repóba került ("Repóba integrálva: ideas/..."). Ezt rögzítjük.
-                    _integrated = "Repóba integrálva" in (result_text or "")
+                    # a repóba került. A jelző ékezetmentesített változatban is előfordulhat
+                    # ("Repoba integralva"), mert a result a naplózott szövegből származik.
+                    _res_norm = (result_text or "").lower().replace("ó", "o").replace("á", "a")
+                    _integrated = ("repóba integrálva" in (result_text or "").lower()) or ("repoba integralva" in _res_norm)
                     _integrated_file = None
                     if _integrated:
                         import re as _re_int
-                        _m = _re_int.search(r"Repóba integrálva:\s*(ideas/[a-zA-Z0-9_.\-]+)", result_text or "")
+                        _m = _re_int.search(r"[Rr]ep[óo]ba integr[áa]lva:\s*(ideas/[a-zA-Z0-9_.\-]+)", result_text or "")
                         _integrated_file = _m.group(1) if _m else None
                     await self.pg_pool.execute(
                         """UPDATE mesh.mesh_ideas
