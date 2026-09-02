@@ -2557,13 +2557,13 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                         _idea_id = _m.group(1)
                 if _idea_id and lang in ("python", "bash", "js", "javascript", "html"):
                     import os as _os2, subprocess as _sp2
-                    _repo_root = _os.path.dirname(_os.path.abspath(__file__))
-                    _ideas_dir = _os.path.join(_repo_root, "ideas")
+                    _repo_root = _os2.path.dirname(_os2.path.abspath(__file__))
+                    _ideas_dir = _os2.path.join(_repo_root, "ideas")
                     _os2.makedirs(_ideas_dir, exist_ok=True)
                     _slug = _re2.sub(r'[^a-zA-Z0-9_-]', '_', subject[:40]).strip('_') or "idea_impl"
                     _impl_ext = {"python": "py", "bash": "sh", "js": "js", "javascript": "js", "html": "html"}.get(lang, "py")
                     _impl_name = f"{_idea_id}_{_slug}.{_impl_ext}"
-                    _impl_path = _os2.join(_ideas_dir, _impl_name)
+                    _impl_path = _os2.path.join(_ideas_dir, _impl_name)
                     with open(_impl_path, "w", encoding="utf-8") as _f:
                         _f.write(cleaned if lang in ("python", "bash") else generated)
                     # Git commit a repóban
