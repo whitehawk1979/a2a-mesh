@@ -2345,20 +2345,36 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                         return None
 
             # Detect language/extension from generated code
+            # Először a markdown-fence nyelvi jelölése (```python) — az LLM-ek gyakran
+            # fence-en belül adják a kódot, ilyenkor a raw startswith sosem matchel
+            _strip = generated.strip()
+            _fence_lang = None
+            _fence_body = _strip
+            if _strip.startswith("```"):
+                _first_line = _strip.split("\n", 1)[0]
+                _fence_lang = _first_line.replace("```", "").strip().lower() or None
+                rest = _strip.split("\n", 1)[1] if "\n" in _strip else ""
+                _fence_body = rest.rsplit("```", 1)[0] if "```" in rest else rest
+            _start = (_fence_body.lstrip())[:200]
+
             ext = "txt"
             lang = "python"
-            if generated.strip().startswith("<!DOCTYPE") or generated.strip().startswith("<html"):
-                ext = "html"
-                lang = "html"
-            elif generated.strip().startswith("#!/bin/bash") or generated.strip().startswith("#!/bin/sh"):
-                ext = "bash"
-                lang = "bash"
-            elif generated.strip().startswith("#!/usr/bin/env python") or "import " in generated[:200]:
-                ext = "py"
-                lang = "python"
-            elif "function " in generated[:200] or "const " in generated[:200] or "=>" in generated[:200]:
-                ext = "js"
-                lang = "javascript"
+            if _fence_lang in ("python", "py"):
+                ext = "py"; lang = "python"
+            elif _fence_lang in ("bash", "sh", "shell"):
+                ext = "bash"; lang = "bash"
+            elif _fence_lang in ("javascript", "js"):
+                ext = "js"; lang = "javascript"
+            elif _fence_lang == "html":
+                ext = "html"; lang = "html"
+            elif _start.startswith("<!DOCTYPE") or _start.startswith("<html"):
+                ext = "html"; lang = "html"
+            elif _start.startswith("#!/bin/bash") or _start.startswith("#!/bin/sh"):
+                ext = "bash"; lang = "bash"
+            elif _start.startswith("#!/usr/bin/env python") or "import " in _start or "def " in _start:
+                ext = "py"; lang = "python"
+            elif "function " in _start or "const " in _start or "=>" in _start:
+                ext = "js"; lang = "javascript"
 
             filename = f"generated_{ext}_{node}_{now.strftime('%Y%m%d_%H%M%S')}.{ext}"
             log.info(f"[{node}] LLM generated {len(generated)} chars, saved as {filename}")
@@ -2507,6 +2523,58 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                     result_text += f"\n\n── Execution Error ──\n{execution_error}"
             elif execution_error:
                 result_text += f"\n\n── Execution Error ──\n{execution_error}"
+
+            # ── Ötletláda Implementation Pipeline: a generált kód bekerül a repóba ──
+            # Ha a description-ben idea_id van (ötletláda-megvalósítás), a kód a repó
+            # ideas/ mappájába mentődik + git commit — valódi beépítés, nem csak artifact.
+            repo_integrated = False
+            try:
+                import json as _json_mod
+                _desc_obj = None
+                try:
+                    _desc_obj = _json_mod.loads(desc_text) if desc_text else None
+                except Exception:
+                    _desc_obj = None
+                _idea_id = None
+                if isinstance(_desc_obj, dict):
+                    _idea_id = _desc_obj.get("idea_id") or (_desc_obj.get("description") if isinstance(_desc_obj.get("description"), dict) else None)
+                    if isinstance(_idea_id, dict):
+                        _idea_id = _idea_id.get("idea_id")
+                if not _idea_id and desc_text and "idea_id" in desc_text:
+                    import re as _re2
+                    _m = _re2.search(r'"idea_id"\s*:\s*"([^"]+)"', desc_text)
+                    if _m:
+                        _idea_id = _m.group(1)
+                if _idea_id and lang in ("python", "bash", "js", "javascript", "html"):
+                    import os as _os2, subprocess as _sp2
+                    _repo_root = _os.path.dirname(_os.path.abspath(__file__))
+                    _ideas_dir = _os.path.join(_repo_root, "ideas")
+                    _os2.makedirs(_ideas_dir, exist_ok=True)
+                    _slug = _re2.sub(r'[^a-zA-Z0-9_-]', '_', subject[:40]).strip('_') or "idea_impl"
+                    _impl_ext = {"python": "py", "bash": "sh", "js": "js", "javascript": "js", "html": "html"}.get(lang, "py")
+                    _impl_name = f"{_idea_id}_{_slug}.{_impl_ext}"
+                    _impl_path = _os2.join(_ideas_dir, _impl_name)
+                    with open(_impl_path, "w", encoding="utf-8") as _f:
+                        _f.write(cleaned if lang in ("python", "bash") else generated)
+                    # Git commit a repóban
+                    _git = _sp2.run(["git", "add", "-A", "ideas/"], cwd=_repo_root, capture_output=True, text=True, timeout=15)
+                    _git = _sp2.run(
+                        ["git", "commit", "-m", f"feat(idea): {_idea_id} implementáció — ötletláda pipeline\n\nGenerálta: {node} ({model})\nSubject: {subject[:100]}"],
+                        cwd=_repo_root, capture_output=True, text=True, timeout=15,
+                    )
+                    if _git.returncode == 0:
+                        repo_integrated = True
+                        result_text += f"\n\n✅ Repóba integrálva: ideas/{_impl_name} (git commit)"
+                        log.info(f"[{node}] Idea {str(_idea_id)[:16]} implemented → ideas/{_impl_name}")
+                    else:
+                        # Már commitolva van / nincs változás
+                        if "nothing to commit" in (_git.stdout or "") + (_git.stderr or ""):
+                            repo_integrated = True
+                            result_text += f"\n\n✅ Repóban: ideas/{_impl_name}"
+                        else:
+                            log.warning(f"[{node}] Idea git commit failed: {(_git.stderr or '')[:200]}")
+            except Exception as _integ_err:
+                log.warning(f"[{node}] Idea repo-integration failed: {_integ_err}")
 
             files_list = [{"filename": filename,
                             "content_type": "text/plain", "content": generated,
