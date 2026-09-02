@@ -120,7 +120,7 @@ def handle_vault_response(payload: dict) -> None:
 
 # ── Share (owner-initiated, dashboard-driven) ──────────────────────────────
 
-async def share_to_peer(router, peer: str, name: str, include_secret: bool = False) -> dict:
+async def share_to_peer(router, peer: str, name: str, include_secret: bool = False, timeout: float = _TIMEOUT) -> dict:
     """Owner-driven share: fetch entry from LOCAL vault, push to peer vault.
 
     The peer receives vault_request-style payload via vault_share msg type
