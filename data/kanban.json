@@ -6933,7 +6933,7 @@
         "assigned_to": "",
         "parent_id": null,
         "created_at": 1788352245.557066,
-        "updated_at": 1788352580.68979,
+        "updated_at": 1788352713.2560582,
         "created_by": "unknown",
         "delegation_task_id": "66958131-ab2e-4060-8d5c-947cfeb7d2c2",
         "delegation_status": "completed",
@@ -6989,6 +6989,14 @@
             "action": "review delegated",
             "review_task_id": "f2352fef",
             "timestamp": 1788352357.204017
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788352713.256758
           }
         ],
         "delegation_result": "[runa] Acknowledged task '[otletlada] Nagy kapcsolatszam (186)' at 2026-09-02T12:30:[PHONE REDACTED]+00:00",
@@ -6997,7 +7005,7 @@
         "review_task_id": "f2352fef-353c-480e-a4c1-1d753b976ec7",
         "review_status": "accept",
         "review_reason": "",
-        "reviewed_at": 1788352354.6279309
+        "reviewed_at": 1788352713.256057
       },
       {
         "id": "card-1788352415092-111",

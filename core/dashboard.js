@@ -2590,6 +2590,47 @@ function loadMarveenPage(page) {
       .catch(function(e) { alert('Hiba: ' + e.message); });
   };
 
+  // Kanban kártya részletes modal — ujjbarát oszlopváltás, mobilon is működik
+  window.showKanbanCardDetail = function(boardId, cardId) {
+    var cached = (window._kanbanCardsCache || {})[boardId + ':' + cardId];
+    if (!cached) return;
+    var c = cached.card;
+    var cols = cached.columns;
+    var col = cached.column;
+    var colLabels = {'todo':'📋 Teendő','in_progress':'🔄 Folyamatban','review':'👀 Felülvizsgálat','done':'✅ Kész'};
+    var colIdx = cols.indexOf(col);
+    var pri = c.priority || 'medium';
+    var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--warning)';
+
+    var html = '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">';
+    html += '<div><div style="font-size:16px;font-weight:700;color:var(--text);">' + esc(c.title || '—') + '</div>';
+    html += '<div style="font-size:11px;color:var(--text3);margin-top:2px;">📍 ' + (colLabels[col] || col) + '</div></div>';
+    html += '<button onclick="window._closeVaultModal()" style="background:none;border:none;color:var(--text3);font-size:22px;cursor:pointer;">✕</button></div>';
+    if (c.description) html += '<div style="font-size:12px;color:var(--text2);margin:10px 0;white-space:pre-wrap;">' + esc(c.description) + '</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">';
+    html += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;background:' + pc + ';color:#fff;font-weight:600;">' + esc(pri) + '</span>';
+    if (c.assigned_to) html += '<span style="font-size:10px;color:var(--text2);">👤 ' + esc(c.assigned_to) + '</span>';
+    if (c.due_date) html += '<span style="font-size:10px;color:var(--text2);">📅 ' + esc(c.due_date) + '</span>';
+    html += '</div>';
+    if (c.requires_approval || c.approval_status === 'pending') {
+      html += '<button onclick="approveKanbanCard(\'' + boardId + '\',\'' + cardId + '\');closeIdeaModal();" style="width:100%;padding:12px;border:none;border-radius:8px;background:var(--success);color:#fff;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:8px;">✓ Jóváhagyás</button>';
+    }
+    // Nagy, ujjbarát oszlopváltó gombok
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">';
+    if (colIdx > 0) {
+      html += '<button onclick="moveKanbanCard(\'' + boardId + '\',\'' + cardId + '\',\'' + cols[colIdx-1] + '\')" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:15px;cursor:pointer;">◀ ' + (colLabels[cols[colIdx-1]] || cols[colIdx-1]) + '</button>';
+    }
+    if (colIdx < cols.length-1) {
+      html += '<button onclick="moveKanbanCard(\'' + boardId + '\',\'' + cardId + '\',\'' + cols[colIdx+1] + '\')" style="padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:15px;cursor:pointer;">' + (colLabels[cols[colIdx+1]] || cols[colIdx+1]) + ' ▶</button>';
+    }
+    html += '</div>';
+    html += '<button onclick="deleteKanbanCard(\'' + boardId + '\',\'' + cardId + '\');window._closeVaultModal()" style="width:100%;padding:10px;border:1px solid var(--danger);border-radius:8px;background:none;color:var(--danger);font-size:13px;cursor:pointer;margin-top:12px;">🗑️ Kártya törlése</button>';
+
+    window._showVaultModal('📋 ' + (c.title || 'Kártya'), html, [
+      { label: '✕ Bezárás', onclick: 'window._closeVaultModal()' }
+    ]);
+  };
+
   window.addKanbanCard = function(boardId) {
     var title = prompt('Kártya címe:');
     if (!title) return;
@@ -2807,20 +2848,22 @@ function loadMarveenPage(page) {
             var pri = c.priority || 'medium';
             var pc = pri === 'high' ? 'var(--danger)' : pri === 'low' ? 'var(--text3)' : 'var(--warning)';
             var approvable = c.requires_approval || c.approval_status === 'pending';
-            html += '<div data-card-id="' + cid + '" data-column="' + col + '" data-board-id="' + bid + '" draggable="true" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;cursor:grab;">';
+            window._kanbanCardsCache = window._kanbanCardsCache || {};
+            window._kanbanCardsCache[bid + ':' + cid] = { card: c, boardId: bid, columns: cols, column: col };
+            html += '<div data-card-id="' + cid + '" data-column="' + col + '" data-board-id="' + bid + '" draggable="true" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)" onclick="showKanbanCardDetail(\'' + bid + '\',\'' + cid + '\')" style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px;cursor:pointer;">';
             html += '<div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:4px;">' + esc(c.title || '—') + '</div>';
             if (c.description) html += '<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">' + esc(c.description.substring(0,80)) + '</div>';
             html += '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;">';
             html += '<span style="font-size:9px;padding:1px 6px;border-radius:4px;background:' + pc + ';color:#fff;font-weight:600;">' + esc(pri) + '</span>';
             if (c.assigned_to) html += '<span style="font-size:9px;color:var(--text2);">👤 ' + esc(c.assigned_to) + '</span>';
             html += '</div>';
-            // Action buttons
-            html += '<div style="display:flex;gap:4px;margin-top:6px;">';
+            // Action buttons — gomboknál event.stopPropagation, hogy a kártya-kattintás (modal) ne nyíljon duplán
+            html += '<div style="display:flex;gap:6px;margin-top:8px;">';
             var colIdx = cols.indexOf(col);
-            if (colIdx > 0) html += '<button onclick="moveKanbanCard(\'' + bid + '\',\'' + cid + '\',\'' + cols[colIdx-1] + '\')" style="background:var(--surface);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:var(--text2);">◀</button>';
-            if (colIdx < cols.length-1) html += '<button onclick="moveKanbanCard(\'' + bid + '\',\'' + cid + '\',\'' + cols[colIdx+1] + '\')" style="background:var(--surface);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:var(--text2);">▶</button>';
-            if (approvable) html += '<button onclick="approveKanbanCard(\'' + bid + '\',\'' + cid + '\')" style="background:var(--success);border:none;padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:#fff;">✓</button>';
-            html += '<button onclick="deleteKanbanCard(\'' + bid + '\',\'' + cid + '\')" style="background:var(--surface);border:1px solid var(--danger);padding:2px 6px;border-radius:4px;font-size:10px;cursor:pointer;color:var(--danger);margin-left:auto;">✕</button>';
+            if (colIdx > 0) html += '<button onclick="event.stopPropagation();moveKanbanCard(\'' + bid + '\',\'' + cid + '\',\'' + cols[colIdx-1] + '\')" style="background:var(--surface);border:1px solid var(--border);padding:6px 14px;border-radius:6px;font-size:14px;cursor:pointer;color:var(--text2);" title="Előző oszlopba">◀</button>';
+            if (colIdx < cols.length-1) html += '<button onclick="event.stopPropagation();moveKanbanCard(\'' + bid + '\',\'' + cid + '\',\'' + cols[colIdx+1] + '\')" style="background:var(--surface);border:1px solid var(--border);padding:6px 14px;border-radius:6px;font-size:14px;cursor:pointer;color:var(--text2);" title="Következő oszlopba">▶</button>';
+            if (approvable) html += '<button onclick="event.stopPropagation();approveKanbanCard(\'' + bid + '\',\'' + cid + '\')" style="background:var(--success);border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;color:#fff;">✓</button>';
+            html += '<button onclick="event.stopPropagation();deleteKanbanCard(\'' + bid + '\',\'' + cid + '\')" style="background:var(--surface);border:1px solid var(--danger);padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;color:var(--danger);margin-left:auto;">✕</button>';
             html += '</div>';
             html += '</div>';
           });
