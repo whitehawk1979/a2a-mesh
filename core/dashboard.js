@@ -5458,17 +5458,41 @@ window.vaultReveal = function(name, btn) {
   }
 };
 
+window._copyToClipboard = function(text) {
+  // 1. Modern async API (csak secure context: HTTPS/localhost — http://IP-n undefined!)
+  if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext !== false) {
+    return navigator.clipboard.writeText(text).then(function() { return true; }).catch(function() { return window._copyFallback(text); });
+  }
+  return Promise.resolve(window._copyFallback(text));
+};
+
+window._copyFallback = function(text) {
+  // 2. Legacy execCommand — insecure http://IP:port kontextusban is működik
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) return true;
+  } catch (e) { /* folytatjuk a 3. opcióval */ }
+  // 3. Végső eset: prompt ablak, ahol a user Ctrl+C-vel másol
+  prompt('A böngésző nem engedélyezi az automatikus másolást.\nJelöld ki és másold ki (Ctrl+C / long-press → Copy):', text);
+  return false;
+};
+
 window.vaultCopy = function(name, btn) {
   var agent = window._vaultCurrentAgent || '';
   fetch('/api/vault/remote/' + encodeURIComponent(agent) + '/get', { method: 'POST', headers: { 'Authorization': 'Bearer ' + window._vaultToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.ok && d.value != null) {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(d.value).then(function() {
-            btn.textContent = '✅'; setTimeout(function() { btn.textContent = '📋'; }, 1200);
-          }).catch(function() { alert('Másolás nem lehetséges — nyisd meg a titkot (👁️) és másold kézzel'); });
-        } else { alert('Clipboard API nem elérhető'); }
+        window._copyToClipboard(d.value).then(function(ok) {
+          if (ok) { btn.textContent = '✅'; setTimeout(function() { btn.textContent = '📋'; }, 1200); }
+          // prompt fallback esetén a prompt már megjelent — nincs extra alert
+        });
       } else { alert('❌ ' + (d.error || 'nem elérhető')); }
     })
     .catch(function(e) { alert('Hiba: ' + e.message); });
