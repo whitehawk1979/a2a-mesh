@@ -196,35 +196,21 @@ async def review_ideas_with_llm(node, pg_pool) -> list:
     """
     if not pg_pool:
         return []
-    # Még nem review-olt, nem-zárt ötletek
+    # Nem-zárt ötletek, amikre a koordinátor MÉG NEM SZAVAZOTT
+    # (voters-alapú kizárás: a régi komment-alapú kizárás kihagyta volna azokat,
+    # amikre a c46a514 ELŐTT futt review nem adott szavazatot)
     try:
         rows = await pg_pool.fetch(
-            """SELECT idea_id, title, description, category, priority, submitted_by, upvotes, downvotes
+            """SELECT idea_id, title, description, category, priority, submitted_by, upvotes, downvotes, voters
                FROM mesh.mesh_ideas
                WHERE status = 'idea'
-                 AND idea_id NOT IN (
-                   SELECT idea_id FROM mesh.mesh_idea_comments
-                   WHERE author = 'coordinator_review'
-                 )
-               ORDER BY upvotes DESC, created_at ASC LIMIT 10"""
+                 AND NOT (%s = ANY(voters))
+               ORDER BY upvotes DESC, created_at ASC LIMIT 10""",
+            f"coordinator:{getattr(node, 'node_name', 'coordinator')}",
         )
     except Exception as e:
-        # A comment-tábla esetleg nem létezik — létrehozzuk
-        try:
-            await pg_pool.execute(
-                "CREATE TABLE IF NOT EXISTS mesh.mesh_idea_comments ("
-                "id SERIAL PRIMARY KEY, idea_id VARCHAR(64) NOT NULL, "
-                "author VARCHAR(100) NOT NULL, comment TEXT NOT NULL, "
-                "created_at TIMESTAMPTZ DEFAULT NOW())"
-            )
-            rows = await pg_pool.fetch(
-                """SELECT idea_id, title, description, category, priority, submitted_by, upvotes, downvotes
-                   FROM mesh.mesh_ideas WHERE status = 'idea'
-                   ORDER BY upvotes DESC, created_at ASC LIMIT 10"""
-            )
-        except Exception as e2:
-            log.warning(f"idea review query failed: {e2}")
-            return []
+        log.warning(f"idea review query failed: {e}")
+        return []
 
     results = []
     for r in rows:
