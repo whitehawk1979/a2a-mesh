@@ -4822,10 +4822,13 @@ echo "Status: ok"
                                 pg_ok = True
                         except Exception as e:
                             log.error(f"[self-heal] PG reconnect failed: {e}")
-                elif not self._pg_conn:
-                    # No PG connection at all — retry bootstrap
+                elif not self._pg_pool:
+                    # No PG pool at all (pool init failed at startup) — retry bootstrap.
+                    # NOTE: MeshNode has no _pg_conn attribute (only _pg_pool); the old
+                    # `elif not self._pg_conn:` reference raised AttributeError in this
+                    # loop and silently killed the self-heal cycle on pg-less nodes.
                     if not _pg_was_down:
-                        log.warning("[self-heal] No PG connection — attempting bootstrap")
+                        log.warning("[self-heal] No PG pool — attempting bootstrap")
                     if await self._init_pg_write_conn():
                         # Re-inject shared pool into subsystems
                         if self._pg_pool and self._pg_pool.is_connected():
