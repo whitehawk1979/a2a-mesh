@@ -333,6 +333,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/vault/remote/{node}", self._api_vault_remote_list)
         app.router.add_post("/api/vault/remote/{node}/get", self._api_vault_remote_get)
         app.router.add_post("/api/vault/share", self._api_vault_share)
+        app.router.add_post("/api/vault/remote/{node}/delete", self._api_vault_remote_delete)
+        app.router.add_post("/api/vault/remote/{node}/store", self._api_vault_remote_store)
         # Login Throttle
         app.router.add_get("/api/login-throttle", self._api_login_throttle)
         # CSRF Gate

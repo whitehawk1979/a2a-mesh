@@ -97,6 +97,13 @@ def handle_vault_request(payload: dict) -> dict:
         return {"request_id": rid, "ok": True, "action": "list", "entries": entries}
     if action == "status":
         return {"request_id": rid, "ok": True, "action": "status", "vault_status": vault_mod.get_vault_status()}
+    if action == "delete":
+        name = (payload or {}).get("name", "")
+        if not name:
+            return {"request_id": rid, "ok": False, "error": "name required"}
+        deleted = vault_mod.delete_secret(name)
+        return {"request_id": rid, "ok": bool(deleted), "action": "delete",
+                "name": name, "deleted": bool(deleted)}
     if action == "get":
         name = (payload or {}).get("name", "")
         if not name:
@@ -170,6 +177,37 @@ def handle_vault_share(payload: dict) -> dict:
         return {"request_id": rid, "ok": False, "error": "name and value required"}
     ok = vault_mod.set_secret(name, value)
     return {"request_id": rid, "ok": bool(ok), "stored": name}
+
+
+async def store_to_peer(router, peer: str, name: str, value: str, timeout: float = _TIMEOUT) -> dict:
+    """Dashboard-driven direct store: push a secret directly to a peer vault."""
+    from ..node import A2AMessage
+
+    rid = _new_request_id()
+    fut: asyncio.Future = asyncio.get_event_loop().create_future()
+    _pending[rid] = fut
+
+    msg = A2AMessage(
+        sender=getattr(router, "node_name", "?"),
+        recipient=peer,
+        type="vault_share",
+        payload={"request_id": rid, "action": "put", "name": name, "value": value},
+    )
+    try:
+        await router.send(msg)
+    except Exception as e:
+        _pending.pop(rid, None)
+        log.warning(f"vault_share (put) send failed to {peer}: {e}")
+        return {"ok": False, "error": f"send failed: {e}"}
+
+    try:
+        resp = await asyncio.wait_for(fut, timeout)
+        return resp if isinstance(resp, dict) else {"ok": False, "error": "invalid response"}
+    except asyncio.TimeoutError:
+        log.warning(f"vault_share (put) timeout to {peer}")
+        return {"ok": False, "error": f"timeout — {peer} nem válaszolt"}
+    finally:
+        _pending.pop(rid, None)
 
 
 # ── Dashboard helpers (local + remote aggregation) ─────────────────────────

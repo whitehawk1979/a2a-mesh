@@ -317,13 +317,23 @@ def store_secret(label, secret, secret_type="generic"):
 
 
 def delete_secret(entry_id):
-    """Delete a secret from the file vault by full name."""
+    """Delete a secret (file vault + OS keyring, ha elérhető)."""
+    deleted = False
     store = _read_store()
     if entry_id in store:
         store.pop(entry_id, None)
         _write_store(store)
-        return True
-    return False
+        deleted = True
+    kr = _keyring_lib()
+    if kr:
+        try:
+            service, _, key = entry_id.partition("/")
+            service = service or _SERVICE_PREFIX
+            kr.delete_password(service, key)
+            deleted = True
+        except Exception:
+            pass
+    return deleted
 
 
 def get_vault_status():

@@ -2579,21 +2579,80 @@ class DashboardAdminMixin:
         return web.json_response(resp)
 
     async def _api_vault_share(self, request):
-        """POST /api/vault/share {name, targets: [nodes]} — tétel megosztása cél-node-okra."""
+        """POST /api/vault/share {name, targets, from?} — tétel megosztása cél-node-okra.
+
+        from = forrás node (default: helyi). Távoli forrásnál a titkot először
+        lekérjük a forrástól P2P-n, majd közvetlenül a cél vaultokba tároljuk.
+        """
         from aiohttp import web
-        from .vault_share import share_to_peer
+        from .vault_share import share_to_peer, store_to_peer, get_remote_secret
         data = await request.json()
         name = data.get("name", "")
         targets = data.get("targets", [])
+        from_node = data.get("from") or self.node.node_name
         if not name or not targets:
             return web.json_response({"error": "name and targets required"}, status=400)
+        remote_source = from_node != self.node.node_name
+        src_value = None
+        if remote_source:
+            src = await get_remote_secret(self.node.router, from_node, name)
+            if not src or not src.get("ok") or src.get("value") is None:
+                return web.json_response(
+                    {"error": f"a forrás vaultban ('{from_node}') nincs '{name}' vagy elérhetetlen"},
+                    status=502)
+            src_value = src.get("value")
         results = {}
         for t in targets:
             if t == self.node.node_name:
-                results[t] = {"ok": False, "error": "saját node — nincs értelme megosztani"}
+                if src_value is not None:
+                    from .vault import store_secret
+                    r = store_secret(name, src_value)
+                    results[t] = {"ok": bool(r.get("stored")), "stored": name if r.get("stored") else None}
+                else:
+                    results[t] = {"ok": False, "error": "saját node — a tétel már itt van"}
                 continue
-            results[t] = await share_to_peer(self.node.router, t, name)
-        return web.json_response({"name": name, "results": results})
+            if remote_source:
+                results[t] = await store_to_peer(self.node.router, t, name, src_value)
+            else:
+                results[t] = await share_to_peer(self.node.router, t, name)
+        return web.json_response({"name": name, "from": from_node, "results": results})
+
+    async def _api_vault_remote_delete(self, request):
+        """POST /api/vault/remote/{node}/delete {name} — tétel törlése adott node vaultjából."""
+        from aiohttp import web
+        from .vault_share import request_from_peer
+        from .vault import delete_secret
+        node = request.match_info.get("node", "")
+        data = await request.json()
+        name = data.get("name", "")
+        if not name:
+            return web.json_response({"error": "name required"}, status=400)
+        if node == self.node.node_name:
+            deleted = delete_secret(name)
+            return web.json_response({"node": node, "local": True, "ok": bool(deleted),
+                                      "name": name, "deleted": bool(deleted)})
+        resp = await request_from_peer(self.node.router, node, "delete", name)
+        if resp is None:
+            return web.json_response({"error": f"{node} elérhetetlen"}, status=504)
+        return web.json_response(resp)
+
+    async def _api_vault_remote_store(self, request):
+        """POST /api/vault/remote/{node}/store {name, value} — tétel mentése adott node vaultjába."""
+        from aiohttp import web
+        from .vault_share import store_to_peer
+        from .vault import store_secret
+        node = request.match_info.get("node", "")
+        data = await request.json()
+        name = data.get("name", "") or data.get("label", "")
+        value = data.get("value", "") or data.get("secret", "")
+        if not name or not value:
+            return web.json_response({"error": "name and value required"}, status=400)
+        if node == self.node.node_name:
+            r = store_secret(name, value)
+            return web.json_response({"node": node, "local": True,
+                                      "ok": bool(r.get("stored")), "stored": bool(r.get("stored"))})
+        resp = await store_to_peer(self.node.router, node, name, value)
+        return web.json_response(resp)
 
     async def _api_login_throttle(self, request):
         """GET /api/login-throttle — Throttle status."""

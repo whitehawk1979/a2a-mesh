@@ -3226,9 +3226,10 @@ function loadMarveenPage(page) {
       var html = '';
       // ── Agent-váltó: melyik node vaultját nézzük ──
       html += '<div id="vault-agent-bar" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center;"></div>';
-      html += '<div style="display:flex;gap:8px;margin-bottom:16px;">';
-      html += '<button onclick="showVaultAddModal()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">➕ Új Vault Entry</button>';
+      html += '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">';
+      html += '<button onclick="vaultAddEntry(window._vaultCurrentAgent)" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">➕ Tétel hozzáadása</button>';
       html += '<button onclick="vaultShowMeshOverview()" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;">🌐 Mesh áttekintés</button>';
+      html += '<button onclick="window._vaultRefresh()" title="Frissítés" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;">🔄</button>';
       html += '</div>';
       html += '<div id="vault-entries"></div>';
       html += '<div id="vault-mesh-section" style="margin-top:12px;"></div>';
@@ -5378,25 +5379,126 @@ window.vaultDelete = function(id) {
 window._vaultCurrentAgent = null; // null = helyi node
 
 window._vaultToken = function() { return localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || ''; };
+window._vaultCurrentAgent = null;
+window._vaultEntriesCache = [];
 
 window._vaultRenderEntries = function(entries, agentName, isLocal) {
   var el = document.getElementById('vault-entries');
   if (!el) return;
+  window._vaultEntriesCache = entries || [];
   var h = '';
-  if (!entries.length) { el.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:20px;">Nincs bejegyzés ebben a vaultban</div>'; return; }
+  // Kereső mező
+  h += '<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;">' +
+    '<input id="vault-search" type="text" placeholder="🔍 Keresés a bejegyzésekben…" oninput="vaultFilterEntries()" style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:12px;outline:none;">' +
+    '<span id="vault-entry-count" style="font-size:10px;color:var(--text3);white-space:nowrap;"></span>' +
+    '</div>';
+  h += '<div id="vault-entry-list"></div>';
+  el.innerHTML = h;
+  window._vaultDrawList(agentName, isLocal);
+};
+
+window._vaultDrawList = function(agentName, isLocal) {
+  var listEl = document.getElementById('vault-entry-list');
+  if (!listEl) return;
+  var q = (document.getElementById('vault-search') || {}).value || '';
+  q = q.toLowerCase();
+  var entries = window._vaultEntriesCache.filter(function(i) {
+    var iid = i.id || i.key || i.label || i.name || '';
+    return !q || String(iid).toLowerCase().indexOf(q) >= 0;
+  });
+  var countEl = document.getElementById('vault-entry-count');
+  if (countEl) countEl.textContent = entries.length + ' / ' + window._vaultEntriesCache.length + ' tétel';
+  if (!entries.length) {
+    listEl.innerHTML = '<div style="color:var(--text3);font-size:12px;text-align:center;padding:24px;">' + (q ? 'Nincs találat: "' + esc(q) + '"' : 'Nincs bejegyzés ebben a vaultban<br><button onclick="vaultAddEntry(\'' + esc(window._vaultCurrentAgent || '') + '\')" style="margin-top:8px;background:var(--primary);color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Első tétel hozzáadása</button>') + '</div>';
+    return;
+  }
+  var h = '';
   entries.forEach(function(i) {
     var iid = i.id || i.key || i.label || i.name || '';
     var type = i.type || i.mode || 'generic';
     var backend = i.backend || '';
-    h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;">' +
+    h += '<div class="vault-item" data-iid="' + esc(iid) + '" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:6px;">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
         '<strong style="font-size:12px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🔑 ' + esc(iid) + '</strong>' +
         '<span style="font-size:9px;color:var(--text3);padding:2px 6px;background:var(--surface2);border-radius:8px;">' + esc(type) + (backend ? ' / ' + esc(backend) : '') + '</span>' +
-        (isLocal ? '<button onclick="vaultDelete(\'' + esc(iid) + '\')" title="Törlés" style="font-size:10px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button>' : '') +
+        '<button onclick="vaultReveal(\'' + esc(iid) + '\', this)" title="Titok megjelenítése" style="font-size:10px;background:rgba(59,130,246,.15);color:var(--primary);border:1px solid var(--primary);padding:4px 8px;border-radius:4px;cursor:pointer;">👁️</button>' +
+        '<button onclick="vaultCopy(\'' + esc(iid) + '\', this)" title="Vágólapra másolás" style="font-size:10px;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:4px 8px;border-radius:4px;cursor:pointer;">📋</button>' +
         '<button onclick="vaultShareEntry(\'' + esc(iid) + '\', \'' + esc(agentName) + '\')" title="Megosztás más node-okra" style="font-size:10px;background:rgba(139,92,246,.2);color:#c084fc;border:1px solid #c084fc;padding:4px 8px;border-radius:4px;cursor:pointer;">📤</button>' +
-      '</div></div>';
+        '<button onclick="vaultDeleteEntry(\'' + esc(iid) + '\', \'' + esc(agentName) + '\')" title="Törlés ebből a vaultból" style="font-size:10px;background:rgba(239,68,68,.2);color:var(--danger);border:1px solid var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;">🗑️</button>' +
+      '</div>' +
+      '<div class="vault-value" style="display:none;margin-top:8px;padding:8px;background:var(--surface2);border-radius:6px;font-family:monospace;font-size:11px;word-break:break-all;color:var(--text);">⏳…</div>' +
+    '</div>';
   });
-  el.innerHTML = h;
+  listEl.innerHTML = h;
+};
+
+window.vaultFilterEntries = function() {
+  window._vaultDrawList(window._vaultCurrentAgent, window._vaultCurrentAgentIsLocal);
+};
+
+window.vaultReveal = function(name, btn) {
+  var item = btn.closest('.vault-item');
+  var valEl = item ? item.querySelector('.vault-value') : null;
+  if (!valEl) return;
+  if (valEl.style.display === 'none') {
+    valEl.style.display = 'block';
+    valEl.textContent = '⏳ betöltés…';
+    var agent = window._vaultCurrentAgent || '';
+    fetch('/api/vault/remote/' + encodeURIComponent(agent) + '/get', { method: 'POST', headers: { 'Authorization': 'Bearer ' + window._vaultToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.ok && d.value != null) valEl.textContent = d.value;
+        else valEl.textContent = '❌ ' + (d.error || 'nem elérhető');
+      })
+      .catch(function(e) { valEl.textContent = '❌ ' + e.message; });
+    btn.textContent = '🙈';
+  } else {
+    valEl.style.display = 'none';
+    btn.textContent = '👁️';
+  }
+};
+
+window.vaultCopy = function(name, btn) {
+  var agent = window._vaultCurrentAgent || '';
+  fetch('/api/vault/remote/' + encodeURIComponent(agent) + '/get', { method: 'POST', headers: { 'Authorization': 'Bearer ' + window._vaultToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok && d.value != null) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(d.value).then(function() {
+            btn.textContent = '✅'; setTimeout(function() { btn.textContent = '📋'; }, 1200);
+          }).catch(function() { alert('Másolás nem lehetséges — nyisd meg a titkot (👁️) és másold kézzel'); });
+        } else { alert('Clipboard API nem elérhető'); }
+      } else { alert('❌ ' + (d.error || 'nem elérhető')); }
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.vaultDeleteEntry = function(name, agentName) {
+  if (!confirm('Biztosan törlöd "' + name + '" tételt a(z) ' + agentName + ' vaultból?')) return;
+  var agent = window._vaultCurrentAgent || agentName;
+  fetch('/api/vault/remote/' + encodeURIComponent(agent) + '/delete', { method: 'POST', headers: { 'Authorization': 'Bearer ' + window._vaultToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok || d.deleted) { alert('✅ Törölve'); window.vaultSelectAgent(agent); }
+      else alert('❌ ' + (d.error || 'nem sikerült'));
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.vaultAddEntry = function(agentName) {
+  var name = prompt('Tétel neve (pl. MESH/PG_PASSWORD):');
+  if (!name) return;
+  var value = prompt('Titok értéke:');
+  if (!value) return;
+  var agent = window._vaultCurrentAgent || agentName || '';
+  fetch('/api/vault/remote/' + encodeURIComponent(agent) + '/store', { method: 'POST', headers: { 'Authorization': 'Bearer ' + window._vaultToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, value: value }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { alert('✅ Mentve a(z) ' + agent + ' vaultba'); window.vaultSelectAgent(agent); }
+      else alert('❌ ' + (d.error || 'nem sikerült'));
+    })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
 window._vaultRenderAgentBar = function(meshNodes, current) {
@@ -5404,9 +5506,15 @@ window._vaultRenderAgentBar = function(meshNodes, current) {
   if (!el) return;
   var h = '<span style="font-size:11px;color:var(--text3);margin-right:4px;">Agent vault:</span>';
   Object.keys(meshNodes).forEach(function(name) {
-    var active = (current === name) || (current === null && meshNodes[name].local);
-    var label = meshNodes[name].local ? name + ' (helyi)' : name;
-    h += '<button onclick="vaultSelectAgent(\'' + esc(name) + '\')" style="font-size:11px;padding:6px 12px;border-radius:14px;cursor:pointer;border:1px solid ' + (active ? 'var(--primary)' : 'var(--border)') + ';background:' + (active ? 'var(--primary)' : 'var(--surface)') + ';color:' + (active ? '#fff' : 'var(--text2)') + ';">' + esc(label) + '</button>';
+    var nd = meshNodes[name] || {};
+    var active = (current === name) || (current === null && nd.local);
+    var label = nd.local ? name + ' (helyi)' : name;
+    var vs = nd.vault_status || {};
+    var err = nd.error;
+    var count = vs.entry_count != null ? vs.entry_count : (vs.entries || []).length;
+    var dot = err ? '🔴' : (vs.initialized || nd.local ? '🟢' : '🟡');
+    var title = err ? esc(name + ': ' + err) : esc(name + ': ' + count + ' tétel');
+    h += '<button onclick="vaultSelectAgent(\'' + esc(name) + '\')" title="' + title + '" style="font-size:11px;padding:6px 12px;border-radius:14px;cursor:pointer;border:1px solid ' + (active ? 'var(--primary)' : 'var(--border)') + ';background:' + (active ? 'var(--primary)' : 'var(--surface)') + ';color:' + (active ? '#fff' : 'var(--text2)') + ';display:flex;align-items:center;gap:5px;">' + dot + ' ' + esc(label) + (err ? '' : ' <span style="opacity:.7;font-size:9px;">(' + esc(count) + ')</span>') + '</button>';
   });
   el.innerHTML = h;
 };
@@ -5422,6 +5530,7 @@ window.vaultSelectAgent = function(nodeName) {
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(d) {
       if (d.error) { alert('Hiba: ' + d.error); window.vaultShowMeshOverview(); return; }
+      window._vaultCurrentAgentIsLocal = !!d.local;
       window._vaultRenderEntries(d.entries || [], d.node || nodeName, !!d.local);
       // Agent-bar frissítése a mesh áttekintésből
       return fetch('/api/vault/mesh', { headers: { 'Authorization': 'Bearer ' + token } })
@@ -5466,7 +5575,6 @@ window.vaultShowMeshOverview = function(cb) {
 };
 
 window.vaultShareEntry = function(name, fromNode) {
-  if (!confirm('Tétel: ' + name + '\nMely node-okra osztod meg? (OK → mesh node lista)')) return;
   var token = window._vaultToken();
   fetch('/api/vault/mesh', { headers: { 'Authorization': 'Bearer ' + token } })
     .then(function(r) { return r.json(); })
@@ -5474,23 +5582,93 @@ window.vaultShareEntry = function(name, fromNode) {
       var nodes = d.nodes || {};
       var options = Object.keys(nodes).filter(function(n) { return n !== fromNode; });
       if (!options.length) { alert('Nincs elérhető cél node'); return; }
-      var targetsStr = prompt('Cél node-ok (vesszővel elválasztva):\n' + options.join('\n') + '\n\n(minden = mind)', '');
-      if (!targetsStr) return;
-      var targets = targetsStr.trim().toLowerCase() === 'minden' ? options : targetsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-      if (!targets.length) return;
-      fetch('/api/vault/share', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, targets: targets }) })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-          var results = res.results || {};
-          var lines = Object.keys(results).map(function(t) {
-            return t + ': ' + (results[t].ok ? '✅ megosztva' : '❌ ' + (results[t].error || 'hiba'));
-          });
-          alert('Megosztás eredménye:\n' + lines.join('\n'));
-          window.vaultSelectAgent(fromNode);
-        })
-        .catch(function(e) { alert('Megosztási hiba: ' + e.message); });
+      // Modal-alapú cél-választó
+      var h = '<div style="font-size:12px;color:var(--text2);margin-bottom:10px;">Tétel: <strong style="color:var(--text);">' + esc(name) + '</strong><br>Forrás: ' + esc(fromNode || 'helyi') + '<br>Válaszd ki a cél node-okat:</div>';
+      h += '<div style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;">';
+      options.forEach(function(n) {
+        var nd = nodes[n] || {};
+        var vs = nd.vault_status || {};
+        var count = vs.entry_count != null ? vs.entry_count : (vs.entries || []).length;
+        h += '<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:12px;">' +
+          '<input type="checkbox" class="vault-share-target" value="' + esc(n) + '" style="accent-color:var(--primary);">' +
+          '<span>' + esc(n) + '</span>' +
+          '<span style="font-size:10px;color:var(--text3);margin-left:auto;">' + esc(count) + ' tétel</span>' +
+        '</label>';
+      });
+      h += '</div>';
+      h += '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 10px;background:var(--surface2);border-radius:8px;cursor:pointer;font-size:11px;color:var(--text3);">' +
+        '<input type="checkbox" id="vault-share-all" style="accent-color:var(--primary);"> Mindet kijelöl (összes cél)' +
+      '</label>';
+      window._vaultShareModal = { name: name, from: fromNode, options: options };
+      window._showVaultModal('📤 Megosztás', h, [
+        { label: 'Mégse', onclick: 'window._closeVaultModal()' },
+        { label: '📤 Megosztás', primary: true, onclick: 'window._vaultDoShare()' }
+      ]);
     })
     .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window._vaultDoShare = function() {
+  var m = window._vaultShareModal || {};
+  var boxes = document.querySelectorAll('.vault-share-target:checked');
+  var targets = [];
+  for (var i = 0; i < boxes.length; i++) targets.push(boxes[i].value);
+  if (!targets.length) { alert('Válassz legalább egy cél node-ot'); return; }
+  var token = window._vaultToken();
+  window._closeVaultModal();
+  fetch('/api/vault/share', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: m.name, targets: targets, from: m.from || undefined }) })
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      var results = res.results || {};
+      var lines = Object.keys(results).map(function(t) {
+        return t + ': ' + (results[t].ok ? '✅ megosztva' : '❌ ' + (results[t].error || 'hiba'));
+      });
+      alert('Megosztás eredménye:\n' + lines.join('\n'));
+      window.vaultSelectAgent(m.from || window._vaultCurrentAgent);
+    })
+    .catch(function(e) { alert('Megosztási hiba: ' + e.message); });
+};
+
+// ── Vault modal rendszer ──
+window._showVaultModal = function(title, bodyHtml, buttons) {
+  var overlay = document.getElementById('vault-modal-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'vault-modal-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    overlay.innerHTML = '<div id="vault-modal" style="background:var(--bg,#16181d);border:1px solid var(--border,#2a2e38);border-radius:12px;padding:18px;max-width:420px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">' +
+        '<strong id="vault-modal-title" style="font-size:14px;color:var(--text,#e8eaf0);"></strong>' +
+        '<button onclick="window._closeVaultModal()" style="background:none;border:none;color:var(--text3,#888);font-size:18px;cursor:pointer;">✕</button>' +
+      '</div>' +
+      '<div id="vault-modal-body" style="font-size:12px;"></div>' +
+      '<div id="vault-modal-buttons" style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;"></div>' +
+    '</div>';
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', function(ev) { if (ev.target === overlay) window._closeVaultModal(); });
+  }
+  overlay.style.display = 'flex';
+  document.getElementById('vault-modal-title').textContent = title || '';
+  document.getElementById('vault-modal-body').innerHTML = bodyHtml || '';
+  var btnWrap = document.getElementById('vault-modal-buttons');
+  btnWrap.innerHTML = '';
+  (buttons || []).forEach(function(b) {
+    var btn = document.createElement('button');
+    btn.textContent = b.label;
+    btn.style.cssText = 'padding:8px 16px;border-radius:8px;cursor:pointer;font-size:12px;border:1px solid ' + (b.primary ? 'var(--primary,#4f8cff)' : 'var(--border,#2a2e38)') + ';background:' + (b.primary ? 'var(--primary,#4f8cff)' : 'transparent') + ';color:' + (b.primary ? '#fff' : 'var(--text2,#aab)') + ';';
+    btn.onclick = function() { try { eval(b.onclick); } catch (e) { console.error(e); } };
+    btnWrap.appendChild(btn);
+  });
+  var allCb = document.getElementById('vault-share-all');
+  if (allCb) allCb.onchange = function() {
+    var boxes = document.querySelectorAll('.vault-share-target');
+    for (var i = 0; i < boxes.length; i++) boxes[i].checked = allCb.checked;
+  };
+};
+
+window._closeVaultModal = function() {
+  var overlay = document.getElementById('vault-modal-overlay');
+  if (overlay) overlay.style.display = 'none';
 };
 
 window.showRecoveryNoteModal = function() {
@@ -6688,13 +6866,22 @@ window._loadVaultExtras = function() {
       if ((meshNodes[n] || {}).local) localName = n;
     });
     if (!localName) return;
+    window._vaultCurrentAgent = localName;
     fetch('/api/vault/remote/' + encodeURIComponent(localName), { headers: { 'Authorization': 'Bearer ' + token } })
       .then(function(r) { return r.json(); })
       .then(function(d) {
-        if (d && d.entries) window._vaultRenderEntries(d.entries, d.node || localName, true);
+        if (d && d.entries) {
+          window._vaultCurrentAgentIsLocal = !!d.local;
+          window._vaultRenderEntries(d.entries, d.node || localName, !!d.local);
+        }
       })
       .catch(function() {});
   });
+};
+
+window._vaultRefresh = function() {
+  if (window._vaultCurrentAgent) window.vaultSelectAgent(window._vaultCurrentAgent);
+  else window._loadVaultExtras();
 };
 
 // ── Health extras: node erőforrások + P2P hálózat ──
