@@ -4339,7 +4339,10 @@ echo "Status: ok"
                             # ── Per-user chat: trigger wake-agent (BEFORE router.receive) ──
                             # Auto-ack removed — the real LLM response arrives in 15-30s
                             # and serves as the natural acknowledgment.
-                            log.info(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
+                            # Debug-level only: at INFO this fired on EVERY inbound
+                            # message (heartbeats, acks) — 23k lines per 200k on
+                            # Nova, 722MB unbounded launchd stdout log.
+                            log.debug(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
                             # ── Anti-ping-pong: skip wake-agent for agent replies and agent DMs ──
                             # Agent-generated messages must NOT trigger new wake-agent calls
                             # on peer nodes — that creates infinite reply chains.

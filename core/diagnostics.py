@@ -396,10 +396,13 @@ class DiagnosticEngine:
                 if steal is not None and steal < 10:
                     self._set_resolved(s, resolved)
             elif "lemezterulet" in t and mem:
-                # disk usage back under the 85% threshold (observed: morzsa
-                # 88% suggestion stuck 'accepted' while disk is now 77%)
+                # disk usage back under the generation threshold (80%) with
+                # hysteresis buffer — NOT 85%. Old threshold (<85%) sat ABOVE
+                # the generation threshold (>80), so at 84-85% every cycle
+                # resolved the old suggestion AND generated a new one →
+                # endless completed/pending churn (878 rows, 445 completed).
                 disk = mem.get("disk_usage_percent")
-                if disk is not None and disk < 85:
+                if disk is not None and disk < 78:
                     self._set_resolved(s, resolved)
             elif "peer csatlakozva" in t and peer_count >= 2:
                 # mesh resilience restored: min target peers connected again
