@@ -3132,6 +3132,7 @@ function loadMarveenPage(page) {
         colIdeas.forEach(function(idea) {
           var priColor = idea.priority === 'high' ? 'var(--danger)' : idea.priority === 'low' ? 'var(--text3)' : 'var(--primary)';
           var sourceBadge = idea.source_type === 'agent' ? '<span style="font-size:9px;background:#3b1f5f;color:#c084fc;padding:1px 6px;border-radius:8px;">🤖</span>' : '';
+          var integratedBadge = idea.integrated ? '<span style="font-size:9px;background:#14532d;color:#4ade80;padding:1px 6px;border-radius:8px;font-weight:600;" title="Beépült a repóba: ' + esc(idea.integrated_file || '') + '">📦 beépítve</span>' : '';
           html += '<div onclick="showIdeaDetail(\'' + esc(idea.id) + '\')" style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;cursor:pointer;transition:border-color .15s;" onmouseover="this.style.borderColor=\'var(--primary)\'" onmouseout="this.style.borderColor=\'var(--border)\'" id="idea-' + esc(idea.id) + '">' +
             '<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:6px;">' +
             '<strong style="font-size:13px;flex:1;">' + esc(idea.title) + '</strong>' +
@@ -3144,7 +3145,7 @@ function loadMarveenPage(page) {
             '<span style="color:#4ade80;">👍 ' + esc(idea.upvotes) + '</span>' +
             '<span style="color:#ef4444;">👎 ' + esc(idea.downvotes) + '</span>' +
             '<span style="font-weight:600;color:' + (idea.score > 0 ? '#4ade80' : idea.score < 0 ? '#ef4444' : 'var(--text3)') + ';">' + (idea.score > 0 ? '+' : '') + esc(idea.score) + '</span>' +
-            '<span style="margin-left:auto;color:var(--text3);">' + sourceBadge + ' ' + esc(idea.submitted_by) + '</span>' +
+            '<span style="margin-left:auto;color:var(--text3);">' + integratedBadge + ' ' + sourceBadge + ' ' + esc(idea.submitted_by) + '</span>' +
             '</div>' +
             '</div>';
         });
@@ -5192,6 +5193,19 @@ window.showIdeaDetail = function(id) {
     '<span style="font-size:10px;padding:2px 8px;border-radius:8px;background:var(--surface2);color:var(--text3);">' + esc(idea.category || 'general') + '</span>' +
     (idea.source_type === 'agent' ? '<span style="font-size:10px;padding:2px 8px;border-radius:8px;background:#3b1f5f;color:#c084fc;">🤖 agent</span>' : '') +
     '</div>';
+  // Beépítettség jelzés
+  if (idea.integrated) {
+    h += '<div style="background:#14532d;border:1px solid #22c55e;border-radius:8px;padding:10px;margin-bottom:12px;">' +
+      '<div style="font-size:12px;font-weight:700;color:#4ade80;">📦 BEÉPÜLT A REPÓBA</div>' +
+      '<div style="font-size:11px;color:#86efac;margin-top:4px;">Fájl: <code style="color:#4ade80;">' + esc(idea.integrated_file || 'ideas/') + '</code></div>' +
+      (idea.integrated_at ? '<div style="font-size:10px;color:#86efac;margin-top:2px;">📅 ' + esc(String(idea.integrated_at).substring(0, 19)) + '</div>' : '') +
+      '</div>';
+  } else if (idea.status === 'done') {
+    h += '<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:12px;">' +
+      '<div style="font-size:12px;font-weight:600;color:var(--text3);">⚠️ Kész, de NEM épült be a repóba</div>' +
+      '<div style="font-size:10px;color:var(--text3);margin-top:2px;">A delegáció lefutott, de a kód nem került a repóba ( régi futás vagy nem-kód eredmény).</div>' +
+      '</div>';
+  }
   // Leírás
   if (idea.description) {
     h += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;color:var(--text2);line-height:1.5;margin-bottom:10px;white-space:pre-wrap;">' + esc(idea.description) + '</div>';

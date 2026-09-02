@@ -1336,11 +1336,43 @@ class DelegationManager:
                 except Exception:
                     _idea_id = None
                 if _idea_id:
+                    # Beépítettség: a végrehajtó node a result-ban jelzi, ha a kód
+                    # a repóba került ("Repóba integrálva: ideas/..."). Ezt rögzítjük.
+                    _integrated = "Repóba integrálva" in (result_text or "")
+                    _integrated_file = None
+                    if _integrated:
+                        import re as _re_int
+                        _m = _re_int.search(r"Repóba integrálva:\s*(ideas/[a-zA-Z0-9_.\-]+)", result_text or "")
+                        _integrated_file = _m.group(1) if _m else None
                     await self.pg_pool.execute(
-                        "UPDATE mesh.mesh_ideas SET status = 'done', updated_at = NOW(), closed_at = NOW() WHERE idea_id = $1 AND status IN ('in_progress', 'approved', 'idea')",
-                        _idea_id,
+                        """UPDATE mesh.mesh_ideas
+                           SET status = 'done', updated_at = NOW(), closed_at = NOW(),
+                               integrated = $2,
+                               integrated_at = CASE WHEN $2 THEN NOW() ELSE integrated_at END,
+                               integrated_file = COALESCE($3, integrated_file)
+                           WHERE idea_id = $1 AND status IN ('in_progress', 'approved', 'idea')""",
+                        _idea_id, _integrated, _integrated_file,
                     )
-                    log.info(f"💡 Ötletláda szinkron: idea {_idea_id} → done (delegáció {str(task_id)[:8]} completed)")
+                    log.info(f"💡 Ötletláda szinkron: idea {_idea_id} → done (delegáció {str(task_id)[:8]} completed, integrated={_integrated})")
+                    # Telegram-jelzés Zsoltnak: a megvalósított ötlet beépült-e
+                    try:
+                        _row = await self.pg_pool.fetchrow(
+                            "SELECT title, integrated, integrated_file FROM mesh.mesh_ideas WHERE idea_id = $1", _idea_id,
+                        )
+                        if _row and _row["integrated"]:
+                            import subprocess as _sp_tg
+                            _msg = (
+                                f"✅ ÖTLET BEÉPÍTVE\n\n"
+                                f"Ötlet: {_row['title'][:80]}\n"
+                                f"Fájl: {_row['integrated_file'] or 'ideas/'}\n"
+                                f"A megvalósítás ténylegesen bekerült a repóba (git commit)."
+                            )
+                            _sp_tg.Popen(
+                                ["hermes", "send", "--telegram", "7796035659", _msg],
+                                stdout=_sp_tg.DEVNULL, stderr=_sp_tg.DEVNULL,
+                            )
+                    except Exception as _tg_err:
+                        log.debug(f"Telegram integrated-jelzés (non-fatal): {_tg_err}")
             except Exception as _idea_err:
                 log.debug(f"Ötletláda sync (non-fatal): {_idea_err}")
 

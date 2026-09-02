@@ -4119,6 +4119,9 @@ class DashboardAdminMixin:
                     "voters": list(r["voters"]) if r["voters"] else [],
                     "assigned_to": r["assigned_to"],
                     "linked_task_id": r["linked_task_id"],
+                    "integrated": r["integrated"] if "integrated" in r.keys() else False,
+                    "integrated_at": r["integrated_at"].isoformat() if r.get("integrated_at") else None,
+                    "integrated_file": r["integrated_file"] if "integrated_file" in r.keys() else None,
                     "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                     "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
                 })
