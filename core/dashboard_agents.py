@@ -889,12 +889,12 @@ class DashboardAgentsMixin:
 
             # ── Ötletláda-auto-beküldés: a [ÖTLET] jelölővel küldött javaslatok
             # automatikusan a mesh ötletládába kerülnek (a2a-mesh fejlesztési
-            # javaslatok /debate-vitákból). Determinisztikus: a jelölő dönt, nem LLM.
+            # javaslatok /debate- és /ideas-vitákból). Determinisztikus: a jelölő dönt, nem LLM.
             try:
                 import re as _re_idea
-                _idea_lines = _re_idea.findall(r"\[ÖTLET\]\s*(.+)", content or "")
+                _idea_lines = _re_idea.findall(r"\[[OÖ]TLET\]\s*(.+)", content or "", _re_idea.IGNORECASE)
                 if _idea_lines:
-                    _pool = getattr(self, '_pg_pool', None) or getattr(self, 'pg_pool', None) or (getattr(self, 'dashboard', None) and getattr(self.dashboard, 'pg_pool', None))
+                    _pool = self._get_pg_pool() if hasattr(self, '_get_pg_pool') else None
                     if _pool:
                         for _suggestion in _idea_lines[:3]:  # max 3 ötlet válaszonként
                             _suggestion = _suggestion.strip()[:500]
@@ -910,6 +910,8 @@ class DashboardAgentsMixin:
                                 sender,
                             )
                             log.info(f"🗳️ [ÖTLET] auto-beküldve az ötletládába ({sender}): {_suggestion[:60]}")
+                    else:
+                        log.warning("[ÖTLET] detektálva, de PG pool nem elérhető — nem került az ötletládába")
             except Exception as _idea_auto_err:
                 log.warning(f"Ötletláda auto-beküldés (non-fatal): {_idea_auto_err}")
 
