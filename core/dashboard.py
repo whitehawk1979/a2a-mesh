@@ -516,6 +516,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/ideas/import-diagnostics", self._api_ideas_diagnostic_import)
         app.router.add_post("/api/ideas/{id}/implement", self._api_idea_implement)
         app.router.add_get("/api/docs", self._api_docs)
+        app.router.add_get("/api/docs/content", self._api_docs_content)
         app.router.add_get("/api/connectors", self._api_connectors)
         app.router.add_get("/api/mcp-registry", self._api_mcp_registry)
         app.router.add_post("/api/mcp-install", self._api_mcp_install)
@@ -740,24 +741,48 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return web.json_response(result)
 
     async def _api_docs(self, request):
-        """Documentation viewer."""
+        """Documentation viewer — A2A Mesh docs (repo docs/ + root .md files)."""
         from aiohttp import web
         import os as _os
         user, err = self._require_auth(request)
         if err:
             return err
         docs = []
-        mesh_docs_dir = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "docs")
+        base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        mesh_docs_dir = _os.path.join(base, "docs")
         if _os.path.isdir(mesh_docs_dir):
             for f in sorted(_os.listdir(mesh_docs_dir)):
                 if f.endswith('.md'):
-                    docs.append({"name": f, "source": "a2a-mesh", "path": f"{mesh_docs_dir}/{f}"})
-        marveen_docs_dir = _os.path.expanduser("~/marveen_repo/docs")
-        if _os.path.isdir(marveen_docs_dir):
-            for f in sorted(_os.listdir(marveen_docs_dir)):
-                if f.endswith('.md'):
-                    docs.append({"name": f, "source": "marveen", "path": f"{marveen_docs_dir}/{f}"})
+                    docs.append({"name": f, "source": "a2a-mesh", "path": f"docs/{f}"})
+        # Root-level A2A Mesh documentation (README, STATUS, plans)
+        for f in sorted(_os.listdir(base)):
+            if f.endswith('.md') and f not in ('CLAUDE.md',) and 'marveen' not in f.lower():
+                docs.append({"name": f, "source": "a2a-mesh (root)", "path": f})
         return web.json_response({"docs": docs, "total": len(docs)})
+
+    async def _api_docs_content(self, request):
+        """Serve a documentation file's content as text (A2A Mesh sources only)."""
+        from aiohttp import web
+        import os as _os
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        name = request.query.get('name', '')
+        source = request.query.get('source', '')
+        if not name or '..' in name or '/' in name:
+            return web.json_response({"error": "invalid name"}, status=400)
+        base = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        if source.startswith('a2a-mesh'):
+            candidates = [_os.path.join(base, "docs", name), _os.path.join(base, name)]
+            for path in candidates:
+                if _os.path.isfile(path):
+                    try:
+                        with open(path, 'r', errors='replace') as fh:
+                            content = fh.read()
+                        return web.json_response({"name": name, "source": source, "content": content[:200000]})
+                    except Exception as e:
+                        return web.json_response({"error": str(e)}, status=500)
+        return web.json_response({"error": "not found"}, status=404)
 
     async def _api_connectors(self, request):
         """MCP connectors — Registry capabilities + plugin_config PG table."""

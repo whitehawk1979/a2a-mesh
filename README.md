@@ -41,7 +41,7 @@ Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kom
 - **Diagnostics** — health metrics, CPU/memória monitoring
 - **Auth** — felhasználó+ jelszavas, session token
 
-### 🔧 Marveen funkciók
+### 🔧 Autonóm működés
 - **Heartbeat gate** — csak online agent-ek kapnak task-ot
 - **Gradual autonomy** — fokozatos önállóság
 - **Untrusted framing** — peer üzenetek biztonsági keretezése
@@ -258,7 +258,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 - CLI timeout 90s → 120s
 
 ### v0.37.7
-- Marveen feature integráció (Smart Router, AlertRule, kanban)
+- Feature integráció (Smart Router, AlertRule, kanban)
 - Capability routing mode (strong/catalog_first/advisory)
 - Untrusted framing a2a_message + agent_reply
 - Auto-update check (Morzsa)
@@ -268,7 +268,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 - mTLS + HMAC minden node-on
 - PG replication slots (runa_replica, nova_replica)
 
-### v0.29.0 (Marveen merge)
+### v0.29.0
 - Kanban-first delegation
 - Heartbeat gate
 - Gradual autonomy

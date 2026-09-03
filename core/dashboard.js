@@ -3527,10 +3527,11 @@ function loadMarveenPage(page) {
       Object.keys(bySource).forEach(function(src) {
         html += '<h3 style="margin:0 0 10px;font-size:14px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">' + esc(src) + '</h3>';
         bySource[src].forEach(function(doc) {
-          html += card('<div style="display:flex;align-items:center;gap:8px;">' +
+          html += card('<div onclick="viewDocFile(\'' + esc(doc.name).replace(/'/g, "\\'") + '\',\'' + esc(doc.source).replace(/'/g, "\\'") + '\')" style="cursor:pointer;display:flex;align-items:center;gap:8px;">' +
             '<span style="font-size:16px;">📄</span>' +
-            '<strong style="font-size:13px;">' + esc(doc.name) + '</strong></div>' +
-            '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + esc(doc.path) + '</div>');
+            '<strong style="font-size:13px;flex:1;">' + esc(doc.name) + '</strong>' +
+            '<span style="font-size:14px;color:var(--text3);">👁️</span></div>' +
+            '<div style="font-size:11px;color:var(--text3);margin-top:4px;">' + esc(doc.path) + ' — kattints a megtekintéshez</div>');
         });
         html += '<div style="margin-bottom:16px;"></div>';
       });
@@ -4615,6 +4616,83 @@ function loadMarveenPage(page) {
 function closeMarveenModal() {
   var modal = document.getElementById('marveenModal');
   if (modal) modal.style.display = 'none';
+}
+
+// ── Dokumentáció megtekintő — A2A Mesh docs fájl tartalom modal ──
+window.viewDocFile = function(name, source) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  // Modal megnyitása betöltés-jelzéssel
+  var modal = document.getElementById('marveenModal');
+  if (modal) {
+    document.getElementById('marveenModalTitle').textContent = '📄 ' + name;
+    document.getElementById('marveenModalBody').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">⏳ Betöltés...</div>';
+    modal.style.display = 'flex';
+  }
+  fetch('/api/docs/content?name=' + encodeURIComponent(name) + '&source=' + encodeURIComponent(source), {
+    headers: { 'Authorization': 'Bearer ' + token }
+  })
+  .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(function(d) {
+    var body = document.getElementById('marveenModalBody');
+    if (!body) return;
+    if (d.error) {
+      body.innerHTML = '<div style="padding:20px;color:var(--danger);">❌ ' + esc(d.error) + '</div>';
+      return;
+    }
+    body.innerHTML = renderDocContent(d.content || '', name);
+  })
+  .catch(function(e) {
+    var body = document.getElementById('marveenModalBody');
+    if (body) body.innerHTML = '<div style="padding:20px;color:var(--danger);">❌ Betöltés sikertelen: ' + esc(String(e.message || e)) + '</div>';
+  });
+};
+
+// Egyszerű markdown → HTML render (fejlécek, listák, kód, vastag/dőlt, linkek)
+function renderDocContent(md, name) {
+  var lines = String(md || '').split('\n');
+  var out = '';
+  var inCode = false, codeBuf = [];
+  var inList = false;
+  function closeList() { if (inList) { out += '</ul>'; inList = false; } }
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px;">$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--primary);">$1</a>');
+  }
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (line.indexOf('```') === 0) {
+      if (inCode) {
+        out += '<pre style="background:var(--surface2);padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;margin:8px 0;"><code>' + esc(codeBuf.join('\n')) + '</code></pre>';
+        codeBuf = []; inCode = false;
+      } else { closeList(); inCode = true; }
+      continue;
+    }
+    if (inCode) { codeBuf.push(line); continue; }
+    var t = line.trim();
+    if (!t) { closeList(); continue; }
+    var h = t.match(/^(#{1,4})\s+(.*)$/);
+    if (h) {
+      closeList();
+      var lvl = Math.min(4, h[1].length + 1);
+      out += '<h' + lvl + ' style="margin:14px 0 6px;font-size:' + (20 - lvl * 2) + 'px;color:var(--text);">' + inline(h[2]) + '</h' + lvl + '>';
+      continue;
+    }
+    if (/^[-*]\s+/.test(t) || /^\d+\.\s+/.test(t)) {
+      if (!inList) { out += '<ul style="margin:6px 0;padding-left:20px;">'; inList = true; }
+      out += '<li style="margin:3px 0;">' + inline(t.replace(/^[-*]\s+/, '').replace(/^\d+\.\s+/, '')) + '</li>';
+      continue;
+    }
+    closeList();
+    out += '<p style="margin:6px 0;line-height:1.6;">' + inline(t) + '</p>';
+  }
+  closeList();
+  if (inCode && codeBuf.length) {
+    out += '<pre style="background:var(--surface2);padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;margin:8px 0;"><code>' + esc(codeBuf.join('\n')) + '</code></pre>';
+  }
+  return '<div style="font-size:13px;max-width:860px;margin:0 auto;">' + out + '</div>';
 }
 
 // Load conversation log for selected agent
