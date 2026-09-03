@@ -1,4 +1,4 @@
-# A2A Mesh v0.38.6
+# A2A Mesh v0.41.0
 
 Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kommunikáció, delegáció, chat és health monitoring. Zigbee-inspirált topology, mTLS + HMAC titkosítás, PostgreSQL shared state, WebSocket dashboard.
 
