@@ -526,6 +526,15 @@ class MeshRouter:
             return ProcessResult(status="self_reference", message=message)
 
         # 3. Not-for-me filter (but allow broadcast)
+        # HEARTBEAT NEVER FORWARDED — keepalive signals must not be reflooded.
+        # Empty-recipient heartbeats (P2P keepalives) caused a ping-pong loop:
+        # A forwards B's heartbeat → B forwards back → each INSERT into PG
+        # → trigger NOTIFY → received again → forward again → 240k+ msgs/12h,
+        # cgroup memory throttling, node D-state freeze. Heartbeats are terminal:
+        # update peer health (handled by transports) and STOP.
+        if message.type == MSG_TYPE_HEARTBEAT:
+            self._stats["heartbeat_filtered"] = self._stats.get("heartbeat_filtered", 0) + 1
+            return ProcessResult(status="duplicate", message=message)
         if self.not_for_me_filter and not message.is_broadcast() and message.recipient != self.node_name:
             # Not for me — forward only if we have multiple peer transports
             # In small meshes (3 nodes), reflooding on all transports creates
