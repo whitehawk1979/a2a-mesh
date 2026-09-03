@@ -157,7 +157,7 @@ class SSHTunnelTransport(TransportAdapter):
         # Start connection tasks for each peer
         for peer_name in self._tunnels:
             self._connection_tasks[peer_name] = asyncio.create_task(
-                self._maintain_tunnel(peer_name)
+                self._maintain_tunnel_wrapper(peer_name)
             )
 
         return True
@@ -269,6 +269,24 @@ class SSHTunnelTransport(TransportAdapter):
 
             await asyncio.sleep(1)
 
+    async def _maintain_tunnel_wrapper(self, peer_name: str):
+        """Wrapper ensuring CancelledError also kills the SSH subprocess.
+
+        Without this, task.cancel() at stop() leaves the child ssh process
+        running (orphan leak — the transport's stop() clears _tunnels but a
+        cancellation mid-loop skips _close_tunnel).
+        """
+        try:
+            await self._maintain_tunnel(peer_name)
+        except asyncio.CancelledError:
+            peer = self._tunnels.get(peer_name)
+            if peer:
+                try:
+                    await self._close_tunnel(peer)
+                except Exception:
+                    pass
+            raise
+
     async def _establish_tunnel(self, peer: TunnelPeer) -> bool:
         """Establish SSH tunnel + TCP connection to peer.
 
@@ -283,6 +301,15 @@ class SSHTunnelTransport(TransportAdapter):
             log.error(f"Could not find free local port for {peer.name}")
             return False
 
+        # Kill any previous SSH process for this peer (orphan prevention).
+        # If a previous attempt left a live process, it would leak: peer.process
+        # is overwritten below and the old process keeps running forever
+        # (392 orphans accumulated on tor before this fix, exhausting the
+        # Mac's sshd MaxStartups and blocking reverse tunnels).
+        if peer.process is not None and peer.process.returncode is None:
+            log.warning(f"SSH tunnel to {peer.name}: killing leftover SSH process (pid {peer.process.pid}) before reconnect")
+            await self._close_tunnel(peer)
+
         # Build SSH command
         ssh_cmd = self._build_ssh_command(peer)
         log.info(f"Starting SSH tunnel to {peer.name}: {ssh_cmd}")
@@ -296,6 +323,7 @@ class SSHTunnelTransport(TransportAdapter):
             )
         except Exception as e:
             log.error(f"Failed to start SSH process for {peer.name}: {e}")
+            peer.process = None
             return False
 
         # Wait for tunnel to be ready (SSH connects to remote)

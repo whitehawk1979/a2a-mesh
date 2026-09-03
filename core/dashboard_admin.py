@@ -1548,8 +1548,12 @@ class DashboardAdminMixin:
                     if not isinstance(ts_dict, dict):
                         continue
                     for target_name, tstate in ts_dict.items():
-                        if not isinstance(tstate, dict) or not tstate.get("connected"):
+                        if not isinstance(tstate, dict):
                             continue
+                        # Include DISCONNECTED peer tunnels too — an invisible
+                        # failed tunnel hides bidirectional topology. The
+                        # frontend renders them as faint dashed lines.
+                        peer_connected = bool(tstate.get("connected"))
                         # Avoid duplicating an edge the local node already reported
                         already = any(
                             c.get("transport") == "ssh_tunnel"
@@ -1562,8 +1566,9 @@ class DashboardAdminMixin:
                                 "source": peer_name,
                                 "target": target_name,
                                 "transport": "ssh_tunnel",
-                                "status": "connected",
+                                "status": "connected" if peer_connected else "disconnected",
                                 "uptime_seconds": tstate.get("uptime_seconds", 0),
+                                "retry_count": tstate.get("retry_count", 0),
                             })
             except Exception as e:
                 log.debug(f"Topology: peer tunnel fetch failed (non-blocking): {e}")
