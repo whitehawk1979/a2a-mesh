@@ -5325,6 +5325,20 @@ echo "Status: ok"
 
     # ─── Stats Update Loop ───────────────────────────────────────────
 
+    def _transport_error_delta(self, current_total: int) -> int:
+        """v0.41.1: Transport error delta since last collection.
+
+        The router 'errors' stat is a cumulative counter since process start.
+        Alert rules using '> 0' on a cumulative counter fire forever (RE-FIRE
+        loop). This returns errors since the last collection, so rules only
+        fire on NEW errors. First call returns 0 (baseline).
+        """
+        prev = getattr(self, "_prev_transport_errors", None)
+        self._prev_transport_errors = current_total
+        if prev is None:
+            return 0  # baseline: don't fire on historical errors
+        return max(0, current_total - prev)
+
     def _collect_alert_metrics(self) -> dict:
         """Collect current metrics for alert rule evaluation."""
         t_stats = self.router.get_stats() if self.router else {}
@@ -5338,7 +5352,7 @@ echo "Status: ok"
             "messages_sent": t_stats.get("sent", 0),
             "messages_received": t_stats.get("received", 0),
             "messages_forwarded": t_stats.get("forwarded", 0),
-            "transport_errors": t_stats.get("errors", 0),
+            "transport_errors": self._transport_error_delta(t_stats.get("errors", 0)),
             "dedup_cache_size": t_stats.get("dedup", {}).get("size", 0),
             "retry_queue_size": p2p.get_retry_queue_size() if p2p else 0,
             "peer_count": len(peer_stats),
