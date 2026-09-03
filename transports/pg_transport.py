@@ -448,8 +448,8 @@ class PGTransport(TransportAdapter):
             await self._pool.execute("""
                 INSERT INTO mesh.mesh_messages
                     (id, sender, recipient, msg_type, priority, payload,
-                     routing_mode, src_addr, dst_addr, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent')
+                     routing_mode, src_addr, dst_addr, status, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent', NOW())
                 ON CONFLICT (id) DO NOTHING
             """,
                 message.id,

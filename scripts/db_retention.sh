@@ -50,8 +50,16 @@ log "=== A2A Mesh DB Retention ==="
 # 0. Delete old heartbeats (>24 hours) — they are 99% of mesh_messages volume
 #    4 nodes x 30s heartbeat = ~11.5K rows/day/node; 7d retention let the table grow to 12GB.
 # 0. Ensure retention index (idempotent, fast after first cleanup)
+# 2026-09-03: CREATE INDEX IF NOT EXISTS acquires ShareLock on the table even when the index
+# already exists — today it queued behind a VACUUM and blocked ALL mesh INSERTs for 8+ minutes
+# (heartbeats stalled on Tor/Morzsa). Guard: only run CREATE INDEX when it's actually missing.
 log "Ensuring retention index on mesh_messages (msg_type, created_at)..."
-psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "CREATE INDEX IF NOT EXISTS idx_mesh_messages_retention ON mesh.mesh_messages (msg_type, created_at);" 2>&1 | head -1
+IDX_EXISTS=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -A -c "SELECT 1 FROM pg_indexes WHERE schemaname='mesh' AND tablename='mesh_messages' AND indexname='idx_mesh_messages_retention';" 2>/dev/null)
+if [[ "$IDX_EXISTS" == "1" ]]; then
+    log "  retention index already present — skipping CREATE INDEX (avoids ShareLock blocking mesh traffic)"
+else
+    psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -c "CREATE INDEX IF NOT EXISTS idx_mesh_messages_retention ON mesh.mesh_messages (msg_type, created_at);" 2>&1 | head -1
+fi
 
 log "Cleaning mesh_messages heartbeats (>24h)..."
 DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
