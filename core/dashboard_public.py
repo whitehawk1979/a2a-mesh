@@ -91,6 +91,41 @@ class DashboardPublicMixin:
                 f'a2a_mesh_dedup_cache_size{{node="{node_name}"}} {t_stats.get("dedup", {}).get("size", 0)}',
                 "",
             ]
+            # ── System resource metrics (v0.24.0 alert rules depend on these) ──
+            # A2AHighCPU / A2AHighMemory / A2AHighDisk in monitoring/alert_rules.yml
+            # reference these metrics; without them those alerts can never fire.
+            # psutil import failure degrades gracefully (metrics simply absent).
+            try:
+                import psutil
+                proc = psutil.Process()
+                cpu_proc = proc.cpu_percent(interval=None)  # non-blocking: % since last call
+                sys_cpu = psutil.cpu_percent(interval=None)
+                sys_mem = psutil.virtual_memory().percent
+                try:
+                    sys_disk = psutil.disk_usage("/").percent
+                except Exception:
+                    sys_disk = -1  # unmeasurable (e.g. HAOS container) — sentinel
+                lines += [
+                    "",
+                    "# HELP a2a_mesh_cpu_percent Process CPU usage percentage",
+                    "# TYPE a2a_mesh_cpu_percent gauge",
+                    f'a2a_mesh_cpu_percent{{node="{node_name}"}} {cpu_proc}',
+                    "",
+                    "# HELP a2a_mesh_system_cpu_percent System CPU usage percentage",
+                    "# TYPE a2a_mesh_system_cpu_percent gauge",
+                    f'a2a_mesh_system_cpu_percent{{node="{node_name}"}} {sys_cpu}',
+                    "",
+                    "# HELP a2a_mesh_system_memory_percent System memory usage percentage",
+                    "# TYPE a2a_mesh_system_memory_percent gauge",
+                    f'a2a_mesh_system_memory_percent{{node="{node_name}"}} {sys_mem}',
+                    "",
+                    "# HELP a2a_mesh_system_disk_percent Disk usage percentage on root partition",
+                    "# TYPE a2a_mesh_system_disk_percent gauge",
+                    f'a2a_mesh_system_disk_percent{{node="{node_name}"}} {sys_disk}',
+                    "",
+                ]
+            except ImportError:
+                pass  # psutil not installed — skip system metrics
             return web.Response(text="\n".join(lines), content_type="text/plain")
         except Exception as e:
             return web.Response(text=f"# Error: {e}", status=500, content_type="text/plain")
