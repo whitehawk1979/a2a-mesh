@@ -352,9 +352,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
     </div>
 
-    <!-- Marveen Menü — Marveen projekt alapú grouped sidebar -->
+    <!-- A2A Mesh Menü — Marveen projekt alapú grouped sidebar -->
     <div class="channel-section">
-      <div class="channel-section-title">Marveen Menü</div>
+      <div class="channel-section-title collapsible-header" data-collapse="a2amesh" onclick="toggleSidebarSection('a2amesh')"><span class="collapse-arrow">▸</span> A2A Mesh Menü</div>
+      <div class="collapsible-body" id="a2amesh-body">
       <!-- Top-level items -->
       <div class="channel-item" onclick="loadMarveenPage('overview')" style="font-weight:600">
         <span class="icon">📊</span> Áttekintés
@@ -509,6 +510,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="channel-item" onclick="loadMarveenPage('insights-dream')">
           <span class="icon">🌙</span> Dream Engine
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -1565,6 +1567,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<script src="/dashboard.js?v=1788413404"></script>
+<script src="/dashboard.js?v=1788413838"></script>
 </body>
 </html>
