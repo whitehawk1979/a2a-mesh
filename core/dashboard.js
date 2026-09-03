@@ -761,6 +761,30 @@ window.openFilePreviewModal = function(encodedAtt) {
 
 
 // ─────────────────────────────────────────────────────────
+// ── Sidebar collapsible sections (Direktívák / Prioritás / Gyors Linkek) ──
+window.toggleSidebarSection = function(key) {
+  var body = document.getElementById(key + '-body');
+  var header = document.querySelector('[data-collapse="' + key + '"]');
+  if (!body || !header) return;
+  var collapsed = !body.classList.contains('collapsed');
+  body.classList.toggle('collapsed', collapsed);
+  header.classList.toggle('open', !collapsed);
+  try { localStorage.setItem('sidebar-collapsed-' + key, collapsed ? '1' : '0'); } catch (e) {}
+};
+
+(function restoreSidebarSections() {
+  ['quicklinks', 'directives', 'priority'].forEach(function(key) {
+    var body = document.getElementById(key + '-body');
+    var header = document.querySelector('[data-collapse="' + key + '"]');
+    if (!body || !header) return;
+    var collapsed = false;
+    try { collapsed = localStorage.getItem('sidebar-collapsed-' + key) === '1'; } catch (e) {}
+    body.classList.toggle('collapsed', collapsed);
+    header.classList.toggle('open', !collapsed);
+  });
+})();
+
+// ─────────────────────────────────────────────────────────
 // ── Chat command autocomplete (Telegram-style /commands) ──
 // Format: cmd = command, args = argument format shown in palette AND inserted as
 // a selected placeholder after the command (Telegram BotFather pattern).
