@@ -768,6 +768,7 @@ window.CHAT_COMMANDS = [
   { cmd: '/help',    args: '',                desc: 'Elérhető parancsok listája' },
   { cmd: '/status',  args: '',                desc: 'Mesh és agent állapot riport' },
   { cmd: '/debate',  args: '<téma>',          desc: 'Vita indítása minden agent részvételével' },
+  { cmd: '/ideas',   args: '<téma>',          desc: 'Ötletgyűjtés — agent-javaslatok [ÖTLET] jelölve → Ötletláda' },
   { cmd: '/all',     args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
   { cmd: '/ask',     args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek (nova/morzsa/runa/tor)' },
   { cmd: '/clear',   args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
