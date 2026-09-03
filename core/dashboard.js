@@ -4186,6 +4186,7 @@ function loadMarveenPage(page) {
       html += '<div id="chatInputBar" style="padding:12px;border-top:1px solid var(--border);display:none;gap:8px;">';
       html += '<input id="chatFileInput" type="file" style="display:none;" multiple />';
       html += '<button id="chatAttachBtn" title="Fájl csatolása" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:16px;">📎</button>';
+      html += '<button id="chatDictateBtn" title="Diktálás (beszéd → szöveg)" onclick="toggleDictation(\'chatInput\', this)" style="background:var(--danger);color:#fff;border:none;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:16px;">🎤</button>';
       html += '<input id="chatInput" type="text" placeholder="Üzenet írása... (Enter = küldés)" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;" />';
       html += '<button id="chatSendBtn" style="background:var(--primary);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;">➤ Küldés</button>';
       html += '</div>';
@@ -4617,6 +4618,93 @@ function closeMarveenModal() {
   var modal = document.getElementById('marveenModal');
   if (modal) modal.style.display = 'none';
 }
+
+// ═══════════════════════════════════════════════════════════
+// ── Diktálás (Web Speech API) — beszéd → szöveg minden chatbe ──
+// ═══════════════════════════════════════════════════════════
+window._dictation = { active: false, inputId: null, btn: null, recog: null, lang: 'hu-HU' };
+
+window.toggleDictation = function(inputId, btn) {
+  var st = window._dictation;
+  // Aktív diktálás leállítása (ugyanaz a gomb vagy másik)
+  if (st.active) {
+    if (st.recog) { try { st.recog.stop(); } catch (e) {} }
+    st.active = false;
+    if (st.btn) { st.btn.textContent = '🎤'; st.btn.style.background = 'var(--danger)'; st.btn.title = 'Diktálás (beszéd → szöveg)'; }
+    var inp = document.getElementById(st.inputId);
+    if (inp) inp.placeholder = inp.placeholder.replace(' 🎙️ Diktálsz...', '');
+    st.recog = null; st.btn = null;
+    if (st.inputId === inputId) { st.inputId = null; return; } // ugyanaz → csak leállítás
+  }
+  // Új diktálás indítása
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showToast('🎤 A böngésző nem támogatja a diktálást (Safari/Chrome ajánlott)', 'error');
+    return;
+  }
+  var input = document.getElementById(inputId);
+  if (!input) return;
+  var recog = new SR();
+  recog.lang = st.lang;
+  recog.continuous = true;      // hosszú diktálás — pihentetés nélkül
+  recog.interimResults = true;  // élő szöveg az inputban
+  recog.maxAlternatives = 1;
+  var baseText = input.value ? input.value + ' ' : '';
+  var finalText = baseText;
+  st.recog = recog; st.active = true; st.inputId = inputId; st.btn = btn;
+  if (btn) { btn.textContent = '🎙️'; btn.style.background = 'var(--warning, #d29922)'; btn.title = 'Diktálás aktív — kattints a leállításhoz'; }
+  if (input) input.placeholder = input.placeholder + ' 🎙️ Diktálsz...';
+
+  recog.onresult = function(ev) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    var interim = '';
+    for (var i = ev.resultIndex; i < ev.results.length; i++) {
+      if (ev.results[i].isFinal) {
+        finalText += ev.results[i][0].transcript;
+      } else {
+        interim += ev.results[i][0].transcript;
+      }
+    }
+    input.value = (finalText + interim).trim();
+    // Kurzor a végére
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
+  recog.onerror = function(ev) {
+    if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+      showToast('🎤 Mikrofon-hozzáférés megtagadva — engedélyezd a böngészőben', 'error');
+      window.toggleDictation(inputId, btn); // leállítás
+    } else if (ev.error !== 'no-speech' && ev.error !== 'aborted') {
+      showToast('🎤 Diktálás hiba: ' + ev.error, 'warning');
+    }
+  };
+  recog.onend = function() {
+    // Automatikus újraindítás, ha még aktív (a Chrome 60s után leállítja)
+    if (window._dictation.active && window._dictation.inputId === inputId) {
+      try { window._dictation.recog.start(); } catch (e) {}
+    } else {
+      var b = window._dictation.btn;
+      if (b) { b.textContent = '🎤'; b.style.background = 'var(--danger)'; }
+      var inp = document.getElementById(inputId);
+      if (inp) inp.placeholder = inp.placeholder.replace(' 🎙️ Diktálsz...', '');
+      window._dictation.active = false; window._dictation.recog = null; window._dictation.btn = null;
+    }
+  };
+  try {
+    recog.start();
+    showToast('🎤 Diktálás aktív — beszélj, a szöveg automatikusan beíródik', 'success');
+  } catch (e) {
+    showToast('🎤 Diktálás indítása sikertelen: ' + e.message, 'error');
+    st.active = false; st.recog = null;
+  }
+};
+
+// Nyelv váltása a diktáláshoz (ha kell: toggleDictationLang('en-US'))
+window.toggleDictationLang = function(lang) {
+  window._dictation.lang = lang || (window._dictation.lang === 'hu-HU' ? 'en-US' : 'hu-HU');
+  showToast('🎤 Diktálás nyelv: ' + window._dictation.lang, 'info');
+  return window._dictation.lang;
+};
 
 // ── Dokumentáció megtekintő — A2A Mesh docs fájl tartalom modal ──
 window.viewDocFile = function(name, source) {
