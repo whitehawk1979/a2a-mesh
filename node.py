@@ -1581,37 +1581,57 @@ class MeshNode:
         
         steps.append(f"[{node}] repo_path={repo_path}")
 
-        # Step 1: Git fetch + pull
+        # Step 1: Git fetch + pull (robust: stale-lock cleanup, retry, FETCH_HEAD merge)
         try:
+            import os as _os
+            # Stale index.lock cleanup — known issue on Runa after crashed deploy processes
+            try:
+                lock = _os.path.join(repo_path, ".git", "index.lock")
+                if _os.path.exists(lock):
+                    _os.remove(lock)
+                    steps.append(f"[{node}] git: removed stale index.lock")
+            except Exception:
+                pass
+
+            fetch_ok = False
+            # Try full prune fetch first; fallback to branch-only fetch (immune to ref-lock)
+            for fetch_args in ([remote], [remote, branch]):
+                try:
+                    r = subprocess.run(
+                        ["git", "fetch"] + fetch_args,
+                        cwd=repo_path, capture_output=True, text=True, timeout=60
+                    )
+                    if r.returncode == 0:
+                        fetch_ok = True
+                        steps.append(f"[{node}] git fetch {' '.join(fetch_args)}: OK")
+                        break
+                    steps.append(f"[{node}] git fetch {' '.join(fetch_args)}: FAIL — {r.stderr.strip()[:150]}")
+                except subprocess.TimeoutExpired:
+                    steps.append(f"[{node}] git fetch {' '.join(fetch_args)}: TIMEOUT")
+            if not fetch_ok:
+                return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_git"}}
+
+            # Merge from FETCH_HEAD — always reflects the last successful fetch,
+            # immune to 'cannot lock ref' failures that leave origin/main stale.
             r = subprocess.run(
-                ["git", "fetch", "--prune", remote],
-                cwd=repo_path, capture_output=True, text=True, timeout=15
+                ["git", "merge", "--ff-only", "FETCH_HEAD"],
+                cwd=repo_path, capture_output=True, text=True, timeout=30
             )
             if r.returncode != 0:
-                steps.append(f"[{node}] git fetch: FAIL — {r.stderr.strip()[:200]}")
-            else:
-                steps.append(f"[{node}] git fetch: OK")
-            
-            # Try merge --ff-only, fallback to reset --hard
-            r = subprocess.run(
-                ["git", "merge", "--ff-only", f"{remote}/{branch}"],
-                cwd=repo_path, capture_output=True, text=True, timeout=15
-            )
-            if r.returncode != 0:
-                steps.append(f"[{node}] git merge --ff-only: retry with reset --hard")
+                steps.append(f"[{node}] git merge --ff-only: retry with reset --hard FETCH_HEAD")
                 r2 = subprocess.run(
-                    ["git", "reset", "--hard", f"{remote}/{branch}"],
-                    cwd=repo_path, capture_output=True, text=True, timeout=15
+                    ["git", "reset", "--hard", "FETCH_HEAD"],
+                    cwd=repo_path, capture_output=True, text=True, timeout=30
                 )
                 if r2.returncode != 0:
                     steps.append(f"[{node}] git reset: FAIL — {r2.stderr.strip()[:200]}")
                     return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_git"}}
-                steps.append(f"[{node}] git reset --hard: OK — {r2.stdout.strip()[:100]}")
+                steps.append(f"[{node}] git reset --hard FETCH_HEAD: OK — {r2.stdout.strip()[:100]}")
             else:
                 # Check if anything actually changed
                 r_status = subprocess.run(
                     ["git", "log", "--oneline", "-1"],
-                    cwd=repo_path, capture_output=True, text=True, timeout=5
+                    cwd=repo_path, capture_output=True, text=True, timeout=10
                 )
                 steps.append(f"[{node}] git merge: OK — {r_status.stdout.strip()[:80]}")
         except subprocess.TimeoutExpired:
