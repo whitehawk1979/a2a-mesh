@@ -53,6 +53,9 @@ class TunnelPeer:
     last_connect_attempt: float = 0.0
     backoff: float = 10.0
     remote_name: str = ""
+    # Per-peer SSH connect timeout (overrides global config.connect_timeout
+    # when set — needed for slow links e.g. tor/HAOS where 15s is too short)
+    connect_timeout: int = 0
 
 
 class SSHTunnelTransport(TransportAdapter):
@@ -135,6 +138,7 @@ class SSHTunnelTransport(TransportAdapter):
                     peer_cfg.get("identity_file", config.default_identity_file)
                 ),
                 local_port=0,  # assigned on connect
+                connect_timeout=int(peer_cfg.get("connect_timeout", 0) or 0),
             )
 
     @property
@@ -352,7 +356,10 @@ class SSHTunnelTransport(TransportAdapter):
         # seconds after process start (handshake latency on slow hosts). Retry
         # connection until the process dies or connect_timeout elapses.
         ssl_ctx = self._ssl_client_context
-        _deadline = asyncio.get_event_loop().time() + self._config.connect_timeout
+        # Per-peer timeout override (tor/HAOS links are slow: 15s default is
+        # too short — SSH there takes 60-90s under load). 0 = global default.
+        _timeout = peer.connect_timeout or self._config.connect_timeout
+        _deadline = asyncio.get_event_loop().time() + _timeout
         _last_err = None
         peer.reader = peer.writer = None
         while peer.process is not None and peer.process.returncode is None \
@@ -418,7 +425,7 @@ class SSHTunnelTransport(TransportAdapter):
             "-p", str(peer.ssh_port),
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
-            "-o", f"ConnectTimeout={self._config.connect_timeout}",
+            "-o", f"ConnectTimeout={peer.connect_timeout or self._config.connect_timeout}",
             "-o", f"ServerAliveInterval={self._config.keepalive_interval}",
             "-o", "ServerAliveCountMax=3",
             "-o", "ExitOnForwardFailure=yes",
