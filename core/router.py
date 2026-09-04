@@ -138,6 +138,48 @@ class MeshRouter:
         # automatically flushes when a transport comes back online.
         self._offline_queue: Optional[OfflineQueue] = None
 
+        # Tree router reference (set by node via set_tree_router) — used for
+        # multi-hop P2P relay (ZigBee concept: route via parent/coordinator).
+        self._tree_router = None
+
+    def set_tree_router(self, tree_router):
+        """Attach the node's TreeRouter for multi-hop relay decisions."""
+        self._tree_router = tree_router
+
+    def _pick_relay_peer(self) -> Optional[str]:
+        """Pick the next-hop relay peer for a non-direct recipient.
+
+        ZigBee concept: a child router that can't reach the recipient directly
+        sends via its PARENT (short address) — the parent chain leads to the
+        coordinator, which has full mesh visibility. Falls back to any other
+        connected P2P peer (mesh mode) when no tree parent is known.
+        """
+        # Tree parent first (deterministic, coordinator-bound)
+        try:
+            if self._tree_router is not None:
+                local = getattr(self._tree_router, "local_address", None)
+                parent_short = getattr(local, "parent_short", None) if local else None
+                if parent_short is not None:
+                    am = getattr(self._tree_router, "address_manager", None)
+                    # Reverse lookup: short address → node name
+                    parent_name = None
+                    if am:
+                        for uuid_key, addr in getattr(am, "assigned", {}).items():
+                            if getattr(addr, "short", None) == parent_short:
+                                parent_name = uuid_key
+                                break
+                    if parent_name and parent_name != self.node_name:
+                        return parent_name
+        except Exception:
+            pass
+        # Mesh fallback: any connected P2P peer that isn't the recipient
+        p2p = self.transports.get("p2p")
+        if p2p and hasattr(p2p, "_peers"):
+            for name in list(p2p._peers.keys()):
+                if name != self.node_name:
+                    return name
+        return None
+
         # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
         self._p2p_semaphore = asyncio.Semaphore(128)
         self._pq_running = False
@@ -343,6 +385,41 @@ class MeshRouter:
                     log.debug(f"P2P direct send to {recipient} failed: {e}, trying fallback transports")
 
         failures = []
+        # ── Multi-hop P2P relay (ZigBee concept) ──────────────────────
+        # If the recipient is not a direct P2P peer but we have a mesh parent
+        # (tree topology), send the message to the PARENT with relay_to=recipient.
+        # The parent (eventually the coordinator) forwards it onward. This keeps
+        # P2P usable for nodes that connect through another router — every
+        # channel (P2P, SSH-tunnel, heartbeat info) reaches the coordinator
+        # even when the direct route doesn't exist.
+        p2p_transport = self.transports.get("p2p")
+        if (
+            p2p_transport and p2p_transport.is_available()
+            and message.recipient
+            and not message.is_broadcast()
+            and hasattr(p2p_transport, '_peers')
+            and message.recipient not in p2p_transport._peers
+            and message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK)
+            and getattr(message, 'relay_to', None) is None  # never re-relay
+        ):
+            relay_via = self._pick_relay_peer()
+            if relay_via:
+                try:
+                    relayed = message
+                    relayed.relay_to = message.recipient
+                    relayed.recipient = relay_via  # next hop = parent
+                    result = await p2p_transport.send(relayed)
+                    if result.success:
+                        self._stats["sent"] += 1
+                        self._stats["relay_routes"] = self._stats.get("relay_routes", 0) + 1
+                        log.info(f"Relay: message {message.id[:8]} relayed via {relay_via} → final {message.relay_to}")
+                        return result
+                except Exception as e:
+                    log.debug(f"Relay via {relay_via} failed: {e} — falling back to transports")
+                finally:
+                    # restore original recipient if relay send failed
+                    message.recipient = getattr(message, 'relay_to', message.recipient)
+
         for transport_name in priority:
             transport = self.transports.get(transport_name)
             if not transport or not transport.is_available():

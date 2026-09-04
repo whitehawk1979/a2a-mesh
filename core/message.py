@@ -97,6 +97,10 @@ class A2AMessage:
     src_address: Optional[Dict] = None  # Source MeshAddress
     route_path: list = field(default_factory=list)  # Short addresses traversed
     routing_mode: str = "hybrid"  # "flood", "tree", "hybrid"
+    # Multi-hop relay (ZigBee concept): final destination when this message
+    # is forwarded through a parent/coordinator. The immediate recipient is
+    # the next hop; relay_to holds the TRUE destination.
+    relay_to: str = ""
 
     # Protocol version (AXL-inspired: version header for compatibility)
     protocol_version: str = A2A_PROTOCOL_VERSION

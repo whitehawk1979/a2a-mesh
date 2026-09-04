@@ -290,6 +290,10 @@ class MeshNode:
 
         # Register transports with router
         self.router.register_transport("pg_notify", self._pg_transport)
+
+        # Multi-hop relay: give the router our tree topology (parent lookup)
+        if getattr(self, 'tree_router', None):
+            self.router.set_tree_router(self.tree_router)
         self.router.register_transport("p2p", self._p2p_transport)
         self.router.register_transport("http", self._http_transport)
         self.router.register_transport("ble", self._ble_transport)
@@ -4326,6 +4330,32 @@ echo "Status: ok"
                         if messages:
                             log.debug(f"Receive loop got {len(messages)} messages from {transport_name}")
                         for msg, from_transport in messages:
+                            # ── Multi-hop relay (ZigBee concept) ──────────────────
+                            # If this message carries relay_to and WE are not the
+                            # final destination, forward it toward relay_to and
+                            # skip local processing. Every channel (P2P, SSH-tunnel)
+                            # thus reaches the coordinator even through chained routers.
+                            _relay_final = getattr(msg, 'relay_to', '') or ''
+                            if (
+                                _relay_final
+                                and _relay_final != self.node_name
+                                and msg.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK)
+                            ):
+                                # Prevent relay loops: TTL + path check
+                                if msg.ttl <= 0 or self.node_name in (msg.path or []):
+                                    log.warning(f"Relay: dropping {msg.id[:8]} (ttl={msg.ttl}, loop) final={_relay_final}")
+                                    continue
+                                log.info(f"Relay: forwarding {msg.id[:8]} to final destination {_relay_final}")
+                                fwd = msg.add_hop(self.node_name)
+                                fwd.recipient = _relay_final  # final destination
+                                fwd.relay_to = ""  # let router pick the next hop fresh
+                                asyncio.create_task(self.router.send(fwd))
+                                continue
+                            if _relay_final == self.node_name:
+                                # We are the final destination — clear relay header, process locally
+                                msg.relay_to = ""
+                                log.info(f"Relay: message {msg.id[:8]} arrived via relay (hops={msg.hop_count})")
+
                             # Skip own messages (loop prevention) — except directives and broadcast chat
                             _is_broadcast_chat = False
                             try:
