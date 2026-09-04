@@ -142,6 +142,29 @@ class MeshRouter:
         # multi-hop P2P relay (ZigBee concept: route via parent/coordinator).
         self._tree_router = None
 
+        # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
+        self._p2p_semaphore = asyncio.Semaphore(128)
+        self._pq_running = False
+
+        # Track active transport count for smart broadcast decisions
+        self._broadcast_sent_ids: Dict[str, str] = {}  # msg_id → transport that sent it
+        self._broadcast_sent_max = 5000  # max tracked broadcast IDs
+
+        # Statistics
+        self._stats = {
+            "sent": 0,
+            "received": 0,
+            "forwarded": 0,
+            "duplicates": 0,
+            "self_ref_filtered": 0,
+            "not_for_me_filtered": 0,
+            "re_chain_filtered": 0,
+            "ttl_expired": 0,
+            "invalid_signature": 0,
+            "errors": 0,
+            "broadcast_suppressed": 0,  # broadcasts suppressed to avoid duplication
+        }
+
     def set_tree_router(self, tree_router):
         """Attach the node's TreeRouter for multi-hop relay decisions."""
         self._tree_router = tree_router
@@ -179,29 +202,6 @@ class MeshRouter:
                 if name != self.node_name:
                     return name
         return None
-
-        # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
-        self._p2p_semaphore = asyncio.Semaphore(128)
-        self._pq_running = False
-
-        # Track active transport count for smart broadcast decisions
-        self._broadcast_sent_ids: Dict[str, str] = {}  # msg_id → transport that sent it
-        self._broadcast_sent_max = 5000  # max tracked broadcast IDs
-
-        # Statistics
-        self._stats = {
-            "sent": 0,
-            "received": 0,
-            "forwarded": 0,
-            "duplicates": 0,
-            "self_ref_filtered": 0,
-            "not_for_me_filtered": 0,
-            "re_chain_filtered": 0,
-            "ttl_expired": 0,
-            "invalid_signature": 0,
-            "errors": 0,
-            "broadcast_suppressed": 0,  # broadcasts suppressed to avoid duplication
-        }
 
     def register_transport(self, name: str, transport: 'TransportAdapter'):
         """Register a transport adapter."""
