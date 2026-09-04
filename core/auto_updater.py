@@ -107,7 +107,10 @@ class AutoUpdater:
 
         Priority:
         1. node._resolved_version (git tag — single source of truth, set at startup)
-        2. pyproject.toml version (fallback when node not available)
+        2. Git tag via `git describe --tags` (CLI fallback — git tag is SSOT,
+           pyproject.toml version is a stale placeholder and causes false
+           "update available" alerts)
+        3. pyproject.toml version (last fallback for non-git deployments)
         """
         # Prefer the node's resolved version (from git tag at startup) — this is
         # the *running* version, not the pyproject.toml version which may have
@@ -116,6 +119,17 @@ class AutoUpdater:
             rv = self.node._resolved_version
             if rv and rv != 'unknown':
                 return rv
+        # CLI fallback: resolve from git tag first (SSOT)
+        try:
+            import subprocess
+            tag = subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=self.mesh_dir, stderr=subprocess.DEVNULL
+            ).decode().strip().lstrip("v")
+            if tag:
+                return tag
+        except Exception:
+            pass
         toml_path = self.mesh_dir / "pyproject.toml"
         if toml_path.exists():
             for line in toml_path.read_text().splitlines():
