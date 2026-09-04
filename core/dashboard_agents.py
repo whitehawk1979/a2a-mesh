@@ -1066,11 +1066,17 @@ class DashboardAgentsMixin:
                     # NOTE: body was already read at the top of the handler — reuse it,
                     # aiohttp request bodies can only be read once.
                     _body = dict(body)
+                    # Anti-loop: drain-resubmitted items must NOT be re-queued —
+                    # otherwise drain -> busy -> re-queue -> drain = infinite ping-pong.
+                    _drain_pass = _body.pop("__drain_pass__", 0)
+                    if _drain_pass >= 1:
+                        log.info(f"DRain wake-agent: busy during drain pass {_drain_pass} — dropping instead of re-queueing (anti-loop)")
+                        return web.json_response({"status": "dropped_busy_during_drain", "queue_depth": 0}, status=429)
                     if not hasattr(self, '_wake_agent_queue'):
                         self._wake_agent_queue = []
                     if len(self._wake_agent_queue) < 5:
                         self._wake_agent_queue.append(_body)
-                        log.info(f"📥 Wake-agent busy — queued request (queue depth: {len(self._wake_agent_queue)})")
+                        log.info(f"INBOX wake-agent: busy — queued request (queue depth: {len(self._wake_agent_queue)})")
                         return web.json_response({"status": "queued", "queue_depth": len(self._wake_agent_queue)}, status=202)
                     log.warning(f"Wake-agent already in progress — queue full, skipping (rate limit)")
                     return web.json_response({"status": "skipped", "reason": "already_in_progress"}, status=429)
@@ -1399,6 +1405,9 @@ class DashboardAgentsMixin:
                     _drain_url = f"http://127.0.0.1:{self.node.config.health_port}/api/wake-agent"
                     for _qi in items:
                         await _d_aioio.sleep(2)  # give the previous wake time to fully unwind
+                        # Tag as drain-resubmission so a busy wake never re-queues it (anti-loop)
+                        _qi = dict(_qi)
+                        _qi["__drain_pass__"] = _qi.get("__drain_pass__", 0) + 1
                         try:
                             async with _d_aio.ClientSession() as _d_sess:
                                 async with _d_sess.post(_drain_url, json=_qi, timeout=_d_aio.ClientTimeout(total=150)) as _d_resp:
