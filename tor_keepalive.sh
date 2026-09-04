@@ -52,9 +52,10 @@ ensure_morzsa_tunnel() {
   # (a -R forward that failed once leaves the ssh process alive but dead)
   if ! ssh -i "$TUNNEL_IDENTITY" -o BatchMode=yes -o ConnectTimeout=8 \
        -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-       "openclaw@$MORZSA_HOST" 'ss -ltn 2>/dev/null | grep -q ":18645 "' 2>/dev/null; then
-    log "ACTION: tunnel process alive but remote listener missing -> killing + restarting"
+       "openclaw@$MORZSA_HOST" 'ss -ltn 2>/dev/null | grep -q ":18645 " && ss -ltn 2>/dev/null | grep -q ":18222 "' 2>/dev/null; then
+    log "ACTION: tunnel process alive but remote listener missing (18645/18222) -> killing + restarting"
     pkill -f 'R 127.0.0.1:18645' 2>/dev/null
+    pkill -f 'R 127.0.0.1:18222' 2>/dev/null
     sleep 1
     start_tunnel
   fi
