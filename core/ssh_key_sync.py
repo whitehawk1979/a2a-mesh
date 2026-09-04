@@ -35,6 +35,13 @@ _KEY_RE = re.compile(
 # Send our key at most once per peer per this interval (avoid loops)
 _RESEND_INTERVAL = 3600.0
 
+# v2 protocol: coordinator re-bundles and rebroadcasts when the registry
+# changes, but at most this often (flood protection)
+_BUNDLE_MIN_INTERVAL = 30.0
+
+# v2: how long a received bundle entry stays valid in the local registry
+_BUNDLE_ENTRY_TTL = 0  # 0 = no expiry (keys are only additive)
+
 
 class SSHKeySync:
     """Handles automatic SSH public-key exchange between approved peers."""
@@ -52,6 +59,10 @@ class SSHKeySync:
         self._node_config = node_config  # mesh config (SSHTunnelConfig accessible)
         self._node_ref = None  # set by node.py via set_node_ref()
         self._last_sent: Dict[str, float] = {}  # peer_name -> ts
+        # v2: coordinator-aggregated key registry (peer_name -> {keys, tunnel, ts})
+        self._key_registry: Dict[str, dict] = {}
+        self._last_bundle_ts = 0.0
+        self._self_registered = False
         # Resolve authorized_keys path per platform
         if authorized_keys_path:
             self._ak_path = Path(authorized_keys_path).expanduser()
@@ -86,7 +97,160 @@ class SSHKeySync:
         sshd and authorized_keys; the advertised port is whatever sshd
         WE accept connections on (embedded sshd: 2222, normal host: 22).
         """
-        return {"ssh_port": int(self._advertised_ssh_port or 22)}
+        info = {"ssh_port": int(self._advertised_ssh_port or 22)}
+        # Multi-agent awareness: announce OUR P2P port so the coordinator
+        # bundle can map tunnel remote_port per peer (e.g. runa=8655).
+        try:
+            node = self._node_ref
+            p2p_port = None
+            if node is not None:
+                cfg = getattr(node, "config", None)
+                p2p_port = getattr(getattr(cfg, "p2p", None), "listen_port", None) if cfg else None
+                if not p2p_port:
+                    p2p_port = getattr(node, "p2p_port", None)
+            if p2p_port:
+                info["p2p_port"] = int(p2p_port)
+            # Announce the local ssh_user peers should use to dial us (e.g.
+            # nova=zsolt, morzsa=openclaw, HAOS containers=root) so tunnels
+            # self-organize without per-peer config edits.
+            if node is not None:
+                cfg = getattr(node, "config", None)
+                ssh_cfg = getattr(cfg, "ssh_tunnel", None) if cfg is not None else None
+                user = getattr(ssh_cfg, "default_ssh_user", "") if ssh_cfg else ""
+                if not user and self._node_config is not None:
+                    sc = getattr(self._node_config, "ssh_tunnel", None)
+                    user = getattr(sc, "default_ssh_user", "") if sc else ""
+                if user:
+                    info["ssh_user"] = str(user)
+        except Exception:
+            pass
+        return info
+
+    # ── v2: coordinator aggregation ───────────────────────────────
+
+    def _is_coordinator(self) -> bool:
+        """The tree root (no parent) aggregates and distributes the bundle."""
+        try:
+            node = self._node_ref
+            router = getattr(node, "router", None)
+            tree = getattr(router, "tree", None) or getattr(router, "tree_router", None)
+            if tree is None:
+                return False
+            la = getattr(tree, "local_address", None)
+            if la is None:
+                return False
+            return getattr(la, "parent_short", None) is None
+        except Exception:
+            return False
+
+    def _registry_changed(self, sender: str, payload: dict) -> bool:
+        """Detect whether a peer's registry entry actually changed (dedup)."""
+        keys = sorted(payload.get("keys", []) or [])
+        tunnel = payload.get("tunnel") or {}
+        new = {"keys": keys, "tunnel": tunnel}
+        old = self._key_registry.get(sender)
+        if old is None:
+            self._key_registry[sender] = new
+            return True
+        if old.get("keys") != new["keys"] or old.get("tunnel") != new["tunnel"]:
+            self._key_registry[sender] = new
+            return True
+        return False
+
+    async def _maybe_broadcast_bundle(self):
+        """Coordinator: rebroadcast the aggregated bundle (rate-limited)."""
+        if not self._is_coordinator():
+            return
+        now = time.time()
+        if now - self._last_bundle_ts < _BUNDLE_MIN_INTERVAL:
+            return
+        self._last_bundle_ts = now
+        await self.broadcast_bundle()
+
+    async def broadcast_bundle(self):
+        """Coordinator sends the aggregated {peer: {keys, tunnel}} bundle."""
+        try:
+            from .message import A2AMessage, MSG_TYPE_KEY_BUNDLE
+            # include ourselves in the bundle
+            bundle = dict(self._key_registry)
+            my_keys = self._read_own_pubkeys()
+            if my_keys:
+                bundle[self._node_name] = {
+                    "keys": my_keys,
+                    "tunnel": self._ssh_tunnel_info(),
+                }
+            msg = A2AMessage.create(
+                sender=self._node_name,
+                recipient="broadcast",
+                msg_type=MSG_TYPE_KEY_BUNDLE,
+                payload={"bundle": bundle, "coordinator": self._node_name},
+                priority=5,
+            )
+            await self._router.send(msg)
+            log.info(f"SSHKeySync: broadcast key bundle with {len(bundle)} peer(s)")
+        except Exception as e:
+            log.warning(f"SSHKeySync: bundle broadcast failed: {e}")
+
+    async def handle_bundle(self, payload: dict, sender: str) -> bool:
+        """Non-coordinator (or coordinator converging): apply the bundle.
+
+        - merge every peer's keys into authorized_keys
+        - auto-register SSH-tunnel peers for any peer we don't have yet
+        """
+        if not isinstance(payload, dict):
+            return False
+        bundle = payload.get("bundle") or {}
+        if not isinstance(bundle, dict) or not bundle:
+            return False
+        applied = 0
+        for peer_name, entry in bundle.items():
+            if peer_name == self._node_name:
+                continue  # our own keys are already local
+            if not isinstance(entry, dict):
+                continue
+            keys = entry.get("keys", []) or []
+            for k in keys:
+                if isinstance(k, str) and _KEY_RE.match(k.strip()):
+                    if self._merge_key(k.strip()):
+                        applied += 1
+            tunnel = entry.get("tunnel") or {}
+            if isinstance(tunnel, dict) and tunnel.get("ssh_port"):
+                await self._auto_register_tunnel_peer(peer_name, tunnel)
+        if applied:
+            log.info(f"SSHKeySync: bundle from {sender} added {applied} new key(s)")
+        return applied > 0
+
+    async def announce_to_coordinator(self):
+        """v2: announce our keys + tunnel info so the tree root can aggregate.
+
+        Uses broadcast — in the tree topology a broadcast reaches the root,
+        and every intermediate node also caches our keys (defense in depth).
+        The coordinator rate-limits bundle rebroadcasts via _BUNDLE_MIN_INTERVAL.
+        Direct parent sends would strand grandchildren whose parent is not
+        the root; broadcast is the deterministic full-coverage path.
+        """
+        try:
+            from .message import A2AMessage, MSG_TYPE_SSH_KEY_SYNC
+            keys = self._read_own_pubkeys()
+            if not keys:
+                return
+            msg = A2AMessage.create(
+                sender=self._node_name,
+                recipient="broadcast",
+                msg_type=MSG_TYPE_SSH_KEY_SYNC,
+                payload={
+                    "keys": keys,
+                    "request": False,
+                    "node_name": self._node_name,
+                    "tunnel": self._ssh_tunnel_info(),
+                },
+                priority=6,
+            )
+            await self._router.send(msg)
+            self._self_registered = True
+            log.info("SSHKeySync: announced keys via broadcast (coordinator aggregates)")
+        except Exception as e:
+            log.debug(f"SSHKeySync: announce_to_coordinator failed: {e}")
 
     async def send_keys_to(self, peer_name: str, force: bool = False):
         """Advertise our public key(s) to an approved peer (idempotent)."""
@@ -174,6 +338,9 @@ class SSHKeySync:
         tunnel_info = payload.get("tunnel") or {}
         if isinstance(tunnel_info, dict) and tunnel_info.get("ssh_port"):
             await self._auto_register_tunnel_peer(sender, tunnel_info)
+        # v2: feed the coordinator registry; rebroadcast bundle if changed
+        if self._registry_changed(sender, payload):
+            await self._maybe_broadcast_bundle()
         # Bidirectional: reply with our keys if asked
         if payload.get("request"):
             await self.send_keys_to(sender, force=True)
@@ -200,11 +367,15 @@ class SSHKeySync:
             # Already a configured peer? Then nothing to do (config wins).
             if peer_name in getattr(transport, "_tunnels", {}):
                 return
+            # Announced P2P port wins (authoritative — the peer knows its own
+            # listen port); fall back to discovery, then the 8645 default.
+            announced_p2p = tunnel_info.get("p2p_port")
+            remote_port = int(announced_p2p) if announced_p2p else (peer.p2p_port or 8645)
             added = await transport.add_dynamic_peer(
                 name=peer_name,
                 ssh_host=peer.host,
                 ssh_port=ssh_port,
-                remote_port=peer.p2p_port or 8645,
+                remote_port=remote_port,
                 ssh_user=tunnel_info.get("ssh_user") or "root",
                 identity_file=None,  # transport default identity
             )
@@ -280,5 +451,8 @@ class SSHKeySync:
             await self.send_keys_to(peer_name)
             # Re-request on every connect so returning peers re-sync too
             await self.request_keys_from(peer_name)
+            # v2: a newly connected peer triggers registry aggregation —
+            # the coordinator merges everything and pushes the full bundle
+            await self.announce_to_coordinator()
         except Exception as e:
             log.debug(f"SSHKeySync: on_peer_connected({peer_name}) error: {e}")

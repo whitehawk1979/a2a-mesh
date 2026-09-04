@@ -47,6 +47,7 @@ MSG_TYPE_CONTEXT = "context"
 MSG_TYPE_ERROR = "error"
 MSG_TYPE_MESH = "mesh"  # Mesh-level messages (join, leave, ping)
 MSG_TYPE_SSH_KEY_SYNC = "ssh_key_sync"  # Automatic SSH key exchange between approved peers
+MSG_TYPE_KEY_BUNDLE = "ssh_key_bundle"  # Coordinator-aggregated key bundle (v2 protocol)
 
 # Protocol version (AXL-inspired: version header for compatibility)
 A2A_PROTOCOL_VERSION = "0.8.0"

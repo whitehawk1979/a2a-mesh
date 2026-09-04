@@ -8299,6 +8299,176 @@
       "cost_usd": 1e-06,
       "task_id": "59f51d12-3c8f-445e-b2d9-6610fb5c9d99",
       "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:12:06.950444+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 366,
+      "cost_usd": 2.6e-05,
+      "task_id": "5fe80171-f36f-49b0-8111-8113db3f22a6",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:13:46.259260+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 114,
+      "cost_usd": 8e-06,
+      "task_id": "00fc2337-bbed-4c5f-bca6-935c3ba04d90",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:15:22.619180+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 513,
+      "cost_usd": 3.6e-05,
+      "task_id": "37c15971-1a72-47e2-903a-7836ad9799fd",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:17:35.850914+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 567,
+      "cost_usd": 4e-05,
+      "task_id": "9b49790d-970d-4afb-84bd-7ce23b0365c7",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:19:14.655485+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 197,
+      "cost_usd": 1.4e-05,
+      "task_id": "6ed4b7b8-624d-4df2-a639-7a36cfa441b5",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:21:20.182818+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 189,
+      "cost_usd": 1.3e-05,
+      "task_id": "89fac0f0-788a-44c9-94f4-63add36aaf31",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:24:14.645138+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 399,
+      "cost_usd": 2.8e-05,
+      "task_id": "3a71ac70-d849-4a6a-8afa-bd163dd05a58",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:26:33.426957+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 300,
+      "cost_usd": 2.1e-05,
+      "task_id": "d37c9f05-4444-449a-848d-7f07956d5115",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:27:37.822818+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 8,
+      "cost_usd": 1e-06,
+      "task_id": "77ef136d-5a3f-41bf-bc4a-3f9300f815e9",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:29:34.850850+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 117,
+      "cost_usd": 8e-06,
+      "task_id": "7ee3d1d9-31f0-493a-9536-1b439c6e5c8b",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:32:35.961420+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 385,
+      "cost_usd": 2.7e-05,
+      "task_id": "492fe0c2-d3bf-48e4-b267-075e90cb8b02",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:34:24.062940+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 265,
+      "cost_usd": 1.9e-05,
+      "task_id": "112f1795-4165-4938-af23-9bf26b5de3c5",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:36:00.225964+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 174,
+      "cost_usd": 1.2e-05,
+      "task_id": "3264bcae-7d7c-44d6-9281-633ac69ef665",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:43:17.996304+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 201,
+      "cost_usd": 1.4e-05,
+      "task_id": "c67eeecd-872a-45e0-a9ee-c4520fb54826",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:44:55.070419+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 260,
+      "cost_usd": 1.8e-05,
+      "task_id": "6bc5faf9-1163-4406-bb79-507eda6546f5",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T12:46:52.304423+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 380,
+      "cost_usd": 2.7e-05,
+      "task_id": "64eba3ac-e69a-49fd-82ed-8fecdf905144",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-04T17:37:58.641331+00:00",
+      "agent": "mano",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 175,
+      "cost_usd": 1.2e-05,
+      "task_id": "184649e7-9421-455a-95d9-fe168ad28079",
+      "node": ""
     }
   ],
   "budgets": {},

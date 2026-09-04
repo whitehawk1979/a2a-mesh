@@ -1,8 +1,8 @@
 {
   "total": {
     "input": 0,
-    "output": 118226,
-    "requests": 830
+    "output": 122836,
+    "requests": 847
   },
   "by_agent": {
     "runa": {
@@ -29,13 +29,18 @@
       "input": 0,
       "output": 11349,
       "requests": 13
+    },
+    "mano": {
+      "input": 0,
+      "output": 4610,
+      "requests": 17
     }
   },
   "by_model": {
     "unknown": {
       "input": 0,
-      "output": 118226,
-      "requests": 830
+      "output": 122836,
+      "requests": 847
     }
   }
 }

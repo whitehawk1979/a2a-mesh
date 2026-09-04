@@ -424,6 +424,24 @@ class MeshNode:
                 log.warning(f"SSH key sync handling failed: {e}")
             return
 
+        # v2: coordinator-aggregated key bundle — apply all peers' keys + tunnels
+        if message.type == "ssh_key_bundle":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                if getattr(self, 'ssh_key_sync', None):
+                    await self.ssh_key_sync.handle_bundle(payload, message.sender)
+                else:
+                    log.warning("ssh_key_bundle message received but module not initialized")
+            except Exception as e:
+                log.warning(f"SSH key bundle handling failed: {e}")
+            return
+
         # Handle skills announcement — P2P auto-discovery of agent skills
         if message.type == "skills_announcement":
             payload = message.payload if isinstance(message.payload, dict) else {}
@@ -888,6 +906,10 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
+        # v2 SSH key protocol: periodic announce to coordinator (new nodes
+        # announce themselves; the root aggregates and bundles for everyone)
+        if getattr(self, 'ssh_key_sync', None):
+            self._tasks.append(asyncio.create_task(self._ssh_key_announce_loop()))
         # v0.29: Auto-Bootstrap + Self-Healing loop
         self._tasks.append(asyncio.create_task(self._auto_bootstrap_heal_loop()))
 
@@ -5067,6 +5089,43 @@ echo "Status: ok"
                 log.error(f"Health monitor error: {e}")
 
     # ─── v0.29: Auto-Bootstrap + Self-Healing Loop ────────────────────
+
+    async def _ssh_key_announce_loop(self):
+        """v2 SSH key protocol: keep ourselves registered with the coordinator.
+
+        - Every 10 min (or when never registered): announce our keys to the
+          tree root. The root aggregates all peers and broadcasts the bundle.
+        - On the coordinator itself: periodically rebundle so new nodes that
+          joined while a leaf was restarting converge on the full registry.
+        """
+        _last_announce = 0.0
+        _ANNOUNCE_INTERVAL = 600.0  # 10 minutes
+        while self._running:
+            try:
+                await asyncio.sleep(60)
+                if not self._running:
+                    break
+                sync = getattr(self, 'ssh_key_sync', None)
+                if sync is None:
+                    continue
+                now = time.time()
+                # Coordinator: rebundle periodically (covers nodes that missed
+                # the last bundle broadcast — e.g. were restarting)
+                if sync._is_coordinator():
+                    if now - sync._last_bundle_ts > _ANNOUNCE_INTERVAL:
+                        await sync.broadcast_bundle()
+                        sync._last_bundle_ts = now
+                    continue
+                # Leaf: announce (re-register) periodically so the coordinator
+                # registry has fresh entries even after root failover
+                if not sync._self_registered or now - _last_announce > _ANNOUNCE_INTERVAL:
+                    await sync.announce_to_coordinator()
+                    _last_announce = now
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.debug(f"ssh_key_announce_loop error: {e}")
+                await asyncio.sleep(30)
 
     async def _auto_bootstrap_heal_loop(self):
         """v0.29: Auto-bootstrap + self-healing loop.
