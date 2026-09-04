@@ -89,6 +89,12 @@ class SSHTunnelConfig:
     keepalive_interval: int = 30  # SSH ServerAliveInterval
     max_retries: int = 3  # Max consecutive SSH failures before giving up
     reconnect_interval: int = 10  # Base retry interval (exponential backoff)
+    # Port OUR OWN sshd listens on for inbound mesh tunnels — advertised in
+    # ssh_key_sync offers so peers can dial us without config edits. Embedded
+    # sshd (HAOS container) uses 2222; normal hosts 22 (default 0 → 22).
+    advertised_ssh_port: int = 0
+    # Extra identity files whose .pub we announce to peers (auto key-sync)
+    identity_files: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -487,6 +493,8 @@ class MeshConfig:
                 keepalive_interval=ssh_data.get('keepalive_interval', 30),
                 max_retries=ssh_data.get('max_retries', 3),
                 reconnect_interval=ssh_data.get('reconnect_interval', 10),
+                advertised_ssh_port=ssh_data.get('advertised_ssh_port', 0),
+                identity_files=ssh_data.get('identity_files', []),
             )
 
         # Discovery config

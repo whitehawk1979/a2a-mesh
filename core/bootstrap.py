@@ -423,6 +423,71 @@ def generate_tls_cert(node_name: str, certs_dir: str) -> Tuple[str, str]:
     return str(cert_path), str(key_path)
 
 
+# ─── SSH Key Generation (auto if missing) ───────────────────────────────────
+
+def ensure_ssh_key(node_name: str, ssh_dir: str = "~/.ssh") -> Tuple[str, str]:
+    """Ensure an ed25519 SSH keypair exists for mesh SSH tunnels.
+
+    Called by the installer and by the node at startup (idempotent):
+    - If no usable identity key exists, generates id_ed25519_openclaw.
+    - Never overwrites an existing key.
+    - Returns (private_key_path, public_key_path); ('', '') on failure.
+    """
+    import shutil as _shutil
+
+    d = Path(ssh_dir).expanduser()
+    d.mkdir(parents=True, exist_ok=True)
+
+    priv = d / "id_ed25519_openclaw"
+    pub = d / "id_ed25519_openclaw.pub"
+
+    # Already have a valid keypair? Done.
+    if priv.exists() and pub.exists():
+        try:
+            if pub.read_text().strip().startswith("ssh-ed25519"):
+                try:
+                    os.chmod(str(priv), 0o600)
+                except Exception:
+                    pass
+                return str(priv), str(pub)
+        except Exception:
+            pass
+
+    # ssh-keygen available?
+    if not _shutil.which("ssh-keygen"):
+        print("⚠️  ssh-keygen not found — cannot generate SSH identity")
+        return '', ''
+
+    # Generate a NEW key (only if private key is missing or unreadable)
+    if not priv.exists():
+        comment = f"{node_name}@a2a-mesh"
+        r = subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", comment,
+             "-f", str(priv)],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode != 0:
+            print(f"⚠️  ssh-keygen failed: {r.stderr.decode()[:200]}")
+            return '', ''
+    else:
+        # Private key exists but pub missing — regenerate pub from priv
+        r = subprocess.run(
+            ["ssh-keygen", "-y", "-f", str(priv)],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode == 0:
+            pub.write_text(r.stdout.decode() + "\n")
+        else:
+            print("⚠️  could not derive .pub from existing private key")
+            return '', ''
+
+    try:
+        os.chmod(str(priv), 0o600)
+    except Exception:
+        pass
+    return str(priv), str(pub)
+
+
 def get_or_create_ca(certs_dir: str) -> str:
     """Get existing CA cert or create a new one. Returns CA cert path."""
     certs = Path(certs_dir).expanduser()

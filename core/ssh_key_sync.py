@@ -41,11 +41,16 @@ class SSHKeySync:
 
     def __init__(self, node_name: str, registry, router,
                  pg_pool=None, authorized_keys_path: Optional[str] = None,
-                 identity_files: Optional[list] = None):
+                 identity_files: Optional[list] = None,
+                 advertised_ssh_port: int = 0,
+                 node_config=None):
         self._node_name = node_name
         self._registry = registry
         self._router = router
         self._pg_pool = pg_pool
+        self._advertised_ssh_port = int(advertised_ssh_port or 0)
+        self._node_config = node_config  # mesh config (SSHTunnelConfig accessible)
+        self._node_ref = None  # set by node.py via set_node_ref()
         self._last_sent: Dict[str, float] = {}  # peer_name -> ts
         # Resolve authorized_keys path per platform
         if authorized_keys_path:
@@ -74,6 +79,15 @@ class SSHKeySync:
                 continue
         return keys
 
+    def _ssh_tunnel_info(self) -> dict:
+        """How peers reach THIS host's sshd for tunnels (multi-agent aware).
+
+        Nodes on the same host (e.g. tor+mano on HAOS) share the host's
+        sshd and authorized_keys; the advertised port is whatever sshd
+        WE accept connections on (embedded sshd: 2222, normal host: 22).
+        """
+        return {"ssh_port": int(self._advertised_ssh_port or 22)}
+
     async def send_keys_to(self, peer_name: str, force: bool = False):
         """Advertise our public key(s) to an approved peer (idempotent)."""
         now = time.time()
@@ -93,6 +107,7 @@ class SSHKeySync:
                     "keys": keys,
                     "request": False,
                     "node_name": self._node_name,
+                    "tunnel": self._ssh_tunnel_info(),
                 },
                 priority=6,
             )
@@ -132,7 +147,11 @@ class SSHKeySync:
             return False
 
     async def handle_incoming(self, payload: dict, sender: str) -> bool:
-        """Merge received keys into authorized_keys; reply if requested."""
+        """Merge received keys into authorized_keys; reply if requested.
+
+        Also auto-registers the sender as an SSH-tunnel peer at runtime
+        when tunnel info (ssh_port) is present — no config edit needed.
+        """
         if not isinstance(payload, dict):
             return False
         if not self._sender_is_approved(sender):
@@ -149,10 +168,50 @@ class SSHKeySync:
         if added:
             log.info(f"SSHKeySync: merged {added} new key(s) from {sender}")
             await self._persist_pg(sender, keys)
+        # Auto-register sender as a runtime SSH-tunnel peer (bidir tunnels
+        # even when multiple agents share one host — each announces its
+        # own ssh_port; we dial the peer's P2P port through it).
+        tunnel_info = payload.get("tunnel") or {}
+        if isinstance(tunnel_info, dict) and tunnel_info.get("ssh_port"):
+            await self._auto_register_tunnel_peer(sender, tunnel_info)
         # Bidirectional: reply with our keys if asked
         if payload.get("request"):
             await self.send_keys_to(sender, force=True)
         return added > 0
+
+    async def _auto_register_tunnel_peer(self, peer_name: str, tunnel_info: dict):
+        """Runtime-register an SSH-tunnel peer so tunnels self-organize.
+
+        Looks up the peer's address from peer_discovery (PG/mDNS), then asks
+        the node's SSHTunnelTransport to add/refresh the peer and connect.
+        Idempotent: existing configured peers are left untouched.
+        """
+        try:
+            node = self._node_ref
+            discovery = getattr(node, "peer_discovery", None)
+            transport = getattr(node, "_ssh_tunnel_transport", None)
+            if not discovery or not transport:
+                return
+            peer = discovery.get_peer(peer_name)
+            if not peer:
+                log.debug(f"SSHKeySync: no discovery entry for {peer_name} — cannot auto-register tunnel")
+                return
+            ssh_port = int(tunnel_info.get("ssh_port") or 22)
+            # Already a configured peer? Then nothing to do (config wins).
+            if peer_name in getattr(transport, "_tunnels", {}):
+                return
+            added = await transport.add_dynamic_peer(
+                name=peer_name,
+                ssh_host=peer.host,
+                ssh_port=ssh_port,
+                remote_port=peer.p2p_port or 8645,
+                ssh_user=tunnel_info.get("ssh_user") or "root",
+                identity_file=None,  # transport default identity
+            )
+            if added:
+                log.info(f"SSHKeySync: auto-registered dynamic tunnel peer {peer_name} at {peer.host}:{ssh_port}")
+        except Exception as e:
+            log.debug(f"SSHKeySync: auto-register tunnel peer failed: {e}")
 
     def _merge_key(self, key_line: str) -> bool:
         """Dedup-merge one key line into authorized_keys. Returns True if new."""
@@ -209,6 +268,11 @@ class SSHKeySync:
             log.debug(f"SSHKeySync: PG persist failed (non-blocking): {e}")
 
     # ── Peer-connect hook ─────────────────────────────────────────
+
+    def set_node_ref(self, node):
+        """Give the sync module a reference to the owning node (for
+        peer_discovery + _ssh_tunnel_transport access in auto-register)."""
+        self._node_ref = node
 
     async def on_peer_connected(self, peer_name: str):
         """Called on every transport peer_connected — send keys + request."""

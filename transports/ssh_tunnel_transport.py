@@ -598,6 +598,40 @@ class SSHTunnelTransport(TransportAdapter):
             }
         return status
 
+    async def add_dynamic_peer(self, name: str, ssh_host: str, ssh_port: int,
+                               remote_port: int, ssh_user: str = "",
+                               identity_file: Optional[str] = None) -> bool:
+        """Add and connect a tunnel peer at runtime (key-sync auto-register).
+
+        Used when a peer's ssh_key_sync offer includes tunnel info — lets
+        bidirectional tunnels self-organize without config edits. Safe on
+        multi-agent hosts: each node may listen on its own ssh_port.
+        Returns True if a new peer was added (and a maintain task started).
+        """
+        if name in self._tunnels:
+            return False  # config-registered peers win
+        try:
+            peer = TunnelPeer(
+                name=name,
+                ssh_host=ssh_host,
+                ssh_user=ssh_user or self._config.default_ssh_user,
+                ssh_port=int(ssh_port) or 22,
+                remote_port=int(remote_port) or 8645,
+                identity_file=os.path.expanduser(
+                    identity_file or self._config.default_identity_file or "~/.ssh/id_ed25519_openclaw"
+                ),
+                local_port=0,
+            )
+            self._tunnels[name] = peer
+            self._connection_tasks[name] = asyncio.create_task(
+                self._maintain_tunnel_wrapper(name)
+            )
+            log.info(f"SSH tunnel: dynamic peer {name} added ({ssh_host}:{ssh_port} → remote :{remote_port})")
+            return True
+        except Exception as e:
+            log.warning(f"SSH tunnel: add_dynamic_peer({name}) failed: {e}")
+            return False
+
     # ── Frame Protocol (v3) ──────────────────────────────────────────
 
     async def _write_frame_v3(self, writer: asyncio.StreamWriter, data: bytes, compressed: bool = False):

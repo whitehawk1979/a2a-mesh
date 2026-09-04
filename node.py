@@ -232,7 +232,10 @@ class MeshNode:
             router=self.router,
             pg_pool=None,  # injected after PG pool connect
             identity_files=(list(ssh_cfg.identity_files) if ssh_cfg and getattr(ssh_cfg, 'identity_files', None) else None),
+            advertised_ssh_port=int(getattr(self.config, 'advertised_ssh_port', 0) or 0),
+            node_config=self.config,
         )
+        self.ssh_key_sync.set_node_ref(self)
         # Set callback for peer discovery → triggers skills announcement via PG broadcast
         self.peer_discovery._on_peer_discovered = self._on_peer_discovered
 
@@ -741,6 +744,16 @@ class MeshNode:
 
         log.info(f"Starting mesh node '{self.node_name}' (role={self.role.value})")
         self._start_time = time.time()
+
+        # Ensure an SSH identity keypair exists for mesh tunnels (installer
+        # does this too, but nodes started without install get it here).
+        try:
+            from .core.bootstrap import ensure_ssh_key
+            _priv, _pub = ensure_ssh_key(self.node_name)
+            if _priv:
+                log.info(f"SSH identity ready: {_priv}")
+        except Exception as e:
+            log.debug(f"ensure_ssh_key skipped: {e}")
 
         # ── Process Lock Takeover (Marveen-inspired) ──
         # Ensure only one instance runs per port — kill zombie predecessors
