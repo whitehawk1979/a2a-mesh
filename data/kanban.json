@@ -11197,10 +11197,539 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1788436610.816663
+      },
+      {
+        "id": "card-1788469847098-152",
+        "title": "[DEPLOY] Deploy main to morzsa",
+        "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788469847.098042,
+        "updated_at": 1788469946.2327948,
+        "created_by": "unknown",
+        "delegation_task_id": "5e0ed788-95ca-485e-8d24-1d449f97ccdb",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788469847.2098
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK — cf189b6 fix(metrics): /metrics endpoint now exports system resource gauges (CPU/\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+            "timestamp": 1788469885.006437
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "b5800f18",
+            "timestamp": 1788469888.565717
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment succeeded: repo path confirmed, git fetch OK, merge applied (cf189b6), restart scheduled, deploy complete.",
+            "timestamp": 1788469902.666802
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment succeeded: repo path confirmed, git fetch OK, merge applied (cf189b6), restart scheduled, deploy complete.",
+            "timestamp": 1788469933.968731
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK — cf189b6 fix(metrics): /metrics endpoint now exports system resource gauges (CPU/\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+            "timestamp": 1788469935.7919848
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "8e75fb82",
+            "timestamp": 1788469938.8763258
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788469946.233512
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK — cf189b6 fix(metrics): /metrics endpoint now exports system resource gauges (CPU/\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-03 21:11:02.981642+00:",
+        "reviewer": "tor",
+        "review_task_id": "8e75fb82-be55-4723-912a-4d4cd363bd1e",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788469946.232793
+      },
+      {
+        "id": "card-1788469847444-153",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1788469847.444314,
+        "updated_at": 1788469948.044204,
+        "created_by": "unknown",
+        "delegation_task_id": "d1dc4326-2362-4b1e-8739-212ef91f0655",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788469847.540321
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+            "timestamp": 1788469882.889905
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "5dd0b345",
+            "timestamp": 1788469888.205367
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788469894.718373
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+            "timestamp": 1788469934.778326
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788469934.9255219
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "e444f63a",
+            "timestamp": 1788469936.644427
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788469948.044746
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+        "completed_at": "2026-09-03 21:11:08.629946+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "e444f63a-d1bb-41b7-831d-2d0730d55b07",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788469948.044203
+      },
+      {
+        "id": "card-1788469847830-154",
+        "title": "[DEPLOY] Deploy main to tor",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "review",
+        "priority": "low",
+        "assigned_to": "tor",
+        "parent_id": null,
+        "created_at": 1788469847.8300412,
+        "updated_at": 1788469939.364456,
+        "created_by": "unknown",
+        "delegation_task_id": "4dc29cc0-13ff-4e3a-b483-2e27d9dcb32b",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788469847.9275992
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — cf189b6 fix(metrics): /metrics endpoint now exports system resource gauges (CPU/\n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788469860.389424
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "9df70560",
+            "timestamp": 1788469878.062708
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment succeeded: git fetch OK, git merge OK (cf189b6), and restart scheduled. All required steps completed.",
+            "timestamp": 1788469909.925951
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment succeeded: git fetch OK, git merge OK (cf189b6), and restart scheduled. All required steps completed.",
+            "timestamp": 1788469933.2458801
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — cf189b6 fix(metrics): /metrics endpoint now exports system resource gauges (CPU/\n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788469936.438464
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "41202e86",
+            "timestamp": 1788469939.364449
+          }
+        ],
+        "delegation_result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — cf189b6 fix(metrics): /metrics endpoint now exports system resource gauges (CPU/\n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-03 21:10:57.704106+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "41202e86-cc16-4cc3-baa8-245c13770b2b",
+        "review_status": "accept",
+        "review_reason": "Deployment succeeded: git fetch OK, git merge OK (cf189b6), and restart scheduled. All required steps completed.",
+        "reviewed_at": 1788469933.245107
+      },
+      {
+        "id": "card-1788470345481-155",
+        "title": "[DEPLOY] Deploy main to morzsa",
+        "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788470345.48162,
+        "updated_at": 1788471102.969044,
+        "created_by": "unknown",
+        "delegation_task_id": "7f95cbed-2b1b-4e1c-8c14-5d22d0a22f7e",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788470345.586692
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK — 3697cdc fix(deploy): robusztus git fetch a deploy handlerben — stale index.lock \n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+            "timestamp": 1788470360.0968142
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "9b9d91d7",
+            "timestamp": 1788470363.351323
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788471102.96987
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch: OK\n[morzsa] git merge: OK — 3697cdc fix(deploy): robusztus git fetch a deploy handlerben — stale index.lock \n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-03 21:19:19.577193+00:",
+        "reviewer": "tor",
+        "review_task_id": "9b9d91d7-e3e6-485e-9b8e-f9ed8ff68d36",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788471102.96904
+      },
+      {
+        "id": "card-1788470347750-156",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1788470347.75041,
+        "updated_at": 1788470392.597816,
+        "created_by": "unknown",
+        "delegation_task_id": "77b390dc-77d2-464c-b492-5b78618b200b",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788470347.858614
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+            "timestamp": 1788470375.670346
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "1a9347ba",
+            "timestamp": 1788470380.105872
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788470392.59835
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git: TIMEOUT",
+        "completed_at": "2026-09-03 21:19:30.381313+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "1a9347ba-09af-4df3-b7e4-2de0402f4313",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788470392.597812
+      },
+      {
+        "id": "card-1788470348416-157",
+        "title": "[DEPLOY] Deploy main to tor",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "tor",
+        "parent_id": null,
+        "created_at": 1788470348.416898,
+        "updated_at": 1788470390.553548,
+        "created_by": "unknown",
+        "delegation_task_id": "fdcc494c-567a-4886-921a-2596a82ab0a1",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788470348.524284
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — 3697cdc fix(deploy): robusztus git fetch a deploy handlerben — stale index.lock \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788470367.7200909
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "52959aee",
+            "timestamp": 1788470371.2501929
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment succeeded: fetch OK, merge OK, restart scheduled, deploy complete.",
+            "timestamp": 1788470390.554044
+          }
+        ],
+        "delegation_result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — 3697cdc fix(deploy): robusztus git fetch a deploy handlerben — stale index.lock \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-03 21:19:24.056253+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "52959aee-51b4-4f74-bacb-bc4b66821b8f",
+        "review_status": "accept",
+        "review_reason": "Deployment succeeded: fetch OK, merge OK, restart scheduled, deploy complete.",
+        "reviewed_at": 1788470390.5535429
+      },
+      {
+        "id": "card-1788470703181-158",
+        "title": "[DEPLOY] Deploy main to tor",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "tor",
+        "parent_id": null,
+        "created_at": 1788470703.1818109,
+        "updated_at": 1788473986.4635031,
+        "created_by": "unknown",
+        "delegation_task_id": "0620646d-c127-4ad0-aa26-ad813f689190",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788470703.289651
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — 3697cdc fix(deploy): robusztus git fetch a deploy handlerben — stale index.lock \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788470713.253418
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "5001139b",
+            "timestamp": 1788470715.393877
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment successful: fetch OK, merge OK (3697cdc), restart scheduled, deploy complete",
+            "timestamp": 1788473986.464061
+          }
+        ],
+        "delegation_result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch: OK\n[tor] git merge: OK — 3697cdc fix(deploy): robusztus git fetch a deploy handlerben — stale index.lock \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-03 21:25:08.699926+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "5001139b-503b-4bc7-8e6b-e815b2b6c42a",
+        "review_status": "accept",
+        "review_reason": "Deployment successful: fetch OK, merge OK (3697cdc), restart scheduled, deploy complete",
+        "reviewed_at": 1788473986.463497
+      },
+      {
+        "id": "card-1788491068979-159",
+        "title": "[maintenance] tor sshd+keepalive diagnosztika",
+        "description": "Diagnosztika: sshd 2222 allapota es tor_keepalive.sh futasa a tor node-on",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "tor",
+        "parent_id": null,
+        "created_at": 1788491068.97906,
+        "updated_at": 1788491069.081897,
+        "created_by": "unknown",
+        "delegation_task_id": "d8895b68-848b-4506-bdab-5f0359fb4da7",
+        "delegation_status": "pending",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788491069.081894
+          }
+        ]
+      },
+      {
+        "id": "card-1788491069461-160",
+        "title": "[maintenance] tor sshd+keepalive diagnosztika",
+        "column": "done",
+        "priority": 5,
+        "assigned_to": "tor",
+        "created_at": 1788491069.461608,
+        "updated_at": 1788491104.357121,
+        "delegation_task_id": "d8895b68-848b-4506-bdab-5f0359fb4da7",
+        "description": "Diagnosztika: sshd 2222 allapota es tor_keepalive.sh futasa a tor node-on",
+        "task_type": "local_maintenance",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788491069.461615
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "Command: ss -ltn | grep 2222; echo '---keepalive---'; ps aux | grep -c tor_keepalive; tail -20 /config/a2a-mesh-keepalive.log 2>/dev/null; echo '---rev-tunnel---'; ps aux | grep -E 'R 127.0.0.1:18645' | grep -v grep | head -3\nOutput: ---keepalive---\n1\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_",
+            "timestamp": 1788491085.4092789
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "60e77d1f",
+            "timestamp": 1788491096.5450199
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788491104.357779
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "Command: ss -ltn | grep 2222; echo '---keepalive---'; ps aux | grep -c tor_keepalive; tail -20 /config/a2a-mesh-keepalive.log 2>/dev/null; echo '---rev-tunnel---'; ps aux | grep -E 'R 127.0.0.1:18645' | grep -v grep | head -3\nOutput: ---keepalive---\n1\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\nconnect_to 127.0.0.1 port 8645: failed.\n---rev-tunnel---\nroot         528  0.0  0.1  11716  5696 ?        S    Sep03   0:02 ssh -N -R 127.0.0.1:18645:127.0.0.1:8645 -R 127.0.0.1:18650:127.0.0.1:8650 -p 22 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=no -o BatchMode=yes -i /config/.ssh/id_ed25519 openclaw@192.168.1.30",
+        "completed_at": "2026-09-04 03:04:43.730716+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "60e77d1f-7a73-41b5-a538-4ae40a73a03c",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788491104.357119
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788427639.5944839
+    "updated_at": 1788491095.9323258
   },
   {
     "id": "board-archive-orphaned-20260830",

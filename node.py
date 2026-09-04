@@ -221,7 +221,18 @@ class MeshNode:
 
         # Link registry to peer discovery (after dashboard init)
         self.peer_discovery.registry = self.dashboard.registry
-        
+
+        # Initialize SSH key auto-sync (approved peers exchange pubkeys,
+        # enabling bidirectional SSH tunnels without manual key copies)
+        from .core.ssh_key_sync import SSHKeySync
+        ssh_cfg = getattr(getattr(self.config, 'transports', None), 'ssh_tunnel', None)
+        self.ssh_key_sync = SSHKeySync(
+            node_name=self.node_name,
+            registry=self.dashboard.registry,
+            router=self.router,
+            pg_pool=None,  # injected after PG pool connect
+            identity_files=(list(ssh_cfg.identity_files) if ssh_cfg and getattr(ssh_cfg, 'identity_files', None) else None),
+        )
         # Set callback for peer discovery → triggers skills announcement via PG broadcast
         self.peer_discovery._on_peer_discovered = self._on_peer_discovered
 
@@ -386,6 +397,24 @@ class MeshNode:
                 await self.diagnostics.handle_diagnostic_message(payload)
             except Exception as e:
                 log.warning(f"Failed to handle diagnostic message: {e}")
+            return
+
+        # Handle SSH key sync — automatic pubkey exchange between approved peers
+        if message.type == "ssh_key_sync":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                if getattr(self, 'ssh_key_sync', None):
+                    await self.ssh_key_sync.handle_incoming(payload, message.sender)
+                else:
+                    log.warning("ssh_key_sync message received but module not initialized")
+            except Exception as e:
+                log.warning(f"SSH key sync handling failed: {e}")
             return
 
         # Handle skills announcement — P2P auto-discovery of agent skills
@@ -740,6 +769,10 @@ class MeshNode:
             self._pg_transport._owns_pool = False
             self._p2p_transport._shared_pool = self._pg_pool
             log.info("Shared PG pool injected into PG transport + P2P MessageAuth")
+
+            # Inject PG pool into SSH key sync (audit persist)
+            if getattr(self, 'ssh_key_sync', None):
+                self.ssh_key_sync._pg_pool = self._pg_pool._pool if hasattr(self._pg_pool, '_pool') else self._pg_pool
 
         # Register self in mesh.mesh_nodes
         await self._register_node()
@@ -3401,6 +3434,10 @@ echo "Status: ok"
         if pending_task and not pending_task.done():
             pending_task.cancel()
             log.info(f"Cancelled pending offline broadcast for {peer_name} — peer reconnected during grace period")
+
+        # SSH key auto-sync: exchange pubkeys with the (re)connected peer
+        if getattr(self, 'ssh_key_sync', None):
+            asyncio.create_task(self.ssh_key_sync.on_peer_connected(peer_name))
 
         # If we previously broadcast peer_offline for this peer, send peer_online to restore mesh state.
         # This handles the case where the grace period already expired (offline was broadcast)

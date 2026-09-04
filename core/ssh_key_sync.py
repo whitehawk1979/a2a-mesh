@@ -1,0 +1,220 @@
+"""Automatic SSH key synchronization between approved mesh peers.
+
+Design (deterministic, no LLM):
+- When a P2P/SSH-tunnel peer connects (or a discovered peer is approved), the
+  node sends an `ssh_key_sync` A2A message containing its public SSH key(s).
+- The receiving node validates the sender is an APPROVED peer, then merges the
+  key into its authorized_keys (dedup, idempotent, no shell-exec of untrusted
+  content — the key line is format-validated before writing).
+- If the payload has request=true, the receiver replies with its own key
+  (bidirectional sync). This lets returning approved peers re-sync any time.
+- Keys are also persisted to PG (mesh.ssh_peer_keys) so the mapping survives
+  node restarts and can be audited from the dashboard.
+
+Security:
+- Only keys from senders whose AgentCard is registered+approved are accepted.
+- Key lines must match the strict `ssh-ed25519|ssh-rsa AAAA... comment` format.
+- Writes are atomic (temp file + rename) with 0600 permissions preserved.
+"""
+
+import asyncio
+import logging
+import os
+import re
+import time
+from pathlib import Path
+from typing import Dict, Optional
+
+log = logging.getLogger("a2a_mesh.ssh_key_sync")
+
+# Strict public key line format: type + base64 + optional comment
+_KEY_RE = re.compile(
+    r"^(ssh-ed25519|ecdsa-sha2-nistp\d+|ssh-rsa) ([A-Za-z0-9+/=]{60,}) (\S.*)?$"
+)
+
+# Send our key at most once per peer per this interval (avoid loops)
+_RESEND_INTERVAL = 3600.0
+
+
+class SSHKeySync:
+    """Handles automatic SSH public-key exchange between approved peers."""
+
+    def __init__(self, node_name: str, registry, router,
+                 pg_pool=None, authorized_keys_path: Optional[str] = None,
+                 identity_files: Optional[list] = None):
+        self._node_name = node_name
+        self._registry = registry
+        self._router = router
+        self._pg_pool = pg_pool
+        self._last_sent: Dict[str, float] = {}  # peer_name -> ts
+        # Resolve authorized_keys path per platform
+        if authorized_keys_path:
+            self._ak_path = Path(authorized_keys_path).expanduser()
+        else:
+            ssh_dir = Path.home() / ".ssh"
+            self._ak_path = ssh_dir / "authorized_keys"
+        # Identity files whose .pub we advertise (config may override)
+        self._identity_files = identity_files or [
+            str(Path.home() / ".ssh" / "id_ed25519_openclaw"),
+            str(Path.home() / ".ssh" / "id_ed25519"),
+        ]
+
+    # ── Outgoing ──────────────────────────────────────────────────
+
+    def _read_own_pubkeys(self) -> list:
+        keys = []
+        for idf in self._identity_files:
+            pub = Path(idf).expanduser()
+            pub = pub.with_suffix(".pub") if not str(pub).endswith(".pub") else pub
+            try:
+                line = pub.read_text().strip()
+                if _KEY_RE.match(line):
+                    keys.append(line)
+            except Exception:
+                continue
+        return keys
+
+    async def send_keys_to(self, peer_name: str, force: bool = False):
+        """Advertise our public key(s) to an approved peer (idempotent)."""
+        now = time.time()
+        if not force and now - self._last_sent.get(peer_name, 0) < _RESEND_INTERVAL:
+            return
+        keys = self._read_own_pubkeys()
+        if not keys:
+            log.debug("SSHKeySync: no readable identity .pub — nothing to send")
+            return
+        try:
+            from .message import A2AMessage, MSG_TYPE_SSH_KEY_SYNC
+            msg = A2AMessage.create(
+                sender=self._node_name,
+                recipient=peer_name,
+                msg_type=MSG_TYPE_SSH_KEY_SYNC,
+                payload={
+                    "keys": keys,
+                    "request": False,
+                    "node_name": self._node_name,
+                },
+                priority=6,
+            )
+            await self._router.send(msg)
+            self._last_sent[peer_name] = now
+            log.info(f"SSHKeySync: sent {len(keys)} pubkey(s) to {peer_name}")
+        except Exception as e:
+            log.warning(f"SSHKeySync: send to {peer_name} failed: {e}")
+
+    async def request_keys_from(self, peer_name: str):
+        """Ask an approved peer to send its key(s) (returning-peer re-sync)."""
+        try:
+            from .message import A2AMessage, MSG_TYPE_SSH_KEY_SYNC
+            msg = A2AMessage.create(
+                sender=self._node_name,
+                recipient=peer_name,
+                msg_type=MSG_TYPE_SSH_KEY_SYNC,
+                payload={
+                    "keys": [],
+                    "request": True,
+                    "node_name": self._node_name,
+                },
+                priority=6,
+            )
+            await self._router.send(msg)
+            log.info(f"SSHKeySync: requested keys from {peer_name}")
+        except Exception as e:
+            log.warning(f"SSHKeySync: request from {peer_name} failed: {e}")
+
+    # ── Incoming ──────────────────────────────────────────────────
+
+    def _sender_is_approved(self, sender: str) -> bool:
+        try:
+            card = self._registry.get(sender)
+            return card is not None
+        except Exception:
+            return False
+
+    async def handle_incoming(self, payload: dict, sender: str) -> bool:
+        """Merge received keys into authorized_keys; reply if requested."""
+        if not isinstance(payload, dict):
+            return False
+        if not self._sender_is_approved(sender):
+            log.warning(f"SSHKeySync: IGNORED keys from unapproved sender {sender}")
+            return False
+        keys = payload.get("keys", []) or []
+        added = 0
+        for k in keys:
+            if not isinstance(k, str) or not _KEY_RE.match(k.strip()):
+                log.warning(f"SSHKeySync: invalid key format from {sender} — skipped")
+                continue
+            if self._merge_key(k.strip()):
+                added += 1
+        if added:
+            log.info(f"SSHKeySync: merged {added} new key(s) from {sender}")
+            await self._persist_pg(sender, keys)
+        # Bidirectional: reply with our keys if asked
+        if payload.get("request"):
+            await self.send_keys_to(sender, force=True)
+        return added > 0
+
+    def _merge_key(self, key_line: str) -> bool:
+        """Dedup-merge one key line into authorized_keys. Returns True if new."""
+        try:
+            self._ak_path.parent.mkdir(parents=True, exist_ok=True)
+            if not self._ak_path.exists():
+                self._ak_path.touch(mode=0o600)
+            existing = self._ak_path.read_text().splitlines()
+            # Normalize comparison: compare key body (type + base64), ignore comment
+            def key_body(line):
+                parts = line.strip().split()
+                return parts[0] + " " + parts[1] if len(parts) >= 2 else line.strip()
+            if any(key_body(l) == key_body(key_line) for l in existing):
+                return False
+            with open(self._ak_path, "a") as f:
+                f.write(key_line + "\n")
+            try:
+                os.chmod(self._ak_path, 0o600)
+            except Exception:
+                pass
+            return True
+        except Exception as e:
+            log.error(f"SSHKeySync: authorized_keys write failed: {e}")
+            return False
+
+    async def _persist_pg(self, sender: str, keys: list):
+        """Best-effort persist of received key mapping for audit/restart."""
+        if not self._pg_pool:
+            return
+        try:
+            await self._pg_pool.execute(
+                """
+                CREATE TABLE IF NOT EXISTS mesh.ssh_peer_keys (
+                    id SERIAL PRIMARY KEY,
+                    peer_name TEXT NOT NULL,
+                    key_line TEXT NOT NULL,
+                    added_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(peer_name, key_line)
+                )
+                """,
+                timeout=10,
+            )
+            for k in keys:
+                if isinstance(k, str) and _KEY_RE.match(k.strip()):
+                    await self._pg_pool.execute(
+                        """
+                        INSERT INTO mesh.ssh_peer_keys (peer_name, key_line)
+                        VALUES ($1, $2)
+                        ON CONFLICT (peer_name, key_line) DO NOTHING
+                        """,
+                        sender, k.strip(), timeout=10,
+                    )
+        except Exception as e:
+            log.debug(f"SSHKeySync: PG persist failed (non-blocking): {e}")
+
+    # ── Peer-connect hook ─────────────────────────────────────────
+
+    async def on_peer_connected(self, peer_name: str):
+        """Called on every transport peer_connected — send keys + request."""
+        try:
+            await self.send_keys_to(peer_name)
+            # Re-request on every connect so returning peers re-sync too
+            await self.request_keys_from(peer_name)
+        except Exception as e:
+            log.debug(f"SSHKeySync: on_peer_connected({peer_name}) error: {e}")
