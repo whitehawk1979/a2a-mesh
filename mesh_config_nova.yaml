@@ -210,6 +210,7 @@ mesh:
       connect_timeout: 15
       default_identity_file: ~/.ssh/id_ed25519_openclaw
       default_ssh_user: ''
+      embedded_sshd: true
       enabled: true
       keepalive_interval: 30
       local_port_start: 9200
@@ -235,6 +236,9 @@ mesh:
           ssh_port: 2222
           ssh_user: root
       reconnect_interval: 10
+      sshd_bind: 0.0.0.0
+      sshd_config_dir: /Users/zsolt/.hermes/scripts/a2a_mesh/data/sshd/
+      sshd_port: 2230
   wake_agent_on_message: true
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}

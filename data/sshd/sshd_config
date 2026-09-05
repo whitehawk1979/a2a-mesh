@@ -1,0 +1,17 @@
+# A2A Mesh embedded sshd — managed by ssh_server.py
+Port 2230
+ListenAddress 0.0.0.0
+HostKey /Users/zsolt/.hermes/scripts/a2a_mesh/data/sshd/ssh_host_ed25519_key
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AuthorizedKeysFile /Users/zsolt/.hermes/scripts/a2a_mesh/data/sshd/authorized_keys
+AllowTcpForwarding yes
+PermitOpen any
+PermitListen any
+GatewayPorts no
+UsePAM no
+StrictModes no
+Subsystem sftp internal-sftp
+LogLevel INFO

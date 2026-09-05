@@ -1344,10 +1344,14 @@ class DashboardAdminMixin:
             # ── DB version + skills lookup (fallback for agent cards with default '1.0.0' or empty skills) ──
             db_versions = {}
             db_skills = {}
+            db_hosts = {}
+            db_p2p_ports = {}
             try:
                 if hasattr(self.node, '_pg_pool') and self.node._pg_pool:
-                    rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills FROM mesh.mesh_nodes")
+                    rows = await self.node._pg_pool.fetch("SELECT node_name, version, skills, host, p2p_port FROM mesh.mesh_nodes")
                     db_versions = {r['node_name']: r['version'] for r in rows if r['version'] and r['version'] != '1.0.0'}
+                    db_hosts = {r['node_name']: r['host'] for r in rows if r['host'] and not str(r['host']).startswith('0.0.0.0')}
+                    db_p2p_ports = {r['node_name']: r['p2p_port'] for r in rows if r['p2p_port']}
                     for r in rows:
                         s = r['skills'] if 'skills' in r.keys() else None
                         if s:
@@ -1401,6 +1405,10 @@ class DashboardAdminMixin:
                 try:
                     for card, health in reg.list_agents():
                         name = card.name
+                        # Self node is already in nodes{} with authoritative self_info —
+                        # registry cards overwrite it with wrong role/port (endpoint+1).
+                        if name == self.node.node_name:
+                            continue
                         reg_agents[name] = (card, health)
                         # Prefer DB version over card default (card may have '1.0.0' fallback)
                         card_version = card.version if card.version and card.version not in ('1.0.0', 'unknown') else db_versions.get(name, '')
@@ -1447,9 +1455,11 @@ class DashboardAdminMixin:
                             peer_version = db_versions.get(name, '')
                         nodes[name] = {
                             "name": name,
-                            "host": getattr(peer, 'host', '') or existing.get("host", ""),
+                            # Prefer DB self-advertised host over discovery-learned host
+                            # (tor advertises 100.74.221.46 via PG; UDP broadcast leaks container IP 172.30.33.13)
+                            "host": db_hosts.get(name) or getattr(peer, 'host', '') or existing.get("host", ""),
                             "port": getattr(peer, 'health_port', 8650),
-                            "p2p_port": getattr(peer, 'p2p_port', 8645),
+                            "p2p_port": db_p2p_ports.get(name) or getattr(peer, 'p2p_port', 8645),
                             "role": getattr(peer, 'role', '') or existing.get("role", "router"),
                             "status": "connected" if p2p_available else "disconnected",
                             "health_score": existing.get("health_score", 1.0),
