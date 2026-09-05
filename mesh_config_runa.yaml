@@ -66,6 +66,7 @@ mesh:
   auth_mode: open
   health_port: 8650
   wake_agent_on_message: true
+  ollama_url: http://192.168.1.30:11434
   transports:
     pg_notify:
       host: 192.168.1.30
