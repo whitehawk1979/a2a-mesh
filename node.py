@@ -225,7 +225,7 @@ class MeshNode:
         # Initialize SSH key auto-sync (approved peers exchange pubkeys,
         # enabling bidirectional SSH tunnels without manual key copies)
         from .core.ssh_key_sync import SSHKeySync
-        ssh_cfg = getattr(getattr(self.config, 'transports', None), 'ssh_tunnel', None)
+        ssh_cfg = getattr(self.config, 'ssh_tunnel', None) or getattr(getattr(self.config, 'transports', None), 'ssh_tunnel', None)
         self.ssh_key_sync = SSHKeySync(
             node_name=self.node_name,
             registry=self.dashboard.registry,
