@@ -56,6 +56,11 @@ class TunnelPeer:
     # Per-peer SSH connect timeout (overrides global config.connect_timeout
     # when set — needed for slow links e.g. tor/HAOS where 15s is too short)
     connect_timeout: int = 0
+    # Forward target host inside the SSH server's network namespace. Normally
+    # 127.0.0.1 (sshd and node share the host). On multi-agent HAOS hosts the
+    # peer's P2P listener is NOT on the sshd's loopback — the forward must
+    # target the host IP instead (sshd runs in the tor container, node in mano).
+    forward_host: str = ""
 
 
 class SSHTunnelTransport(TransportAdapter):
@@ -139,6 +144,7 @@ class SSHTunnelTransport(TransportAdapter):
                 ),
                 local_port=0,  # assigned on connect
                 connect_timeout=int(peer_cfg.get("connect_timeout", 0) or 0),
+                forward_host=str(peer_cfg.get("forward_host", "") or ""),
             )
 
     @property
@@ -418,10 +424,12 @@ class SSHTunnelTransport(TransportAdapter):
 
     def _build_ssh_command(self, peer: TunnelPeer) -> List[str]:
         """Build SSH command with port forwarding and keepalive."""
+        # Forward target: peer.forward_host (multi-agent HAOS) or loopback
+        fwd_host = peer.forward_host or "127.0.0.1"
         cmd = [
             "ssh",
             "-N",  # No command, just forwarding
-            "-L", f"127.0.0.1:{peer.local_port}:127.0.0.1:{peer.remote_port}",
+            "-L", f"127.0.0.1:{peer.local_port}:{fwd_host}:{peer.remote_port}",
             "-p", str(peer.ssh_port),
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
@@ -600,7 +608,8 @@ class SSHTunnelTransport(TransportAdapter):
 
     async def add_dynamic_peer(self, name: str, ssh_host: str, ssh_port: int,
                                remote_port: int, ssh_user: str = "",
-                               identity_file: Optional[str] = None) -> bool:
+                               identity_file: Optional[str] = None,
+                               forward_host: str = "") -> bool:
         """Add and connect a tunnel peer at runtime (key-sync auto-register).
 
         Used when a peer's ssh_key_sync offer includes tunnel info — lets
@@ -621,6 +630,7 @@ class SSHTunnelTransport(TransportAdapter):
                     identity_file or self._config.default_identity_file or "~/.ssh/id_ed25519_openclaw"
                 ),
                 local_port=0,
+                forward_host=forward_host or "",
             )
             self._tunnels[name] = peer
             self._connection_tasks[name] = asyncio.create_task(

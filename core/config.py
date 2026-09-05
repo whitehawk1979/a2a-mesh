@@ -93,6 +93,10 @@ class SSHTunnelConfig:
     # ssh_key_sync offers so peers can dial us without config edits. Embedded
     # sshd (HAOS container) uses 2222; normal hosts 22 (default 0 → 22).
     advertised_ssh_port: int = 0
+    # Multi-agent HAOS hosts: the peer's P2P listener is not on the sshd's
+    # loopback — peers' forwards must target this host IP instead (announced
+    # in ssh_key_sync offers as forward_host).
+    advertised_forward_host: str = ""
     # Extra identity files whose .pub we announce to peers (auto key-sync)
     identity_files: List[str] = field(default_factory=list)
 
@@ -494,6 +498,7 @@ class MeshConfig:
                 max_retries=ssh_data.get('max_retries', 3),
                 reconnect_interval=ssh_data.get('reconnect_interval', 10),
                 advertised_ssh_port=ssh_data.get('advertised_ssh_port', 0),
+                advertised_forward_host=ssh_data.get('advertised_forward_host', '') or '',
                 identity_files=ssh_data.get('identity_files', []),
             )
 

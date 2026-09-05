@@ -97,7 +97,7 @@ class SSHKeySync:
         sshd and authorized_keys; the advertised port is whatever sshd
         WE accept connections on (embedded sshd: 2222, normal host: 22).
         """
-        info = {"ssh_port": int(self._advertised_ssh_port or 22)}
+        info: dict = {"ssh_port": int(self._advertised_ssh_port or 22)}
         # Multi-agent awareness: announce OUR P2P port so the coordinator
         # bundle can map tunnel remote_port per peer (e.g. runa=8655).
         try:
@@ -122,6 +122,12 @@ class SSHKeySync:
                     user = getattr(sc, "default_ssh_user", "") if sc else ""
                 if user:
                     info["ssh_user"] = str(user)
+                # Multi-agent HAOS host: P2P not on sshd's loopback — announce
+                # the host IP the forward must target (tor sshd → host → mano).
+                if ssh_cfg is not None:
+                    fwd = getattr(ssh_cfg, "advertised_forward_host", "") or ""
+                    if fwd:
+                        info["forward_host"] = str(fwd)
         except Exception:
             pass
         return info
@@ -378,6 +384,7 @@ class SSHKeySync:
                 remote_port=remote_port,
                 ssh_user=tunnel_info.get("ssh_user") or "root",
                 identity_file=None,  # transport default identity
+                forward_host=str(tunnel_info.get("forward_host") or ""),
             )
             if added:
                 log.info(f"SSHKeySync: auto-registered dynamic tunnel peer {peer_name} at {peer.host}:{ssh_port}")
