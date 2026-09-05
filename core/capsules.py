@@ -140,7 +140,9 @@ async def create_embedding(text: str, ollama_url: str = "http://localhost:11434"
     import aiohttp
     payload = {
         "model": "nomic-embed-text",
-        "prompt": text[:8000],  # nomic-embed-text has a context limit
+        # nomic-embed-text context ~2048 tokens (~1500-2000 chars for HU text).
+        # Longer prompts → Ollama 500 "input length exceeds context length" → NULL vector.
+        "prompt": text[:1800],
     }
     for attempt in range(2):
         try:

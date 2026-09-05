@@ -25,15 +25,18 @@ BATCH = int(sys.argv[1]) if len(sys.argv) > 1 else 500
 
 
 async def embed(session, text: str):
-    payload = {"model": EMBED_MODEL, "prompt": text[:8000]}
+    # nomic-embed-text context ~2048 tokens (~1800 chars HU) — 500-as hiba túl hosszú promptnál
+    payload = {"model": EMBED_MODEL, "prompt": text[:1800]}
     try:
         async with session.post(f"{OLLAMA_URL}/api/embeddings", json=payload,
                                 timeout=aiohttp.ClientTimeout(total=60)) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 return data.get("embedding") or None
+            else:
+                print(f"  embed HTTP {resp.status}: {(await resp.text())[:100]}")
     except Exception as e:
-        print(f"  embed error: {e}")
+        print(f"  embed error: {type(e).__name__}: {e}")
     return None
 
 
