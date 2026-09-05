@@ -27,7 +27,7 @@ async def embed(session, text: str):
     payload = {"model": EMBED_MODEL, "prompt": text[:8000]}
     try:
         async with session.post(f"{OLLAMA_URL}/api/embeddings", json=payload,
-                                timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                                timeout=aiohttp.ClientTimeout(total=60)) as resp:
             if resp.status == 200:
                 data = await resp.json()
                 return data.get("embedding") or None
