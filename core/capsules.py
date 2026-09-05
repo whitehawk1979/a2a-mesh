@@ -131,28 +131,40 @@ CAPSULE_RELEVANCE_THRESHOLD = 0.6
 
 
 async def create_embedding(text: str, ollama_url: str = "http://localhost:11434") -> Optional[List[float]]:
-    """Create embedding vector using Ollama nomic-embed-text."""
-    try:
-        import aiohttp
-        async with aiohttp.ClientSession() as sess:
-            payload = {
-                "model": "nomic-embed-text",
-                "prompt": text[:8000],  # nomic-embed-text has a context limit
-            }
-            async with sess.post(
-                f"{ollama_url}/api/embeddings",
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=15),
-            ) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    return data.get("embedding", [])
-                else:
-                    log.warning(f"Embedding API returned {resp.status}")
-                    return None
-    except Exception as e:
-        log.warning(f"Embedding creation failed: {e}")
-        return None
+    """Create embedding vector using Ollama nomic-embed-text.
+
+    Timeout is 60s: nomic-embed-text cold-start (model load) takes ~17s after
+    Ollama evicts it from memory — a short timeout silently produces NULL vectors.
+    One retry covers transient LAN hiccups.
+    """
+    import aiohttp
+    payload = {
+        "model": "nomic-embed-text",
+        "prompt": text[:8000],  # nomic-embed-text has a context limit
+    }
+    for attempt in range(2):
+        try:
+            async with aiohttp.ClientSession() as sess:
+                async with sess.post(
+                    f"{ollama_url}/api/embeddings",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return data.get("embedding", [])
+                    else:
+                        log.warning(f"Embedding API returned {resp.status}")
+                        if attempt == 0:
+                            await asyncio.sleep(1)
+                            continue
+                        return None
+        except Exception as e:
+            log.warning(f"Embedding creation failed (attempt {attempt + 1}): {e}")
+            if attempt == 0:
+                await asyncio.sleep(2)
+                continue
+    return None
 
 
 def extract_topic_from_prompt(content: str) -> Optional[str]:
