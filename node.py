@@ -236,6 +236,30 @@ class MeshNode:
             node_config=self.config,
         )
         self.ssh_key_sync.set_node_ref(self)
+        # Embedded sshd manager: guarantees a reachable sshd for INBOUND
+        # tunnels on every node (installs openssh in containers, self-heals).
+        from .core.ssh_server import detect_environment, start_embedded_sshd
+        self._env_kind = detect_environment()
+        sshd_enabled = bool(getattr(ssh_cfg, 'embedded_sshd', False)) if ssh_cfg else False
+        # Auto-enable inside containers/HAOS — no system sshd there
+        if not sshd_enabled and self._env_kind in ('docker', 'haos'):
+            sshd_enabled = True
+        self.embedded_sshd = None
+        if sshd_enabled:
+            sshd_cfg = {
+                'sshd_port': int(getattr(ssh_cfg, 'sshd_port', 2230) or 2230) if ssh_cfg else 2230,
+                'sshd_bind': getattr(ssh_cfg, 'sshd_bind', '0.0.0.0') if ssh_cfg else '0.0.0.0',
+                'sshd_config_dir': getattr(ssh_cfg, 'sshd_config_dir', '') if ssh_cfg else '',
+            }
+            self.embedded_sshd = start_embedded_sshd(self.node_name, sshd_cfg)
+            if self.embedded_sshd:
+                log.info(f"Embedded sshd active on :{self.embedded_sshd.port} (env={self._env_kind})")
+                # Peer keys land in the sshd's PERSISTENT authorized_keys
+                # (containers wipe /root/.ssh — /config/.ssh survives).
+                try:
+                    self.ssh_key_sync._ak_path = self.embedded_sshd._authorized_keys
+                except Exception:
+                    pass
         # Set callback for peer discovery → triggers skills announcement via PG broadcast
         self.peer_discovery._on_peer_discovered = self._on_peer_discovered
 
@@ -910,6 +934,9 @@ class MeshNode:
         # announce themselves; the root aggregates and bundles for everyone)
         if getattr(self, 'ssh_key_sync', None):
             self._tasks.append(asyncio.create_task(self._ssh_key_announce_loop()))
+            # Embedded sshd self-heal loop (containers: restarts heal sshd)
+            if getattr(self, 'embedded_sshd', None):
+                self._tasks.append(asyncio.create_task(self.embedded_sshd.self_heal_loop(interval=60)))
         # v0.29: Auto-Bootstrap + Self-Healing loop
         self._tasks.append(asyncio.create_task(self._auto_bootstrap_heal_loop()))
 

@@ -234,6 +234,38 @@ elif ss -ltn 2>/dev/null | grep -q ":2222 " && ! ss -ltn 2>/dev/null | grep -q "
 fi
 info "Advertised SSH port for mesh tunnels: ${ADVERTISED_SSH_PORT}"
 
+# ─── Step 4b: Inbound sshd (guarantee one exists — every node needs it) ───
+# Bare hosts: system sshd (22) usually already there. Containers (Docker/
+# HAOS): install openssh-server now so peers can dial IN for tunnels. The
+# node's embedded-sshd manager (core/ssh_server.py) keeps it alive.
+if ! (ss -ltn 2>/dev/null || netstat -an 2>/dev/null) | grep -qE ":22 .*LISTEN|:22\b.*LISTEN"; then
+    if command -v apt-get &>/dev/null; then
+        info "Installing openssh-server (container/host without sshd)..."
+        apt-get update -qq >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server >/dev/null 2>&1 \
+            && info "openssh-server installed ✅" \
+            || warn "apt-get openssh-server failed — node will try at start (ssh_server.py)"
+    elif command -v apk &>/dev/null; then
+        apk add --no-cache openssh >/dev/null 2>&1 \
+            && info "openssh installed ✅" \
+            || warn "apk openssh failed — node will try at start"
+    elif command -v brew &>/dev/null; then
+        brew install openssh >/dev/null 2>&1 \
+            && info "openssh installed (brew) ✅" \
+            || warn "brew openssh failed — node will try at start"
+    fi
+else
+    info "sshd already listening on :22 ✅"
+fi
+# In containers enable the embedded sshd manager in the generated config
+if [[ -f /.dockerenv || -f /run/.containerenv || -d /config/a2a_mesh ]]; then
+    EMBEDDED_SSHD="true"
+    SSHD_DIR="/config/.ssh"
+else
+    EMBEDDED_SSHD="false"
+    SSHD_DIR="${HOME}/.ssh"
+fi
+
 # Start from template
 cp "${SCRIPT_DIR}/mesh_config_template.yaml" "$CONFIG_FILE"
 # Replace placeholders
@@ -242,6 +274,9 @@ sed -i.bak "s/__NODE_HOST__/${NODE_HOST}/g" "$CONFIG_FILE"
 sed -i.bak "s/__PG_HOST__/${PG_HOST}/g" "$CONFIG_FILE"
 sed -i.bak "s/__PG_PASSWORD__/${PG_PASSWORD}/g" "$CONFIG_FILE"
 sed -i.bak "s/__SSH_PORT__/${ADVERTISED_SSH_PORT}/g" "$CONFIG_FILE"
+# Embedded sshd manager section (auto-filled per environment)
+sed -i.bak "s/__EMBEDDED_SSHD__/${EMBEDDED_SSHD}/g" "$CONFIG_FILE"
+sed -i.bak "s#__SSHD_CONFIG_DIR__#${SSHD_DIR}#g" "$CONFIG_FILE"
 rm -f "${CONFIG_FILE}.bak"
 info "Config generated ✅"
 

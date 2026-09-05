@@ -128,6 +128,16 @@ class SSHKeySync:
                     fwd = getattr(ssh_cfg, "advertised_forward_host", "") or ""
                     if fwd:
                         info["forward_host"] = str(fwd)
+                # Embedded sshd (ssh_server.py): our OWN sshd is the dial-in
+                # target — advertise its actual port so peers don't guess.
+                inst = None
+                try:
+                    from .ssh_server import get_embedded_sshd
+                    inst = get_embedded_sshd()
+                except Exception:
+                    inst = None
+                if inst is not None and inst.running:
+                    info["ssh_port"] = int(inst.port)
         except Exception:
             pass
         return info

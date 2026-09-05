@@ -97,6 +97,11 @@ class SSHTunnelConfig:
     # loopback — peers' forwards must target this host IP instead (announced
     # in ssh_key_sync offers as forward_host).
     advertised_forward_host: str = ""
+    # Embedded sshd manager (ssh_server.py): guarantees inbound-tunnel sshd
+    embedded_sshd: bool = False
+    sshd_port: int = 2230
+    sshd_bind: str = "0.0.0.0"
+    sshd_config_dir: str = ""
     # Extra identity files whose .pub we announce to peers (auto key-sync)
     identity_files: List[str] = field(default_factory=list)
 
@@ -499,6 +504,10 @@ class MeshConfig:
                 reconnect_interval=ssh_data.get('reconnect_interval', 10),
                 advertised_ssh_port=ssh_data.get('advertised_ssh_port', 0),
                 advertised_forward_host=ssh_data.get('advertised_forward_host', '') or '',
+                embedded_sshd=bool(ssh_data.get('embedded_sshd', False)),
+                sshd_port=int(ssh_data.get('sshd_port', 2230) or 2230),
+                sshd_bind=str(ssh_data.get('sshd_bind', '0.0.0.0') or '0.0.0.0'),
+                sshd_config_dir=str(ssh_data.get('sshd_config_dir', '') or ''),
                 identity_files=ssh_data.get('identity_files', []),
             )
 
