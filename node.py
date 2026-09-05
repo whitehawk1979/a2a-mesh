@@ -4336,6 +4336,7 @@ echo "Status: ok"
                     status = 'active',
                     host = $1,
                     health_port = $2,
+                    p2p_port = $8,
                     pg_available = $3,
                     p2p_available = $4,
                     http_available = $5,
@@ -4349,6 +4350,7 @@ echo "Status: ok"
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
                 json.dumps(list(getattr(self.config, 'capabilities', []) or [])),
+                self.config.p2p.listen_port,
             )
             # Separate update for provider_status (backward compatible)
             if provider_status:
