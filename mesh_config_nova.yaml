@@ -240,6 +240,8 @@ mesh:
       sshd_config_dir: /Users/zsolt/.hermes/scripts/a2a_mesh/data/sshd/
       sshd_port: 2230
   wake_agent_on_message: true
+  # Ollama embedding endpoint (nomic-embed-text) — local on Nova
+  ollama_url: http://localhost:11434
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
 plugins:

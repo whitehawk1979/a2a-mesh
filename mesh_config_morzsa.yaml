@@ -231,6 +231,8 @@ mesh:
           ssh_user: root
       reconnect_interval: 10
   wake_agent_on_message: true
+  # Ollama embedding endpoint (nomic-embed-text) — local on Morzsa
+  ollama_url: http://localhost:11434
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
 plugins:
