@@ -4,6 +4,8 @@
 #
 # Retention policy:
 #   mesh_messages:       7 days (delivered/read/acknowledged/sent)
+#   mesh_messages ack:  48 hours (transport confirmations; wake-storm 2026-09-04
+#                        generated 67K self-acks / 1.5 GB TOAST in hours)
 #   mesh_messages heartbeat: 24 hours (99% of table volume; 4 nodes x 30s = 3GB/day at 7d equilibrium)
 #   mesh_debug_logs:     3 days (all levels)
 #   mesh_suggestions:    7 days (superseded status only)
@@ -87,6 +89,17 @@ DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
 " 2>&1 | head -1)
 log "  mesh_messages: $DELETED rows deleted"
 
+# 1b. Delete old ACK messages (>48h, any status) — pure transport-layer confirmations.
+#     AckTracker is in-memory only; after 48h an undelivered ack has no consumer.
+#     Without this rule a wake-storm balloons the table (see header note).
+log "Cleaning mesh_messages acks (>48h)..."
+DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
+    DELETE FROM mesh.mesh_messages 
+    WHERE msg_type = 'ack' 
+    AND created_at < now() - interval '48 hours';
+" 2>&1 | head -1)
+log "  mesh_messages acks: $DELETED rows deleted"
+
 # 2. Delete old debug logs (>3 days)
 log "Cleaning mesh_debug_logs (>3 days)..."
 DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
@@ -98,7 +111,7 @@ log "  mesh_debug_logs: $DELETED rows deleted"
 # 3. Delete superseded suggestions (>7 days)
 log "Cleaning mesh_suggestions (superseded >7 days)..."
 DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
-    DELETE FROM mesh_suggestions 
+    DELETE FROM mesh.mesh_suggestions 
     WHERE status = 'superseded' 
     AND updated_at < now() - interval '7 days';
 " 2>&1 | head -1)
@@ -109,7 +122,7 @@ log "  mesh_suggestions superseded: $DELETED rows deleted"
 # disk-usage churn noise). Completed = issue auto-resolved, safe to purge.
 log "Cleaning mesh_suggestions (completed >7 days)..."
 DELETED=$(psql -h "$PG_HOST" -p "$PG_PORT" -U "$PG_USER" -d "$PG_DB" -t -c "
-    DELETE FROM mesh_suggestions 
+    DELETE FROM mesh.mesh_suggestions 
     WHERE status = 'completed' 
     AND updated_at < now() - interval '7 days';
 " 2>&1 | head -1)
