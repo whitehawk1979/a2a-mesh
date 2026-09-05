@@ -9,6 +9,7 @@ Usage: python3 backfill_embeddings.py [batch_limit]
 """
 import asyncio
 import json
+import os
 import sys
 import time
 
@@ -17,7 +18,7 @@ import asyncpg
 import aiohttp
 
 PG_DSN = "postgresql://nova:nova_agent_2026@192.168.1.30:5432/agent_memory"
-OLLAMA_URL = "http://192.168.1.30:11434"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 EMBED_MODEL = "nomic-embed-text"
 
 BATCH = int(sys.argv[1]) if len(sys.argv) > 1 else 500
