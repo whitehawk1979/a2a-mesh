@@ -388,6 +388,11 @@ class MeshConfig:
     # Set to True only on nodes where an agent should be woken on incoming messages.
     wake_agent_on_message: bool = False
 
+    # Ollama endpoint for embeddings (nomic-embed-text) and deep reflection.
+    # Nodes without local Ollama (tor/mano containers) point this at the LAN Ollama
+    # (morzsa) so engramm vectors are never NULL.
+    ollama_url: str = "http://localhost:11434"
+
     # Plugin config — each key is a plugin name, value is its config dict
     # Example: {"gateway": {"enabled": True, "platforms": {...}}, "notification": {...}}
     plugins: Dict[str, Any] = field(default_factory=dict)
@@ -558,6 +563,8 @@ class MeshConfig:
         config.auth_mode = mesh.get('auth_mode', 'open')
         config.health_port = int(mesh.get('health_port', 8650))
         config.wake_agent_on_message = bool(mesh.get('wake_agent_on_message', False))
+        # Ollama endpoint for embeddings/deep-reflection — env override A2A_OLLAMA_URL
+        config.ollama_url = os.environ.get('A2A_OLLAMA_URL', mesh.get('ollama_url', 'http://localhost:11434'))
 
         # Skills and capabilities from YAML (override defaults)
         if 'capabilities' in mesh:

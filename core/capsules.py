@@ -404,7 +404,7 @@ ENGRAHM_RECENCY_DECAY_DAYS = 30      # after 30 days, engramm weight halves
 MAX_RETRIEVED_ENGRAMMS = 4
 
 
-async def promote_capsule_to_engramm(pg_pool, capsule_id: int) -> Optional[int]:
+async def promote_capsule_to_engramm(pg_pool, capsule_id: int, ollama_url: str = "http://localhost:11434") -> Optional[int]:
     """Promote a matured capsule to an engramm (shared conclusion).
     
     Conditions:
@@ -444,7 +444,7 @@ async def promote_capsule_to_engramm(pg_pool, capsule_id: int) -> Optional[int]:
         conclusion = extract_conclusion(row['memory_value'], meta.get('topic', ''))
 
         # Create embedding for the conclusion (not the full summary)
-        embedding = await create_embedding(conclusion)
+        embedding = await create_embedding(conclusion, ollama_url)
         if embedding is None:
             # Reuse capsule embedding as fallback
             embedding_str = None
@@ -748,7 +748,7 @@ SKILL_GENERATION_THRESHOLD = 1  # v0.40: lowered from 2 — one reference enough
 SKILL_DEDUPLICATION_SIMILARITY = 0.85  # don't create skill if similar exists
 
 
-async def check_and_promote_capsules(pg_pool) -> int:
+async def check_and_promote_capsules(pg_pool, ollama_url: str = "http://localhost:11434") -> int:
     """Check all capsules for promotion eligibility — call periodically.
     
     Returns count of capsules promoted.
@@ -775,7 +775,7 @@ async def check_and_promote_capsules(pg_pool) -> int:
             retrieval_count = meta.get('retrieval_count', 0)
             
             if age >= ENGRAHM_MIN_AGE_SECONDS and retrieval_count >= ENGRAHM_MIN_RETRIEVALS:
-                result = await promote_capsule_to_engramm(pg_pool, row['id'])
+                result = await promote_capsule_to_engramm(pg_pool, row['id'], ollama_url)
                 if result:
                     promoted += 1
 

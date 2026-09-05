@@ -5587,7 +5587,11 @@ echo "Status: ok"
         """
         from core.capsules import check_and_promote_capsules, check_and_generate_skills, store_capsule
         from core.reflection import run_reflection_cycle
+        # Restart-safe cursor: initialize from DB max(id) on the FIRST loop iteration
+        # (after PG pool is confirmed connected) so we never re-process old messages
+        # after a node restart (prevents reflection/capsule flood).
         last_reflection_msg_id = 0
+        _cursor_init_done = False
         while self._running:
             try:
                 await asyncio.sleep(300)  # Every 5 minutes
@@ -5597,9 +5601,24 @@ echo "Status: ok"
                 if not pg_pool or not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
                     continue
 
+                if not _cursor_init_done:
+                    try:
+                        _cursor_row = await pg_pool.fetchrow(
+                            "SELECT COALESCE(MAX(id), 0) AS max_id FROM mesh.mesh_chat_messages"
+                        )
+                        if _cursor_row:
+                            last_reflection_msg_id = int(_cursor_row['max_id'] or 0)
+                            log.info(f"🧠 Memory cursor initialized at msg_id={last_reflection_msg_id} (restart-safe)")
+                    except Exception as e:
+                        log.warning(f"Memory cursor init failed: {e}")
+                    _cursor_init_done = True
+
+                # ── Ollama endpoint for embeddings/deep-reflection (config-driven) ──
+                ollama_url = getattr(self.config, 'ollama_url', 'http://localhost:11434')
+
                 # ── Step 1: Self-reflection from recent mesh chat messages ──
                 # Each node processes chat messages independently, creating
-                # capsules and reflections from its own perspective.
+                # capsules and reflections from their own perspective.
                 try:
                     rows = await pg_pool.fetch(
                         """SELECT id, sender, content, created_at
@@ -5608,7 +5627,7 @@ echo "Status: ok"
                            ORDER BY id ASC LIMIT 50""",
                         last_reflection_msg_id,
                     )
-                    if rows and len(rows) >= 3:
+                    if rows and len(rows) >= 5:
                         # Group messages by topic (simple: use time gap > 10 min as topic boundary)
                         messages = []
                         for r in rows:
@@ -5625,13 +5644,12 @@ echo "Status: ok"
                         topic = messages[0]['content'][:80] if messages else 'mesh activity'
 
                         # Run reflection cycle (LLM deep reflection using this node's own model)
-                        ollama_url = getattr(self.config, 'ollama_url', 'http://localhost:11434')
                         prompt_text, ref_id = await run_reflection_cycle(
                             pg_pool, messages, topic, agents, ollama_url,
                         )
 
                         # Also store a capsule if we have enough messages
-                        if len(messages) >= 3 and ref_id:
+                        if len(messages) >= 5 and ref_id:
                             msg_ids = [m['id'] for m in messages]
                             await store_capsule(
                                 pg_pool, topic,
@@ -5645,7 +5663,7 @@ echo "Status: ok"
                     log.debug(f"Self-reflection step skipped: {e}")
 
                 # ── Step 2: Promote capsules → engramms ──
-                promoted = await check_and_promote_capsules(pg_pool)
+                promoted = await check_and_promote_capsules(pg_pool, ollama_url)
 
                 # ── Step 3: Generate skills from engramms ──
                 generated = await check_and_generate_skills(pg_pool)
@@ -5952,6 +5970,22 @@ echo "Status: ok"
                         prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:300]}"
                 else:
                     prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
+
+                # ── Engramm injection: retrieve relevant past conclusions for this prompt ──
+                # Makes the engramm system actually feed back into conversations.
+                try:
+                    from core.capsules import retrieve_engramms, format_engramms_for_prompt
+                    _eng_pool = getattr(self, '_pg_pool', None)
+                    if _eng_pool and hasattr(_eng_pool, 'is_connected') and _eng_pool.is_connected():
+                        _eng_ollama = getattr(self.config, 'ollama_url', 'http://localhost:11434')
+                        _engramms = await retrieve_engramms(_eng_pool, (prompt_text or "")[:500], ollama_url=_eng_ollama)
+                        _eng_ctx = format_engramms_for_prompt(_engramms)
+                        if _eng_ctx:
+                            prompt_text = f"{_eng_ctx}\n\n{prompt_text}"
+                            log.info(f"🧠 Engramm context injected into wake-agent prompt ({len(_engramms)} relevant)")
+                except Exception as _eng_e:
+                    log.debug(f"Engramm injection skipped: {_eng_e}")
+
                 payload["prompt"] = prompt_text
                 payload["agent_name"] = self.node_name
             
