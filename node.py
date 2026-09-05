@@ -5787,7 +5787,7 @@ echo "Status: ok"
                 except Exception:
                     pass
             
-            host_ip = self._get_local_ip()
+            host_ip = self._get_advertise_ip()
             
             # UPSERT into mesh_nodes — only UPDATE if exists (INSERT requires short_addr etc.)
             try:
@@ -5795,9 +5795,10 @@ echo "Status: ok"
                     UPDATE mesh.mesh_nodes 
                     SET last_heartbeat = NOW(),
                         status = 'active',
-                        host = $1
+                        host = $1,
+                        p2p_port = $3
                     WHERE node_name = $2
-                """, host_ip, self.node_name)
+                """, host_ip, self.node_name, self.config.p2p.listen_port)
             except Exception as node_err:
                 log.debug(f"mesh_nodes update failed (non-critical): {node_err}")
             
