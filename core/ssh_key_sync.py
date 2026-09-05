@@ -338,6 +338,8 @@ class SSHKeySync:
             log.warning(f"SSHKeySync: IGNORED keys from unapproved sender {sender}")
             return False
         keys = payload.get("keys", []) or []
+        if not keys:
+            log.debug(f"SSHKeySync: empty keys from {sender} (request-only)")
         added = 0
         for k in keys:
             if not isinstance(k, str) or not _KEY_RE.match(k.strip()):
@@ -465,7 +467,9 @@ class SSHKeySync:
     async def on_peer_connected(self, peer_name: str):
         """Called on every transport peer_connected — send keys + request."""
         try:
-            await self.send_keys_to(peer_name)
+            # force=True: peer restarts reset _last_sent state on THEIR side,
+            # but our rate-limit must not block the re-sync handshake either
+            await self.send_keys_to(peer_name, force=True)
             # Re-request on every connect so returning peers re-sync too
             await self.request_keys_from(peer_name)
             # v2: a newly connected peer triggers registry aggregation —
