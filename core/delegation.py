@@ -555,6 +555,7 @@ class DelegationManager:
                 await self._check_dependencies()
                 await self._cleanup_old_tasks()
                 await self._archive_orphaned_kanban_cards()
+                await self._reconcile_kanban_cards()
                 await asyncio.sleep(self._poll_interval)
             except asyncio.CancelledError:
                 break
@@ -753,6 +754,92 @@ class DelegationManager:
         for task_id in stale:
             self._active_tasks.pop(task_id, None)
             log.info(f"🧹 Cleaned stale active task: {task_id}")
+
+    async def _reconcile_kanban_cards(self):
+        """PG-first reconcile: kanban kártyák követik a shared_delegations valós állapotát.
+
+        Két régi hibát gyógyít:
+        1. Árva kártyák (duplikált create, retry) — a kanban_card_id már más
+           kártyára mutat, a régi todo-ban ragad. Match: delegation_task_id.
+        2. Kimaradt szinkron (node restart a 30 perces _check_results ablakban) —
+           a task completed, de a kártya in_progress/todo maradt.
+
+        Szabályok (determinisztikus, PG a SSOT):
+        - card.delegation_task_id → PG status completed/failed/cancelled/expired
+          → kártya done-ba (review delegálás nélkül — a review a kanban_card_id
+          útvonalon fut le).
+        - PG status accepted/running → in_progress.
+        - PG-ből törölt task → done (az _archive_orphaned már archiválja).
+        Throttle: 60s-enként fut.
+        """
+        try:
+            now = time.time()
+            if now - getattr(self, "_last_kanban_reconcile", 0) < 60:
+                return
+            self._last_kanban_reconcile = now
+
+            if not self.pg_pool or not self.pg_pool.is_connected():
+                return
+
+            import os as _os, json as _json
+            kanban_path = _os.path.expanduser(
+                "~/.hermes/scripts/a2a_mesh/data/kanban.json"
+            )
+            if not _os.path.isfile(kanban_path):
+                return
+            with open(kanban_path) as _f:
+                boards = _json.load(_f)
+
+            # Aktív oszlopokban lévő, delegation-hez kötött kártyák task-id-i
+            active = []  # (board_idx, card_idx, task_id)
+            for bi, b in enumerate(boards):
+                if b.get("id", "").startswith("board-archive"):
+                    continue
+                for ci, c in enumerate(b.get("cards", [])):
+                    tid = c.get("delegation_task_id")
+                    if tid and c.get("column") in ("todo", "in_progress", "review"):
+                        active.append((bi, ci, str(tid)))
+            if not active:
+                return
+
+            task_ids = list({t for _, _, t in active})
+            # PG valós státuszok egy batch query-ben
+            rows = await self.pg_pool.fetch(
+                """SELECT task_id, status FROM shared_delegations
+                   WHERE task_id = ANY($1)""",
+                task_ids,
+            )
+            status_map = {str(r["task_id"]): str(r["status"]) for r in rows}
+
+            moved = 0
+            for bi, ci, tid in active:
+                st = status_map.get(tid)
+                card = boards[bi]["cards"][ci]
+                if st in ("completed", "failed", "cancelled", "expired"):
+                    card["column"] = "done"
+                    card["delegation_status"] = st
+                    card["updated_at"] = time.time()
+                    moved += 1
+                elif st in ("accepted", "running") and card["column"] == "todo":
+                    card["column"] = "in_progress"
+                    card["delegation_status"] = st
+                    card["updated_at"] = time.time()
+                    moved += 1
+                elif st is None:
+                    # Task már nincs PG-ben (retention cleanup) → done
+                    card["column"] = "done"
+                    card["delegation_status"] = "deleted"
+                    card["updated_at"] = time.time()
+                    moved += 1
+
+            if moved:
+                with open(kanban_path, "w") as _f:
+                    _json.dump(boards, _f, indent=2)
+                log.info(
+                    f"Kanban reconcile: {moved} kártya PG-státusz szerint igazítva"
+                )
+        except Exception as e:
+            log.debug(f"Kanban reconcile skipped: {e}")
 
     async def _archive_orphaned_kanban_cards(self, interval_hours: int = 1):
         """Archive kanban cards whose delegation no longer exists in PG (deleted by the
