@@ -173,6 +173,11 @@ LogLevel INFO
             log.info(f"[{self._node}] sshd already listening on :{self._port}")
             return True
         cfg = self._write_sshd_config()
+        # Debian sshd requires the privilege-separation directory
+        try:
+            Path("/run/sshd").mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
         try:
             proc = subprocess.Popen(
                 [self._sshd_binary, "-D", "-e", "-f", cfg],
