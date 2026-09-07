@@ -321,14 +321,15 @@ class DashboardAgentsMixin:
                 pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
                 if pg_pool and not any(marker in content for marker in TOPIC_SWITCH_MARKERS):
                     # Capsules (recent conversations)
-                    capsules = await retrieve_capsules(pg_pool, content[:500])
+                    _ollama_url = getattr(self.node.config, 'ollama_url', 'http://localhost:11434')
+                    capsules = await retrieve_capsules(pg_pool, content[:500], ollama_url=_ollama_url)
                     self._current_capsules = format_capsules_for_prompt(capsules)
                     # Engramms (matured conclusions — "régebbi gondolatok")
-                    engramms = await retrieve_engramms(pg_pool, content[:500])
+                    engramms = await retrieve_engramms(pg_pool, content[:500], ollama_url=_ollama_url)
                     self._current_engramms = format_engramms_for_prompt(engramms)
                     # Reflections (past meta-analyses)
                     from .reflection import retrieve_reflections, format_past_reflections_for_prompt
-                    past_reflections = await retrieve_reflections(pg_pool, content[:500])
+                    past_reflections = await retrieve_reflections(pg_pool, content[:500], ollama_url=_ollama_url)
                     if past_reflections:
                         existing_refl = getattr(self, '_current_reflection', '')
                         refl_text = format_past_reflections_for_prompt(past_reflections)
@@ -1107,13 +1108,14 @@ class DashboardAgentsMixin:
         try:
             pg_pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
             if pg_pool and not any(marker in prompt for marker in TOPIC_SWITCH_MARKERS):
-                capsules = await retrieve_capsules(pg_pool, prompt[:500])
+                _ollama_url = getattr(self.node.config, 'ollama_url', 'http://localhost:11434')
+                capsules = await retrieve_capsules(pg_pool, prompt[:500], ollama_url=_ollama_url)
                 capsule_text = format_capsules_for_prompt(capsules)
-                engramms = await retrieve_engramms(pg_pool, prompt[:500])
+                engramms = await retrieve_engramms(pg_pool, prompt[:500], ollama_url=_ollama_url)
                 engramm_text = format_engramms_for_prompt(engramms)
                 # Reflections (past meta-analyses)
                 from .reflection import retrieve_reflections, format_past_reflections_for_prompt
-                past_reflections = await retrieve_reflections(pg_pool, prompt[:500])
+                past_reflections = await retrieve_reflections(pg_pool, prompt[:500], ollama_url=_ollama_url)
                 reflection_text = format_past_reflections_for_prompt(past_reflections)
                 # Inject all memory layers before the prompt
                 memory_prefix = ""
@@ -1125,6 +1127,7 @@ class DashboardAgentsMixin:
                     memory_prefix += f"{reflection_text}\n\n"
                 if memory_prefix:
                     prompt = f"{memory_prefix}{prompt}"
+                    log.info(f"🧠 Memory injected: {len(engramms)} engramm, {len(capsules)} capsule, {len(past_reflections)} reflection")
                 # Periodic batch promotion + skill generation
                 asyncio.ensure_future(check_and_promote_capsules(pg_pool))
                 asyncio.ensure_future(check_and_generate_skills(pg_pool))
