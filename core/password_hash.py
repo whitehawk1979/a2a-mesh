@@ -24,7 +24,7 @@ log = logging.getLogger("password_hash")
 
 PASS_FILE = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/dashboard_auth.json")
 
-SCRYPT_N = 2 ** 16
+SCRYPT_N = 2 ** 14  # 2^15+ exceeds OpenSSL 3.x 32MB scrypt limit on macOS → "memory limit exceeded"
 SCRYPT_R = 8
 SCRYPT_P = 1
 KEY_LEN = 32
