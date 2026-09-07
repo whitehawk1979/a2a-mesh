@@ -916,6 +916,34 @@ class DashboardAgentsMixin:
             except Exception as _idea_auto_err:
                 log.warning(f"Ötletláda auto-beküldés (non-fatal): {_idea_auto_err}")
 
+            # ── Agent-szavazás: [SZAVAZAT] <idea_id|cím-töredék> up|down jelölősorból
+            # P2P idea_vote a koordinátornak. Determinisztikus: a marker dönt, a
+            # szabály-motor (apply_vote_with_rules) alkalmazza a küszöböket.
+            try:
+                import re as _re_vote
+                _vote_lines = _re_vote.findall(
+                    r"^\s*\[SZAVAZAT\]\s*(idea_[a-f0-9]+)\s+(up|down|fel|le)\b",
+                    content or "", _re_vote.IGNORECASE | _re_vote.MULTILINE)
+                if _vote_lines:
+                    _node_ref = getattr(self, 'node', None)
+                    for _vid, _vd in _vote_lines[:5]:  # max 5 szavazat válaszonként
+                        _vd = "down" if _vd.lower() in ("down", "le") else "up"
+                        if _node_ref is not None and hasattr(_node_ref, 'send_direct'):
+                            await _node_ref.send_direct(
+                                "morzsa", "idea_vote",
+                                {"idea_id": _vid, "vote": _vd, "voter": sender},
+                                priority=3)
+                            log.info(f"🗳️ [SZAVAZAT] elküldve {sender}→morzsa: {_vid} {_vd}")
+                        else:
+                            # Fallback: ha nincs node-ref, közvetlen PG-szavazás
+                            _pool = self._get_pg_pool() if hasattr(self, '_get_pg_pool') else None
+                            if _pool:
+                                from .idea_review import apply_vote_with_rules
+                                await apply_vote_with_rules(_pool, _vid, f"agent:{sender}", _vd)
+                                log.info(f"🗳️ [SZAVAZAT] rögzítve PG-ben ({sender}): {_vid} {_vd}")
+            except Exception as _vote_err:
+                log.warning(f"Agent-szavazás parse (non-fatal): {_vote_err}")
+
             # MARVEEN: Conversation log
             try:
                 from .marveen_db import log_conversation

@@ -38,6 +38,7 @@ _CHAT_COMMANDS = {
     "ask": "Célzott kérés: /ask <agent> <kérdés> — csak az adott agent válaszol",
     "all": "Közös elemzés: /all <kérdés> — minden agent válaszol ugyanarra",
     "ideas": "Ötletgyűjtés: /ideas <téma> — minden agent javaslatot ad, [ÖTLET]-jelölve → Ötletláda",
+    "vote": "Agent-szavazás: /vote [idea_id] — minden agent leadja szavazatát az ötletládában nyitott ötletekre",
     "clear": "Chat üzenetek törlése ebben a szobában (csak saját üzenetek)",
 }
 
@@ -90,7 +91,7 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
         except Exception as e:
             out_content = f"⚠️ Törlés hiba: {e}"
 
-    elif cmd in ("debate", "ask", "all", "ideas"):
+    elif cmd in ("debate", "ask", "all", "ideas", "vote"):
         # These are ROUTED to agents with special framing — handled by returning
         # a directive the normal path will use. Store marker prefix in content.
         if cmd == "debate" and not args:
@@ -261,12 +262,33 @@ async def handle_chat_send(node, request, pool, user):
                 _cmd_prefix = (
                     f"🗳️ ÖTLETSZERVERTÉS — téma: {cmd_args}\n"
                     "SZEREP: Összedöntöd a legjobb a2a-mesh-fejlesztési ÖTLETEIDET ehhez a témához. "
-                    "MINDEN javaslatot KÜLÖN sorban, pontosan így jelölve adj meg:\n"
+                    "MINDEN javaslatot KÜLÖNB sorban, pontosan így jelölve adj meg:\n"
                     "[ÖTLET] <konkrét, megvalósítható javaslat>\n"
                     "Például:\n"
                     "[ÖTLET] P2P keepalive ping-ek batchelése a forgalom csökkentésére\n"
                     "[ÖTLET] Kanban kártyák automatikus archiválása 30 nap után\n"
                     "A jelölt sorok AUTOMATIKUSAN az Ötletládába kerülnek. Rövid indoklás is elfér.\n"
+                )
+            elif cmd_route == "vote":
+                # Ötletláda-lista lekérése, hogy az agentek konkrét ID-kkal szavozzanak
+                try:
+                    _idea_rows = await pool.fetch(
+                        """SELECT idea_id, title, upvotes, downvotes FROM mesh.mesh_ideas
+                           WHERE status = 'idea' ORDER BY created_at DESC LIMIT 6""")
+                    _idea_list = "\n".join(
+                        f"  • {r['idea_id']} — {r['title'][:60]} (+{r['upvotes']}/-{r['downvotes']})"
+                        for r in _idea_rows) or "  (nincs nyitott ötlet)"
+                except Exception as _e:
+                    _idea_list = f"  (lista-lekérés sikertelen: {_e})"
+                _cmd_prefix = (
+                    f"🗳️ SZAVAZÁS INDUL — ötletláda szavazat! {('Célpont: ' + args) if args else 'Az alábbi nyitott ötletekre'}\n"
+                    "NYITOTT ÖTLETEK:\n"
+                    f"{_idea_list}\n"
+                    "SZEREP: Minden agent EGY SZAVAZATOT ad le. A szavazat formátuma KÖTELEZŐ:\n"
+                    "[SZAVAZAT] idea_<id> up   (támogatás) vagy\n"
+                    "[SZAVAZAT] idea_<id> down (elutasítás)\n"
+                    "A szavazatokat a rendszer automatikusan rögzíti. Score ≥ +2 → approved, ≤ -2 → rejected.\n"
+                    "Véleményedet röviden indokold, de a [SZAVAZAT] sor kötelező!\n"
                 )
             payload = {
                 "text": f"{_cmd_prefix}{content}" if _cmd_prefix else content,
