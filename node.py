@@ -4065,6 +4065,12 @@ echo "Status: ok"
                 # Initialize offline queue pool
                 await self.offline_queue.init_pool(self._pg_pool)
                 await self.offline_queue.ensure_table()
+                # Attach offline queue to the router so _flush_offline_queue()
+                # (self-heal step 15 + transport recovery) actually finds it.
+                # Previously set_offline_queue() was never called, leaving
+                # router._offline_queue = None — flush was a silent no-op.
+                if getattr(self, "router", None) is not None:
+                    self.router.set_offline_queue(self.offline_queue)
                 return True
             except Exception as e:
                 log.error(f"AsyncPG connection pool failed (attempt {attempt + 1}/{max_retries}): {e}")
