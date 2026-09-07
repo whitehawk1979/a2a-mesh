@@ -943,6 +943,10 @@ class MeshNode:
         # v0.40: Memory maintenance loop — capsule promotion + auto skill generation
         self._tasks.append(asyncio.create_task(self._memory_maintenance_loop()))
 
+        # v0.42: Built-in log rotation — gzip+truncate at log_max_mb (default 100MB)
+        self._tasks.append(asyncio.create_task(self._log_rotation_loop()))
+        self._prune_node_log_archives()
+
         # v0.41: Coordinator idea-review loop — ötletláda felülvizsgálat (csak coordinatoron fut)
         try:
             from .core.idea_review import start_review_loop, make_implement_fn
@@ -5597,6 +5601,76 @@ echo "Status: ok"
                 break
             except Exception as e:
                 log.warning(f"Stats update error: {e}")
+
+    async def _log_rotation_loop(self, check_interval: int = 3600):
+        """v0.42: Built-in log rotation — gzip + truncate when log exceeds threshold.
+
+        Deterministic, no LLM. Guards against the 2026-09-05 incident
+        (231MB log). The node holds fd 1/2 on the log file, so we
+        truncate (gzip archive first) instead of move — the fd keeps
+        writing to the same inode.
+        """
+        max_mb = getattr(self.config, 'log_max_mb', 100)
+        keep = max(1, getattr(self.config, 'log_archives_keep', 5))
+        log_file = os.path.expanduser(getattr(self.config, 'log_file', '') or '')
+        # fd 1/2 log (launchd/systemd stdout+stderr capture) — a2a_mesh_node.log
+        node_log = os.path.join(os.path.dirname(log_file) or os.path.expanduser('~/.hermes/logs'), 'a2a_mesh_node.log')
+        while self._running:
+            try:
+                await asyncio.sleep(check_interval)
+                if not self._running:
+                    break
+                for target in (log_file, node_log):
+                    if not target or not os.path.exists(target):
+                        continue
+                    try:
+                        size_mb = os.path.getsize(target) / (1024 * 1024)
+                        if size_mb <= max_mb:
+                            continue
+                        archive = f"{target}.{int(time.time())}.gz"
+                        with open(target, 'rb') as f_in:
+                            import gzip as _gz
+                            with _gz.open(archive, 'wb') as f_out:
+                                while True:
+                                    chunk = f_in.read(1024 * 1024)
+                                    if not chunk:
+                                        break
+                                    f_out.write(chunk)
+                        # Truncate IN PLACE (fd 1/2 stays valid, keeps writing here)
+                        with open(target, 'r+b') as f:
+                            f.truncate(0)
+                        log.info(f"📦 Log rotation: {os.path.basename(target)} {size_mb:.1f}MB → {os.path.basename(archive)}")
+                        # Prune old archives beyond keep-count
+                        base = os.path.basename(target)
+                        sib = sorted(
+                            (f for f in os.listdir(os.path.dirname(target) or '.') if f.startswith(base + '.') and f.endswith('.gz')),
+                            key=lambda f: os.path.getmtime(os.path.join(os.path.dirname(target) or '.', f))
+                        )
+                        for old in sib[:-keep]:
+                            try:
+                                os.remove(os.path.join(os.path.dirname(target) or '.', old))
+                            except OSError:
+                                pass
+                    except Exception as e:
+                        log.debug(f"Log rotation skipped for {target}: {e}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Log rotation loop error: {e}")
+
+    def _prune_node_log_archives(self, keep: int = 3):
+        """One-shot prune of old a2a_mesh_node.log.*.gz archives (startup housekeeping)."""
+        try:
+            log_dir = os.path.expanduser('~/.hermes/logs')
+            base = 'a2a_mesh_node.log'
+            archs = sorted(
+                (f for f in os.listdir(log_dir) if f.startswith(base + '.') and f.endswith('.gz')),
+                key=lambda f: os.path.getmtime(os.path.join(log_dir, f))
+            )
+            for old in archs[:-keep]:
+                os.remove(os.path.join(log_dir, old))
+        except Exception:
+            pass
 
     async def _memory_maintenance_loop(self):
         """v0.40.4: Periodic capsule promotion + auto skill generation + self-reflection.

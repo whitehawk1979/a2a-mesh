@@ -400,6 +400,10 @@ class MeshConfig:
     # Log file
     log_file: str = os.path.expanduser("~/.hermes/logs/a2a_mesh.log")
 
+    # v0.42 log rotation (built-in, deterministic)
+    log_max_mb: int = 100          # rotate when log exceeds this size (MB)
+    log_archives_keep: int = 5     # number of .gz archives to keep per log
+
     @classmethod
     def from_yaml(cls, path: str) -> 'MeshConfig':
         """Load configuration from YAML file with env var interpolation."""
