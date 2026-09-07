@@ -771,6 +771,13 @@ class P2PTransport(TransportAdapter):
 
     async def _send_ack(self, original_message: A2AMessage, writer: asyncio.StreamWriter, peer_name: Optional[str]):
         """Send an ACK message back via P2P to the sender."""
+        # Guard: the connection may have been closed between message receive and
+        # this scheduled task running (race on reconnect). Writing to a closed
+        # StreamWriter raises AttributeError ('NoneType' has no '_write_appdata')
+        # which flooded logs as WARNINGs. Skip silently instead.
+        if writer is None or writer.is_closing() or writer.transport is None:
+            log.debug(f"Skip P2P ACK for {original_message.id[:8]} — connection closed")
+            return
         try:
             ack_msg = A2AMessage.create(
                 sender=getattr(self.config, 'node_name', ''),
