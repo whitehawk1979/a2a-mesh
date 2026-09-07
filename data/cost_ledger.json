@@ -8889,6 +8889,26 @@
       "cost_usd": 5e-06,
       "task_id": "6cf2f287-6af8-475c-9d07-8f144bf56663",
       "node": ""
+    },
+    {
+      "timestamp": "2026-09-07T05:33:16.005450+00:00",
+      "agent": "runa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 446,
+      "cost_usd": 3.1e-05,
+      "task_id": "17e4c7e9-0aa2-4d10-b6a1-60a8ca160e76",
+      "node": ""
+    },
+    {
+      "timestamp": "2026-09-07T05:33:40.036654+00:00",
+      "agent": "morzsa",
+      "model": "unknown",
+      "input_tokens": 0,
+      "output_tokens": 34,
+      "cost_usd": 2e-06,
+      "task_id": "7357c990-371f-44be-a88c-51493bffa3d8",
+      "node": ""
     }
   ],
   "budgets": {},

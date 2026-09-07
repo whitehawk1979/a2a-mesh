@@ -893,7 +893,7 @@ class DashboardAgentsMixin:
             # javaslatok /debate- és /ideas-vitákból). Determinisztikus: a jelölő dönt, nem LLM.
             try:
                 import re as _re_idea
-                _idea_lines = _re_idea.findall(r"\[[OÖ]TLET\]\s*(.+)", content or "", _re_idea.IGNORECASE)
+                _idea_lines = _re_idea.findall(r"^\s*\[[OÖ]TLET\]\s*(.+)", content or "", _re_idea.IGNORECASE | _re_idea.MULTILINE)
                 if _idea_lines:
                     _pool = self._get_pg_pool() if hasattr(self, '_get_pg_pool') else None
                     if _pool:

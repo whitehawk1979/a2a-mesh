@@ -12291,10 +12291,77 @@
             "timestamp": 1788581342.5493429
           }
         ]
+      },
+      {
+        "id": "card-1788759093675-174",
+        "title": "[feature] \u00d6tletl\u00e1da min\u0151s\u00e9g-kapu: (1) title-valid\u00e1ci\u00f3 submitn\u00e1l (min. 15 karakter, ne parancs-maradv\u00e1ny), (2) integrated=True legy",
+        "description": "Debate-javaslat (automatikus bek\u00fcld\u00e9s)\n\nEredeti hozz\u00e1sz\u00f3l\u00e1s: Zsolt, megn\u00e9ztem \u00e9l\u0151ben a l\u00e1d\u00e1t (mesh.mesh_ideas, PG): 25 \u00f6tlet, mind done, de 23/25 integrated=False, \u00e9s van szem\u00e9t-bejegyz\u00e9s is (\"-jel\u00f6lve az \u00f6tletl\u00e1d\u00e1ba:\"). A 48h/+1 szab\u00e1ly gyakorlatilag mindent automatikusan \u00e1tenged, a szinkron pedig \"done\"-t \u00edr akkor is, ha a k\u00f3d nem ker\u00fclt a rep\u00f3ba \u2014 a kett\u0151 nincs \u00f6sszek\u00f6tve.\n\n[\u00d6TLET] \u00d6tletl\u00e1da min\u0151s\u00e9g-kapu: (1) title-valid\u00e1ci\u00f3 submitn\u00e1l (min. 15 karakter, \n\nBek\u00fcldte: nova",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788759093.675263,
+        "updated_at": 1788759221.003832,
+        "created_by": "unknown",
+        "delegation_task_id": "7356a694-1f56-4b60-8dd5-522ad18ab29b",
+        "delegation_status": "completed"
+      },
+      {
+        "id": "card-1788759113561-175",
+        "title": "[\u00f6tletl\u00e1da] \u00d6tletl\u00e1da min\u0151s\u00e9g-kapu: (1) title-valid\u00e1ci\u00f3 submitn\u00e1l (min. 15 karak",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: \\u00d6tletl\\u00e1da min\\u0151s\\u00e9g-kapu: (1) title-valid\\u00e1ci\\u00f3 submitn\\u00e1l (min. 15 karakter, ne parancs-maradv\\u00e1ny), (2) integrated=True legy\\n\\nKontextus: Debate-javaslat (automatikus bek\\u00fcld\\u00e9s)\\n\\nEredeti hozz\\u00e1sz\\u00f3l\\u00e1s: Zsolt, megn\\u00e9ztem \\u00e9l\\u0151ben a l\\u00e1d\\u00e1t (mesh.mesh_ideas, PG): 25 \\u00f6tlet, mind done, de 23/25 integrated=False, \\u00e9s van szem\\u00e9t-bejegyz\\u00e9s is (\\\"-jel\\u00f6lve az \\u00f6tletl\\u00e1d\\u00e1ba:\\\"). A 48h/+1 szab\\u00e1ly gyakorlatilag mindent automatikusan \\u00e1tenged, a szinkron pedig \\\"done\\\"-t \\u00edr akkor is, ha a k\\u00f3d nem ker\\u00fclt a rep\\u00f3ba \\u2014 a kett\\u0151 nincs \\u00f6sszek\\u00f6tve.\\n\\n[\\u00d6TLET] \\u00d6tletl\\u00e1da min\\u0151s\\u00e9g-kapu: (1) title-valid\\u00e1ci\\u00f3 submitn\\u00e1l (min. 15 karakter, \\n\\nBek\\u00fcldte: nova\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_061b2e4f97b8\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788759113.5617979,
+        "updated_at": 1788759220.3350332,
+        "created_by": "unknown",
+        "delegation_task_id": "7356a694-1f56-4b60-8dd5-522ad18ab29b",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788759113.737314
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Otletlada minoseg-kapu: (1) title-vali' \u2014 18432 chars\n\n\u2500\u2500 Execution Output \u2500\u2500\n======================================================================\nOTLETLADA MINOSEG-KAPU \u2014 Self-test\n======================================================================\n\n[Teszt 1] Ervenyes cim bekuldese\n  Eredmeny: OK\n  Uzenet: Otlet elfogadva: idea_d30a38d920b0 \u2014 'Otletlada minoseg-kapu: title-validacio es integrated=True s...'\n  idea_id: idea_d30a38d9",
+            "timestamp": 1788759185.7366312
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "a54b5379",
+            "timestamp": 1788759196.913034
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788759220.3359418
+          }
+        ],
+        "delegation_result": "[runa] LLM (glm-5.2:cloud) generated code for '[otletlada] Otletlada minoseg-kapu: (1) title-vali' \u2014 18432 chars\n\n\u2500\u2500 Execution Output \u2500\u2500\n======================================================================\nOTLETLADA MINOSEG-KAPU \u2014 Self-test\n======================================================================\n\n[Teszt 1] Ervenyes cim bekuldese\n  Eredmeny: OK\n  Uzenet: Otlet elfogadva: idea_d30a38d920b0 \u2014 'Otletlada minoseg-kapu: title-validacio es integrated=True s...'\n  idea_id: idea_d30a38d920b0\n\n[Teszt 2] Tul rovid cim (5 karakter)\n  Eredmeny: ELUTASITVA\n  Uzenet: Otlet elutasitva a minoseg-kapu altal:\n  - A cim tul rovid: 5 karakter (minimum 15 kell).\n\n[Teszt 3] Parancs-maradvany cim\n  Eredmeny: ELUTASITVA\n  Uzenet: Otlet elutasitva a minoseg-kapu altal:\n  - A cim parancs-maradvanynak tunik (mintazat: ^-jelolve\\s+az\\s+otletladaba).\n\n[Teszt 4] Csak nev a cimben\n  Eredmeny: ELUTASITVA\n  Uzenet: Otlet elutasitva a minoseg-kapu altal:\n  - A cim tul rovid: 5 karakter (minimum 15 kell).\n  - A cim parancs-maradvanynak tunik (mintazat: ^(nova|zsolt|runa|mesh)\\s*[:\\-]?\\s*$).\n\n[Teszt 5] Integracio-ellenorzes\n  idea_id: idea_test123456\n  integrated: True\n  files: ['a2a_task_runa_20260907_053154.py']\n\n[Teszt 6] Sync: done statusz de nincs kod a repoban\n  Eredmeny: Otlet idea_synctest9999 integralva \u2014 1 fajl: a2a_task_runa_20260907_053154.py\n\n======================================================================\nOsszes otlet az adatbazisban:\n======================================================================\n  \u274c idea_d30a38d920b0 | status=pending | integrated=False\n     title: Otletlada minoseg-kapu: title-validacio es integrated=True szinkron\n\nOsszesen: 1 otlet\n\n\n\u2705 Repoba integralva: ideas/idea_061b2e4f97b8_tletl_da___tletl_da_min_s_g-kapu___1.py (git commit)",
+        "completed_at": "2026-09-07 05:33:04.753792+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "a54b5379-a237-410b-8719-f25525cb4a74",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788759220.3350248
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788581342.3571599
+    "updated_at": 1788759196.5387971
   },
   {
     "id": "board-archive-orphaned-20260830",
