@@ -5177,6 +5177,7 @@ echo "Status: ok"
         _last_auto_skill = 0
         _last_cap_sync = 0
         _last_gw_watchdog = 0
+        _last_oq_flush = 0
         CAPS_REBROADCAST_INTERVAL = 300  # 5 min
         DECAY_INTERVAL = 3600  # 1 hour
         DREAM_INTERVAL = 21600  # 6 hours
@@ -5186,6 +5187,7 @@ echo "Status: ok"
         PRECOMPACT_INTERVAL = 1800  # 30 min
         AUTO_SKILL_INTERVAL = 600  # 10 min
         CAP_SYNC_INTERVAL = 600  # 10 min
+        OQ_FLUSH_INTERVAL = 300  # 5 min
 
         while self._running:
             try:
@@ -5493,6 +5495,22 @@ echo "Status: ok"
                     except Exception as e:
                         log.debug(f"[self-heal] PreCompact audit skipped: {e}")
                     _last_precompact = now_ts
+
+                # 15. Offline Queue Periodic Flush — deliver queued messages when
+                # recipients are back online (previously ONLY ran on transport-recovery
+                # events, so messages queued during a brief offline window stayed stuck
+                # forever — e.g. 415 ssh_key_sync messages stuck for 3 days while all
+                # nodes were actually online).
+                if now_ts - _last_oq_flush > OQ_FLUSH_INTERVAL:
+                    try:
+                        oq = getattr(self.router, "_offline_queue", None)
+                        if oq is not None:
+                            flushed = await self.router._flush_offline_queue()
+                            if flushed:
+                                log.info(f"[self-heal] Offline queue flush: {flushed} message(s) delivered")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Offline queue flush skipped: {e}")
+                    _last_oq_flush = now_ts
 
             except asyncio.CancelledError:
                 break
