@@ -5989,9 +5989,12 @@ echo "Status: ok"
                     import re as _re_ment_p
                     _mentions_in_msg = [m.lower() for m in _re_ment_p.findall(r"@(\w+)", _content_text or "")]
                     if _chat_type == "broadcast" and self.node_name.lower() in _mentions_in_msg:
-                        prompt_text = f"🔔 NEKED ÍRTÁK a közös szobában! {_chat_user} kifejezetten hozzád intézte: {_content_text[:300]} — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
+                        prompt_text = f"🔔 NEKED ÍRTÁK a közös szobában! {_chat_user} kifejezetten hozzád intézte: {_content_text[:1500]} — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
                     else:
-                        prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:300]}"
+                        # [:1500] — a /ideas, /debate parancs-prefixek (~600 char) teljes
+                        # átviteléhez kell; a korábbi [:300] levágta a [ÖTLET]-formátum-
+                        # utasítást, így az agentek sosem látták és nem küldtek ötleteket.
+                        prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:1500]}"
                 else:
                     prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
 
