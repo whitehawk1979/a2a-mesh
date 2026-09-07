@@ -62,3 +62,4 @@ core/diagnostics.py.orig
 
 # Dynamic refactor backups
 *.bak_dynamic_refactor
+data/dashboard_auth.json
