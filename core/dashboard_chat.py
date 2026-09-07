@@ -347,6 +347,8 @@ async def handle_chat_send(node, request, pool, user):
                 "morzsa": {"host": "192.168.1.30", "health_port": 8650},
                 "runa": {"host": "192.168.1.100", "health_port": 8650},
                 "nova": {"host": "192.168.1.8", "health_port": 8650},
+                "tor": {"host": "100.74.221.46", "health_port": 8650},
+                "mano": {"host": "192.168.1.43", "health_port": 8650},
             }
             for peer_name, peer_info in FALLBACK_PEERS.items():
                 if peer_name == node_name:
@@ -365,9 +367,11 @@ async def handle_chat_send(node, request, pool, user):
                     await _aio.sleep(2)  # Delay 2s — let P2P wake-agent trigger first
                     try:
                         if ment:
-                            _b_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {content[:500]} — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
+                            _b_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"[:2000] + " — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
                         else:
-                            _b_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}"
+                            # _cmd_prefix ide is kell: a /ideas, /debate formátum-utasítás
+                            # így jut el a peer-ekhez (korábban a P2P-ág [:300] vágása levette).
+                            _b_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000]
                         async with _aiohttp.ClientSession() as sess:
                             async with sess.post(url, json={
                                 "prompt": _b_prompt,
@@ -397,7 +401,7 @@ async def handle_chat_send(node, request, pool, user):
                     try:
                         async with _aiohttp_sw.ClientSession() as sess:
                             async with sess.post(self_wake_url, json={
-                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {content[:500]}",
+                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000],
                                 "agent_name": node_name,
                                 "sender": username,
                                 "sender_display": display_name,
