@@ -1205,24 +1205,46 @@ class P2PTransport(TransportAdapter):
                 return SendResult(transport="p2p", success=True, latency_ms=1.0)
 
             # P2: Recipient not connected — try dynamic connection via peer_address_resolver
+            # FIX (v0.42.1): respect per-peer backoff + multi-address fallback here too.
+            # Before: every send() bypassed backoff and tried ONLY the resolver's single
+            # address → retry-storm (891+ consecutive failures for tor via VPN IP) and
+            # log spam. Now: (1) skip dynamic connect while in backoff, (2) try all known
+            # addresses (multi-addr) instead of just the resolver's pick.
             if self._peer_address_resolver and recipient not in self._connecting_peers:
-                addr = self._peer_address_resolver(recipient)
-                if addr:
-                    host, port = addr
-                    log.info(f"P2 dynamic connect: resolving {recipient} → {host}:{port}")
-                    self._connecting_peers.add(recipient)
-                    try:
-                        await self._connect_to_peer(recipient, host, port)
-                    except Exception as e:
-                        log.warning(f"P2 dynamic connect to {recipient} failed: {e}")
-                        self._enqueue_for_retry(message)
-                        return SendResult(transport="p2p", success=False, error=f"dynamic connect failed: {e}")
-                    finally:
-                        self._connecting_peers.discard(recipient)
-                    # After successful connect, enqueue to priority queue
-                    if recipient in self._peers:
-                        self._enqueue_send(recipient, message)
-                        return SendResult(transport="p2p", success=True, latency_ms=5.0)
+                now = _t.time()
+                next_retry_at = self._peer_backoff.get(recipient, 0)
+                if next_retry_at and now < next_retry_at:
+                    log.debug(f"P2 dynamic connect: {recipient} in backoff until {next_retry_at:.0f}")
+                else:
+                    addr = self._peer_address_resolver(recipient)
+                    if addr:
+                        # Multi-address fallback: prefer configured alternate addresses,
+                        # then the resolver's pick as the last candidate.
+                        addresses = list(self._peer_alternate_addresses.get(recipient, []))
+                        if addr not in addresses:
+                            addresses.append(addr)
+                        log.info(f"P2 dynamic connect: resolving {recipient} → {len(addresses)} address(es): {[f'{h}:{p}' for h, p in addresses]}")
+                        self._connecting_peers.add(recipient)
+                        connected = False
+                        try:
+                            for host, port in addresses:
+                                # Respect backoff set mid-loop by _connect_to_peer failures
+                                if self._peer_backoff.get(recipient, 0) > _t.time():
+                                    break
+                                try:
+                                    await self._connect_to_peer(recipient, host, port)
+                                    connected = recipient in self._peers
+                                    if connected:
+                                        break
+                                except Exception as e:
+                                    log.debug(f"P2 dynamic connect to {recipient} at {host}:{port} failed: {e}")
+                        finally:
+                            self._connecting_peers.discard(recipient)
+                        # After successful connect, enqueue to priority queue
+                        if connected and recipient in self._peers:
+                            self._enqueue_send(recipient, message)
+                            return SendResult(transport="p2p", success=True, latency_ms=5.0)
+                        log.debug(f"P2 dynamic connect: {recipient} unreachable on all {len(addresses)} addresses — PG/HTTP fallback")
 
             # No address resolver or address not found — queue for retry
             self._enqueue_for_retry(message)

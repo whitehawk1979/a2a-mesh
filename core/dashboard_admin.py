@@ -1232,6 +1232,29 @@ class DashboardAdminMixin:
             },
         }
 
+        # ── VPN (Tailscale) állapot a Beállítások menübe ──
+        try:
+            from core import vpn as vpn_mod
+            disc = getattr(self.node.config, "discovery", None) if self.node else None
+            prefer = getattr(disc, "prefer", "auto") or "auto"
+            ts_ip = None
+            try:
+                ts_ip = await asyncio.get_event_loop().run_in_executor(
+                    None, vpn_mod._tailscale_ip)
+            except Exception:
+                ts_ip = None
+            local_vpn = await asyncio.get_event_loop().run_in_executor(
+                None, vpn_mod._local_vpn_ip)
+            settings["vpn"] = {
+                "available": bool(local_vpn or ts_ip),
+                "tailscale_ip": ts_ip,
+                "local_vpn_ip": local_vpn,
+                "prefer": prefer,
+                "prefer_options": ["lan", "vpn", "auto"],
+            }
+        except Exception as e:
+            settings["vpn"] = {"available": False, "error": str(e)[:80]}
+
         # ── Real transport status from live objects ──
         try:
             node = self.node
@@ -1515,41 +1538,150 @@ class DashboardAdminMixin:
             # doesn't blank the edges (they were flapping 3→2→0 before).
             async def _fetch_peer_ssh_tunnels():
                 import aiohttp
-                peer_targets = []
+                # Candidate hosts per peer: registry host first, then static_nodes
+                # IPs (LAN+VPN), then the ssh_tunnel control host. HAOS containers
+                # advertise a Tailscale IP whose health port is unreachable from
+                # outside — their LAN candidate still works.
+                peer_urls = {}
+                disc = getattr(self.node.config, "discovery", None)
+                static_nodes = getattr(disc, "static_nodes", None) or []
+                st_cfg = getattr(self.node.config, "ssh_tunnel", None)
                 for name, info in nodes.items():
                     if name == self.node.node_name:
                         continue
-                    host = info.get("host") or ""
                     port = info.get("port") or 8650
-                    if not host or str(host).startswith("0.0.0.0"):
-                        continue
-                    peer_targets.append((name, f"http://{host}:{port}/health"))
-                results = []
-                if not peer_targets:
-                    return results
-                async def _one(name, url):
+                    cands = []
+                    host = info.get("host") or ""
+                    if host and not str(host).startswith("0.0.0.0"):
+                        cands.append(host)
+                    for sn in static_nodes:
+                        try:
+                            if (sn.get("name") or "").lower() == str(name).lower():
+                                ip = sn.get("ip") or ""
+                                if ip and ip not in cands:
+                                    cands.append(ip)
+                        except Exception:
+                            continue
                     try:
-                        timeout = aiohttp.ClientTimeout(total=8)
-                        async with aiohttp.ClientSession(timeout=timeout) as sess:
-                            async with sess.get(url) as resp:
-                                if resp.status != 200:
-                                    return None
-                                d = await resp.json(content_type=None)
-                                ts = d.get("ssh_tunnel") or {}
-                                if isinstance(ts, dict) and ts:
-                                    self._peer_tunnel_cache = getattr(self, "_peer_tunnel_cache", {})
-                                    self._peer_tunnel_cache[name] = ts
-                                return (name, ts)
+                        p = (st_cfg.peers or {}).get(name) if st_cfg else None
+                        if p:
+                            ip = p.get("ssh_host") or ""
+                            if ip and ip not in cands:
+                                cands.append(ip)
                     except Exception:
-                        return None
-                gathered = await asyncio.gather(*[_one(n, u) for n, u in peer_targets])
+                        pass
+                    if cands:
+                        peer_urls[name] = [f"http://{h}:{port}/health" for h in cands]
+                if not peer_urls:
+                    return []
+
+                async def _one(name, urls):
+                    for url in urls:
+                        try:
+                            timeout = aiohttp.ClientTimeout(total=6)
+                            async with aiohttp.ClientSession(timeout=timeout) as sess:
+                                async with sess.get(url) as resp:
+                                    if resp.status != 200:
+                                        continue
+                                    d = await resp.json(content_type=None)
+                                    # Identity check: on multi-agent hosts (HAOS) the
+                                    # control-host candidate port may serve a
+                                    # DIFFERENT node (mano shares 8650 with tor's
+                                    # host). Never attribute another node's health
+                                    # to this peer.
+                                    if d.get("node") and str(d.get("node")).lower() != str(name).lower():
+                                        continue
+                                    ts = d.get("ssh_tunnel") or {}
+                                    if isinstance(ts, dict) and ts:
+                                        self._peer_tunnel_cache = getattr(self, "_peer_tunnel_cache", {})
+                                        self._peer_tunnel_cache[name] = ts
+                                        return (name, ts)
+                        except Exception:
+                            continue
+                    return None
+
+                async def _ssh_probe(name):
+                    """SSH-jump health probe for peers whose health port is not
+                    directly reachable (tor: bridge-network container). Uses the
+                    peer's ssh_tunnel config; forward_host selects the target
+                    inside the SSH endpoint's namespace. Deterministic, no LLM."""
+                    import os as _os, json as _json
+                    try:
+                        if not st_cfg or not (st_cfg.peers or {}).get(name):
+                            return None
+                        p = st_cfg.peers[name]
+                        fwd = p.get("forward_host") or "127.0.0.1"
+                        remote_cmd = (
+                            "python3 -c 'import urllib.request,sys;sys.stdout.write("
+                            f"urllib.request.urlopen(\"http://{fwd}:8650/health\", "
+                            "timeout=4).read().decode())' "
+                            f"|| wget -qO- -T 4 http://{fwd}:8650/health"
+                        )
+                        cmd = ["ssh", "-o", "StrictHostKeyChecking=no",
+                               "-o", "UserKnownHostsFile=/dev/null",
+                               "-o", "BatchMode=yes", "-o", "ConnectTimeout=6"]
+                        ident = p.get("identity_file") or getattr(st_cfg, "default_identity_file", "")
+                        if ident:
+                            cmd += ["-i", _os.path.expanduser(str(ident))]
+                        if p.get("ssh_port"):
+                            cmd += ["-p", str(p.get("ssh_port"))]
+                        user = p.get("ssh_user") or getattr(st_cfg, "default_ssh_user", "") or "root"
+                        cmd += [f"{user}@{p.get('ssh_host')}", remote_cmd]
+                        proc = await asyncio.create_subprocess_exec(
+                            *cmd, stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.DEVNULL)
+                        try:
+                            out, _ = await asyncio.wait_for(proc.communicate(), timeout=12)
+                        except asyncio.TimeoutError:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                            return None
+                        if proc.returncode != 0 or not out:
+                            return None
+                        d = _json.loads(out.decode("utf-8", "replace"))
+                        # Identity check — never attribute another node's health
+                        if d.get("node") and str(d.get("node")).lower() != str(name).lower():
+                            return None
+                        ts = d.get("ssh_tunnel") or {}
+                        if isinstance(ts, dict) and ts:
+                            return ts
+                    except Exception as e:
+                        log.debug(f"Topology SSH probe failed for {name}: {e}")
+                    return None
+
+                gathered = await asyncio.gather(*[_one(n, peer_urls[n]) for n in peer_urls])
                 live = [r for r in gathered if r]
+                live_names = {name for name, _ in live}
                 # Fall back to cached state for peers whose health fetch failed this round
                 cache = getattr(self, "_peer_tunnel_cache", {})
-                live_names = {name for name, _ in live}
                 for cname, cts in cache.items():
                     if cname not in live_names:
                         live.append((cname, cts))
+                        live_names.add(cname)
+                # Probe-sourced results live in their own TTL cache (30s): tor's
+                # health port is never directly reachable, so a persistent entry
+                # in the main cache would go stale forever.
+                pcache = getattr(self, "_probe_tunnel_cache", {})
+                now_t = _time.time()
+                missing = []
+                for n in peer_urls:
+                    if n in live_names:
+                        continue
+                    if n in pcache and now_t - pcache[n][0] < 30:
+                        live.append((n, pcache[n][1]))
+                        live_names.add(n)
+                    else:
+                        missing.append(n)
+                if missing:
+                    probed = await asyncio.gather(*[_ssh_probe(n) for n in missing])
+                    for pname, ts in zip(missing, probed):
+                        if isinstance(ts, dict) and ts:
+                            live.append((pname, ts))
+                            live_names.add(pname)
+                            pcache[pname] = (now_t, ts)
+                    self._probe_tunnel_cache = pcache
                 return live
 
             try:

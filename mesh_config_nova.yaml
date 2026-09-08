@@ -251,6 +251,14 @@ mesh:
           ssh_port: 2230
           ssh_user: root
           forward_host: 172.30.33.3
+        mano:
+          connect_timeout: 60
+          identity_file: /Users/zsolt/.ssh/id_ed25519_openclaw
+          remote_port: 8645
+          ssh_host: 192.168.1.43
+          ssh_port: 2230
+          ssh_user: root
+          forward_host: 127.0.0.1
       reconnect_interval: 10
       sshd_bind: 0.0.0.0
       sshd_config_dir: /Users/zsolt/.hermes/scripts/a2a_mesh/data/sshd/
