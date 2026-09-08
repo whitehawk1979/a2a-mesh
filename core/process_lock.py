@@ -104,6 +104,7 @@ def _find_port_holders(port: int) -> List[int]:
         )
         if result.returncode == 0 and result.stdout.strip():
             return [int(p.strip()) for p in result.stdout.strip().split("\n") if p.strip().isdigit()]
+        return []  # FIX: lsof ran fine but port is free (returncode 1) — was implicit None -> 'NoneType is not iterable'
     except FileNotFoundError:
         # lsof not available — try ss (Linux)
         try:

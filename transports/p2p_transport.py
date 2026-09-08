@@ -1211,6 +1211,7 @@ class P2PTransport(TransportAdapter):
             # log spam. Now: (1) skip dynamic connect while in backoff, (2) try all known
             # addresses (multi-addr) instead of just the resolver's pick.
             if self._peer_address_resolver and recipient not in self._connecting_peers:
+                import time as _t  # FIX: _t was undefined here (NameError broke every P2 dynamic connect)
                 now = _t.time()
                 next_retry_at = self._peer_backoff.get(recipient, 0)
                 if next_retry_at and now < next_retry_at:
