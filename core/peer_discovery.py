@@ -368,7 +368,7 @@ class PeerDiscovery:
         peer = self._peers.get(name)
         if not peer:
             return False
-        log.info(f"Auto-approved discovered peer: {name} caps={peer.capabilities or ['a2a_messaging']}")
+        log.debug(f"Auto-approved discovered peer: {name} caps={peer.capabilities or ['a2a_messaging']}")
         self._register_discovered_peer(peer)
         return True
 

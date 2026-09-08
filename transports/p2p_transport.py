@@ -510,7 +510,7 @@ class P2PTransport(TransportAdapter):
                         payload = message.payload if isinstance(message.payload, dict) else {}
                         ack_for_id = payload.get("ack_for", "")
                         ack_type = payload.get("ack_type", "delivered")
-                        log.info(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
+                        log.debug(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
                         # Track per-peer latency (EWMA) for adaptive routing
                         ts = payload.get("timestamp", 0)
                         if ts and connected_peer_name:
