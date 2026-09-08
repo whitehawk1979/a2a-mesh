@@ -126,6 +126,8 @@ mesh:
           identity_file: ~/.ssh/id_ed25519_openclaw
   discovery:
     min_target_peers: 2
+    # VPN (Tailscale) IP-preferencia: lan | vpn | auto — auto: VPN fut, ha elerheto
+    prefer: auto
     mdns:
       enabled: true
       service: _a2a._tcp
@@ -161,6 +163,16 @@ mesh:
         ip: 100.125.223.24
         p2p_port: 8645
         health_port: 8650
+        transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.43
+        name: mano
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.74.221.46
+        name: tor
+        p2p_port: 8645
         transport: p2p
   auto_update:
     enabled: true

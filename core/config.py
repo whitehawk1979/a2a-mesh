@@ -117,6 +117,9 @@ class DiscoveryConfig:
     tailscale_interface: str = ""  # Tailscale IP for cross-subnet discovery
     static_nodes: List[Dict] = field(default_factory=list)
     min_target_peers: int = 2  # Minimum connected peers for mesh resilience
+    # VPN-beépítés (Tailscale): lan | vpn | auto — a P2P cím-választás determinisztikus preferenciája.
+    # auto: Tailscale fut → VPN IP-t preferál (titkosított, WAN-en is működő), különben LAN IP.
+    prefer: str = "auto"
 
 
 @dataclass
@@ -534,6 +537,7 @@ class MeshConfig:
                 tailscale_interface=disc_data.get('tailscale_interface', ''),
                 static_nodes=static_nodes,
                 min_target_peers=disc_data.get('min_target_peers', 2),
+                prefer=str(disc_data.get('prefer', 'auto')).lower(),
             )
 
         # Security config

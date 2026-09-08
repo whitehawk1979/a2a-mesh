@@ -947,6 +947,13 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._log_rotation_loop()))
         self._prune_node_log_archives()
 
+        # v0.43: VPN (Tailscale) health loop — figyeli a VPN-állapotot, state-váltásnál logol
+        try:
+            from .core.vpn import vpn_health_loop
+            self._tasks.append(asyncio.create_task(vpn_health_loop(self)))
+        except Exception as _vpn_loop_err:
+            log.debug(f"VPN health loop indítása kihagyva: {_vpn_loop_err}")
+
         # v0.41: Coordinator idea-review loop — ötletláda felülvizsgálat (csak coordinatoron fut)
         try:
             from .core.idea_review import start_review_loop, make_implement_fn
@@ -4911,9 +4918,33 @@ echo "Status: ok"
     def _get_advertise_ip(self) -> str:
         """Get the IP to advertise to other nodes.
         
-        For Docker/HA addon containers, use advertise_host from config
+        For Docker/HA containers, use advertise_host from config
         (the host IP) instead of the container's internal IP.
+        VPN (Tailscale) preference: if `discovery.prefer` is vpn|auto and a
+        Tailscale IP is available, advertise the VPN IP — encrypted transport
+        that works even when the LAN is unreachable (WAN/remote nodes).
         """
+        # VPN-beépítés: prefer=vpn kényszeríti, auto pedig VPN-t használ, ha fut
+        try:
+            from .core.vpn import get_preferred_address, resolve_peer_addresses
+            _own_candidates = []
+            # A saját node-névhez tartozó static_nodes bejegyzések = saját címek
+            for _sn in (getattr(getattr(self.config, "discovery", None), "static_nodes", None) or []):
+                try:
+                    if (str(_sn.get("name", "")).lower() == str(self.node_name).lower()
+                            and _sn.get("ip")):
+                        _own_candidates.append({"ip": _sn.get("ip", "")})
+                except Exception:
+                    continue
+            if _own_candidates:
+                _addr = get_preferred_address(
+                    getattr(self.config, "discovery", None), _own_candidates)
+                if _addr and _addr.get("ip"):
+                    return _addr["ip"]
+        except ImportError:
+            pass
+        except Exception as _vpn_err:
+            log.debug(f"VPN advertise-IP választás kihagyva: {_vpn_err}")
         # Check for advertise_host in P2P config
         if hasattr(self.config, 'p2p') and hasattr(self.config.p2p, 'advertise_host'):
             adv = self.config.p2p.advertise_host

@@ -37,6 +37,8 @@ mesh:
       port: 8645
       service: _a2a._tcp
     min_target_peers: 2
+    # VPN (Tailscale) IP-preferencia: lan | vpn | auto — auto: VPN fut, ha elerheto
+    prefer: auto
     static:
       nodes:
       - health_port: 8650
@@ -67,6 +69,16 @@ mesh:
       - health_port: 8650
         ip: 100.125.223.24
         name: runa
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.74.221.46
+        name: tor
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.43
+        name: mano
         p2p_port: 8645
         transport: p2p
   health_port: 8650
@@ -188,6 +200,9 @@ mesh:
         port: 8645
       - host: 100.74.221.46
         name: tor
+        port: 8645
+      - host: 192.168.1.43
+        name: mano
         port: 8645
       tls_ca: ~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt
       tls_cert: ~/.hermes/scripts/a2a_mesh/certs/nova.crt
