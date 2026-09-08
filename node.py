@@ -3298,7 +3298,15 @@ echo "Status: ok"
             return SendResult(transport="offline_queue", success=True, error="Queued for offline delivery")
 
         # Track for ACK (non-broadcast only)
-        if not message.is_broadcast() and message.type != MSG_TYPE_HEARTBEAT:
+        # Skip self-directed messages: no peer will ACK them, so tracking
+        # always exhausts retries → spurious "ACK failed → <self>" warnings
+        # (~118/day from Dream Engine self-reports and dashboard self-sends).
+        if (
+            not message.is_broadcast()
+            and message.type != MSG_TYPE_HEARTBEAT
+            and message.recipient not in ("", "*", "broadcast")
+            and message.recipient != self.node_name
+        ):
             self.ack_manager.track(message)
 
         # Also persist to PG for reliability
