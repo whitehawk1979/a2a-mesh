@@ -99,7 +99,7 @@ class HTTPTransport(TransportAdapter):
     def register_peer_url(self, node_name: str, url: str):
         """Register a peer node's HTTP dashboard URL."""
         self._peer_urls[node_name.lower()] = url.rstrip("/")
-        log.info(f"HTTP peer registered: {node_name} -> {url}")
+        log.debug(f"HTTP peer registered: {node_name} -> {url}")
 
     def _get_peer_url(self, recipient: str) -> str:
         """Get the HTTP URL for a peer node, or fall back to main bridge."""

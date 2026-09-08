@@ -162,7 +162,7 @@ async def create_embedding(text: str, ollama_url: str = "http://localhost:11434"
                             continue
                         return None
         except Exception as e:
-            log.warning(f"Embedding creation failed (attempt {attempt + 1}): {e}")
+            log.warning(f"Embedding creation failed (attempt {attempt + 1}): {type(e).__name__}: {e!r}")
             if attempt == 0:
                 await asyncio.sleep(2)
                 continue

@@ -401,7 +401,7 @@ Válaszolj röviden, magyarul, objektíven. Ne ismételd amit mások mondtak."""
                 return None
 
     except Exception as e:
-        log.warning(f"Deep reflection generation failed: {e}")
+        log.warning(f"Deep reflection generation failed: {type(e).__name__}: {e!r}")
         return None
 
 
