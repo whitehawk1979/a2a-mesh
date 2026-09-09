@@ -13370,10 +13370,757 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1788835927.2501602
+      },
+      {
+        "id": "card-1788879877915-202",
+        "title": "[DEPLOY] Deploy main to morzsa",
+        "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788879877.915045,
+        "updated_at": 1788880527.975154,
+        "created_by": "unknown",
+        "delegation_task_id": "7ee39bfb-e359-4db2-ae93-4ae8f972e2c8",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788879878.1198778
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch gitea: OK\n[morzsa] git merge --ff-only: retry with reset --hard FETCH_HEAD\n[morzsa] git reset --hard FETCH_HEAD: OK — HEAD is now at 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state nem s\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+            "timestamp": 1788879902.537199
+          },
+          {
+            "agent": "unknown",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788879955.069613
+          },
+          {
+            "agent": "unknown",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880449.8742442
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch gitea: OK\n[morzsa] git merge --ff-only: retry with reset --hard FETCH_HEAD\n[morzsa] git reset --hard FETCH_HEAD: OK — HEAD is now at 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state nem s\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+            "timestamp": 1788880481.947419
+          },
+          {
+            "agent": "unknown",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880527.977368
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch gitea: OK\n[morzsa] git merge --ff-only: retry with reset --hard FETCH_HEAD\n[morzsa] git reset --hard FETCH_HEAD: OK — HEAD is now at 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state nem s\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:04:45.273829+00:",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788880527.975152
+      },
+      {
+        "id": "card-1788879878541-203",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1788879878.5410612,
+        "updated_at": 1788880627.203583,
+        "created_by": "unknown",
+        "delegation_task_id": "f4a97e7d-eaff-4a7d-af00-209471d51b2f",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788879878.768242
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge --ff-only: retry with reset --hard FETCH_HEAD\n[runa] git reset --hard FETCH_HEAD: OK — HEAD is now at 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state nem s\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+            "timestamp": 1788879969.301951
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "56727bf0",
+            "timestamp": 1788879981.8807611
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788879995.3028631
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880438.2455208
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge --ff-only: retry with reset --hard FETCH_HEAD\n[runa] git reset --hard FETCH_HEAD: OK — HEAD is now at 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state nem s\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+            "timestamp": 1788880460.212964
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "a5926364",
+            "timestamp": 1788880492.83741
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880627.204426
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge --ff-only: retry with reset --hard FETCH_HEAD\n[runa] git reset --hard FETCH_HEAD: OK — HEAD is now at 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state nem s\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:04:48.891390+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "a5926364-10d5-4628-96aa-e08fd94214c6",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788880627.2035809
+      },
+      {
+        "id": "card-1788879879096-204",
+        "title": "[DEPLOY] Deploy main to tor",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "tor",
+        "parent_id": null,
+        "created_at": 1788879879.0967581,
+        "updated_at": 1788880589.932837,
+        "created_by": "unknown",
+        "delegation_task_id": "c9a6f394-c80d-44ea-936c-36a28a6d7057",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788879879.279422
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch origin: OK\n[tor] git merge: OK — 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788879886.782431
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "25418c1f",
+            "timestamp": 1788879925.0715148
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788879969.027339
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880460.427985
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch origin: OK\n[tor] git merge: OK — 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788880471.191989
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "4629df04",
+            "timestamp": 1788880509.968065
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880589.933654
+          }
+        ],
+        "delegation_result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch origin: OK\n[tor] git merge: OK — 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state \n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:04:46.331561+00:",
+        "reviewer": "runa",
+        "review_task_id": "4629df04-3751-43fd-9733-518a322908d6",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788880589.932835
+      },
+      {
+        "id": "card-1788879879616-205",
+        "title": "[DEPLOY] Deploy main to mano",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "mano",
+        "parent_id": null,
+        "created_at": 1788879879.61642,
+        "updated_at": 1788880539.044715,
+        "created_by": "unknown",
+        "delegation_task_id": "44178a95-85ca-4630-be78-9348e5867d2c",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "mano",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788879879.8015292
+          },
+          {
+            "agent": "mano",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[mano] repo_path=/config/a2a_mesh\n[mano] git fetch origin: OK\n[mano] git merge: OK — 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state \n[mano] restart: scheduled (3s delay)\n[mano] deploy complete — node will restart shortly",
+            "timestamp": 1788879913.869233
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "3c6dc715",
+            "timestamp": 1788879926.422561
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788879946.155523
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880449.526552
+          },
+          {
+            "agent": "mano",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[mano] repo_path=/config/a2a_mesh\n[mano] git fetch origin: OK\n[mano] git merge: OK — 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state \n[mano] restart: scheduled (3s delay)\n[mano] deploy complete — node will restart shortly",
+            "timestamp": 1788880492.6344872
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "6eff66b1",
+            "timestamp": 1788880511.973268
+          },
+          {
+            "agent": "runa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880539.0454211
+          }
+        ],
+        "delegation_result": "[mano] repo_path=/config/a2a_mesh\n[mano] git fetch origin: OK\n[mano] git merge: OK — 2eaac89 docs(marveen-skill): API-alapu iras a DOM composer helyett (React state \n[mano] restart: scheduled (3s delay)\n[mano] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:04:42.773533+00:",
+        "reviewer": "runa",
+        "review_task_id": "6eff66b1-7ca5-4ab5-8854-17ad0e880d96",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788880539.044713
+      },
+      {
+        "id": "card-1788880512227-206",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1788880512.22722,
+        "updated_at": 1788880606.046586,
+        "created_by": "unknown",
+        "delegation_task_id": "1dea5191-255d-41a3-a5a3-ca17699c432e",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788880512.4336782
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge: OK — 58f7f06 fix(ack): self-directed uzenetek kihagyasa ACK-trackelesbol — Dream Engi\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+            "timestamp": 1788880550.0725
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "acc0b84e",
+            "timestamp": 1788880579.772772
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1788880606.047457
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge: OK — 58f7f06 fix(ack): self-directed uzenetek kihagyasa ACK-trackelesbol — Dream Engi\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:15:14.824095+00:",
+        "reviewer": "tor",
+        "review_task_id": "acc0b84e-5751-4324-8bda-49e7db95fd11",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1788880606.04658
+      },
+      {
+        "id": "card-1788880512848-207",
+        "title": "[DEPLOY] Deploy main to tor",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "tor",
+        "parent_id": null,
+        "created_at": 1788880512.848459,
+        "updated_at": 1788880616.510311,
+        "created_by": "unknown",
+        "delegation_task_id": "ed7cabc6-3443-4b11-93c1-c567466db2b7",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "tor",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788880513.059906
+          },
+          {
+            "agent": "tor",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch origin: OK\n[tor] git merge: OK — 58f7f06 fix(ack): self-directed uzenetek kihagyasa ACK-trackelesbol — Dream Engi\n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+            "timestamp": 1788880538.8350568
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "c3b76551",
+            "timestamp": 1788880564.3573902
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment completed successfully: fetch, merge, and restart all confirmed with no errors.",
+            "timestamp": 1788880616.5110478
+          }
+        ],
+        "delegation_result": "[tor] repo_path=/config/a2a_mesh\n[tor] git fetch origin: OK\n[tor] git merge: OK — 58f7f06 fix(ack): self-directed uzenetek kihagyasa ACK-trackelesbol — Dream Engi\n[tor] restart: scheduled (3s delay)\n[tor] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:15:14.880022+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "c3b76551-1a53-48b6-a256-9bd0688c2a19",
+        "review_status": "accept",
+        "review_reason": "Deployment completed successfully: fetch, merge, and restart all confirmed with no errors.",
+        "reviewed_at": 1788880616.510305
+      },
+      {
+        "id": "card-1788880514260-208",
+        "title": "[DEPLOY] Deploy main to mano",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 120}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "mano",
+        "parent_id": null,
+        "created_at": 1788880514.2608252,
+        "updated_at": 1788880665.603987,
+        "created_by": "unknown",
+        "delegation_task_id": "6e4d8608-53b8-48d2-b626-b0ddfd63662b",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "mano",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788880514.4542139
+          },
+          {
+            "agent": "mano",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[mano] repo_path=/config/a2a_mesh\n[mano] git fetch origin: OK\n[mano] git merge: OK — 58f7f06 fix(ack): self-directed uzenetek kihagyasa ACK-trackelesbol — Dream Engi\n[mano] restart: scheduled (3s delay)\n[mano] deploy complete — node will restart shortly",
+            "timestamp": 1788880626.9669418
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "8ed314dc",
+            "timestamp": 1788880638.253342
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment completed successfully: fetch, merge, and restart all confirmed with valid commit reference.",
+            "timestamp": 1788880665.604685
+          }
+        ],
+        "delegation_result": "[mano] repo_path=/config/a2a_mesh\n[mano] git fetch origin: OK\n[mano] git merge: OK — 58f7f06 fix(ack): self-directed uzenetek kihagyasa ACK-trackelesbol — Dream Engi\n[mano] restart: scheduled (3s delay)\n[mano] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-08 15:15:17.459416+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "8ed314dc-b457-4158-8041-75022819bf29",
+        "review_status": "accept",
+        "review_reason": "Deployment completed successfully: fetch, merge, and restart all confirmed with valid commit reference.",
+        "reviewed_at": 1788880665.60398
+      },
+      {
+        "id": "card-1788902390329-215",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1788902390.3297741,
+        "updated_at": 1788902391.842278,
+        "created_by": "unknown",
+        "delegation_task_id": "1083e0b2-5e54-43aa-aff5-868771d8c3ce",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902390.529438
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1788902391.842287
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1788902391.842276
+      },
+      {
+        "id": "card-1788902392102-216",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1788902392.102248,
+        "updated_at": 1788902393.2277749,
+        "created_by": "unknown",
+        "delegation_task_id": "0ff359e2-84f4-4842-9021-3a7bc2452f77",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902392.233973
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1788902393.2277849
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1788902393.227772
+      },
+      {
+        "id": "card-1788902396098-220",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1788902396.098963,
+        "updated_at": 1788902397.45372,
+        "created_by": "unknown",
+        "delegation_task_id": "d06f26df-0978-4b47-ae90-fc70afc15413",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902396.293955
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1788902397.4537249
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1788902397.453718
+      },
+      {
+        "id": "card-1788902397703-221",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902397.703874,
+        "updated_at": 1788902399.978178,
+        "created_by": "unknown",
+        "delegation_task_id": "8d9d5a92-a44e-4931-9e0e-39e304415068",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902397.8920388
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1788902399.978184
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1788902399.978176
+      },
+      {
+        "id": "card-1788902497341-219",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1788902497.3415911,
+        "updated_at": 1788902497.7965162,
+        "created_by": "unknown",
+        "delegation_task_id": "dd24bf50-d9fa-4886-8eb7-7f36e196d103",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902497.458974
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1788902497.796522
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1788902497.796515
+      },
+      {
+        "id": "card-1788902497960-220",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1788902497.9604402,
+        "updated_at": 1788902498.2747788,
+        "created_by": "unknown",
+        "delegation_task_id": "41040440-f102-4b7f-bba0-b1cd37db1950",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902498.0821729
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1788902498.274785
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1788902498.2747781
+      },
+      {
+        "id": "card-1788902499429-224",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1788902499.429281,
+        "updated_at": 1788902499.709714,
+        "created_by": "unknown",
+        "delegation_task_id": "879b9457-28a0-49ce-b6b1-a1470d650e6e",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902499.556722
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1788902499.709718
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1788902499.709713
+      },
+      {
+        "id": "card-1788902499873-225",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902499.873369,
+        "updated_at": 1788902500.659132,
+        "created_by": "unknown",
+        "delegation_task_id": "9ef1e2a6-3d1f-4d78-aa91-5f873272c865",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902499.987044
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1788902500.659136
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1788902500.6591308
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788836668.547372
+    "updated_at": 1788902499.873374
   },
   {
     "id": "board-archive-orphaned-20260830",
@@ -14787,5 +15534,480 @@
       }
     ],
     "created_at": 1788383200.5330439
+  },
+  {
+    "id": "board-archive-orphaned-20260909",
+    "name": "Archive — orphaned cards (auto)",
+    "cards": [
+      {
+        "id": "card-1788902386487-209",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788902386.487625,
+        "updated_at": 1788902386.715161,
+        "created_by": "unknown",
+        "delegation_task_id": "cd39a474-7d91-48fc-88bb-d02ec52e664a",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902386.715156
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902387333-210",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902387.333746,
+        "updated_at": 1788902387.514176,
+        "created_by": "unknown",
+        "delegation_task_id": "23a33f30-b3a3-4ce0-8a24-d538201ebb45",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902387.5141702
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902387832-211",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902387.832116,
+        "updated_at": 1788902388.022481,
+        "created_by": "unknown",
+        "delegation_task_id": "610e7b06-13cf-4e6c-ba1e-8bdebc7810fd",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902388.022475
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902388279-212",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788902388.279069,
+        "updated_at": 1788902388.476585,
+        "created_by": "unknown",
+        "delegation_task_id": "4d94d2c1-c4d4-46a0-b69a-5d7706d5f8f6",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902388.4765801
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902388718-213",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788902388.718175,
+        "updated_at": 1788902388.893718,
+        "created_by": "unknown",
+        "delegation_task_id": "fd92ad20-d2bb-41f3-be57-13812f6eb1eb",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902388.893713
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902389162-214",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902389.162673,
+        "updated_at": 1788902389.346772,
+        "created_by": "unknown",
+        "delegation_task_id": "1b14b062-9d15-4318-8eb7-e54ce4670344",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902389.3467672
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902393445-217",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1788902393.445152,
+        "updated_at": 1788902393.632663,
+        "created_by": "unknown",
+        "delegation_task_id": "369a564c-dc9a-4300-ae6f-f62e74b7639e",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902393.632659
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902395085-218",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1788902395.085921,
+        "updated_at": 1788902395.263628,
+        "created_by": "unknown",
+        "delegation_task_id": "81e32d00-bf24-45d6-a0e1-de705d26853c",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902395.263623
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902395586-219",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902395.586279,
+        "updated_at": 1788902395.79165,
+        "created_by": "unknown",
+        "delegation_task_id": "2359efe8-1eb7-41cc-a697-b6124f12e436",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902395.7916448
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902412.795313
+      },
+      {
+        "id": "card-1788902494659-213",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788902494.6598191,
+        "updated_at": 1788902494.795437,
+        "created_by": "unknown",
+        "delegation_task_id": "3ebf1f35-470d-4649-a54b-92329c9e2af8",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902494.7954319
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902495261-214",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902495.261989,
+        "updated_at": 1788902495.392241,
+        "created_by": "unknown",
+        "delegation_task_id": "62700955-4bca-4697-936d-896592f70e36",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902495.392237
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902495575-215",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902495.575309,
+        "updated_at": 1788902495.687713,
+        "created_by": "unknown",
+        "delegation_task_id": "69d3fdd4-1b01-49eb-be57-f34c13366b41",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902495.68771
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902495869-216",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788902495.869716,
+        "updated_at": 1788902495.995203,
+        "created_by": "unknown",
+        "delegation_task_id": "e1538a87-d97d-46d0-a389-dadcd347f3a5",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902495.9952
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902496159-217",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1788902496.159924,
+        "updated_at": 1788902496.331145,
+        "created_by": "unknown",
+        "delegation_task_id": "eb6f27bc-c9fa-4894-bec8-a90f8d915f26",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902496.331142
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902496523-218",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902496.52337,
+        "updated_at": 1788902496.645782,
+        "created_by": "unknown",
+        "delegation_task_id": "e260aacb-41f9-483c-8774-50fe3e30ad67",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902496.645778
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902498442-221",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1788902498.442825,
+        "updated_at": 1788902498.574075,
+        "created_by": "unknown",
+        "delegation_task_id": "d2335031-6078-4213-901d-80b0c9c4ca08",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902498.574071
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902498791-222",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "todo",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1788902498.791383,
+        "updated_at": 1788902498.923201,
+        "created_by": "unknown",
+        "delegation_task_id": "fc7717c9-be33-480d-9155-b41b94d58d9f",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902498.9231958
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      },
+      {
+        "id": "card-1788902499127-223",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1788902499.1270962,
+        "updated_at": 1788902499.24611,
+        "created_by": "unknown",
+        "delegation_task_id": "3e044a8f-7c3a-4e15-b7e7-3e2838376f24",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1788902499.2461061
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1788902512.1707678
+      }
+    ],
+    "created_at": 1788902412.795313
   }
 ]
