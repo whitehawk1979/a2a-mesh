@@ -319,6 +319,10 @@ def analyze_conversation(messages: List[Dict[str, Any]], topic: str = "") -> Lis
     return reflections
 
 
+# Rate-limit cooldown state (module-level, 429/503 aware)
+_deep_reflection_cooldown_until = 0.0
+
+
 async def generate_deep_reflection(
     messages: List[Dict[str, Any]],
     topic: str,
@@ -330,6 +334,10 @@ async def generate_deep_reflection(
     Uses the agent's own model (auto-detected) rather than a hardcoded model.
     Falls back gracefully if no model is available.
     """
+    # Rate-limit cooldown (set on HTTP 429/503): skip LLM call entirely
+    if time.time() < _deep_reflection_cooldown_until:
+        log.debug("🔍 Deep reflection skipped — rate-limit cooldown active")
+        return None
     try:
         # Auto-detect available model from ollama
         if model is None:
@@ -398,6 +406,12 @@ Válaszolj röviden, magyarul, objektíven. Ne ismételd amit mások mondtak."""
                         return text
                 else:
                     log.warning(f"🔍 Deep reflection failed: HTTP {resp.status} from model={model}")
+                    if resp.status in (429, 503):
+                        # Rate-limit/unavailable cooldown: skip deep reflection for 10 min
+                        # (was: retry every cycle → 141x HTTP 429 warnings in one log)
+                        global _deep_reflection_cooldown_until
+                        _deep_reflection_cooldown_until = time.time() + 600
+                        log.info(f"🔍 Deep reflection cooldown 600s (HTTP {resp.status})")
                 return None
 
     except Exception as e:
