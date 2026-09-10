@@ -488,7 +488,7 @@ class SSHTunnelTransport(TransportAdapter):
                             sender=self._node_name,
                             recipient=peer_name,
                             msg_type=MSG_TYPE_HEARTBEAT,
-                            payload={"node_name": self._node_name, "version": getattr(self, '_version', '0.29.0'), "keepalive": True},
+                            payload={"node_name": self._node_name, "version": self._node_version or "unknown", "keepalive": True},
                             priority=10,
                             ttl=60,
                         )
