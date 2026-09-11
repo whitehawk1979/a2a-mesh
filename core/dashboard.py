@@ -1422,7 +1422,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             pass
         agent_names_set.add(self.node.node_name.lower())
 
-        if message.sender.lower() in agent_names_set and msg_type not in ("heartbeat", "ack", "memory_sync", "skills_announcement"):
+        if message.sender.lower() in agent_names_set and msg_type not in ("heartbeat", "ack", "memory_sync", "skills_announcement", "ssh_key_sync", "ssh_key_bundle", "config_suggestion", "peer_offline", "peer_online", "node_join", "node_leave", "diagnostic_report"):
             self._agent_msg_counts[message.sender.lower()] = self._agent_msg_counts.get(message.sender.lower(), 0) + 1
             self._total_agent_msgs += 1
             log.info(f"📊 Directive counter: {message.sender}={self._agent_msg_counts[message.sender.lower()]} total={self._total_agent_msgs}")
