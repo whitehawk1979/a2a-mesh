@@ -1,43 +1,38 @@
-## 2026-08-23 A2A Mesh Status — v0.37.4
+## 2026-09-11 A2A Mesh Status — v0.42.3
 
-Generated: 2026-08-23 07:05 (automated reggeli check)
+Generated: 2026-09-11 07:25 (automated reggeli check)
 
-### Nova (192.168.1.8 — localhost)
-- **Status:** running, router
-- **Version:** v0.37.4
-- **Uptime:** ~25116s (7h)
-- **Transports:** P2P=True, PG=True, HTTP=True, BLE=True, SSH-tunnel=True
-- **P2P TLS:** mTLS + TLSv1.3, tls_verify_peer=true
-- **Peers:** 2/2 connected
-  - morzsa: p2p=✓ pg=✓ http=✓
-  - runa: p2p=✓ pg=✓ http=✓
+### Nova (192.168.1.8 — MacBook, localhost)
+- **Status:** running, router, addr 0x1E54
+- **Version:** v0.42.3-9-gbab8ae1 (git SSOT, main@556bb6c)
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=✅
+- **Messages:** 122 sent / 1348 received, 1 failed ACK (Tor restart körül)
+- **SSH tunnelek:** morzsa, runa, tor(×2 HAOS) — mind él
 
-### Morzsa (192.168.1.30)
-- **Status:** running, router
-- **Version:** v0.37.4
-- **Uptime:** ~24655s (6.8h)
-- **Transports:** P2P=True, PG=True, HTTP=True, SSH-tunnel=True
-- **P2P TLS:** mTLS + TLSv1.3, tls_verify_peer=true
-- **Peers:** 2/2 connected
-  - nova: p2p=✓ pg=✓ http=✓
-  - runa: p2p=✓ pg=✓ http=✓
+### Morzsa (192.168.1.30 — PG primary)
+- **Status:** running, router, addr 0xE984, parent=nova
+- **Version:** v0.42.3-9-gbab8ae1 ✅ sync
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=❌
+- **PG:** 192.168.1.30:5432 active, mesh_node_health mind 5 node fresh
 
 ### Runa (192.168.1.100)
-- **Status:** running, router
-- **Version:** v0.37.4
-- **Uptime:** ~17600s (4.9h)
-- **Transports:** P2P=True, PG=True, HTTP=True, SSH-tunnel=True
-- **P2P TLS:** mTLS + TLSv1.3, tls_verify_peer=true
-- **Peers:** 2/2 connected
-  - nova: p2p=✓ pg=✓ http=✓
-  - morzsa: p2p=✓ pg=✓ http=✓
-- **Gitea:** v1.27.0 on :3001 — nginx proxy deployed (X-Forwarded-Proto fix)
-- **SSH:** Intermittently unreachable — mesh unaffected
+- **Status:** running, router, addr 0x622E
+- **Version:** v0.42.3-9-gbab8ae1 ✅ sync
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=❌
+- **Gitea:** nginx proxy OK, X-Forwarded-Proto beállítva, :3001/:80 egyaránt 200
+- **mesh-llm:** v0.72.1 (AVX build), :9337 él, 1 modell (qwen2.5-3b)
+- **SSH:** zsolt@192.168.1.100 id_ed25519_openclaw kulccsal OK
+
+### Tor + Mano (192.168.1.43 — HAOS)
+- **Tor:** running, root, addr 0x77A9, uptime ~35min (03:33 restart, magából helyreállt), PG=✅ P2P=✅ HTTP=❌
+- **Mano:** running, addr 0x1EAD, uptime ~12.9h, PG=✅ P2P=✅ HTTP=✅, 74 failed ACK (tor restart vihar)
+- **Konténer:** app_0a6523c6_hermes_agent, cli a .venv/bin/python3-val futtatható (host python3 nem!)
 
 ### Mesh-wide
-- **Transport priority:** p2p → pg_notify → http (P2P-first)
-- **TLS P2P:** mTLS + TLSv1.3 on all nodes
-- **mDNS:** zeroconf v0.150.0 installed, UDP listening
-- **Topology tuning:** enabled (auto_apply=false)
-- **Health Scorer:** active on all nodes
-- **DLQ:** 0
+- **Node restart 06:25-06:36:** Hermes Agent auto-update (122 commit) — koordinált, nem hiba
+- **Transport priority:** p2p → ssh_tunnel → pg_notify → http (P2P-first)
+- **TLS P2P:** mTLS + TLSv1.3 minden node-on
+- **mDNS:** discovery/mdns.py aktív (_a2a._tcp), mDNS + static discovery
+- **Topology tuning:** topology_tuner.py + health_scorer.py aktív (enabled, promote 0.9 / demote 0.3)
+- **Cron job-ok:** 17/17 enabled, nova-heartbeat OK (silent=success), update-check: nincs új verzió
+- **DLQ:** 0 pending
