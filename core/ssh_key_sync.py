@@ -34,6 +34,7 @@ _KEY_RE = re.compile(
 
 # Send our key at most once per peer per this interval (avoid loops)
 _RESEND_INTERVAL = 3600.0
+_FORCE_FLOOR_INTERVAL = 120.0  # min. küldési idő force=True (reconnect) esetén is
 
 # v2 protocol: coordinator re-bundles and rebroadcasts when the registry
 # changes, but at most this often (flood protection)
@@ -271,7 +272,9 @@ class SSHKeySync:
     async def send_keys_to(self, peer_name: str, force: bool = False):
         """Advertise our public key(s) to an approved peer (idempotent)."""
         now = time.time()
-        if not force and now - self._last_sent.get(peer_name, 0) < _RESEND_INTERVAL:
+        if now - self._last_sent.get(peer_name, 0) < (_FORCE_FLOOR_INTERVAL if force else _RESEND_INTERVAL):
+            # force-floor: a peer-reconnect (force=True) sem indíthat újabb küldést
+            # 120s-enként — a flappelő HAOS tunnel-ek ne generáljanak ssh_key_sync vihart
             return
         keys = self._read_own_pubkeys()
         if not keys:
