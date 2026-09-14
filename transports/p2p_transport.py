@@ -82,6 +82,12 @@ class P2PTransport(TransportAdapter):
         self._peer_retry_count: Dict[str, int] = {}  # peer_name → consecutive failure count
         self._peer_connected_at: Dict[str, float] = {}  # peer_name → connection start timestamp
         self._peer_latency: Dict[str, float] = {}  # peer_name → estimated RTT in ms (EWMA)
+        # FIX (v0.42.4): same-clock RTT measurement — record wall-clock time when a
+        # message is handed to the P2P writer, keyed by message id. On ACK arrival we
+        # compute RTT from OUR OWN clock (sent_at → now), which is immune to cross-node
+        # clock skew. The old method used the ACKER's clock (payload timestamp), producing
+        # negative "RTT" values (~-40..-160ms) even with NTP-synced nodes.
+        self._pending_ack_ts: Dict[str, float] = {}  # msg_id → sent_at (monotonic-safe wall clock)
         self._peer_last_seen: Dict[str, float] = {}  # peer_name → last message/heartbeat timestamp
         self._peer_batch_size: Dict[str, int] = {}   # peer_name → adaptive WRITE_BATCH_SIZE
         self._peer_drain_time: Dict[str, float] = {} # peer_name → last drain time (seconds)
@@ -511,27 +517,24 @@ class P2PTransport(TransportAdapter):
                         ack_for_id = payload.get("ack_for", "")
                         ack_type = payload.get("ack_type", "delivered")
                         log.debug(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
-                        # Track per-peer latency (EWMA) for adaptive routing
-                        ts = payload.get("timestamp", 0)
-                        if ts and connected_peer_name:
-                            raw_rtt_ms = (time.time() - ts) * 1000
+                        # FIX (v0.42.4): same-clock RTT measurement.
+                        # Prefer _pending_ack_ts (our own clock at send time) — immune to
+                        # cross-node clock skew. Only fall back to the ACK payload timestamp
+                        # (acker's clock) if we have no local record (e.g. message sent by
+                        # another transport or process restart).
+                        if connected_peer_name:
+                            raw_rtt_ms = self._consume_send_ts(ack_for_id)  # -1 if unknown
                             if raw_rtt_ms < 0:
-                                # Throttle clock skew warning to once per peer per hour
-                                now = time.time()
-                                last_warned = getattr(self, '_clock_skew_warned', {}).get(connected_peer_name, 0)
-                                if now - last_warned > 3600:
-                                    log.warning(f"Clock skew detected with {connected_peer_name}: "
-                                                f"raw RTT={raw_rtt_ms:.2f}ms (negative). "
-                                                f"Consider enabling NTP on all nodes.")
-                                    if not hasattr(self, '_clock_skew_warned'):
-                                        self._clock_skew_warned = {}
-                                    self._clock_skew_warned[connected_peer_name] = now
-                            rtt_ms = max(0, raw_rtt_ms)  # Clamp negative (clock skew)
-                            # Use rtt_ms if no valid previous measurement (0 or negative = stale)
-                            old_rtt = self._peer_latency.get(connected_peer_name, 0)
-                            if old_rtt <= 0:
-                                old_rtt = rtt_ms  # First valid measurement or replacing stale negative
-                            self._peer_latency[connected_peer_name] = old_rtt * 0.7 + rtt_ms * 0.3  # EWMA
+                                ts = payload.get("timestamp", 0)
+                                if ts:
+                                    raw_rtt_ms = (time.time() - ts) * 1000
+                            if raw_rtt_ms >= 0:
+                                rtt_ms = max(0.0, raw_rtt_ms)  # clamp residual skew
+                                # Use rtt_ms if no valid previous measurement (0 or negative = stale)
+                                old_rtt = self._peer_latency.get(connected_peer_name, 0)
+                                if old_rtt <= 0:
+                                    old_rtt = rtt_ms  # First valid measurement or replacing stale negative
+                                self._peer_latency[connected_peer_name] = old_rtt * 0.7 + rtt_ms * 0.3  # EWMA
                         if self._ack_callback and ack_for_id:
                             try:
                                 asyncio.create_task(self._ack_callback(ack_for_id, ack_type))
@@ -768,6 +771,31 @@ class P2PTransport(TransportAdapter):
         except Exception as e:
             log.warning(f"Heartbeat send failed to {peer_name}: {e}")
             raise  # Let the caller handle the broken connection
+
+    def _record_send_ts(self, message: A2AMessage):
+        """FIX (v0.42.4): record send timestamp (our clock) for same-clock RTT measurement."""
+        try:
+            msg_id = message.id
+            if not msg_id:
+                return
+            # Cap dict size to prevent unbounded growth (ACKs normally arrive within seconds)
+            if len(self._pending_ack_ts) > 2048:
+                # Drop oldest entries (dict preserves insertion order in py3.7+)
+                for k in list(self._pending_ack_ts.keys())[:1024]:
+                    del self._pending_ack_ts[k]
+            self._pending_ack_ts[msg_id] = time.time()
+        except Exception as e:
+            log.debug(f"record_send_ts failed: {e}")
+
+    def _consume_send_ts(self, msg_id: str) -> float:
+        """FIX (v0.42.4): pop recorded send time, return RTT in ms, or -1 if unknown."""
+        try:
+            sent_at = self._pending_ack_ts.pop(msg_id, None)
+            if sent_at is None:
+                return -1.0
+            return (time.time() - sent_at) * 1000.0
+        except Exception:
+            return -1.0
 
     async def _send_ack(self, original_message: A2AMessage, writer: asyncio.StreamWriter, peer_name: Optional[str]):
         """Send an ACK message back via P2P to the sender."""
@@ -1069,9 +1097,15 @@ class P2PTransport(TransportAdapter):
                     if priority <= 2:
                         # Drain any pending batch first (to maintain order)
                         await self._flush_write_batch(peer_name)
+                        # FIX (v0.42.4): record send time for same-clock RTT (ACKs are priority<=2)
+                        if message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK) and message.recipient != "broadcast":
+                            self._record_send_ts(message)
                         writer.write(frame)
                         await writer.drain()
                     else:
+                        # FIX (v0.42.4): record send time for same-clock RTT (batched path)
+                        if message.recipient != "broadcast":
+                            self._record_send_ts(message)
                         # Add to write batch for this peer
                         if peer_name not in self._write_batch:
                             self._write_batch[peer_name] = []
