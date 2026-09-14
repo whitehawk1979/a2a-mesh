@@ -46,6 +46,7 @@ GITEA_BASE = os.environ.get("A2A_GITEA_URL", "http://192.168.1.100:3001")
 GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "nova/a2a-mesh")
 GITEA_USER = os.environ.get("A2A_GITEA_USER", "zsolt")
 GITEA_PASS = os.environ.get("A2A_GITEA_PASS", "admin1234")
+GITEA_TOKEN = os.environ.get("A2A_GITEA_TOKEN", "")  # token auth wins over BasicAuth
 
 HEALTH_TIMEOUT = 90       # seconds to wait for health check after restart
 DRAIN_TIMEOUT = 60        # seconds to wait for in-flight messages
@@ -93,6 +94,7 @@ class AutoUpdater:
         self._gitea_repo = GITEA_REPO
         self._gitea_user = GITEA_USER
         self._gitea_pass = GITEA_PASS
+        self._gitea_token = GITEA_TOKEN
         if node and hasattr(node, 'config'):
             au_cfg = getattr(node.config, 'auto_update', None)
             if au_cfg:
@@ -150,10 +152,18 @@ class AutoUpdater:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession(
-                auth=aiohttp.BasicAuth(self._gitea_user, self._gitea_pass),
-                timeout=aiohttp.ClientTimeout(total=30),
-            )
+            if self._gitea_token:
+                # Token auth (A2A_GITEA_TOKEN env var) — works even after
+                # password rotation; avoids BasicAuth 401 warning noise.
+                self._http_session = aiohttp.ClientSession(
+                    headers={"Authorization": f"token {self._gitea_token}"},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                )
+            else:
+                self._http_session = aiohttp.ClientSession(
+                    auth=aiohttp.BasicAuth(self._gitea_user, self._gitea_pass),
+                    timeout=aiohttp.ClientTimeout(total=30),
+                )
         return self._http_session
 
     async def close(self):
