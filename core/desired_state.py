@@ -43,19 +43,33 @@ class DesiredNode:
 # Known SSH targets for auto-enroll (expanded as nodes are added)
 # New nodes can also register themselves via API
 SSH_TARGETS = {
-    "Nova": {
+    "nova": {
         "ssh_target": "",  # local
         "restart_cmd": "launchctl stop com.hermes.a2a-mesh-node && launchctl start com.hermes.a2a-mesh-node",
     },
-    "Morzsa": {
+    "morzsa": {
         "ssh_target": "openclaw@192.168.1.30",
         "ssh_key": "~/.ssh/id_ed25519_openclaw",
-        "restart_cmd": "cd ~/a2a_mesh && nohup python3 node.py --node-name Morzsa > /dev/null 2>&1 &",
+        "restart_cmd": "systemctl --user restart a2a-mesh.service",
     },
-    "Runa": {
+    "runa": {
         "ssh_target": "zsolt@192.168.1.100",
         "ssh_key": "~/.ssh/id_ed25519_openclaw",
-        "restart_cmd": "cd ~/a2a_mesh && nohup python3 node.py --node-name Runa > /dev/null 2>&1 &",
+        "restart_cmd": "systemctl --user restart a2a-mesh.service",
+    },
+    # HAOS nodes: embedded sshd on port 2230 (root@192.168.1.43), mesh process
+    # parent is openclaw-gateway — restart via 'cd /config/a2a_mesh && cli.py start'
+    # is NOT safe here (kills parent's child). Track-only until a safe remote
+    # restart path exists.
+    "tor": {
+        "ssh_target": "root@192.168.1.43",
+        "ssh_key": "~/.ssh/id_ed25519_openclaw",
+        "restart_cmd": "",
+    },
+    "mano": {
+        "ssh_target": "root@192.168.1.43",
+        "ssh_key": "~/.ssh/id_ed25519_openclaw",
+        "restart_cmd": "",
     },
 }
 
@@ -92,6 +106,11 @@ async def ensure_initialized():
                     restart_cmd=row["restart_cmd"] or "",
                 )
             log.info(f"Loaded {len(_desired_nodes)} desired nodes from PG")
+            if not _desired_nodes:
+                # Table exists but is empty — seed defaults so reconcile
+                # has nodes to track (otherwise zero desired nodes forever)
+                log.info("desired_nodes table empty — seeding defaults")
+                _seed_defaults()
         except Exception as e:
             # Table doesn't exist yet — seed defaults
             log.info(f"PG load failed ({e}), seeding defaults")
@@ -282,6 +301,10 @@ async def reconcile_desired_state(
 async def _try_restart_node(node: DesiredNode) -> bool:
     """Try to restart a node via SSH (or locally for Nova)."""
     import subprocess
+
+    if not node.restart_cmd:
+        log.info(f"No restart_cmd configured for {node.node_name} — skip (track-only)")
+        return False
 
     if not node.ssh_target:
         # Local restart (Nova)
