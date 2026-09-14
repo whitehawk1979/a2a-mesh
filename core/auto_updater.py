@@ -167,6 +167,19 @@ class AutoUpdater:
         session = await self._get_session()
         try:
             async with session.get(self.gitea_releases_url) as resp:
+                if resp.status in (401, 403):
+                    # Stale credentials — retry anonymous (public repo)
+                    logger.warning(
+                        "Gitea auth failed (HTTP %s) on releases — retrying anonymous",
+                        resp.status,
+                    )
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as anon:
+                        async with anon.get(self.gitea_releases_url) as resp2:
+                            if resp2.status != 200:
+                                return None
+                            return await resp2.json()
                 if resp.status != 200:
                     logger.error(f"Failed to fetch releases: HTTP {resp.status}")
                     return None
@@ -184,10 +197,37 @@ class AutoUpdater:
             return None
 
     async def get_latest_tag(self) -> Optional[str]:
-        """Get the latest git tag from Gitea."""
+        """Get the latest git tag from Gitea.
+
+        Handles stale credentials: if the repo is public, an anonymous
+        retry succeeds where BasicAuth may fail with 401 (e.g. rotated
+        password). Auth attempt first, anonymous fallback on 401/403.
+        """
         session = await self._get_session()
         try:
             async with session.get(f"{self.gitea_tags_url}?limit=20") as resp:
+                if resp.status in (401, 403):
+                    # Stale credentials on a (possibly) public repo — retry anonymous
+                    logger.warning(
+                        "Gitea auth failed (HTTP %s) — retrying anonymous (public repo)",
+                        resp.status,
+                    )
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as anon:
+                        async with anon.get(f"{self.gitea_tags_url}?limit=20") as resp2:
+                            if resp2.status != 200:
+                                return None
+                            tags = await resp2.json()
+                            if not tags:
+                                return None
+                            version_tags = []
+                            for t in tags:
+                                name = t.get("name", "")
+                                if name.startswith("v"):
+                                    version_tags.append(name)
+                            version_tags.sort(key=self._version_key, reverse=True)
+                            return version_tags[0] if version_tags else None
                 if resp.status != 200:
                     return None
                 tags = await resp.json()
