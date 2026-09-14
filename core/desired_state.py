@@ -365,7 +365,7 @@ def get_status() -> Dict:
                 "restart_attempts": d.restart_attempts,
                 "last_restart": d.last_restart,
                 "ssh_target": d.ssh_target or "(local)",
-                "has_restart": bool(d.ssh_target or d.restart_cmd),
+                "has_restart": bool(d.restart_cmd),  # restart only possible with a configured command
             }
             for name, d in _desired_nodes.items()
         },
