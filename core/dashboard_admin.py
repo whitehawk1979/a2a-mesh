@@ -1725,6 +1725,41 @@ class DashboardAdminMixin:
             except Exception as e:
                 log.debug(f"Topology: peer tunnel fetch failed (non-blocking): {e}")
 
+            # ── MCP end devices (agents talking through this node's bridge) ──
+            # Deterministic: reads the shared registry file the MCP bridge writes.
+            try:
+                from core.mcp_registry import list_clients as _mcp_list
+                parent = self.node.node_name
+                for c in _mcp_list(parent_node=parent):
+                    cname = c["name"]
+                    if cname in nodes or cname == parent:
+                        continue
+                    nodes[cname] = {
+                        "name": cname,
+                        "role": "end_device",
+                        "host": "",
+                        "port": 0,
+                        "p2p_port": 0,
+                        "status": "online" if c.get("online") else "disconnected",
+                        "health_score": 1.0 if c.get("online") else 0.0,
+                        "capabilities": [],
+                        "version": "",
+                        "skills": ["mcp_end_device"],
+                        "uptime_seconds": 0,
+                        "last_seen": c.get("last_seen", 0),
+                        "message_count": 0,
+                        "is_mcp_end_device": True,
+                        "transport_parent": parent,
+                    }
+                    connections.append({
+                        "source": parent,
+                        "target": cname,
+                        "transport": "mcp",
+                        "status": "connected" if c.get("online") else "disconnected",
+                    })
+            except Exception as e:
+                log.debug(f"Topology: MCP end-device add failed (non-blocking): {e}")
+
             # ── PG connections (all registered agents not on P2P) ────────
             for name in list(nodes.keys()):
                 if name != self.node.node_name and name not in p2p_peers:

@@ -28,6 +28,12 @@ Thumbs.db
 *.pem
 .env
 
+# Runtime data (MCP client registry, local stores)
+core/data/
+data/
+*.db-wal
+*.db-shm
+
 # Logs
 *.log
 

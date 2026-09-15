@@ -94,6 +94,7 @@
   <div class="item"><div class="dot" style="background:#00d0ff"></div> SSH Tunnel</div>
   <div class="item"><div class="dot" style="background:var(--red)"></div> Offline</div>
   <div class="item"><div class="dot" style="background:var(--accent)"></div> PG Transport</div>
+  <div class="item"><div class="dot" style="background:#bc8cff"></div> MCP End Device</div>
 </div>
 <div id="tuner"></div>
 
@@ -187,13 +188,32 @@ function calcPositions() {
   const localName = topologyData?.local_node || '';
   positions = {};
   positions[localName] = { x: cx, y: cy };
-  const remoteNodes = nodes.filter(n => n.name !== localName);
+  const remoteNodes = nodes.filter(n => n.name !== localName && !n.is_mcp_end_device);
   remoteNodes.forEach((node, i) => {
-    const angle = (2 * Math.PI * i / remoteNodes.length) - Math.PI / 2;
+    const angle = (2 * Math.PI * i / (remoteNodes.length || 1)) - Math.PI / 2;
     positions[node.name] = {
       x: cx + radius * Math.cos(angle),
       y: cy + radius * Math.sin(angle)
     };
+  });
+  // MCP end devices orbit their parent node
+  const endDevices = nodes.filter(n => n.is_mcp_end_device);
+  const byParent = {};
+  endDevices.forEach(ed => {
+    const p = ed.transport_parent || localName;
+    (byParent[p] = byParent[p] || []).push(ed);
+  });
+  Object.keys(byParent).forEach(parent => {
+    const pp = positions[parent];
+    if (!pp) return;
+    const kids = byParent[parent];
+    kids.forEach((ed, i) => {
+      const a = (2 * Math.PI * i / (kids.length || 1)) - Math.PI / 2;
+      positions[ed.name] = {
+        x: pp.x + 70 * Math.cos(a),
+        y: pp.y + 70 * Math.sin(a)
+      };
+    });
   });
 }
 
@@ -201,7 +221,7 @@ function calcPositions() {
 function spawnFlowParticles() {
   connections.forEach(conn => {
     if (conn.status !== 'connected') return;
-    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel') return;
+    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel' && conn.transport !== 'mcp') return;
     if (Math.random() > 0.02) return;  // 2% chance per frame per connection
     const from = positions[conn.source];
     const to = positions[conn.target];
@@ -210,7 +230,7 @@ function spawnFlowParticles() {
       x: from.x, y: from.y,
       dx: to.x - from.x, dy: to.y - from.y,
       progress: 0, speed: 0.02 + Math.random() * 0.02,
-      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : '#238636'
+      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : (conn.transport === 'mcp' ? '#bc8cff' : '#238636')
     });
   });
 }
@@ -277,6 +297,17 @@ function draw() {
       ctx.stroke();
       ctx.setLineDash([]);
       return; // skip straight line
+    } else if (conn.transport === 'mcp') {
+      // Purple dashed orbit line for MCP end devices
+      if (conn.status === 'connected') {
+        ctx.strokeStyle = '#bc8cff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+      } else {
+        ctx.strokeStyle = '#bc8cff44';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 5]);
+      }
     } else {
       ctx.strokeStyle = '#58a6ff44';
       ctx.lineWidth = 1;
@@ -311,14 +342,16 @@ function draw() {
     const isLocal = node.name === localName;
     const isHovered = hoveredNode === node.name;
     const isSelected = selectedNode === node.name;
-    const nodeRadius = isLocal ? 36 : 28;
+    const isEndDevice = !!node.is_mcp_end_device;
+    const nodeRadius = isLocal ? 36 : (isEndDevice ? 20 : 28);
 
     // Status color
     let color = '#8b949e';
     const p2pConns = connections.filter(c => (c.source === node.name || c.target === node.name) && c.transport === 'p2p');
     const p2pConnected = p2pConns.some(c => c.status === 'connected');
     const p2pBackoff = p2pConns.some(c => c.status === 'backoff');
-    if (node.status === 'online' || isLocal || p2pConnected) color = '#238636';
+    if (isEndDevice) color = (node.status === 'online') ? '#bc8cff' : '#f85149';
+    else if (node.status === 'online' || isLocal || p2pConnected) color = '#238636';
     else if (node.status === 'backoff' || p2pBackoff) color = '#d29922';
     else if (node.status === 'disconnected' || node.status === 'offline') color = '#f85149';
 
@@ -529,8 +562,17 @@ function showPanel(nodeName) {
   const pgConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'pg');
   const isLocal = node.name === (topologyData?.local_node || '');
   const healthPct = Math.round((node.health_score || 0) * 100);
+  const isEndDevice = !!node.is_mcp_end_device;
 
   let html = '';
+  if (isEndDevice) {
+    html += `<div style="margin-bottom:8px" ><span class="skill-tag" style="color:#bc8cff;background:#bc8cff22">🔌 MCP End Device</span></div>`;
+    html += `<div class="row"><span class="label">Parent node:</span><span class="value">${node.transport_parent || '?'}</span></div>`;
+    html += `<div class="row"><span class="label">Transport:</span><span class="value" style="color:#bc8cff">MCP Streamable HTTP</span></div>`;
+    html += `<div class="row"><span class="label">Utolsó láttás:</span><span class="value">${node.last_seen ? fmtRelative(node.last_seen) : '—'}</span></div>`;
+  } else {
+  // Continue with standard fields for mesh nodes
+  html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
   html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
   html += `<div class="row"><span class="label">Szerep:</span><span class="value">${node.role || 'router'}</span></div>`;
   html += `<div class="row"><span class="label">Verzió:</span><span class="value">v${node.version || '?'}</span></div>`;
@@ -560,6 +602,7 @@ function showPanel(nodeName) {
     html += `<div class="skills">${node.capabilities.map(c => `<span class="skill-tag" style="color:var(--accent);background:#58a6ff22">${c}</span>`).join('')}</div>`;
   }
 
+  }
   // Delegation tasks
   if (delegationTasks.length > 0) {
     html += `<div style="margin-top:10px;color:var(--text2);font-size:11px;font-weight:600">Feladatok (${delegationTasks.length})</div>`;
@@ -581,6 +624,17 @@ function showPanel(nodeName) {
 function closePanel() {
   document.getElementById('side-panel').classList.remove('active');
   selectedNode = null;
+}
+
+function fmtRelative(ts) {
+  if (!ts) return '—';
+  var d = new Date((typeof ts === 'number' && ts < 1e12) ? ts * 1000 : ts);
+  if (isNaN(d)) return String(ts);
+  var diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return 'most';
+  if (diff < 3600) return Math.floor(diff / 60) + ' perce';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' órája';
+  return Math.floor(diff / 86400) + ' napja';
 }
 
 function formatUptime(seconds) {

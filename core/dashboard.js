@@ -4009,6 +4009,7 @@ function loadMarveenPage(page) {
         });
       }
       // Extra sections loaded via JS
+      html += '<div id="network-mcp-section" style="margin-top:16px;"></div>';
       html += '<div id="network-watchdog-section" style="margin-top:16px;"></div>';
       html += '<div id="network-desired-section" style="margin-top:16px;"></div>';
       html += '<div id="network-channel-section" style="margin-top:16px;"></div>';
@@ -6980,8 +6981,49 @@ window._loadProjectsExtras = function() {
   });
 };
 
-// Network: watchdog + desired-state + channel-health
+// Network: MCP end-devices list + watchdog + desired-state + channel-health
+window._loadMCPNetwork = function() {
+  var box = document.getElementById('network-mcp-section');
+  if (!box) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/mesh/topology', {headers: {'Authorization': 'Bearer ' + token}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var nodes = (d && d.nodes) || [];
+      var mcpEnds = nodes.filter(function(n) { return n.is_mcp_end_device; });
+      var html = '<h3 style="margin:0 0 8px;font-size:13px;color:#bc8cff;">🔌 MCP End Device-ek (' + mcpEnds.length + ')</h3>';
+      if (!mcpEnds.length) {
+        html += '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;color:var(--text3);text-align:center;">Nincs MCP-n csatlakozó agent</div>';
+        box.innerHTML = html;
+        return;
+      }
+      mcpEnds.forEach(function(n) {
+        var st = n.status || 'idle';
+        var stColor = st === 'online' ? 'var(--success)' : st === 'idle' ? 'var(--warning)' : 'var(--text3)';
+        var age = n.last_seen ? fmtAgo(n.last_seen) : '—';
+        html += '<div style="background:var(--surface);border:1px solid #bc8cff44;border-radius:8px;padding:10px;margin-bottom:6px;">';
+        html += '<div style="display:flex;align-items:center;gap:8px;"><span style="font-size:14px;">🔌</span><strong style="font-size:12px;flex:1;">' + esc(n.name) + '</strong><span style="width:8px;height:8px;border-radius:50%;background:' + stColor + ';"></span><span style="font-size:10px;color:var(--text3);">' + esc(st) + '</span></div>';
+        html += '<div style="font-size:10px;color:var(--text3);margin-top:4px;">Parent: <strong>' + esc(n.transport_parent || '?') + '</strong> • Transport: MCP • Utolsó: ' + age + '</div>';
+        html += '</div>';
+      });
+      box.innerHTML = html;
+    })
+    .catch(function() { box.innerHTML = ''; });
+};
+
+function fmtAgo(ts) {
+  if (!ts) return '—';
+  var d = new Date((typeof ts === 'number' && ts < 1e12) ? ts * 1000 : ts);
+  if (isNaN(d)) return String(ts);
+  var diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return 'most';
+  if (diff < 3600) return Math.floor(diff / 60) + ' perce';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' órája';
+  return Math.floor(diff / 86400) + ' napja';
+}
+
 window._loadNetworkExtras = function() {
+  window._loadMCPNetwork();
   window._fetchSection('/api/watchdog/status', 'network-watchdog-section', function(d) {
     var nodes = d.monitored_nodes || [];
     var th = d.thresholds || {};
