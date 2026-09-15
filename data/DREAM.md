@@ -1,4 +1,4 @@
-# 🌙 Dream Engine — 2026-09-14T09:17:08.073372+00:00
+# 🌙 Dream Engine — 2026-09-15T03:21:08.408655+00:00
 **Node:** nova
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -34,8 +34,8 @@ Archiválható (done >7nap): 0
   - code_generation (nova)
   - translation (nova)
   - mesh_send (mano)
-  - notification_notification (runa)
-  - notification_escalation (runa)
+  - data_analysis (runa)
+  - mesh_health (mano)
 
 ## 💰 Bucket 7 — Költség
 
