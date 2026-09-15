@@ -127,7 +127,7 @@ try:
         print(f"  ID: {result.get('id')}")
         print(f"  Name: {result.get('name')}")
         print(f"  Tag: {result.get('tag_name')}")
-        print(f"  URL: {GITEA_URL}/nova/a2a-mesh/releases/tag/v0.38.0")
+        print(f"  URL: {GITEA_URL}/zsolt/a2a-mesh/releases/tag/v0.38.0")
 except Exception as e:
     print(f"❌ Error: {e}")
     if hasattr(e, 'read'):

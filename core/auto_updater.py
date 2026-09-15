@@ -43,7 +43,7 @@ logger = logging.getLogger("a2a.mesh.updater")
 # ─── Constants ───
 
 GITEA_BASE = os.environ.get("A2A_GITEA_URL", "http://192.168.1.100:3001")
-GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "nova/a2a-mesh")
+GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "zsolt/a2a-mesh")
 GITEA_USER = os.environ.get("A2A_GITEA_USER", "zsolt")
 GITEA_PASS = os.environ.get("A2A_GITEA_PASS", "admin1234")
 GITEA_TOKEN = os.environ.get("A2A_GITEA_TOKEN", "")  # token auth wins over BasicAuth

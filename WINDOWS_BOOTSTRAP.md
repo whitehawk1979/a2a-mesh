@@ -14,7 +14,7 @@ winget install Python.Python.3.12
 ### 2. Git clone
 ```powershell
 cd C:\
-git clone http://192.168.1.100:3001/nova/a2a-mesh.git
+git clone http://192.168.1.100:3001/zsolt/a2a-mesh.git
 cd a2a-mesh
 ```
 

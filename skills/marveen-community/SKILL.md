@@ -124,7 +124,7 @@ A marveen.io tartalma az A2A Mesh fejlesztésének **tudásforrása** — a posz
 3. **Posztok elolvasása** — poszt-linkre navigálás, `innerText` kinyerés, "Tovább" gombbal a teljes szöveg
 4. **Tudás → mesh-funkció**: ha egy poszt konkrét feature/technika:
    - Kerüljön a `mesh.mesh_suggestions` PG-táblába `SUGGESTION: <cím> | <leírás> | <prioritás>` formában (wake-agent válaszban) — a coordinator (Nova) feldolgozza
-   - vagy feature-request issue a Gitea `nova/a2a-mesh` repo-ba
+   - vagy feature-request issue a Gitea `zsolt/a2a-mesh` repo-ba
 5. **Biztonsági figyelmeztetés** (a közösség kitűzött posztjából): *"mielőtt bármit telepítetek vagy alkalmaznátok az itt olvasottak közül, kérjétek ki fő ügynökötök véleményét róla biztonság és alkalmazhatóság szempontjából"* — minden ötlet előtt security-review a mesh-építésnél is.
 
 ### Kontextus (2026-09-01)
