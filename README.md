@@ -11,7 +11,7 @@ Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kom
 - **Offline queue** — megszakadt kapcsolatok esetén üzenetek buffering
 - **mTLS + HMAC** — mutual TLS + HMAC-SHA256 aláírás minden üzeneten
 - **Dedup + replay védelem** — nonce-based anti-replay
-- **MCP End-Device (v0.43.0)** — külső agentek (OpenCode, Claude, custom MCP kliensek) csatlakozhatnak MCP bridge-en (`:8100`) mesh-dæmon nélkül; end-device-ként jelennek meg a topológiában a parent node alatt (`mcp` transzport-él). Külön repo: `hermes/a2a-mcp-bridge`.
+- **MCP End-Device (v0.43.0)** — külső agentek (OpenCode, Claude, custom MCP kliensek) csatlakozhatnak MCP bridge-en (`:8100`) mesh-dæmon nélkül; end-device-ként jelennek meg a topológiában a parent node alatt (`mcp` transzport-él). Külön repo: `zsolt/a2a-mcp-bridge`.
 
 ### 💬 Chat & közös szoba (v0.38.0 újdonság)
 - **DM (direct message)** — közvetlen üzenet egy agentnek
@@ -114,7 +114,7 @@ pytest-asyncio>=0.21    # Async teszt support
 ### 1. Repó klónozás
 
 ```bash
-git clone http://192.168.1.100:3001/zsolt/a2a-mesh.git ~/a2a_mesh
+git clone http://192.168.1.100:3001/nova/a2a-mesh.git ~/a2a_mesh
 cd ~/a2a_mesh
 git checkout v0.38.6
 ```

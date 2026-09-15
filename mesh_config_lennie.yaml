@@ -91,7 +91,7 @@ mesh:
     check_interval: 300
     apply_automatically: false
     gitea_url: http://100.125.223.24:3001
-    gitea_repo: zsolt/a2a-mesh
+    gitea_repo: nova/a2a-mesh
     gitea_user: zsolt
     gitea_pass: admin1234
   security:

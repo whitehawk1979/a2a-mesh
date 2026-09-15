@@ -8,7 +8,7 @@
 ## 1. Repo klónozása
 ```cmd
 cd %USERPROFILE%
-git clone http://192.168.1.100:3001/zsolt/a2a-mesh.git a2a_mesh
+git clone http://192.168.1.100:3001/nova/a2a-mesh.git a2a_mesh
 cd a2a_mesh
 git checkout v0.18.23
 ```

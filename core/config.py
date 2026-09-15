@@ -194,7 +194,7 @@ class AutoUpdateConfig:
     check_interval: int = 300          # seconds between checks
     apply_automatically: bool = False  # auto-apply or just notify
     gitea_url: str = "http://192.168.1.100:3001"
-    gitea_repo: str = "zsolt/a2a-mesh"
+    gitea_repo: str = "nova/a2a-mesh"
     gitea_user: str = "zsolt"
     gitea_pass: str = "admin1234"
 
@@ -634,7 +634,7 @@ class MeshConfig:
                 check_interval=au_data.get('check_interval', 300),
                 apply_automatically=au_data.get('apply_automatically', False),
                 gitea_url=au_data.get('gitea_url', os.environ.get('A2A_GITEA_URL', 'http://192.168.1.100:3001')),
-                gitea_repo=au_data.get('gitea_repo', 'zsolt/a2a-mesh'),
+                gitea_repo=au_data.get('gitea_repo', 'nova/a2a-mesh'),
                 gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'zsolt')),
                 gitea_pass=au_data.get('gitea_pass', os.environ.get('A2A_GITEA_PASS', 'admin1234')),
             )

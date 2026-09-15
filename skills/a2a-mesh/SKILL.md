@@ -1653,7 +1653,7 @@ Flutter app: /Users/zsolt/development/a2a_mesh_app (14 files, ~3500 lines Dart)
 - HTTPService: REST API + WebSocket + auth (login/register/logout/Bearer token)
 - MeshProvider: ChangeNotifier state management, auth state, agent polling via HTTP `/api/agents`
 - Settings screen (mesh node URL, BLE config, UUID info)
-- Gitea repo: zsolt/a2a-mesh-app
+- Gitea repo: nova/a2a-mesh-app
 - Android build requires: full v2 embedding in android/, Java JDK (temurin), Android SDK (ANDROID_HOME set), platform-tools/build-tools/platforms installed via sdkmanager
 
 PG Integration:
