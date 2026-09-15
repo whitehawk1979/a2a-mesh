@@ -1093,14 +1093,24 @@ class DashboardAdminMixin:
         p2p = getattr(self.node, '_p2p_transport', None)
         if not p2p:
             return web.json_response({"error": "P2P transport not available"}, status=503)
+        peers = list(getattr(p2p, '_peers', {}).keys())
         status = {
             "running": getattr(p2p, '_running', False),
             "listen_port": getattr(p2p, '_listen_port', 8645),
             "tls_enabled": True,  # mTLS is always on
-            "peers": list(getattr(p2p, '_peers', {}).keys()),
-            "peer_count": len(getattr(p2p, '_peers', {})),
+            "peers": peers,
+            "peer_count": len(peers),
             "backoff_peers": [],  # Backoff is handled per-peer in connect logic
             "incoming_queue": getattr(p2p, '_incoming_queue', None).qsize() if hasattr(p2p, '_incoming_queue') and p2p._incoming_queue else 0,
+            "peer_stats": {
+                name: {
+                    "batch_size": getattr(p2p, '_peer_batch_size', {}).get(name),
+                    "drain_time_ms": round(getattr(p2p, '_peer_drain_time', {}).get(name, 0) * 1000, 1),
+                    "rtt_ms": round(getattr(p2p, '_peer_latency', {}).get(name, 0), 1),
+                    "frame_version": getattr(p2p, '_frame_version', {}).get(name, 1),
+                }
+                for name in peers
+            },
         }
         return web.json_response(status)
 
