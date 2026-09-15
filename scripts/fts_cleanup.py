@@ -57,11 +57,28 @@ for (t,) in cur.execute(
 
 # 3. Drop the legacy vtable FIRST — shadow tables must still exist for the
 #    FTS5 constructor to succeed. DROP vtable auto-removes its shadow tables.
+#    FALLBACK: if the vtable is already corrupt (constructor fails even with
+#    intact shadows — observed on Runa 2026-09-15), do sqlite_master surgery
+#    via writable_schema: delete the vtable + shadow rows directly, then let
+#    VACUUM rebuild the file without them. Standard fts5 recovery technique.
+#    A full .db backup MUST exist before this path (see header).
 try:
     cur.execute("DROP TABLE IF EXISTS messages_fts")
     print("Dropped vtable: messages_fts")
-except sqlite3.OperationalError as e:
-    print(f"vtable drop failed (already gone or busy): {e}")
+except sqlite3.DatabaseError as e:
+    print(f"vtable drop failed ({e}) -> writable_schema surgery")
+    cur.execute("PRAGMA writable_schema=ON")
+    rows = cur.execute(
+        "SELECT type, name FROM sqlite_master WHERE name LIKE 'messages_fts%' "
+        "AND name NOT LIKE 'messages_fts_trigram%'"
+    ).fetchall()
+    for obj_type, name in rows:
+        cur.execute("DELETE FROM sqlite_master WHERE type=? AND name=?", (obj_type, name))
+        print(f"sqlite_master surgery: removed {obj_type} {name}")
+    cur.execute("PRAGMA writable_schema=OFF")
+    cur.execute("PRAGMA integrity_check(1)")
+    ic = cur.fetchone()
+    print(f"integrity_check: {ic[0] if ic else '?'}")
 
 # 4. Drop any leftover legacy shadow tables + views (non-trigram),
 #    keep messages_fts_trigram* intact — actively used by hermes_state_search.
