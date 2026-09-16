@@ -26,6 +26,11 @@ ACT_PCT = 0.80      # Suggest handoff at 80% context
 HARD_PCT = 0.95     # Force action at 95%
 MAX_TURNS_DEFAULT = 80  # Default max turns before context guard triggers
 
+# Cooldown cache to prevent repeated handoff generation
+# { agent_name: last_timestamp }
+HANDOFF_COOLDOWN_CACHE = {}
+HANDOFF_COOLDOWN_SEC = 30 * 60
+
 
 def check_agent_context(agent_name, turns_used, max_turns=None):
     """Check if an agent is approaching context limits.
@@ -101,6 +106,49 @@ async def context_guard_tick(pg_pool, node_name="unknown"):
                 if check["action"] != "none":
                     log.warning(f"Context Guard: {check['message']}")
                     results.append(check)
+
+                    # --- FEATURE A: Automatic Handoff ---
+                    if check["pct"] >= ACT_PCT:
+                        now = time.time()
+                        last_handoff = HANDOFF_COOLDOWN_CACHE.get(agent, 0)
+                        if now - last_handoff < HANDOFF_COOLDOWN_SEC:
+                            continue
+                            
+                        # Simulation of GateInputs for handoff preparation
+                        # We allow prep even if busy, as the handoff is for the NEXT session
+                        inputs = GateInputs(
+                            turns_used=active * 10,
+                            is_busy=False, 
+                            has_pending_outbound=False,
+                            has_open_question=False,
+                            has_live_task_state=False,
+                            has_stale_outbound=False,
+                            hard_guard_active=False
+                        )
+                        
+                        decision = decide_gate(inputs)
+                        if decision.action == GateAction.ALLOW:
+                            # Deterministic summary from active tasks
+                            task_rows = await conn.fetch(
+                                "SELECT subject, progress FROM shared_delegations \n                                  WHERE assigned_agent = $1 AND status IN ('pending', 'running')",
+                                agent
+                            )
+                            summary_lines = [f"- {tr['subject']} ({tr['progress']}%)" for tr in task_rows]
+                            context_summary = "\n".join(summary_lines) if summary_lines else "No active tasks summary available."
+                            current_task = task_rows[0]['subject'] if task_rows else "None"
+                            
+                            prompt = generate_handoff_prompt(agent, current_task, context_summary)
+                            epoch = int(now)
+                            key = f"handoff_{agent}_{epoch}"
+                            
+                            # Store as shared context entry
+                            await conn.execute(
+                                "INSERT INTO shared_context (agent, context_key, context_value, value_type, expires_at) \n                                 VALUES ($1, $2, $3, 'text', NOW() + INTERVAL '1 hour')",
+                                agent, key, prompt
+                            )
+                            
+                            HANDOFF_COOLDOWN_CACHE[agent] = now
+                            log.info(f"[Context Guard] Automatic handoff generated for {agent} -> {key} (pct={check['pct']:.2%})")
     except Exception as e:
         log.debug(f"Context guard tick error: {e}")
     return results

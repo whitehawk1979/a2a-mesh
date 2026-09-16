@@ -2077,7 +2077,7 @@ window.attachCommandAutocomplete(document.getElementById("messageInput"));
   }
 })();
 
-function loadMarveenPage(page) {
+function loadMarveenPage(page, params = '') {
   var titleMap = {
     'overview': '📊 Áttekintés',
     'kanban': '📋 Kanban Táblák',
@@ -2119,6 +2119,7 @@ function loadMarveenPage(page) {
     'nodes': '🌐 Node-ok',
     'ideas': '💡 Ötletlád',
     'labels': '🏷️ Címkék',
+    'shared-context': '📎 Shared Context',
     'files': '📁 Fájlok',
     'workflow': '⚙️ Workflow',
     'chat': '💬 Chat'
@@ -2165,6 +2166,7 @@ function loadMarveenPage(page) {
     'nodes': '/api/nodes',
     'ideas': '/api/ideas',
     'labels': '/api/labels',
+    'shared-context': '/api/context',
     'files': '/api/files',
     'workflow': '/api/workflows',
     'chat': '/api/chat/contacts'
@@ -3921,6 +3923,41 @@ function loadMarveenPage(page) {
       html += '</div>';      // Context CRUD
       html += '<div style="margin-top:16px;display:flex;gap:8px;"><button onclick="showContextAddModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Context set</button></div>';
 
+      return html;
+    },
+    'shared-context': function(d) {
+      if (d.error) return errorBox(d.error);
+      var entries = d.entries || (Array.isArray(d) ? d : []);
+      var html = '<div style="padding:16px;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;">';
+      html += '  <div style="display:flex;gap:8px;flex:1;max-width:400px;">';
+      html += '    <input id="ctxPrefix" type="text" placeholder="Szűrés prefix alapján..." style="flex:1;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;">';
+      html += '    <button onclick="refreshSharedContext()" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:13px;">🔄 Frissítés</button>';
+      html += '  </div>';
+      html += '  <button onclick="showSharedContextModal()" style="background:var(--primary);color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;">➕ Új bejegyzés</button>';
+      html += '</div>';
+      if (!entries.length) {
+        html += empty('Nincs található Shared Context bejegyzés');
+      } else {
+        var rows = entries.map(function(e) {
+          var val = String(e.value || '');
+          var truncatedVal = val.length > 50 ? val.substring(0, 47) + '...' : val;
+          var keyEsc = esc(e.key);
+          return [
+            '<strong>' + keyEsc + '</strong>',
+            '<div title="' + esc(val) + '" style="word-break:break-all;max-width:300px;">' + esc(truncatedVal) + '</div>',
+            badge(e.value_type || 'text', e.value_type === 'json' ? 'var(--warning)' : 'var(--primary)'),
+            esc(e.agent || '—'),
+            fmtTime(e.updated_at),
+            '<div style="display:flex;gap:6px;">' +
+            '<button onclick="showSharedContextModal(' + JSON.stringify(e).replace(/'/g, "&apos;") + ')" style="background:none;border:1px solid var(--border);color:var(--text2);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Kezelés</button>' +
+            '<button onclick="deleteSharedContext(\'' + keyEsc + '\')" style="background:none;border:1px solid var(--danger);color:var(--danger);padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px;">Törlés</button>' +
+            '</div>'
+          ];
+        });
+        html += table(['Kulcs', 'Érték', 'Típus', 'Agent', 'Frissítve', 'Műveletek'], rows);
+      }
+      html += '</div>';
       return html;
     },
     'insights-conversations-log': function(d) {
@@ -10238,3 +10275,48 @@ function renderReflections() {
 function exportReflections() {
   window.open("/api/reflections/export?token=" + encodeURIComponent(localStorage.getItem("mesh_token") || ""), "_blank");
 }
+
+window.refreshSharedContext = function() {
+  var prefix = document.getElementById('ctxPrefix') ? document.getElementById('ctxPrefix').value : '';
+  loadMarveenPage('shared-context', 'prefix=' + encodeURIComponent(prefix));
+};
+
+window.showSharedContextModal = function(entry) {
+  var isEdit = !!entry;
+  var key = isEdit ? entry.key : prompt('Kulcs:');
+  if (!key) return;
+  
+  var value = isEdit ? prompt('Érték:', entry.value) : prompt('Érték:');
+  if (value === null) return;
+  
+  var type = isEdit ? prompt('Típus (text/json):', entry.value_type || 'text') : prompt('Típus (text/json):', 'text');
+  if (!type) type = 'text';
+  
+  var expires = isEdit ? prompt('Lejárás (perc, 0=soha):', entry.expires || '0') : prompt('Lejárás (perc, 0=soha):', '0');
+  if (!expires) expires = '0';
+
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/context', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify({ key: key, value: value, value_type: type, expires: parseInt(expires, 10) })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) { 
+    if (d.error) { alert('Hiba: ' + d.error); } 
+    else { alert('Mentve'); loadMarveenPage('shared-context'); } 
+  })
+  .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.deleteSharedContext = function(key) {
+  if (!key || !confirm('Biztosan törlöd a ' + key + ' bejegyzést?')) return;
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  fetch('/api/context/' + encodeURIComponent(key), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token } })
+  .then(function(r) { return r.json(); })
+  .then(function(d) { 
+    if (d.error) { alert('Hiba: ' + d.error); } 
+    else { alert('Törölve'); loadMarveenPage('shared-context'); } 
+  })
+  .catch(function(e) { alert('Hiba: ' + e.message); });
+};

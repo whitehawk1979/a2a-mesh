@@ -1279,6 +1279,22 @@ class DelegationManager:
         task_type = desc.get("type", "generic")
         context = desc.get("context", {})
 
+        # --- FEATURE C: Explicit Context Attachment ---
+        shared_keys = context.get("attach_shared")
+        if isinstance(shared_keys, list):
+            attachments = {}
+            for key in shared_keys:
+                try:
+                    val = await self.get_context(key)
+                    if val is not None:
+                        attachments[key] = val
+                except Exception as e:
+                    log.debug(f"Failed to attach shared context {key}: {e}")
+            if attachments:
+                context = dict(context)
+                context["shared_attachments"] = attachments
+                log.info(f"Attached {len(attachments)} shared context items to task {task_id[:8]}")
+
         log.info(f"Executing task {task_id} of type {task_type}: {subject}")
 
         # Inject prior memory context for this subject
