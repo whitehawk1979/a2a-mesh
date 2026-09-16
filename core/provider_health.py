@@ -118,11 +118,13 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
         ok, latency = _check_http(check_url)
         primary_status = {"status": "ok" if ok else "fail", "model": primary_model, "latency_ms": latency}
 
-    # Check fallback (mesh-llm)
+    # Check fallback (mesh-llm) — longer timeout: the mesh-llm MoA router can
+    # block /models for several seconds while an inference is in flight;
+    # the old 3.0s default caused frequent false "fail" during MoA load.
     fallback_status = {"status": "unknown", "model": fallback_model, "latency_ms": 0}
     if fallback_url:
         check_url = fallback_url.rstrip("/") + "/models"
-        ok, latency = _check_http(check_url)
+        ok, latency = _check_http(check_url, timeout=8.0)
         fallback_status = {"status": "ok" if ok else "fail", "model": fallback_model, "latency_ms": latency}
 
     result = {
