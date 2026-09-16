@@ -46,8 +46,12 @@ def resolve_local_model_info():
     """
     info = {"model": "unknown", "context_length": None, "max_turns": None}
     home = os.path.expanduser("~")
-    db_path = os.path.join(home, ".hermes/state.db")
-    cfg_path = os.path.join(home, ".hermes/config.yaml")
+    # HAOS/container nodes keep Hermes config under /config/.hermes instead of ~/.hermes
+    hermes_home = os.environ.get("HERMES_HOME") or os.path.join(home, ".hermes")
+    if not os.path.isdir(hermes_home) and os.path.isdir("/config/.hermes"):
+        hermes_home = "/config/.hermes"
+    db_path = os.path.join(hermes_home, "state.db")
+    cfg_path = os.path.join(hermes_home, "config.yaml")
 
     # 1. Try to get the last used model from state.db
     if os.path.exists(db_path):
