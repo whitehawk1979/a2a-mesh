@@ -106,7 +106,7 @@ async def resolve_node_profile(node_name: str, node=None, pg_pool=None) -> Dict[
             return {**defaults, **node.config.context_gate.node_profiles[node_name]}
 
     # Local node detection
-    if node and node.name == node_name:
+    if node and getattr(node, "node_name", None) == node_name:
         local_info = resolve_local_model_info()
         # Merge local_info into defaults
         resolved = {**defaults}

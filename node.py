@@ -4354,6 +4354,17 @@ echo "Status: ok"
         except Exception as e:
             log.error(f"Provider health check (PG) failed: {e}", exc_info=True)
 
+        # Augment provider_status with this node's own live model profile so the
+        # context gate can read per-node context_length/max_turns/model dynamically.
+        if isinstance(provider_status, dict):
+            try:
+                from core.context_gate import resolve_local_model_info
+                local = await asyncio.to_thread(resolve_local_model_info)
+                if isinstance(local, dict) and local.get("model", "unknown") != "unknown":
+                    provider_status["model"] = local
+            except Exception as _mpe:
+                log.debug(f"Local model profile augment failed: {_mpe}")
+
         try:
             await self._pg_pool.execute("""
                 UPDATE mesh.mesh_nodes SET 
