@@ -3890,7 +3890,11 @@ function loadMarveenPage(page) {
         html += '<span style="font-size:14px;">' + icon + '</span>';
         html += '<strong style="font-size:14px;">' + esc(a.agent) + '</strong>';
         html += '</div>';
-        html += '<div style="font-size:12px;color:var(--text2);">' + (a.est_tokens || 0) + ' tokens</div>';
+        html += '<div style="text-align:right;"><div style="font-size:12px;color:var(--text2);">' + (a.est_tokens || 0) + ' tokens</div>';
+        if (a.model && a.model !== 'unknown') {
+          html += '<div style="font-size:10px;color:var(--text3);word-break:break-word;max-width:220px;margin-top:2px;">🛠️ ' + esc(a.model) + '</div>';
+        }
+        html += '</div>';
         html += '</div>';
 
         // Progress bar
