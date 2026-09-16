@@ -525,11 +525,17 @@ class P2PTransport(TransportAdapter):
                         if connected_peer_name:
                             raw_rtt_ms = self._consume_send_ts(ack_for_id)  # -1 if unknown
                             if raw_rtt_ms < 0:
+                                # Fallback: ACKER órája — cross-node clock skew miatt NEM
+                                # megbízható (0.4–1.5s skew mért élesben). Csak akkor
+                                # használjuk, ha nincs érvényes mérésünk, és plausibility
+                                # bound-al korlátozzuk (max 250ms LAN RTT).
                                 ts = payload.get("timestamp", 0)
                                 if ts:
                                     raw_rtt_ms = (time.time() - ts) * 1000
+                                    if raw_rtt_ms > 250.0:
+                                        raw_rtt_ms = -1.0  # skew artifact — discard sample
                             if raw_rtt_ms >= 0:
-                                rtt_ms = max(0.0, raw_rtt_ms)  # clamp residual skew
+                                rtt_ms = max(0.0, raw_rtt_ms)
                                 # Use rtt_ms if no valid previous measurement (0 or negative = stale)
                                 old_rtt = self._peer_latency.get(connected_peer_name, 0)
                                 if old_rtt <= 0:
@@ -772,28 +778,47 @@ class P2PTransport(TransportAdapter):
             log.warning(f"Heartbeat send failed to {peer_name}: {e}")
             raise  # Let the caller handle the broken connection
 
+    # FIX (v0.43.2): TTL for send_ts entries — broadcast msgs get multiple ACKs,
+    # so entries are peeked (not popped) and pruned by age instead.
+    ACK_TS_TTL = 60.0  # seconds — ACKs arriving later than this are treated as unknown
+
     def _record_send_ts(self, message: A2AMessage):
         """FIX (v0.42.4): record send timestamp (our clock) for same-clock RTT measurement."""
         try:
             msg_id = message.id
             if not msg_id:
                 return
-            # Cap dict size to prevent unbounded growth (ACKs normally arrive within seconds)
+            now = time.time()
+            # FIX (v0.43.2): prune expired entries by age (peek-based consumption needs this)
             if len(self._pending_ack_ts) > 2048:
-                # Drop oldest entries (dict preserves insertion order in py3.7+)
-                for k in list(self._pending_ack_ts.keys())[:1024]:
+                expired = [k for k, v in self._pending_ack_ts.items() if now - v > self.ACK_TS_TTL]
+                for k in expired:
                     del self._pending_ack_ts[k]
-            self._pending_ack_ts[msg_id] = time.time()
+                # Still over cap after pruning? Drop oldest entries (dict preserves insertion order)
+                if len(self._pending_ack_ts) > 2048:
+                    for k in list(self._pending_ack_ts.keys())[:1024]:
+                        del self._pending_ack_ts[k]
+            self._pending_ack_ts[msg_id] = now
         except Exception as e:
             log.debug(f"record_send_ts failed: {e}")
 
     def _consume_send_ts(self, msg_id: str) -> float:
-        """FIX (v0.42.4): pop recorded send time, return RTT in ms, or -1 if unknown."""
+        """FIX (v0.43.2): PEEK recorded send time, return RTT in ms, or -1 if unknown.
+
+        Peek (not pop): broadcast messages receive one ACK per peer with the same
+        msg_id — every ACK must be able to measure RTT from the original send time.
+        Entries expire via ACK_TS_TTL pruning in _record_send_ts.
+        """
         try:
-            sent_at = self._pending_ack_ts.pop(msg_id, None)
+            if not msg_id:
+                return -1.0
+            sent_at = self._pending_ack_ts.get(msg_id)
             if sent_at is None:
                 return -1.0
-            return (time.time() - sent_at) * 1000.0
+            rtt = (time.time() - sent_at) * 1000.0
+            if rtt < 0:
+                return -1.0
+            return rtt
         except Exception:
             return -1.0
 
@@ -1098,14 +1123,17 @@ class P2PTransport(TransportAdapter):
                         # Drain any pending batch first (to maintain order)
                         await self._flush_write_batch(peer_name)
                         # FIX (v0.42.4): record send time for same-clock RTT (ACKs are priority<=2)
-                        if message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK) and message.recipient != "broadcast":
+                        # FIX (v0.43.2): broadcast üzeneteket is rögzítsünk — a peerek
+                        # broadcast-okat is ACK-olnak; ha nincs local send_ts, a fallback
+                        # óra-skew ág torz RTT-t mér (acker órája vs. saját óra).
+                        # Heartbeat/ACK maga nem kerül ACK-ra, azokat kihagyjuk.
+                        if message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
                             self._record_send_ts(message)
                         writer.write(frame)
                         await writer.drain()
                     else:
-                        # FIX (v0.42.4): record send time for same-clock RTT (batched path)
-                        if message.recipient != "broadcast":
-                            self._record_send_ts(message)
+                        # FIX (v0.43.2): batched path — broadcast is rögzít (lásd priority<=2 ág)
+                        self._record_send_ts(message)
                         # Add to write batch for this peer
                         if peer_name not in self._write_batch:
                             self._write_batch[peer_name] = []

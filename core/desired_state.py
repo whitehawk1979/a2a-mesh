@@ -91,6 +91,24 @@ async def ensure_initialized():
         return
 
     if _pg_pool:
+        # FIX (v0.43.2): a táblát korábban sosem hozta létre senki — minden
+        # node-start "PG load failed" logot adott, és az auto_enroll INSERT is
+        # csendesen elbukott. Most idempotens CREATE TABLE IF NOT EXISTS.
+        try:
+            await _pg_pool.execute(
+                "CREATE TABLE IF NOT EXISTS desired_nodes ("
+                " node_name TEXT PRIMARY KEY,"
+                " enabled BOOLEAN NOT NULL DEFAULT true,"
+                " ssh_target TEXT NOT NULL DEFAULT '',"
+                " ssh_key TEXT NOT NULL DEFAULT '',"
+                " restart_cmd TEXT NOT NULL DEFAULT '',"
+                " created_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+                " updated_at TIMESTAMPTZ NOT NULL DEFAULT now()"
+                ")"
+            )
+        except Exception as e:
+            log.warning(f"desired_nodes CREATE TABLE failed (non-fatal): {e}")
+
         try:
             # Try to load from PG
             rows = await _pg_pool.fetch(
@@ -111,8 +129,18 @@ async def ensure_initialized():
                 # has nodes to track (otherwise zero desired nodes forever)
                 log.info("desired_nodes table empty — seeding defaults")
                 _seed_defaults()
+                # FIX (v0.43.2): persist seeded defaults so the next start loads from PG
+                for name, dn in _desired_nodes.items():
+                    try:
+                        await _pg_pool.execute(
+                            "INSERT INTO desired_nodes (node_name, enabled, ssh_target, ssh_key, restart_cmd) "
+                            "VALUES ($1, $2, $3, $4, $5) ON CONFLICT (node_name) DO NOTHING",
+                            name, dn.enabled, dn.ssh_target, dn.ssh_key, dn.restart_cmd,
+                        )
+                    except Exception as e:
+                        log.debug(f"Seed persist for {name} failed (non-fatal): {e}")
         except Exception as e:
-            # Table doesn't exist yet — seed defaults
+            # Unexpected load failure — seed defaults in memory
             log.info(f"PG load failed ({e}), seeding defaults")
             _seed_defaults()
     else:

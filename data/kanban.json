@@ -14117,10 +14117,1702 @@
         "approval_required": false,
         "approved_by": "auto:worker",
         "approved_at": 1788902500.6591308
+      },
+      {
+        "id": "card-1789507943332-223",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789507943.33281,
+        "updated_at": 1789507943.8804579,
+        "created_by": "unknown",
+        "delegation_task_id": "8af989a8-df77-416d-8f74-33ec9a5bea16",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507943.498189
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1789507943.8804638
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789507943.880457
+      },
+      {
+        "id": "card-1789507944102-224",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789507944.102356,
+        "updated_at": 1789507944.49669,
+        "created_by": "unknown",
+        "delegation_task_id": "8a4a88f8-afac-488d-aefb-b40ac5662624",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507944.284062
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1789507944.4966989
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789507944.4966881
+      },
+      {
+        "id": "card-1789507945210-226",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789507945.210752,
+        "updated_at": 1789507945.747754,
+        "created_by": "unknown",
+        "delegation_task_id": "8fcf5ac8-1470-47a4-9c0a-09ff83f53451",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507945.4029949
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Analysis complete: 42",
+            "timestamp": 1789507945.747759
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789507945.747752
+      },
+      {
+        "id": "card-1789507946038-227",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789507946.0380712,
+        "updated_at": 1789507946.551358,
+        "created_by": "unknown",
+        "delegation_task_id": "29f7962d-cdfe-4b51-bb39-3e61d190bb9c",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507946.265457
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Research completed: 3 sources found",
+            "timestamp": 1789507946.5513642
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789507946.5513558
+      },
+      {
+        "id": "card-1789507946848-228",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789507946.848751,
+        "updated_at": 1789507947.728768,
+        "created_by": "unknown",
+        "delegation_task_id": "c25fb9ad-4a1b-4c66-ab79-e5c2b51e0732",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507947.07977
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1789507947.728775
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789507947.728766
+      },
+      {
+        "id": "card-1789507948037-229",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789507948.03756,
+        "updated_at": 1789507949.95565,
+        "created_by": "unknown",
+        "delegation_task_id": "79d06143-e873-43f9-8126-fa97b6388a6e",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507948.384245
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1789507949.955656
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789507949.955648
+      },
+      {
+        "id": "card-1789531644014-223",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789531644.0140538,
+        "updated_at": 1789531672.095144,
+        "created_by": "unknown",
+        "delegation_task_id": "c28da986-3b57-43bf-b543-29c30dc4f2ae",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531644.208735
+          }
+        ]
+      },
+      {
+        "id": "card-1789531644472-224",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531644.472506,
+        "updated_at": 1789531672.0951529,
+        "created_by": "unknown",
+        "delegation_task_id": "24405fed-771e-43c8-a488-b79b99d69748",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531644.6926699
+          }
+        ]
+      },
+      {
+        "id": "card-1789531644965-225",
+        "title": "Claim me",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531644.965915,
+        "updated_at": 1789531672.095156,
+        "created_by": "unknown",
+        "delegation_task_id": "a41c1b86-0826-4fba-b043-dbabe88c7907",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531645.168034
+          }
+        ]
+      },
+      {
+        "id": "card-1789531645449-226",
+        "title": "Long task",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789531645.449812,
+        "updated_at": 1789531672.095159,
+        "created_by": "unknown",
+        "delegation_task_id": "abbc6f2d-09d9-44df-a580-63ead17235b7",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531645.6499069
+          }
+        ]
+      },
+      {
+        "id": "card-1789531645939-227",
+        "title": "Cancel me",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789531645.9394,
+        "updated_at": 1789531672.0951612,
+        "created_by": "unknown",
+        "delegation_task_id": "3ad83cf0-7f5d-42fd-abdc-52bb271a42bf",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531646.15732
+          }
+        ]
+      },
+      {
+        "id": "card-1789531646435-228",
+        "title": "Parallel research",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531646.435997,
+        "updated_at": 1789531672.0951629,
+        "created_by": "unknown",
+        "delegation_task_id": "d195ad8d-1dd2-4db3-a90f-71617c28fec3",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531646.69655
+          }
+        ]
+      },
+      {
+        "id": "card-1789531647795-229",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789531647.795538,
+        "updated_at": 1789531658.348296,
+        "created_by": "unknown",
+        "delegation_task_id": "3b867478-350f-4c48-9f10-df030d39d366",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531648.0075788
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1789531658.348303
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789531658.3482938
+      },
+      {
+        "id": "card-1789531658623-230",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789531658.62365,
+        "updated_at": 1789531669.055171,
+        "created_by": "unknown",
+        "delegation_task_id": "486fd4b8-9285-44b4-ad1e-27777d3dfcf4",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531658.8354518
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1789531669.055179
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789531669.055169
+      },
+      {
+        "id": "card-1789531669326-231",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789531669.326296,
+        "updated_at": 1789531672.095166,
+        "created_by": "unknown",
+        "delegation_task_id": "ea0f7da9-634e-457a-94bf-d3fbc5c198cc",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531669.677514
+          }
+        ]
+      },
+      {
+        "id": "card-1789531676700-232",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789531676.700803,
+        "updated_at": 1789531687.134437,
+        "created_by": "unknown",
+        "delegation_task_id": "12888f5d-add2-4850-a0ea-c207c6998572",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531676.91027
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Analysis complete: 42",
+            "timestamp": 1789531687.134442
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531687.1344361
+      },
+      {
+        "id": "card-1789531687403-233",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531687.403351,
+        "updated_at": 1789531697.87107,
+        "created_by": "unknown",
+        "delegation_task_id": "37942dd6-5e17-429b-9144-5254d78719cc",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531687.623214
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Research completed: 3 sources found",
+            "timestamp": 1789531697.8710752
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531697.871069
+      },
+      {
+        "id": "card-1789531698153-234",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789531698.153107,
+        "updated_at": 1789531708.5853162,
+        "created_by": "unknown",
+        "delegation_task_id": "51ec39bd-e0e3-4d32-8752-a73ddd885c19",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531698.3626409
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1789531708.585322
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531708.585314
+      },
+      {
+        "id": "card-1789531708896-235",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531708.896439,
+        "updated_at": 1789531711.656933,
+        "created_by": "unknown",
+        "delegation_task_id": "b402c6a5-129a-4d7c-b03b-bc99e088aca0",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531709.1159701
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1789531711.656938
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531711.6569312
+      },
+      {
+        "id": "card-1789531730052-236",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789531730.052639,
+        "updated_at": 1789531800.6738088,
+        "created_by": "unknown",
+        "delegation_task_id": "a47f57f7-a62e-4405-9cf5-be783d106a1b",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531730.24942
+          }
+        ]
+      },
+      {
+        "id": "card-1789531730519-237",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531730.519108,
+        "updated_at": 1789531800.673815,
+        "created_by": "unknown",
+        "delegation_task_id": "728e9064-af64-439e-8a74-ba6cfc207fe2",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531730.736547
+          }
+        ]
+      },
+      {
+        "id": "card-1789531730999-238",
+        "title": "Claim me",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531730.999329,
+        "updated_at": 1789531800.673818,
+        "created_by": "unknown",
+        "delegation_task_id": "c4c9c957-ba06-49f1-a092-8ce0f53f74ee",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531731.214109
+          }
+        ]
+      },
+      {
+        "id": "card-1789531731484-239",
+        "title": "Long task",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789531731.484149,
+        "updated_at": 1789531800.673821,
+        "created_by": "unknown",
+        "delegation_task_id": "e5b55feb-3600-4371-8f4b-be0a4d50f4be",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531731.7144132
+          }
+        ]
+      },
+      {
+        "id": "card-1789531732061-240",
+        "title": "Cancel me",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789531732.0619478,
+        "updated_at": 1789531800.673825,
+        "created_by": "unknown",
+        "delegation_task_id": "db3de3c5-287b-4c67-b63f-afafad6b1f3d",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531732.278063
+          }
+        ]
+      },
+      {
+        "id": "card-1789531732557-241",
+        "title": "Parallel research",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531732.557617,
+        "updated_at": 1789531800.6738281,
+        "created_by": "unknown",
+        "delegation_task_id": "23864bf0-fa58-4fd3-80ba-aecc2c00a4c1",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531732.760312
+          }
+        ]
+      },
+      {
+        "id": "card-1789531733889-242",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789531733.88944,
+        "updated_at": 1789531734.548349,
+        "created_by": "unknown",
+        "delegation_task_id": "d985d371-de4c-492d-a286-09d39b585e0b",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531734.098384
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1789531734.548356
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789531734.548347
+      },
+      {
+        "id": "card-1789531734835-243",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789531734.835642,
+        "updated_at": 1789531735.3274791,
+        "created_by": "unknown",
+        "delegation_task_id": "06a46da6-9811-43e9-8181-83f1512dd27a",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531735.048384
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1789531735.327484
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789531735.327478
+      },
+      {
+        "id": "card-1789531735622-244",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789531735.6229298,
+        "updated_at": 1789531800.673832,
+        "created_by": "unknown",
+        "delegation_task_id": "24605973-37a6-4ab6-885d-5d13dca971fc",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531735.851962
+          }
+        ]
+      },
+      {
+        "id": "card-1789531736238-245",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789531736.2387059,
+        "updated_at": 1789531736.8105862,
+        "created_by": "unknown",
+        "delegation_task_id": "85e3bf27-0f5a-4824-aa4c-8e090aa28f56",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531736.4545019
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Analysis complete: 42",
+            "timestamp": 1789531736.810592
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531736.810585
+      },
+      {
+        "id": "card-1789531737075-246",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531737.0755572,
+        "updated_at": 1789531737.602056,
+        "created_by": "unknown",
+        "delegation_task_id": "c8b3fd60-2d4b-457f-a9c6-7b686d1b1ddb",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531737.288898
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Research completed: 3 sources found",
+            "timestamp": 1789531737.60206
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531737.6020548
+      },
+      {
+        "id": "card-1789531737877-247",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789531737.877842,
+        "updated_at": 1789531738.365215,
+        "created_by": "unknown",
+        "delegation_task_id": "57233d54-941b-42fa-8db2-dc1fa1c08260",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531738.098345
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1789531738.365221
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531738.365213
+      },
+      {
+        "id": "card-1789531738638-248",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789531738.6380658,
+        "updated_at": 1789531740.101946,
+        "created_by": "unknown",
+        "delegation_task_id": "6f2bf83e-2b5b-4bb7-9709-f5778b439911",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789531738.873923
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1789531740.101951
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789531740.1019452
+      },
+      {
+        "id": "card-1789532008183-249",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789532008.183182,
+        "updated_at": 1789532061.004684,
+        "created_by": "unknown",
+        "delegation_task_id": "0c00190e-a972-4559-999b-47b756f230d5",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532008.428256
+          }
+        ]
+      },
+      {
+        "id": "card-1789532008770-250",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532008.770894,
+        "updated_at": 1789532061.0046878,
+        "created_by": "unknown",
+        "delegation_task_id": "7d2a6e3f-3a91-4acf-a349-8b32b33daf62",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532009.0168262
+          }
+        ]
+      },
+      {
+        "id": "card-1789532009281-251",
+        "title": "Claim me",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532009.281527,
+        "updated_at": 1789532061.004691,
+        "created_by": "unknown",
+        "delegation_task_id": "8751b539-d7fd-47ea-bab9-c786839a8d8c",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532009.505974
+          }
+        ]
+      },
+      {
+        "id": "card-1789532009808-252",
+        "title": "Long task",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789532009.8081322,
+        "updated_at": 1789532061.004693,
+        "created_by": "unknown",
+        "delegation_task_id": "7e3401cc-255a-49ad-8e8c-40c28ec12c34",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532010.054097
+          }
+        ]
+      },
+      {
+        "id": "card-1789532010333-253",
+        "title": "Cancel me",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789532010.333229,
+        "updated_at": 1789532061.004695,
+        "created_by": "unknown",
+        "delegation_task_id": "99dd794f-dbd6-48b8-ba70-36b7eaccb950",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532010.560152
+          }
+        ]
+      },
+      {
+        "id": "card-1789532010832-254",
+        "title": "Parallel research",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532010.832712,
+        "updated_at": 1789532061.004698,
+        "created_by": "unknown",
+        "delegation_task_id": "169402f0-e424-4a3d-8af2-9d258814e067",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532011.054037
+          }
+        ]
+      },
+      {
+        "id": "card-1789532012163-255",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789532012.163714,
+        "updated_at": 1789532012.830249,
+        "created_by": "unknown",
+        "delegation_task_id": "d4386f9a-fba0-4b58-8068-d4b8fe622a51",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532012.378865
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1789532012.830258
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789532012.830247
+      },
+      {
+        "id": "card-1789532013094-256",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789532013.0945642,
+        "updated_at": 1789532013.772098,
+        "created_by": "unknown",
+        "delegation_task_id": "e5639335-d563-4035-a75a-8590b6eb7164",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532013.312375
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1789532013.772109
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789532013.772096
+      },
+      {
+        "id": "card-1789532014183-257",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789532014.183545,
+        "updated_at": 1789532061.0047,
+        "created_by": "unknown",
+        "delegation_task_id": "32cf75ea-451f-473a-b7ab-954eaee4d81b",
+        "delegation_status": "deleted",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532014.409205
+          }
+        ]
+      },
+      {
+        "id": "card-1789532014812-258",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789532014.8129852,
+        "updated_at": 1789532015.3672981,
+        "created_by": "unknown",
+        "delegation_task_id": "8356b868-839a-44ca-9821-4a45be00fd97",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532015.022388
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Analysis complete: 42",
+            "timestamp": 1789532015.367303
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532015.367296
+      },
+      {
+        "id": "card-1789532015643-259",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532015.643583,
+        "updated_at": 1789532016.239281,
+        "created_by": "unknown",
+        "delegation_task_id": "54320c42-ef20-4562-9558-389d57070005",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532015.902945
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Research completed: 3 sources found",
+            "timestamp": 1789532016.239285
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532016.2392802
+      },
+      {
+        "id": "card-1789532016526-260",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789532016.526595,
+        "updated_at": 1789532017.003521,
+        "created_by": "unknown",
+        "delegation_task_id": "f88531d1-f002-4c41-9c55-040cfa47442f",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532016.728401
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1789532017.003526
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532017.003519
+      },
+      {
+        "id": "card-1789532017278-261",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532017.2789278,
+        "updated_at": 1789532018.745802,
+        "created_by": "unknown",
+        "delegation_task_id": "4964d784-3e0a-4b66-9878-9976bea4176a",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532017.5097668
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1789532018.7458072
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532018.7458
+      },
+      {
+        "id": "card-1789532073222-262",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789532073.222023,
+        "updated_at": 1789532073.468239,
+        "created_by": "unknown",
+        "delegation_task_id": "340b9cdc-1f54-46f1-ab5c-f63c69c45580",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532073.468232
+          }
+        ]
+      },
+      {
+        "id": "card-1789532073730-263",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532073.730391,
+        "updated_at": 1789532073.964885,
+        "created_by": "unknown",
+        "delegation_task_id": "69de4ca9-1186-4d61-aef9-ca7a4a8aa61f",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532073.964879
+          }
+        ]
+      },
+      {
+        "id": "card-1789532074243-264",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532074.24326,
+        "updated_at": 1789532074.451307,
+        "created_by": "unknown",
+        "delegation_task_id": "ba14c4b8-2768-4508-b380-c251cfad8466",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532074.451301
+          }
+        ]
+      },
+      {
+        "id": "card-1789532074734-265",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789532074.734968,
+        "updated_at": 1789532074.947575,
+        "created_by": "unknown",
+        "delegation_task_id": "6055ab49-9391-4757-a20a-5a5515058ef8",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532074.9475698
+          }
+        ]
+      },
+      {
+        "id": "card-1789532075233-266",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789532075.233094,
+        "updated_at": 1789532075.4339688,
+        "created_by": "unknown",
+        "delegation_task_id": "ffd744c7-56e4-4678-8754-024568dfb6ef",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532075.433965
+          }
+        ]
+      },
+      {
+        "id": "card-1789532075709-267",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532075.7093859,
+        "updated_at": 1789532075.948433,
+        "created_by": "unknown",
+        "delegation_task_id": "d4e67544-b935-4c36-bcfa-0a81bc8a576c",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532075.948429
+          }
+        ]
+      },
+      {
+        "id": "card-1789532077193-268",
+        "title": "Health check",
+        "description": "{\"type\": \"monitoring\", \"description\": \"Check health\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789532077.193565,
+        "updated_at": 1789532077.853337,
+        "created_by": "unknown",
+        "delegation_task_id": "1297a9a8-0003-4d89-ae58-ffde0ca4651a",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532077.3825521
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "All systems healthy",
+            "timestamp": 1789532077.853345
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789532077.8533351
+      },
+      {
+        "id": "card-1789532078132-269",
+        "title": "Unknown type",
+        "description": "{\"type\": \"unknown_type\", \"description\": \"Test\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789532078.132214,
+        "updated_at": 1789532078.6111932,
+        "created_by": "unknown",
+        "delegation_task_id": "e2af0a0a-d1dc-40e8-bc34-87cc49e98631",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532078.326716
+          },
+          {
+            "agent": "test_agent",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "[test_agent] No handler for task type 'unknown_type'. Available: []",
+            "timestamp": 1789532078.611202
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:test_agent",
+        "approved_at": 1789532078.611191
+      },
+      {
+        "id": "card-1789532078881-270",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789532078.88174,
+        "updated_at": 1789532079.0826712,
+        "created_by": "unknown",
+        "delegation_task_id": "0b131175-17e6-40c4-b223-426b74034e00",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532079.082665
+          }
+        ]
+      },
+      {
+        "id": "card-1789532079550-271",
+        "title": "Analyze dataset X",
+        "description": "Run analysis on dataset X",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789532079.5507572,
+        "updated_at": 1789532080.141088,
+        "created_by": "unknown",
+        "delegation_task_id": "5ec7ffab-622d-47dc-b495-e71421c63bbf",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532079.8218539
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Analysis complete: 42",
+            "timestamp": 1789532080.141093
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532080.1410859
+      },
+      {
+        "id": "card-1789532080433-272",
+        "title": "Find sources about AI",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532080.4331782,
+        "updated_at": 1789532080.9933171,
+        "created_by": "unknown",
+        "delegation_task_id": "30ac2e49-dbb7-487e-83c6-8a34b69be7cb",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532080.698451
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Research completed: 3 sources found",
+            "timestamp": 1789532080.993323
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532080.9933162
+      },
+      {
+        "id": "card-1789532081286-273",
+        "title": "Generate report",
+        "description": "{\"type\": \"reporting\", \"description\": \"Generate\", \"context\": {}}",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "coordinator",
+        "parent_id": null,
+        "created_at": 1789532081.2865012,
+        "updated_at": 1789532081.814923,
+        "created_by": "unknown",
+        "delegation_task_id": "97d4719a-a5f2-4f3f-9017-c0ada9932f4b",
+        "delegation_status": "pending",
+        "from_agent": "worker",
+        "to_agent": "coordinator",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532081.510752
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Report generated",
+            "timestamp": 1789532081.814931
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532081.814922
+      },
+      {
+        "id": "card-1789532082144-274",
+        "title": "Fan-out race",
+        "description": "",
+        "column": "done",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789532082.144557,
+        "updated_at": 1789532083.489345,
+        "created_by": "unknown",
+        "delegation_task_id": "248bde76-db6e-4fb6-bade-e5810451b9ec",
+        "delegation_status": "available",
+        "from_agent": "worker",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "worker",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789532082.355401
+          },
+          {
+            "agent": "worker",
+            "role": "executor",
+            "action": "auto-promoted review→done (delegation completed)",
+            "result": "Winner!",
+            "timestamp": 1789532083.4893498
+          }
+        ],
+        "approval_required": false,
+        "approved_by": "auto:worker",
+        "approved_at": 1789532083.489343
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1788902499.873374
+    "updated_at": 1789532082.144564
   },
   {
     "id": "board-archive-orphaned-20260830",
@@ -16009,5 +17701,194 @@
       }
     ],
     "created_at": 1788902412.795313
+  },
+  {
+    "id": "board-archive-orphaned-20260916",
+    "name": "Archive — orphaned cards (auto)",
+    "cards": [
+      {
+        "id": "card-1789507940305-217",
+        "title": "Health check",
+        "description": "Check system health",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789507940.305888,
+        "updated_at": 1789507940.4733062,
+        "created_by": "unknown",
+        "delegation_task_id": "808b752d-8310-440d-a3bb-fe3193942bdb",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507940.473299
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      },
+      {
+        "id": "card-1789507940726-218",
+        "title": "Research task",
+        "description": "Find info about X",
+        "column": "todo",
+        "priority": "low",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789507940.726263,
+        "updated_at": 1789507940.917268,
+        "created_by": "unknown",
+        "delegation_task_id": "8553433a-ce6d-4c65-9578-f2f52ad36ea2",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507940.9172611
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      },
+      {
+        "id": "card-1789507941143-219",
+        "title": "Claim me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789507941.143064,
+        "updated_at": 1789507941.302999,
+        "created_by": "unknown",
+        "delegation_task_id": "29d720c9-d6ea-4db5-941c-f84f9f0d5d45",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507941.302994
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      },
+      {
+        "id": "card-1789507941520-220",
+        "title": "Long task",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789507941.5209029,
+        "updated_at": 1789507941.6849852,
+        "created_by": "unknown",
+        "delegation_task_id": "c14a54bb-43e6-44ea-9c97-e2586d9e1839",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507941.684979
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      },
+      {
+        "id": "card-1789507941914-221",
+        "title": "Cancel me",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1789507941.914953,
+        "updated_at": 1789507942.07647,
+        "created_by": "unknown",
+        "delegation_task_id": "c6d6e207-84a6-47d4-8e82-46f4580c27b7",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507942.0764658
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      },
+      {
+        "id": "card-1789507942278-222",
+        "title": "Parallel research",
+        "description": "",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1789507942.278125,
+        "updated_at": 1789507942.449665,
+        "created_by": "unknown",
+        "delegation_task_id": "7936e9cd-2169-4a7a-9220-523f79544437",
+        "delegation_status": "available",
+        "from_agent": "test_agent",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507942.4496598
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      },
+      {
+        "id": "card-1789507944708-225",
+        "title": "Will fail",
+        "description": "{\"type\": \"failing\", \"description\": \"Test\", \"context\": {}}",
+        "column": "todo",
+        "priority": "medium",
+        "assigned_to": "other_agent",
+        "parent_id": null,
+        "created_at": 1789507944.708586,
+        "updated_at": 1789507944.8867998,
+        "created_by": "unknown",
+        "delegation_task_id": "bc698a34-9f9d-4adb-a312-3ffecad55b78",
+        "delegation_status": "pending",
+        "from_agent": "test_agent",
+        "to_agent": "other_agent",
+        "agent_history": [
+          {
+            "agent": "test_agent",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1789507944.886795
+          }
+        ],
+        "archived_reason": "orphaned: delegation deleted from PG (retention cleanup)",
+        "archived_at": 1789507965.462938
+      }
+    ],
+    "created_at": 1789507965.462938
   }
 ]

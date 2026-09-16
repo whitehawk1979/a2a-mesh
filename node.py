@@ -4332,7 +4332,7 @@ echo "Status: ok"
             # Try multiple import strategies
             try:
                 from core.provider_health import check_provider_health
-                provider_status = check_provider_health(self.node_name)
+                provider_status = await asyncio.to_thread(check_provider_health, self.node_name)
                 log.info(f"Provider health (PG) via import: {provider_status}")
             except ImportError:
                 import importlib.util as _ilu
@@ -4346,7 +4346,7 @@ echo "Status: ok"
                     _spec = _ilu.spec_from_file_location("provider_health_pg", _ph_path)
                     _mod = _ilu.module_from_spec(_spec)
                     _spec.loader.exec_module(_mod)
-                    provider_status = _mod.check_provider_health(self.node_name)
+                    provider_status = await asyncio.to_thread(_mod.check_provider_health, self.node_name)
                     log.info(f"Provider health (PG) via importlib: {provider_status}")
             else:
                 if not isinstance(provider_status, dict) or "primary" not in provider_status:
@@ -4812,7 +4812,7 @@ echo "Status: ok"
                 try:
                     try:
                         from core.provider_health import check_provider_health
-                        provider_status = check_provider_health(self.node_name)
+                        provider_status = await asyncio.to_thread(check_provider_health, self.node_name)
                         log.info(f"Provider health (heartbeat) via import: {provider_status}")
                     except ImportError:
                         import importlib.util as _ilu
@@ -4822,7 +4822,7 @@ echo "Status: ok"
                             _spec = _ilu.spec_from_file_location("provider_health", _ph_path)
                             _mod = _ilu.module_from_spec(_spec)
                             _spec.loader.exec_module(_mod)
-                            provider_status = _mod.check_provider_health(self.node_name)
+                            provider_status = await asyncio.to_thread(_mod.check_provider_health, self.node_name)
                             log.info(f"Provider health (heartbeat) via importlib: {provider_status}")
                 except Exception as e:
                     log.error(f"Provider health check failed: {e}", exc_info=True)
