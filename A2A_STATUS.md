@@ -1,42 +1,38 @@
-## 2026-08-04 A2A Mesh Status — v0.23.0
+## 2026-09-11 A2A Mesh Status — v0.42.3
 
-### Nova (192.168.1.8 / Mac Pro)
-- **Status:** running, coordinator
-- **Version:** 0.22.0 → 0.23.0 (restart needed)
-- **Transports:** PG=True, P2P=True, HTTP=True, BLE=True
-- **P2P TLS:** mTLS + HMAC-SHA256, TLSv1.3
-- **Role:** coordinator
+Generated: 2026-09-11 07:25 (automated reggeli check)
 
-### Morzsa (192.168.1.30 / OpenClaw)
-- **Status:** running, router
-- **Version:** 0.22.0 → 0.23.0 (auto-update)
-- **Transports:** PG=True, P2P=True, HTTP=True, BLE=False
+### Nova (192.168.1.8 — MacBook, localhost)
+- **Status:** running, router, addr 0x1E54
+- **Version:** v0.42.3-9-gbab8ae1 (git SSOT, main@556bb6c)
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=✅
+- **Messages:** 122 sent / 1348 received, 1 failed ACK (Tor restart körül)
+- **SSH tunnelek:** morzsa, runa, tor(×2 HAOS) — mind él
 
-### Runa (192.168.1.100 / Linux)
-- **Status:** running, router
-- **Version:** 0.22.0 → 0.23.0 (auto-update)
-- **Transports:** PG=True, P2P=True, HTTP=True
-- **Monitoring:** Prometheus:9090 + Grafana:3030 + Alertmanager:9093
+### Morzsa (192.168.1.30 — PG primary)
+- **Status:** running, router, addr 0xE984, parent=nova
+- **Version:** v0.42.3-9-gbab8ae1 ✅ sync
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=❌
+- **PG:** 192.168.1.30:5432 active, mesh_node_health mind 5 node fresh
 
-### v0.23.0 Újdonságok
-- **Telegram alerting:** Prometheus Alertmanager → webhook → Telegram
-- **Node restart CLI:** `a2a restart <nova|morzsa|runa|all>`
-- **Dashboard alert panel:** 🚨 tab, Prometheus alerts real-time
-- **Plugin SDK dokumentáció:** docs/PLUGIN_SDK.md
-- **Mesh backup/restore CLI:** `a2a backup -o <dir>` / `a2a restore <path>`
-- **Detached HEAD fix:** auto-updater main ágon marad
-- **Tesztek javítva:** 502 passed, 0 failed
+### Runa (192.168.1.100)
+- **Status:** running, router, addr 0x622E
+- **Version:** v0.42.3-9-gbab8ae1 ✅ sync
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=❌
+- **Gitea:** nginx proxy OK, X-Forwarded-Proto beállítva, :3001/:80 egyaránt 200
+- **mesh-llm:** v0.72.1 (AVX build), :9337 él, 1 modell (qwen2.5-3b)
+- **SSH:** zsolt@192.168.1.100 id_ed25519_openclaw kulccsal OK
 
-### Monitoring
-- Prometheus: 3/3 target UP, 8 alert rules, 3 groups
-- Grafana: v13.1.1, 2 dashboard, auto-provisioned
-- Alertmanager: webhook → Telegram (port 9091 on Runa)
+### Tor + Mano (192.168.1.43 — HAOS)
+- **Tor:** running, root, addr 0x77A9, uptime ~35min (03:33 restart, magából helyreállt), PG=✅ P2P=✅ HTTP=❌
+- **Mano:** running, addr 0x1EAD, uptime ~12.9h, PG=✅ P2P=✅ HTTP=✅, 74 failed ACK (tor restart vihar)
+- **Konténer:** app_0a6523c6_hermes_agent, cli a .venv/bin/python3-val futtatható (host python3 nem!)
 
-### Mesh Topology
-  nova (0x1E54, coordinator)
-    runa (0x622E, router)
-    morzsa (0xE984, router)
-
-### Testing
-- 502 tests passed, 0 failed, 2 skipped
-- 510 total test cases
+### Mesh-wide
+- **Node restart 06:25-06:36:** Hermes Agent auto-update (122 commit) — koordinált, nem hiba
+- **Transport priority:** p2p → ssh_tunnel → pg_notify → http (P2P-first)
+- **TLS P2P:** mTLS + TLSv1.3 minden node-on
+- **mDNS:** discovery/mdns.py aktív (_a2a._tcp), mDNS + static discovery
+- **Topology tuning:** topology_tuner.py + health_scorer.py aktív (enabled, promote 0.9 / demote 0.3)
+- **Cron job-ok:** 17/17 enabled, nova-heartbeat OK (silent=success), update-check: nincs új verzió
+- **DLQ:** 0 pending

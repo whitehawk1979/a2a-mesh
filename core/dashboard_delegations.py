@@ -8,6 +8,21 @@ log = logging.getLogger("a2a_mesh.dashboard.delegations")
 
 class DashboardDelegationsMixin:
     # ── Delegation API endpoints ──
+    
+    def _get_pg_pool(self):
+        """Get PG pool from node, with fallback to delegation.pg_pool."""
+        if self.node:
+            # Try node._pg_pool first (always fresh after reconnect)
+            pool = getattr(self.node, '_pg_pool', None)
+            if pool and pool.is_connected():
+                # Sync to delegation so delegation methods work too
+                if self.node.delegation and not self.node.delegation.pg_pool:
+                    self.node.delegation.pg_pool = pool
+                return pool
+            # Fallback to delegation.pg_pool
+            if self.node.delegation and self.node.delegation.pg_pool:
+                return self.node.delegation.pg_pool
+        return None
 
     async def _api_delegations_list(self, request):
         """List delegations. GET /api/delegations?status=pending&agent=nova&task_type=monitoring"""
@@ -97,12 +112,65 @@ class DashboardDelegationsMixin:
                 fan_out=int(data.get("fan_out", "0")),
                 max_retries=int(data.get("max_retries", "2")),
                 eligible_agents=data.get("eligible_agents"),
+                distribute_mode=bool(data.get("distribute_mode", False)),
+                depends_on=data.get("depends_on"),
             )
             
             # fan_out returns list of task_ids
             is_fan_out = isinstance(task_id, list)
             task_ids = task_id if is_fan_out else [task_id]
             status = "available" if available else "pending"
+            
+            # ── Auto-create Kanban card for each delegation ──
+            try:
+                import time as _time, os as _os, json as _json
+                kanban_path = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/kanban.json")
+                if _os.path.exists(kanban_path):
+                    with open(kanban_path) as kf:
+                        kanban_boards = _json.load(kf)
+                    if kanban_boards:
+                        board = kanban_boards[0]
+                        card_ids = []
+                        for tid in task_ids:
+                            card = {
+                                "id": f"card-{int(_time.time()*1000)}-{len(board.get('cards',[]))}",
+                                "title": subject[:80],
+                                "column": "in_progress",
+                                "priority": int(data.get("priority", "5")),
+                                "assigned_to": to_agent if to_agent != "any" else "",
+                                "created_at": _time.time(),
+                                "updated_at": _time.time(),
+                                "delegation_task_id": str(tid),
+                                "description": data.get("description", ""),
+                                "task_type": data.get("task_type", "generic"),
+                                "from_agent": self.node.node_name,
+                                "to_agent": to_agent,
+                                "agent_history": [{
+                                    "agent": self.node.node_name,
+                                    "role": "delegator",
+                                    "action": "created task",
+                                    "timestamp": _time.time(),
+                                }],
+                            }
+                            board.setdefault("cards", []).append(card)
+                            card_ids.append(card["id"])
+                            log.info(f"Auto Kanban card: {card['id']} → delegation {str(tid)[:12]} ({subject[:40]})")
+                        with open(kanban_path, 'w') as kf:
+                            _json.dump(kanban_boards, kf, indent=2)
+                        # ── Write kanban_card_id back to PG ──
+                        try:
+                            pool = getattr(self.node, '_pg_pool', None)
+                            if pool:
+                                for tid, cid in zip(task_ids, card_ids):
+                                    await pool.execute(
+                                        "UPDATE shared_delegations SET kanban_card_id = $1 WHERE task_id = $2",
+                                        cid, str(tid)
+                                    )
+                                log.info(f"Updated kanban_card_id for {len(task_ids)} delegation(s)")
+                        except Exception as pe:
+                            log.warning(f"Failed to update kanban_card_id in PG: {pe}")
+            except Exception as ke:
+                log.warning(f"Auto Kanban card creation failed: {ke}")
             
             if is_fan_out:
                 return web.json_response({
@@ -529,7 +597,7 @@ class DashboardDelegationsMixin:
         Body:
         {
             "file": "core/delegation.py",     # file to review (relative to repo root)
-            "nodes": ["morzsa", "runa"],       # which nodes review (default: all peers)
+            "nodes": [a.name for a, _ in self.registry.list_agents() if a.name != self.node.node_name],       # which nodes review (default: all peers)
             "focus": "bugs",                   # security|performance|bugs|style|general
             "context": "..."                   # additional context
         }
@@ -558,7 +626,7 @@ class DashboardDelegationsMixin:
                 return web.json_response({"error": "file is required"}, status=400)
 
             if not target_nodes:
-                peers = self.node.peer_discovery.get_known_peers() if hasattr(self.node, 'peer_discovery') else []
+                peers = self.node.peer_discovery.get_all_peers() if hasattr(self.node, 'peer_discovery') else []
                 target_nodes = [p for p in peers if p != self.node.node_name]
 
             if not target_nodes:
@@ -611,7 +679,7 @@ class DashboardDelegationsMixin:
         
         Body (optional):
         {
-            "nodes": ["morzsa", "runa"],  # default: all peers
+            "nodes": [a.name for a, _ in self.registry.list_agents() if a.name != self.node.node_name],  # default: all peers
             "remote": "gitea",            # default: "gitea" for Morzsa, "origin" for Runa
             "branch": "main",
             "timeout": 60
@@ -641,7 +709,7 @@ class DashboardDelegationsMixin:
 
             # If no nodes specified, deploy to all known peers
             if not target_nodes:
-                peers = self.node.peer_discovery.get_known_peers() if hasattr(self.node, 'peer_discovery') else []
+                peers = self.node.peer_discovery.get_all_peers() if hasattr(self.node, 'peer_discovery') else []
                 target_nodes = [p for p in peers if p != self.node.node_name]
 
             if not target_nodes:
@@ -703,7 +771,7 @@ class DashboardDelegationsMixin:
             "subject": "task subject",       # required if delegate=true
             "description": "...",            # optional
             "priority": 5,                   # optional
-            "exclude": ["nova"],             # optional — exclude nodes
+            "exclude": [self.node.node_name],             # exclude self
             "count": 1,                      # optional — number of nodes to return
             "strategy": "best"               # "best" (lowest load) or "random" or "all"
         }
@@ -863,4 +931,61 @@ class DashboardDelegationsMixin:
             })
         except Exception as e:
             log.error(f"Smart route error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_delete(self, request):
+        """Delete a delegation permanently. DELETE /api/delegations/{task_id}"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG pool not available"}, status=503)
+            await pool.execute(
+                "DELETE FROM shared_delegations WHERE task_id = $1", task_id
+            )
+            log.info(f"Deleted delegation {task_id}")
+            return web.json_response({"task_id": task_id, "deleted": True})
+        except Exception as e:
+            log.error(f"Delegation delete error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_redispatch(self, request):
+        """Re-dispatch a cancelled/completed task as available. POST /api/delegations/{task_id}/redispatch"""
+        from aiohttp import web
+        import uuid, time
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            task_id = request.match_info.get("task_id")
+            pool = self._get_pg_pool()
+            if not pool:
+                return web.json_response({"error": "PG pool not available"}, status=503)
+            row = await pool.fetchrow(
+                "SELECT * FROM shared_delegations WHERE task_id = $1", task_id
+            )
+            if not row:
+                return web.json_response({"error": "Task not found"}, status=404)
+            row = dict(row)
+            new_task_id = str(uuid.uuid4())
+            await pool.execute(
+                """INSERT INTO shared_delegations
+                   (task_id, from_agent, to_agent, subject, description, status, priority, created_at, expires_at)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW() + INTERVAL '1 hour')""",
+                new_task_id,
+                row.get("from_agent", "nova"),
+                row.get("to_agent", "any"),
+                row.get("subject", ""),
+                row.get("description", ""),
+                "available",
+                row.get("priority", 5),
+            )
+            log.info(f"Redispatched {task_id} -> {new_task_id}")
+            return web.json_response({"old_task_id": task_id, "new_task_id": new_task_id, "status": "available"})
+        except Exception as e:
+            log.error(f"Delegation redispatch error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)

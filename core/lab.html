@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>🧪 Lab — Projekt Showcase</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #1c2128; --border: #30363d;
+  --text: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --blue: #58a6ff; --green: #3fb950; --yellow: #d29922; --red: #f85149;
+  --purple: #bc8cff; --accent: #1f6feb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; }
+
+/* Header */
+.header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 16px 24px; position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+}
+.header h1 { font-size: 22px; white-space: nowrap; }
+.header h1 span { margin-right: 8px; }
+.back-btn {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  text-decoration: none; transition: all 0.2s;
+}
+.back-btn:hover { background: var(--border); color: var(--text); }
+
+/* Search */
+.search-wrap { flex: 1; min-width: 250px; position: relative; }
+.search-input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 16px 10px 42px; border-radius: 8px; font-size: 14px;
+  outline: none; transition: border 0.2s;
+}
+.search-input:focus { border-color: var(--blue); }
+.search-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text3); font-size: 16px; }
+
+/* Add button */
+.add-btn {
+  background: var(--accent); border: none; color: white;
+  padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px;
+  font-weight: 600; transition: all 0.2s; white-space: nowrap;
+}
+.add-btn:hover { background: #3884fd; }
+
+/* Stats */
+.stats { display: flex; gap: 12px; padding: 16px 24px; flex-wrap: wrap; }
+.stat-chip {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 13px;
+}
+.stat-chip .num { font-weight: 700; color: var(--blue); }
+.stat-chip .lbl { color: var(--text3); }
+.filter-chip { cursor: pointer; transition: all 0.2s; user-select: none; }
+.filter-chip:hover { border-color: var(--blue); }
+.filter-chip.active { border-color: var(--blue); background: rgba(31,111,235,0.15); }
+
+/* Project grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 0 24px 24px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px; transition: all 0.2s; cursor: pointer; position: relative;
+}
+.card:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+.card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.card-icon { font-size: 28px; }
+.card-title { font-size: 16px; font-weight: 600; flex: 1; }
+.card-category {
+  font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px;
+  background: var(--surface2); padding: 3px 8px; border-radius: 6px;
+}
+.card-desc { color: var(--text2); font-size: 13px; line-height: 1.5; margin-bottom: 12px; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tag {
+  font-size: 11px; background: var(--surface2); color: var(--text2);
+  padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+}
+.card-footer { display: flex; justify-content: space-between; align-items: center; }
+.card-link {
+  color: var(--blue); text-decoration: none; font-size: 13px;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all 0.2s;
+}
+.card-link:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.card-actions { display: flex; gap: 6px; }
+.action-btn {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text2);
+  padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: all 0.2s;
+}
+.action-btn:hover { background: var(--border); color: var(--text); }
+.action-btn.del:hover { background: var(--red); color: white; border-color: var(--red); }
+
+/* Modal */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  z-index: 200; justify-content: center; align-items: center;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 24px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto;
+}
+.modal h2 { margin-bottom: 20px; font-size: 18px; }
+.modal label { display: block; font-size: 12px; color: var(--text3); margin-bottom: 4px; margin-top: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+.modal input, .modal textarea, .modal select {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 12px; border-radius: 8px; font-size: 14px; outline: none;
+}
+.modal input:focus, .modal textarea:focus, .modal select:focus { border-color: var(--blue); }
+.modal textarea { resize: vertical; min-height: 80px; }
+.modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+.btn-save { background: var(--green); border: none; color: white; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.btn-save:hover { background: #2ea043; }
+.btn-cancel { background: var(--surface2); border: 1px solid var(--border); color: var(--text2); padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.btn-cancel:hover { background: var(--border); }
+
+/* Empty state */
+.empty { text-align: center; padding: 60px 24px; color: var(--text3); }
+.empty h3 { font-size: 18px; margin-bottom: 8px; }
+.empty p { font-size: 14px; }
+
+/* Status badges */
+.status-active { color: var(--green); }
+.status-paused { color: var(--yellow); }
+.status-archived { color: var(--text3); }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .header { padding: 12px 16px; }
+  .grid { grid-template-columns: 1fr; padding: 0 16px 16px; }
+  .stats { padding: 12px 16px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <a href="/" class="back-btn">← A2A Mesh</a>
+  <h1><span>🧪</span>Lab</h1>
+  <div class="search-wrap">
+    <span class="search-icon">🔍</span>
+    <input type="text" class="search-input" id="searchInput" placeholder="Projektek keresése..." oninput="searchProjects()">
+  </div>
+  <button class="add-btn" onclick="openModal()">+ Új projekt</button>
+  <select id="sortSelect" onchange="applyFilters()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:13px;cursor:pointer;outline:none">
+    <option value="title">↕️ Név</option>
+    <option value="created_at">↕️ Dátum</option>
+    <option value="category">↕️ Kategória</option>
+    <option value="status">↕️ Státusz</option>
+  </select>
+  <button class="add-btn" onclick="checkHealth()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔄 Health</button>
+  <button class="add-btn" onclick="discoverServices()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2)">🔍 Szkennel</button>
+  <button class="add-btn" onclick="showOnboardWizard()" style="background:var(--purple,var(--blue));color:#fff">🚀 Node Onboarding</button>
+</div>
+
+<div class="stats" id="filterChips">
+  <div class="stat-chip filter-chip active" onclick="filterByCategory('all')" id="chip-all"><span class="num" id="totalCount">0</span><span class="lbl">Összes</span></div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('app')" id="chip-app">📱 App (<span id="appCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('web')" id="chip-web">🌐 Web (<span id="webCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('tool')" id="chip-tool">🔧 Eszköz (<span id="toolCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('infra')" id="chip-infra">🏗️ Infra (<span id="infraCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('research')" id="chip-research">🔬 Kutatás (<span id="researchCount">0</span>)</div>
+  <div class="stat-chip filter-chip" onclick="filterByCategory('other')" id="chip-other">📦 Egyéb (<span id="otherCount">0</span>)</div>
+  <div class="stat-chip"><span class="num" id="activeCount">0</span><span class="lbl">aktív</span></div>
+</div>
+
+<div class="grid" id="projectGrid"></div>
+
+<!-- Node Onboarding Modal -->
+<div class="modal-overlay" id="onboardModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:90vw;max-width:600px;max-height:90vh;overflow-y:auto;padding:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0;font-size:18px">🚀 Node Onboarding Wizard</h2>
+      <button onclick="closeOnboard()" style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer">✕</button>
+    </div>
+    
+    <div style="margin-bottom:16px">
+      <p style="color:var(--text3);font-size:13px;margin-bottom:16px">
+        Új node automatikus csatlakoztatása a mesh-hez. Az SSH kulcs csere, mesh felhasználó, auth token és peer discovery automatikusan megtörténik.
+      </p>
+      
+      <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">Node név *</label>
+      <input type="text" id="onboardName" placeholder="pl. tor, dad-pc, lennie" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;margin-bottom:12px;box-sizing:border-box">
+      
+      <label style="display:block;font-size:13px;color:var(--text2);margin-bottom:4px">SSH publikus kulcs (opcionális)</label>
+      <textarea id="onboardKey" placeholder="ssh-ed25519 AAAA... user@host" style="width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;margin-bottom:12px;box-sizing:border-box;min-height:60px;font-family:monospace"></textarea>
+      
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:16px">
+        <input type="checkbox" id="onboardTailscale" checked>
+        Tailscale IP-k használata (VPN/csatorna kapcsolat esetén)
+      </label>
+      
+      <button id="onboardBtn" class="add-btn" onclick="runOnboard()" style="width:100%;padding:12px;font-size:15px;justify-content:center">🚀 Onboard indítása</button>
+    </div>
+    
+    <div id="onboardResult"></div>
+  </div>
+</div>
+
+<div class="empty" id="emptyState" style="display:none">
+  <h3>🔬 Még nincsenek projektek</h3>
+  <p>Kattints az "+ Új projekt" gombra az első hozzáadásához.</p>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle">Új projekt</h2>
+    <input type="hidden" id="editId">
+    <label>Cím</label>
+    <input type="text" id="projTitle" placeholder="Projekt neve">
+    <label>Leírás</label>
+    <textarea id="projDesc" placeholder="Mit csinál? Mi a célja?"></textarea>
+    <label>Kategória</label>
+    <select id="projCategory">
+      <option value="app">📱 App</option>
+      <option value="web">🌐 Weboldal</option>
+      <option value="tool">🔧 Eszköz</option>
+      <option value="research">🔬 Kutatás</option>
+      <option value="infra">🏗️ Infrastruktúra</option>
+      <option value="other">📦 Egyéb</option>
+    </select>
+    <label>URL / Link</label>
+    <input type="text" id="projUrl" placeholder="https://...">
+    <label>További linkek (vesszővel elválasztva: url|label)</label>
+    <textarea id="projLinks" placeholder="https://192.168.1.9:5001|HTTPS&#10;ssh://zsolt@192.168.1.100:2222|SSH"></textarea>
+    <label>Ikon (emoji)</label>
+    <input type="text" id="projIcon" placeholder="📦" maxlength="4">
+    <label>Címkék (vesszővel elválasztva)</label>
+    <input type="text" id="projTags" placeholder="ai, mesh, automation">
+    <label>Jegyzet / Hozzáférési adatok</label>
+    <textarea id="projNotes" placeholder="user: zsolt / jelszó: ..."></textarea>
+    <label>Státusz</label>
+    <select id="projStatus">
+      <option value="active">🟢 Aktív</option>
+      <option value="paused">🟡 Szüneteltetve</option>
+      <option value="archived">⚫ Archivált</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Mégse</button>
+      <button class="btn-save" onclick="saveProject()">Mentés</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+var allProjects = [];
+
+// Load projects on start — retry if not logged in yet
+document.addEventListener("DOMContentLoaded", function() {
+  // Try immediately
+  loadProjects();
+  // Retry after 2s in case login just completed
+  setTimeout(function() { if (allProjects.length === 0) { token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || ""; loadProjects(); } }, 2000);
+  // Retry after 5s
+  setTimeout(function() { if (allProjects.length === 0) { token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || ""; loadProjects(); } }, 5000);
+});
+
+var healthData = {};
+
+function discoverServices(evt) {
+  var btn = evt ? evt.target : document.querySelector('button[onclick*="discoverServices"]');
+  if (!btn) btn = this;
+  var orig = btn.textContent;
+  btn.textContent = "⏳ Szkennelés...";
+  btn.disabled = true;
+  fetch("/api/projects/discover")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      var allFound = data.found || [];
+      var added = data.added || 0;
+      var newSvcs = data.new || [];
+      if (newSvcs.length === 0) {
+        alert("✅ Szkennelés kész!\n" + allFound.length + " szolgáltatás található, mind felvéve már.");
+      } else {
+        var msg = "🔍 " + allFound.length + " szolgáltatás található, " + newSvcs.length + " ÚJ:\n\n";
+        newSvcs.forEach(function(s) {
+          msg += "  " + s.label + " — " + s.url + "\n";
+        });
+        msg += "\n✅ " + added + " új szolgáltatás automatikusan hozzáadva a listához!";
+        alert(msg);
+      }
+      loadProjects();
+    })
+    .catch(function(e) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      alert("Szkennelés hiba: " + e);
+    });
+}
+
+function checkHealth() {
+  fetch("/api/projects/health")
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      healthData = data.results || {};
+      Object.keys(healthData).forEach(function(pid) {
+        var el = document.getElementById("health-" + pid);
+        if (!el) return;
+        var h = healthData[pid];
+        if (h.status === "up") {
+          el.textContent = "🟢 " + h.code;
+          el.style.background = "rgba(63,185,80,0.15)";
+          el.style.color = "#3fb950";
+        } else if (h.status === "down") {
+          el.textContent = "🔴";
+          el.style.background = "rgba(248,81,73,0.15)";
+          el.style.color = "#f85149";
+        } else {
+          el.textContent = "⚪";
+          el.style.background = "var(--surface2)";
+          el.style.color = "var(--text3)";
+        }
+      });
+    })
+    .catch(function(e) { console.error("Health check error:", e); });
+}
+
+function loadProjects() {
+  fetch("/api/projects", { headers: { "Authorization": "Bearer " + token } })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      allProjects = data.projects || [];
+      renderProjects(allProjects);
+      updateStats(allProjects);
+      checkHealth();
+    })
+    .catch(function(e) { console.error("Load error:", e); });
+}
+
+// Auto health check every 60s
+setInterval(function() { if (allProjects.length) checkHealth(); }, 60000);
+
+function toggleNotes(pid, realText) {
+  var box = document.getElementById("notes-" + pid);
+  if (!box) return;
+  var textEl = box.querySelector(".notes-text");
+  var btns = box.querySelectorAll(".notes-btn");
+  // Find the toggle button (the one with Mutat or Rejts text)
+  var btn = null;
+  btns.forEach(function(b) {
+    if (b.textContent.indexOf("Mutat") >= 0 || b.textContent.indexOf("Rejts") >= 0) btn = b;
+  });
+  if (!btn) return;
+  if (btn.textContent.indexOf("Mutat") >= 0) {
+    textEl.textContent = realText;
+    textEl.style.whiteSpace = "normal";
+    textEl.style.wordBreak = "break-all";
+    btn.textContent = "🙈 Rejts";
+  } else {
+    textEl.textContent = "••••••••";
+    textEl.style.whiteSpace = "nowrap";
+    btn.textContent = "👁️ Mutat";
+  }
+}
+
+function copyNotes(pid, realText) {
+  navigator.clipboard.writeText(realText).then(function() {
+    var btn = event.target;
+    var orig = btn.textContent;
+    btn.textContent = "✅ Másolva!";
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+  }).catch(function() {
+    // Fallback for non-secure context
+    var ta = document.createElement("textarea");
+    ta.value = realText;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    var btn = event.target;
+    var orig = btn.textContent;
+    btn.textContent = "✅ Másolva!";
+    setTimeout(function() { btn.textContent = orig; }, 2000);
+  });
+}
+
+var currentFilter = "all";
+
+function filterByCategory(cat) {
+  currentFilter = cat;
+  document.querySelectorAll(".filter-chip").forEach(function(el) { el.classList.remove("active"); });
+  var chip = document.getElementById("chip-" + cat);
+  if (chip) chip.classList.add("active");
+  applyFilters();
+}
+
+function applyFilters() {
+  var q = document.getElementById("searchInput").value.toLowerCase();
+  var sortBy = document.getElementById("sortSelect").value;
+  var filtered = allProjects.filter(function(p) {
+    var matchCat = currentFilter === "all" || (p.category || "other") === currentFilter;
+    var matchQ = !q ||
+      (p.title || "").toLowerCase().indexOf(q) >= 0 ||
+      (p.description || "").toLowerCase().indexOf(q) >= 0 ||
+      (p.category || "").toLowerCase().indexOf(q) >= 0 ||
+      (p.tags || []).join(" ").toLowerCase().indexOf(q) >= 0;
+    return matchCat && matchQ;
+  });
+  filtered.sort(function(a, b) {
+    if (sortBy === "created_at") return (b.created_at || 0) - (a.created_at || 0);
+    if (sortBy === "category") return (a.category || "").localeCompare(b.category || "");
+    if (sortBy === "status") return (a.status || "").localeCompare(b.status || "");
+    return (a.title || "").localeCompare(b.title || "");
+  });
+  renderProjects(filtered);
+  updateStats(filtered);
+}
+
+function searchProjects() {
+  applyFilters();
+}
+
+function renderProjects(projects) {
+  var grid = document.getElementById("projectGrid");
+  var empty = document.getElementById("emptyState");
+  if (projects.length === 0) {
+    grid.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+  grid.innerHTML = projects.map(function(p) {
+    var tags = (p.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join("");
+    var notesHtml = p.notes ? '<div class="notes-box" id="notes-' + p.id + '" style="font-size:12px;color:var(--text3);margin-bottom:8px;padding:6px 10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;gap:8px"><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📝 <span class="notes-text">••••••••</span></span><button onclick="event.stopPropagation();copyNotes(\'' + p.id + '\',\'' + escapeHtml(p.notes).replace(/'/g,"\\'") + '\')" class="notes-btn" style="background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap">📋 Másol</button><button onclick="event.stopPropagation();toggleNotes(\'' + p.id + '\',\'' + escapeHtml(p.notes).replace(/'/g,"\\'") + '\')" class="notes-btn" style="background:none;border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap">👁️ Mutat</button></div>' : '';
+    var link = p.url ? '<a href="' + escapeHtml(p.url) + '" target="_blank" class="card-link">Megnyit →</a>' : '';
+    var extraLinks = (p.links || []).map(function(l) {
+      return '<a href="' + escapeHtml(l.url) + '" target="_blank" class="card-link" style="margin-left:4px">' + escapeHtml(l.label || l.url) + '</a>';
+    }).join("");
+    var allLinks = link + extraLinks;
+    var statusClass = "status-" + (p.status || "active");
+    var statusIcon = p.status === "active" ? "🟢" : p.status === "paused" ? "🟡" : "⚫";
+    return '<div class="card" onclick="editProject(\'' + p.id + '\')">' +
+      '<div class="card-header">' +
+        '<span class="card-icon">' + (p.icon || "📦") + '</span>' +
+        '<span class="card-title">' + escapeHtml(p.title || "") + '</span>' +
+        '<span class="card-category">' + escapeHtml(p.category || "other") + '</span>' +
+        '<span class="health-badge" id="health-' + p.id + '" style="font-size:11px;padding:3px 8px;border-radius:6px;background:var(--surface2);color:var(--text3)">⏳</span>' +
+      '</div>' +
+      '<div class="card-desc">' + escapeHtml(p.description || "Nincs leírás") + '</div>' +
+      (tags ? '<div class="card-tags">' + tags + '</div>' : '') +
+      notesHtml +
+      '<div class="card-footer">' +
+        allLinks +
+        '<div class="card-actions">' +
+          '<span class="' + statusClass + '" style="font-size:12px">' + statusIcon + ' ' + (p.status || "active") + '</span>' +
+          '<button class="action-btn" onclick="event.stopPropagation();editProject(\'' + p.id + '\')">✏️</button>' +
+          '<button class="action-btn del" onclick="event.stopPropagation();deleteProject(\'' + p.id + '\')">🗑️</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join("");
+}
+
+function updateStats(projects) {
+  document.getElementById("totalCount").textContent = projects.length;
+  var cats = ["app","web","tool","infra","research","other"];
+  cats.forEach(function(c) {
+    var el = document.getElementById(c + "Count");
+    if (el) el.textContent = projects.filter(function(p) { return (p.category || "other") === c; }).length;
+  });
+  document.getElementById("activeCount").textContent = projects.filter(function(p) { return p.status === "active"; }).length;
+}
+
+function openModal() {
+  document.getElementById("modalTitle").textContent = "Új projekt";
+  document.getElementById("editId").value = "";
+  document.getElementById("projTitle").value = "";
+  document.getElementById("projDesc").value = "";
+  document.getElementById("projCategory").value = "app";
+  document.getElementById("projUrl").value = "";
+  document.getElementById("projLinks").value = "";
+  document.getElementById("projIcon").value = "📦";
+  document.getElementById("projTags").value = "";
+  document.getElementById("projNotes").value = "";
+  document.getElementById("projStatus").value = "active";
+  document.getElementById("modalOverlay").classList.add("show");
+}
+
+function editProject(pid) {
+  var p = allProjects.find(function(x) { return x.id === pid; });
+  if (!p) return;
+  document.getElementById("modalTitle").textContent = "Szerkesztés";
+  document.getElementById("editId").value = p.id;
+  document.getElementById("projTitle").value = p.title || "";
+  document.getElementById("projDesc").value = p.description || "";
+  document.getElementById("projCategory").value = p.category || "app";
+  document.getElementById("projUrl").value = p.url || "";
+  document.getElementById("projLinks").value = (p.links || []).map(function(l) { return l.url + (l.label ? "|" + l.label : ""); }).join("\n");
+  document.getElementById("projIcon").value = p.icon || "📦";
+  document.getElementById("projTags").value = (p.tags || []).join(", ");
+  document.getElementById("projNotes").value = p.notes || "";
+  document.getElementById("projStatus").value = p.status || "active";
+  document.getElementById("modalOverlay").classList.add("show");
+}
+
+function closeModal() {
+  document.getElementById("modalOverlay").classList.remove("show");
+}
+
+function saveProject() {
+  var id = document.getElementById("editId").value;
+  var data = {
+    title: document.getElementById("projTitle").value.trim(),
+    description: document.getElementById("projDesc").value.trim(),
+    category: document.getElementById("projCategory").value,
+    url: document.getElementById("projUrl").value.trim(),
+    links: document.getElementById("projLinks").value.split("\n").map(function(l) {
+      var parts = l.trim().split("|");
+      return parts[0].trim() ? { url: parts[0].trim(), label: (parts[1] || "").trim() } : null;
+    }).filter(function(l) { return l; }),
+    icon: document.getElementById("projIcon").value.trim() || "📦",
+    tags: document.getElementById("projTags").value.split(",").map(function(t) { return t.trim(); }).filter(function(t) { return t; }),
+    notes: document.getElementById("projNotes").value.trim(),
+    status: document.getElementById("projStatus").value
+  };
+  if (!data.title) { alert("Cím kötelező!"); return; }
+
+  var method = id ? "PUT" : "POST";
+  var url = id ? "/api/projects/" + id : "/api/projects";
+
+  fetch(url, {
+    method: method,
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+    body: JSON.stringify(data)
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) { alert(data.error); return; }
+      closeModal();
+      loadProjects();
+    })
+    .catch(function(e) { alert("Hiba: " + e); });
+}
+
+function deleteProject(pid) {
+  if (!confirm("Biztosan törlöd ezt a projektet?")) return;
+  fetch("/api/projects/" + pid, {
+    method: "DELETE",
+    headers: { "Authorization": "Bearer " + token }
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(data) { loadProjects(); })
+    .catch(function(e) { alert("Törlés hiba: " + e); });
+}
+
+function escapeHtml(text) {
+  var div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ─── Node Onboarding Wizard ─────────────────────────────────
+function showOnboardWizard() {
+  var modal = document.getElementById('onboardModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+}
+
+function closeOnboard() {
+  document.getElementById('onboardModal').style.display = 'none';
+}
+
+function runOnboard() {
+  var nodeName = document.getElementById('onboardName').value.trim();
+  var sshKey = document.getElementById('onboardKey').value.trim();
+  var useTS = document.getElementById('onboardTailscale').checked;
+  
+  if (!nodeName) { alert('Node név kötelező!'); return; }
+  
+  var btn = document.getElementById('onboardBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Onboarding folyamatban...';
+  
+  var resultDiv = document.getElementById('onboardResult');
+  resultDiv.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">⏳ Folyamatban...</div>';
+  
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || authToken || '';
+  fetch('/api/onboard', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ node_name: nodeName, ssh_pubkey: sshKey, use_tailscale: useTS })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    btn.disabled = false;
+    btn.textContent = '🚀 Onboard indítása';
+    
+    if (d.error) {
+      resultDiv.innerHTML = '<div style="color:var(--red);padding:12px">❌ Hiba: ' + escapeHtml(d.error) + '</div>';
+      return;
+    }
+    
+    var html = '<div style="padding:12px">';
+    html += '<div style="font-size:16px;font-weight:600;margin-bottom:12px">';
+    html += d.success ? '✅ Onboarding sikeres!' : '⚠️ Onboarding befejezve (hibák voltak)';
+    html += '</div>';
+    
+    // Steps
+    if (d.steps && d.steps.length) {
+      html += '<div style="margin-bottom:12px"><b>Lépések:</b></div>';
+      d.steps.forEach(function(s) {
+        var icon = s.status === 'ok' ? '✅' : s.status === 'warn' ? '⚠️' : '❌';
+        var color = s.status === 'ok' ? 'var(--green)' : s.status === 'warn' ? 'var(--yellow)' : 'var(--red)';
+        html += '<div style="display:flex;gap:8px;padding:4px 0;font-size:13px">';
+        html += '<span>' + icon + '</span>';
+        html += '<span style="color:' + color + '">' + escapeHtml(s.step) + '</span>';
+        html += '<span style="color:var(--text3);flex:1">' + escapeHtml(s.detail || '') + '</span>';
+        html += '</div>';
+      });
+    }
+    
+    // Credentials
+    if (d.mesh_user) {
+      html += '<div style="margin-top:12px;padding:12px;background:var(--surface2);border-radius:8px">';
+      html += '<b>🔐 Mesh hitelesítő adatok:</b><br>';
+      html += 'User: <code>' + escapeHtml(d.mesh_user.username) + '</code><br>';
+      html += 'Pass: <code>' + escapeHtml(d.mesh_user.password) + '</code><br>';
+      html += 'Token: <code>' + escapeHtml(d.auth_token || '—') + '</code>';
+      html += '</div>';
+    }
+    
+    // Peer info
+    if (d.peer_info && d.peer_info.length) {
+      html += '<div style="margin-top:12px"><b>📡 Peer node-ok:</b></div>';
+      d.peer_info.forEach(function(p) {
+        html += '<div style="font-size:13px;padding:2px 0">• ' + escapeHtml(p.name) + ' @ ' + escapeHtml(p.host) + ':' + p.p2p_port + '</div>';
+      });
+    }
+    
+    // Tailscale IPs
+    if (d.tailscale_ips) {
+      html += '<div style="margin-top:12px"><b>🔵 Tailscale IP-k:</b></div>';
+      Object.keys(d.tailscale_ips).forEach(function(name) {
+        html += '<div style="font-size:13px;padding:2px 0">• ' + escapeHtml(name) + ': <code>' + escapeHtml(d.tailscale_ips[name]) + '</code></div>';
+      });
+    }
+    
+    // SSH targets
+    if (d.ssh_targets && d.ssh_targets.length) {
+      html += '<div style="margin-top:12px"><b>🔑 SSH kulcs csere:</b></div>';
+      d.ssh_targets.forEach(function(t) {
+        var icon = t.status === 'ok' ? '✅' : '❌';
+        html += '<div style="font-size:13px;padding:2px 0">' + icon + ' ' + escapeHtml(t.name || t.host) + ' — ' + escapeHtml(t.status) + '</div>';
+      });
+    }
+    
+    // Peer keys (for the new node to add)
+    if (d.peer_keys && d.peer_keys.length) {
+      html += '<div style="margin-top:12px"><b>📥 Peer SSH kulcsok (add hozzá a new node authorized_keys-éhez):</b></div>';
+      d.peer_keys.forEach(function(pk) {
+        html += '<div style="font-size:12px;padding:4px 0;border-top:1px solid var(--border)">';
+        html += '<b>' + escapeHtml(pk.name) + '</b>: <code style="font-size:10px;word-break:break-all">' + escapeHtml(pk.key) + '</code>';
+        html += '</div>';
+      });
+    }
+    
+    html += '</div>';
+    resultDiv.innerHTML = html;
+  })
+  .catch(function(e) {
+    btn.disabled = false;
+    btn.textContent = '🚀 Onboard indítása';
+    resultDiv.innerHTML = '<div style="color:var(--red);padding:12px">❌ Hálózati hiba: ' + escapeHtml(e) + '</div>';
+  });
+}
+</script>
+</body>
+</html>

@@ -61,7 +61,7 @@ class P2PTransport(TransportAdapter):
     FILE_BANDWIDTH_LIMIT = 0     # Max bytes/sec for file transfers (0 = unlimited)
     INITIAL_BACKOFF_JITTER = 0.5 # Jitter factor for backoff (0-1)
     HEALTH_CHECK_INTERVAL = 15   # Seconds between health check pings (proactive)
-    HEALTH_CHECK_TIMEOUT = 30    # Seconds before considering connection unhealthy
+    HEALTH_CHECK_TIMEOUT = 90    # Seconds before considering connection unhealthy
     # ── Adaptive throttling ──
     ADAPTIVE_BATCH_MIN = 4        # Minimum batch size when congestion detected
     ADAPTIVE_BATCH_MAX = 32       # Maximum batch size on fast links
@@ -69,9 +69,10 @@ class P2PTransport(TransportAdapter):
     ADAPTIVE_RTT_LOW = 0.01       # RTT below this = fast link (batch up to MAX)
     ADAPTIVE_RTT_HIGH = 0.10      # RTT above this = slow link (batch down to MIN)
 
-    def __init__(self, config, node_version: str = "unknown"):
+    def __init__(self, config, node_version: str = "unknown", shared_pool=None):
         self.config = config
         self._node_version = node_version
+        self._shared_pool = shared_pool  # Shared AsyncDBPool for MessageAuth
         self._available = False
         self._server: Optional[asyncio.Server] = None
         self._peers: Dict[str, Tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
@@ -81,6 +82,12 @@ class P2PTransport(TransportAdapter):
         self._peer_retry_count: Dict[str, int] = {}  # peer_name → consecutive failure count
         self._peer_connected_at: Dict[str, float] = {}  # peer_name → connection start timestamp
         self._peer_latency: Dict[str, float] = {}  # peer_name → estimated RTT in ms (EWMA)
+        # FIX (v0.42.4): same-clock RTT measurement — record wall-clock time when a
+        # message is handed to the P2P writer, keyed by message id. On ACK arrival we
+        # compute RTT from OUR OWN clock (sent_at → now), which is immune to cross-node
+        # clock skew. The old method used the ACKER's clock (payload timestamp), producing
+        # negative "RTT" values (~-40..-160ms) even with NTP-synced nodes.
+        self._pending_ack_ts: Dict[str, float] = {}  # msg_id → sent_at (monotonic-safe wall clock)
         self._peer_last_seen: Dict[str, float] = {}  # peer_name → last message/heartbeat timestamp
         self._peer_batch_size: Dict[str, int] = {}   # peer_name → adaptive WRITE_BATCH_SIZE
         self._peer_drain_time: Dict[str, float] = {} # peer_name → last drain time (seconds)
@@ -152,7 +159,7 @@ class P2PTransport(TransportAdapter):
         security_config = getattr(config, 'security', None)
         if security_config and getattr(security_config, 'transport_auth', 'none') != 'none':
             try:
-                self._message_auth = MessageAuth(config)
+                self._message_auth = MessageAuth(config, pg_pool=self._shared_pool)
                 log.info(f"P2P MessageAuth initialized (mode={security_config.transport_auth}, "
                          f"rotation_interval={getattr(security_config, 'auth_rotation_interval', 3600)}s, "
                          f"rate_limit={getattr(security_config, 'auth_rate_limit', 100)}/min)")
@@ -405,6 +412,13 @@ class P2PTransport(TransportAdapter):
             log.info(f"TLS connection from {peer_addr}: {ssl_obj.version()} cipher={ssl_obj.cipher()}")
         else:
             log.warning(f"PLAIN TCP connection from {peer_addr} (no TLS handshake)")
+            # If server is TLS-enabled but peer sent plain TCP, close immediately
+            # to avoid frame parser reading TLS handshake bytes as frame data
+            # (which causes "Payload too large: 369295616 bytes" errors)
+            if self._ssl_context is not None:
+                log.warning(f"Closing plain TCP connection from {peer_addr}: server requires TLS")
+                writer.close()
+                return
 
         # Try to identify which peer this connection is from
         connected_peer_name = None
@@ -477,6 +491,23 @@ class P2PTransport(TransportAdapter):
                                 asyncio.create_task(self._heartbeat_callback(connected_peer_name, hb_version, hb_provider_status))
                             except Exception as e:
                                 log.debug(f"Heartbeat callback error for {connected_peer_name}: {e}")
+                        # Respond to heartbeat so SSH tunnel client knows we're alive.
+                        # Without this, SSH tunnel _read_loop gets 0 bytes and closes.
+                        try:
+                            from ..core.message import A2AMessage as _Msg, MSG_TYPE_HEARTBEAT as _HB
+                            import time as _t
+                            resp = _Msg.create(
+                                sender=getattr(self.config, 'node_name', ''),
+                                recipient=message.sender,
+                                msg_type=MSG_TYPE_ACK,
+                                payload={"ack_type": "ssh_tunnel_heartbeat", "timestamp": _t.time()},
+                            )
+                            frame = self._encode_authenticated_frame(resp.to_bytes(), connected_peer_name)
+                            writer.write(frame)
+                            await writer.drain()
+                            log.debug(f"Heartbeat ACK sent to {message.sender} via tunnel")
+                        except Exception as e:
+                            log.debug(f"Heartbeat response failed for {message.sender}: {e}")
                         # Don't re-queue heartbeats for normal processing
                         continue
 
@@ -485,28 +516,31 @@ class P2PTransport(TransportAdapter):
                         payload = message.payload if isinstance(message.payload, dict) else {}
                         ack_for_id = payload.get("ack_for", "")
                         ack_type = payload.get("ack_type", "delivered")
-                        log.info(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
-                        # Track per-peer latency (EWMA) for adaptive routing
-                        ts = payload.get("timestamp", 0)
-                        if ts and connected_peer_name:
-                            raw_rtt_ms = (time.time() - ts) * 1000
+                        log.debug(f"P2P ACK received for message {ack_for_id[:8]} from {message.sender}: {ack_type}")
+                        # FIX (v0.42.4): same-clock RTT measurement.
+                        # Prefer _pending_ack_ts (our own clock at send time) — immune to
+                        # cross-node clock skew. Only fall back to the ACK payload timestamp
+                        # (acker's clock) if we have no local record (e.g. message sent by
+                        # another transport or process restart).
+                        if connected_peer_name:
+                            raw_rtt_ms = self._consume_send_ts(ack_for_id)  # -1 if unknown
                             if raw_rtt_ms < 0:
-                                # Throttle clock skew warning to once per peer per hour
-                                now = time.time()
-                                last_warned = getattr(self, '_clock_skew_warned', {}).get(connected_peer_name, 0)
-                                if now - last_warned > 3600:
-                                    log.warning(f"Clock skew detected with {connected_peer_name}: "
-                                                f"raw RTT={raw_rtt_ms:.2f}ms (negative). "
-                                                f"Consider enabling NTP on all nodes.")
-                                    if not hasattr(self, '_clock_skew_warned'):
-                                        self._clock_skew_warned = {}
-                                    self._clock_skew_warned[connected_peer_name] = now
-                            rtt_ms = max(0, raw_rtt_ms)  # Clamp negative (clock skew)
-                            # Use rtt_ms if no valid previous measurement (0 or negative = stale)
-                            old_rtt = self._peer_latency.get(connected_peer_name, 0)
-                            if old_rtt <= 0:
-                                old_rtt = rtt_ms  # First valid measurement or replacing stale negative
-                            self._peer_latency[connected_peer_name] = old_rtt * 0.7 + rtt_ms * 0.3  # EWMA
+                                # Fallback: ACKER órája — cross-node clock skew miatt NEM
+                                # megbízható (0.4–1.5s skew mért élesben). Csak akkor
+                                # használjuk, ha nincs érvényes mérésünk, és plausibility
+                                # bound-al korlátozzuk (max 250ms LAN RTT).
+                                ts = payload.get("timestamp", 0)
+                                if ts:
+                                    raw_rtt_ms = (time.time() - ts) * 1000
+                                    if raw_rtt_ms > 250.0:
+                                        raw_rtt_ms = -1.0  # skew artifact — discard sample
+                            if raw_rtt_ms >= 0:
+                                rtt_ms = max(0.0, raw_rtt_ms)
+                                # Use rtt_ms if no valid previous measurement (0 or negative = stale)
+                                old_rtt = self._peer_latency.get(connected_peer_name, 0)
+                                if old_rtt <= 0:
+                                    old_rtt = rtt_ms  # First valid measurement or replacing stale negative
+                                self._peer_latency[connected_peer_name] = old_rtt * 0.7 + rtt_ms * 0.3  # EWMA
                         if self._ack_callback and ack_for_id:
                             try:
                                 asyncio.create_task(self._ack_callback(ack_for_id, ack_type))
@@ -744,8 +778,59 @@ class P2PTransport(TransportAdapter):
             log.warning(f"Heartbeat send failed to {peer_name}: {e}")
             raise  # Let the caller handle the broken connection
 
+    # FIX (v0.43.2): TTL for send_ts entries — broadcast msgs get multiple ACKs,
+    # so entries are peeked (not popped) and pruned by age instead.
+    ACK_TS_TTL = 60.0  # seconds — ACKs arriving later than this are treated as unknown
+
+    def _record_send_ts(self, message: A2AMessage):
+        """FIX (v0.42.4): record send timestamp (our clock) for same-clock RTT measurement."""
+        try:
+            msg_id = message.id
+            if not msg_id:
+                return
+            now = time.time()
+            # FIX (v0.43.2): prune expired entries by age (peek-based consumption needs this)
+            if len(self._pending_ack_ts) > 2048:
+                expired = [k for k, v in self._pending_ack_ts.items() if now - v > self.ACK_TS_TTL]
+                for k in expired:
+                    del self._pending_ack_ts[k]
+                # Still over cap after pruning? Drop oldest entries (dict preserves insertion order)
+                if len(self._pending_ack_ts) > 2048:
+                    for k in list(self._pending_ack_ts.keys())[:1024]:
+                        del self._pending_ack_ts[k]
+            self._pending_ack_ts[msg_id] = now
+        except Exception as e:
+            log.debug(f"record_send_ts failed: {e}")
+
+    def _consume_send_ts(self, msg_id: str) -> float:
+        """FIX (v0.43.2): PEEK recorded send time, return RTT in ms, or -1 if unknown.
+
+        Peek (not pop): broadcast messages receive one ACK per peer with the same
+        msg_id — every ACK must be able to measure RTT from the original send time.
+        Entries expire via ACK_TS_TTL pruning in _record_send_ts.
+        """
+        try:
+            if not msg_id:
+                return -1.0
+            sent_at = self._pending_ack_ts.get(msg_id)
+            if sent_at is None:
+                return -1.0
+            rtt = (time.time() - sent_at) * 1000.0
+            if rtt < 0:
+                return -1.0
+            return rtt
+        except Exception:
+            return -1.0
+
     async def _send_ack(self, original_message: A2AMessage, writer: asyncio.StreamWriter, peer_name: Optional[str]):
         """Send an ACK message back via P2P to the sender."""
+        # Guard: the connection may have been closed between message receive and
+        # this scheduled task running (race on reconnect). Writing to a closed
+        # StreamWriter raises AttributeError ('NoneType' has no '_write_appdata')
+        # which flooded logs as WARNINGs. Skip silently instead.
+        if writer is None or writer.is_closing() or writer.transport is None:
+            log.debug(f"Skip P2P ACK for {original_message.id[:8]} — connection closed")
+            return
         try:
             ack_msg = A2AMessage.create(
                 sender=getattr(self.config, 'node_name', ''),
@@ -1037,9 +1122,18 @@ class P2PTransport(TransportAdapter):
                     if priority <= 2:
                         # Drain any pending batch first (to maintain order)
                         await self._flush_write_batch(peer_name)
+                        # FIX (v0.42.4): record send time for same-clock RTT (ACKs are priority<=2)
+                        # FIX (v0.43.2): broadcast üzeneteket is rögzítsünk — a peerek
+                        # broadcast-okat is ACK-olnak; ha nincs local send_ts, a fallback
+                        # óra-skew ág torz RTT-t mér (acker órája vs. saját óra).
+                        # Heartbeat/ACK maga nem kerül ACK-ra, azokat kihagyjuk.
+                        if message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
+                            self._record_send_ts(message)
                         writer.write(frame)
                         await writer.drain()
                     else:
+                        # FIX (v0.43.2): batched path — broadcast is rögzít (lásd priority<=2 ág)
+                        self._record_send_ts(message)
                         # Add to write batch for this peer
                         if peer_name not in self._write_batch:
                             self._write_batch[peer_name] = []
@@ -1173,24 +1267,47 @@ class P2PTransport(TransportAdapter):
                 return SendResult(transport="p2p", success=True, latency_ms=1.0)
 
             # P2: Recipient not connected — try dynamic connection via peer_address_resolver
+            # FIX (v0.42.1): respect per-peer backoff + multi-address fallback here too.
+            # Before: every send() bypassed backoff and tried ONLY the resolver's single
+            # address → retry-storm (891+ consecutive failures for tor via VPN IP) and
+            # log spam. Now: (1) skip dynamic connect while in backoff, (2) try all known
+            # addresses (multi-addr) instead of just the resolver's pick.
             if self._peer_address_resolver and recipient not in self._connecting_peers:
-                addr = self._peer_address_resolver(recipient)
-                if addr:
-                    host, port = addr
-                    log.info(f"P2 dynamic connect: resolving {recipient} → {host}:{port}")
-                    self._connecting_peers.add(recipient)
-                    try:
-                        await self._connect_to_peer(recipient, host, port)
-                    except Exception as e:
-                        log.warning(f"P2 dynamic connect to {recipient} failed: {e}")
-                        self._enqueue_for_retry(message)
-                        return SendResult(transport="p2p", success=False, error=f"dynamic connect failed: {e}")
-                    finally:
-                        self._connecting_peers.discard(recipient)
-                    # After successful connect, enqueue to priority queue
-                    if recipient in self._peers:
-                        self._enqueue_send(recipient, message)
-                        return SendResult(transport="p2p", success=True, latency_ms=5.0)
+                import time as _t  # FIX: _t was undefined here (NameError broke every P2 dynamic connect)
+                now = _t.time()
+                next_retry_at = self._peer_backoff.get(recipient, 0)
+                if next_retry_at and now < next_retry_at:
+                    log.debug(f"P2 dynamic connect: {recipient} in backoff until {next_retry_at:.0f}")
+                else:
+                    addr = self._peer_address_resolver(recipient)
+                    if addr:
+                        # Multi-address fallback: prefer configured alternate addresses,
+                        # then the resolver's pick as the last candidate.
+                        addresses = list(self._peer_alternate_addresses.get(recipient, []))
+                        if addr not in addresses:
+                            addresses.append(addr)
+                        log.info(f"P2 dynamic connect: resolving {recipient} → {len(addresses)} address(es): {[f'{h}:{p}' for h, p in addresses]}")
+                        self._connecting_peers.add(recipient)
+                        connected = False
+                        try:
+                            for host, port in addresses:
+                                # Respect backoff set mid-loop by _connect_to_peer failures
+                                if self._peer_backoff.get(recipient, 0) > _t.time():
+                                    break
+                                try:
+                                    await self._connect_to_peer(recipient, host, port)
+                                    connected = recipient in self._peers
+                                    if connected:
+                                        break
+                                except Exception as e:
+                                    log.debug(f"P2 dynamic connect to {recipient} at {host}:{port} failed: {e}")
+                        finally:
+                            self._connecting_peers.discard(recipient)
+                        # After successful connect, enqueue to priority queue
+                        if connected and recipient in self._peers:
+                            self._enqueue_send(recipient, message)
+                            return SendResult(transport="p2p", success=True, latency_ms=5.0)
+                        log.debug(f"P2 dynamic connect: {recipient} unreachable on all {len(addresses)} addresses — PG/HTTP fallback")
 
             # No address resolver or address not found — queue for retry
             self._enqueue_for_retry(message)

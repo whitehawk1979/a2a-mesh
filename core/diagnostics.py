@@ -13,6 +13,7 @@ to keep diagnostic traffic isolated and allow fine-grained filtering.
 """
 
 import asyncio
+import re
 import json
 import os
 import platform
@@ -296,7 +297,7 @@ class DiagnosticEngine:
                 "cpu_steal_percent": round(cpu_steal, 1),
                 "disk_usage_percent": psutil.disk_usage('/').percent,
                 "open_files": len(process.open_files()) if hasattr(process, 'open_files') else 0,
-                "connections": len(process.connections()) if hasattr(process, 'connections') else 0,
+                "connections": self._count_mesh_connections(process),
                 "threads": process.num_threads(),
             }
         except ImportError:
@@ -308,6 +309,128 @@ class DiagnosticEngine:
             }
         except Exception as e:
             return {"error": str(e)}
+    
+    def _count_mesh_connections(self, process) -> int:
+        """Count real mesh connections, excluding dashboard/API client keep-alives.
+        
+        psutil connections() counts ALL sockets of the process — including the
+        dashboard's own HTTP keep-alive sockets from browser tabs (observed: 41
+        of 88 connections were on the API port 8650 from browsers). These are
+        normal, not a leak. Count only ESTABLISHED sockets that are NOT accepted
+        inbound connections on our own API/health port.
+        """
+        try:
+            conns = process.connections()
+        except Exception:
+            return 0
+        try:
+            health_port = self.node.config.health_port   # dashboard/API port
+        except Exception:
+            health_port = 8650
+        count = 0
+        for c in conns:
+            try:
+                if c.status != "ESTABLISHED":
+                    continue
+                lport = c.laddr.port if c.laddr else None
+                if lport is None:
+                    continue
+                # Inbound accepted sockets on the dashboard/API port are
+                # browser/poller HTTP keep-alives. Outbound sockets never have
+                # lport == health_port (OS assigns an ephemeral local port),
+                # so this exclusion can only match inbound clients.
+                if lport == health_port:
+                    continue
+                # Count the rest: outbound (ephemeral lport: P2P, PG, SSH
+                # tunnels) + inbound P2P peers (accepted on listen_port).
+                count += 1
+            except Exception:
+                continue
+        return count
+    
+    async def _auto_resolve_metric_suggestions(self, report) -> List[str]:
+        """Auto-resolve pending/accepted metric suggestions when the metric normalized.
+        
+        A pending suggestion (e.g. 'Magas RSS memória') is marked 'completed'
+        when 2 consecutive reports show the metric back within threshold. This
+        prevents eternal pending entries after the underlying issue was fixed
+        (e.g. by a node restart) — observed: RSS 2529MB suggestion stayed
+        pending after restart dropped actual RSS to 110MB.
+        Returns the list of resolved suggestion IDs.
+        """
+        resolved = []
+        mem = report.memory_stats
+        health = report.mesh_health
+        if not mem and not health:
+            return resolved
+        rss = mem.get("process_rss_mb", 0) if mem else 0
+        sys_mem = mem.get("system_memory_percent", 0) if mem else 0
+        peer_count = health.get("peer_count", -1) if health else -1
+
+        for s in list(self._suggestions):
+            if s.status not in ("pending", "accepted"):
+                continue
+            if s.node != report.node:
+                continue
+            t = _safe_ascii(s.title.lower())  # PG titles are _safe_ascii-ed
+            # RSS normalized (< 600MB target from suggestion text)
+            if "rss memoria" in t and rss and rss < 600:
+                self._set_resolved(s, resolved)
+            elif "memoriahasznalat" in t and sys_mem and sys_mem < 75:
+                # system memory usage back under the 'magas' threshold
+                self._set_resolved(s, resolved)
+            elif "oom" in t and rss and rss < 600:
+                self._set_resolved(s, resolved)
+            elif "kapcsolatszam" in t and rss:
+                # connection count suggestion: resolve if the (now corrected)
+                # metric collection returns a low value; connections field is
+                # only in fresh reports — use absence of threshold breach as signal
+                conns = mem.get("connections", 0)
+                if conns < 50:
+                    self._set_resolved(s, resolved)
+            elif "steal" in t and mem:
+                # CPU steal normalized below the 10% target from suggestion text
+                # (observed: runa steal=31% suggestion stayed pending while
+                #  live steal was 0.0% — no resolve branch existed)
+                steal = mem.get("cpu_steal_percent")
+                if steal is not None and steal < 10:
+                    self._set_resolved(s, resolved)
+            elif "lemezterulet" in t and mem:
+                # disk usage back under the generation threshold (80%) with
+                # hysteresis buffer — NOT 85%. Old threshold (<85%) sat ABOVE
+                # the generation threshold (>80), so at 84-85% every cycle
+                # resolved the old suggestion AND generated a new one →
+                # endless completed/pending churn (878 rows, 445 completed).
+                disk = mem.get("disk_usage_percent")
+                if disk is not None and disk < 78:
+                    self._set_resolved(s, resolved)
+            elif "peer csatlakozva" in t and peer_count >= 2:
+                # mesh resilience restored: min target peers connected again
+                # covers both "Nincs peer csatlakozva" and "Csak 1 peer csatlakozva"
+                self._set_resolved(s, resolved)
+            elif "gyakori restart" in t and health:
+                # uptime recovered: node stable >= 1h since the restart alert
+                uptime_s = health.get("uptime_seconds", 0)
+                if uptime_s and uptime_s >= 3600:
+                    self._set_resolved(s, resolved)
+            elif "verzio" in t and health:
+                # version drift: resolve if peer versions now all match
+                peers = health.get("peers", [])
+                if isinstance(peers, list) and peers:
+                    versions = {str(p.get("version", "?")) for p in peers if isinstance(p, dict)}
+                    own = getattr(self.node, "_resolved_version", None) or "unknown"
+                    if len(versions) <= 1 and own in versions:
+                        self._set_resolved(s, resolved)
+        
+        # Persist resolved statuses to PG
+        for sid in resolved:
+            asyncio.ensure_future(self._update_suggestion_status_pg(sid, "completed"))
+        return resolved
+    
+    def _set_resolved(self, s, resolved: List[str]):
+        """Mark a suggestion completed (in-memory) and collect its ID."""
+        s.status = "completed"
+        resolved.append(s.suggestion_id)
     
     def _collect_error_patterns(self) -> Dict[str, Any]:
         """Analyze recent error patterns."""
@@ -461,7 +584,7 @@ class DiagnosticEngine:
         mem = report.memory_stats
         if mem:
             rss = mem.get("process_rss_mb", 0)
-            if rss > 500:
+            if rss > 800:
                 recs.append(f"High memory usage ({rss}MB) — consider restarting or investigating memory leaks")
             sys_mem = mem.get("system_memory_percent", 0)
             if sys_mem > 85:
@@ -499,24 +622,125 @@ class DiagnosticEngine:
         
         return recs
     
+    async def _vector_memory_search(self, query: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """Search the Brain vector memory for relevant past experiences.
+        
+        Uses the Brain HTTP API (localhost:3322) for pgvector cosine similarity search.
+        Returns list of {id, category, title, content, similarity} dicts.
+        
+        This enables the learning loop to recall past incidents, solutions, and
+        patterns that are semantically similar to the current diagnostic state.
+        """
+        try:
+            import aiohttp
+            url = f"http://localhost:3322/memory/vector?query={query.replace(' ', '+')}&limit={limit}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        results = data.get("results", [])
+                        # Filter: only keep results with meaningful similarity
+                        return [r for r in results if float(r.get("similarity", 0)) >= 0.40]
+            return []
+        except Exception as e:
+            log.debug(f"Vector memory search failed: {e}")
+            return []
+    
+    async def _enrich_suggestion_with_memory(self, suggestion: ConfigSuggestion, 
+                                               report: DiagnosticReport) -> ConfigSuggestion:
+        """Enrich a config suggestion with relevant memories from the vector DB.
+        
+        If the Brain memory contains past incidents/solutions related to this
+        suggestion's category, append them to the rationale and potentially
+        upgrade the priority.
+        
+        This is the core of the learning loop: past experiences inform current
+        recommendations, making the system self-improving over time.
+        """
+        # Build a search query from the suggestion's key fields
+        query_parts = [
+            suggestion.category,
+            suggestion.title,
+            report.node,
+        ]
+        query = " ".join(query_parts)[:200]
+        
+        memories = await self._vector_memory_search(query, limit=3)
+        if not memories:
+            return suggestion
+        
+        # Build memory context string
+        memory_refs = []
+        for m in memories:
+            title = m.get("title", "?")[:80]
+            sim = float(m.get("similarity", 0))
+            content = m.get("content", "")[:200]
+            memory_refs.append(f"[sim={sim:.2f}] {title}: {content}")
+        
+        memory_text = " | ".join(memory_refs[:2])  # Keep it concise
+        
+        # Append to rationale
+        existing_rationale = suggestion.rationale or ""
+        suggestion.rationale = f"{existing_rationale} | Korábbi tapasztalat: {memory_text}"
+        
+        # Upgrade priority if high-similarity memory found (≥0.55)
+        # Skip for known recurring patterns (version mismatch, etc.) where
+        # memory similarity is a false positive — the pattern repeats every
+        # upgrade cycle, not because it's an urgent issue.
+        _skip_upgrade = any(kw in suggestion.title.lower() for kw in ("verzióeltérés", "verzioelteres"))
+        max_sim = max(float(m.get("similarity", 0)) for m in memories)
+        if max_sim >= 0.55 and not _skip_upgrade:
+            priority_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+            current = priority_order.get(suggestion.priority, 1)
+            if current < 2:  # Don't downgrade critical
+                suggestion.priority = "high" if current < 2 else suggestion.priority
+                log.info(f"💡 Priority upgraded based on vector memory (sim={max_sim:.2f}): {suggestion.title[:50]}")
+        
+        # Store memory references in description
+        suggestion.description = f"{suggestion.description} [Memory refs: {len(memories)} matches, top sim={max_sim:.2f}]"
+        
+        return suggestion
+    
     async def _generate_suggestions_from_report(self, report: DiagnosticReport) -> List[ConfigSuggestion]:
         """Automatically generate config suggestions based on diagnostic report data.
         
         Each agent analyzes its own report and creates actionable suggestions
         that appear in the dashboard with status tracking (pending/accepted/rejected/implemented).
+        
+        The learning loop enriches suggestions with vector memory search: past
+        incidents and solutions from the Brain memory DB are recalled via
+        semantic similarity and used to strengthen the rationale and priority.
         """
         new_suggestions = []
         node_name = report.node
+        
+        # Auto-resolve stale metric-based suggestions BEFORE generating new ones:
+        # if a metric normalized (e.g. RSS dropped after restart), mark the old
+        # pending/accepted suggestion as completed and unblock regeneration.
+        try:
+            resolved_ids = await self._auto_resolve_metric_suggestions(report)
+            if resolved_ids:
+                log.info(f"📋 Auto-resolved {len(resolved_ids)} normalized suggestions: {resolved_ids}")
+        except Exception as e:
+            log.warning(f"Failed to auto-resolve suggestions: {e}")
         
         # Helper: check if similar suggestion already exists to avoid duplicates
         # Check title substring AND node name AND not rejected (so pending/accepted/implemented blocks re-creation)
         def _suggestion_exists(title_substring: str) -> bool:
             # Normalized check: compare first 30 chars of title (case-insensitive)
             # This catches near-duplicates like "Csak 1 peer csatlakozva" vs "Csak 1 peer csatlakozva — alacsony"
-            target = title_substring.lower().strip()[:30]
+            # ASCII-normalize BOTH sides: PG stores titles _safe_ascii-ed
+            # ("Nagy kapcsolatszam"), fresh in-memory titles keep accents
+            # ("Nagy kapcsolatszám"). Without normalization, accented search
+            # strings never match PG-loaded ASCII titles after a restart →
+            # duplicate suggestions every cycle (observed: 141, 146, 102, 113).
+            target = _safe_ascii(title_substring.lower().strip())[:30]
+            # In-memory cache check
             return any(
-                target in s.title.lower()[:60]
+                target in _safe_ascii(s.title.lower())[:60]
                 and s.node == node_name
+                # 'completed' (auto-resolved) and 'superseded'/'rejected' do NOT block —
+                # if the metric degrades again, a fresh suggestion must be generated.
                 and s.status in ("pending", "accepted", "implemented", "investigated")
                 for s in self._suggestions
             )
@@ -553,14 +777,14 @@ class DiagnosticEngine:
                 new_suggestions.append(s)
             
             rss = mem.get("process_rss_mb", 0)
-            if rss > 500 and not _suggestion_exists("RSS memória"):
+            if rss > 800 and not _suggestion_exists("RSS memória"):
                 s = await self.generate_suggestion(
                     category="memory",
                     priority="high",
                     title=f"Magas RSS memória ({rss:.0f}MB) — lehetséges memóriaszivárgás",
                     description=f"A {node_name} agent folyamata {rss:.0f}MB RSS memóriát használ. Ez memóriaszivárgásra utalhat.",
                     current_value=f"{rss:.0f}MB",
-                    suggested_value="<400MB",
+                    suggested_value="<600MB",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Az agent újraindítása ideiglenesen megoldja, de a root cause vizsgálata szükséges.",
                     affected_nodes=[node_name],
                     node_name_override=node_name,
@@ -578,8 +802,9 @@ class DiagnosticEngine:
             # measurement including all VMs. If process CPU is low (<10%), the mesh
             # process itself is not CPU-bound — skip the critical suggestion.
             cpu = cpu_effective
-            if cpu > 90 and process_cpu < 10:
+            if cpu > 75 and process_cpu < 10:
                 # System CPU high but mesh process idle → Proxmox host noise
+                # Covers both medium (75%+) and critical (90%+) thresholds
                 cpu = process_cpu  # Use process CPU instead, avoids false positive
 
             # Steal time warning (KVM/VM environments)
@@ -610,7 +835,7 @@ class DiagnosticEngine:
                     node_name_override=node_name,
                 )
                 new_suggestions.append(s)
-            elif cpu > 75 and not _suggestion_exists("CPU használat"):
+            elif cpu > 85 and not _suggestion_exists("CPU használat"):
                 s = await self.generate_suggestion(
                     category="performance",
                     priority="medium",
@@ -788,21 +1013,21 @@ class DiagnosticEngine:
                     dev_suggestion = self._map_error_to_dev_suggestion(node_name, err_type, count)
                     if dev_suggestion and not _suggestion_exists(dev_suggestion["title_substring"]):
                         s = await self.generate_suggestion(**dev_suggestion)
-                        new_suggestions.append(s,
-                    node_name_override=node_name,
-                )
+                        new_suggestions.append(s)
 
         # Version mismatch across nodes → development suggestion
         if health:
             peers = health.get("peers", [])
             if isinstance(peers, list) and len(peers) > 0:
                 versions = set()
+                # Semver pattern: X.Y.Z (optionally with pre-release suffix)
+                _ver_re = re.compile(r'^\d+\.\d+\.\d+')
                 for p in peers:
                     v = p.get("version", "?")
-                    if v and v != "?":
+                    if v and v != "?" and _ver_re.match(str(v)):
                         versions.add(v)
                 own_ver = getattr(self.node, '_resolved_version', None) or 'unknown'
-                if own_ver and own_ver != 'unknown':
+                if own_ver and own_ver != 'unknown' and _ver_re.match(str(own_ver)):
                     versions.add(own_ver)
                 if len(versions) > 1 and not _suggestion_exists("verzió"):
                     s = await self.generate_suggestion(
@@ -821,14 +1046,14 @@ class DiagnosticEngine:
         # OOM risk → development suggestion for restart resilience
         if mem:
             rss = mem.get("process_rss_mb", 0)
-            if rss > 300 and not _suggestion_exists("OOM védelem"):
+            if rss > 800 and not _suggestion_exists("OOM védelem"):
                 s = await self.generate_suggestion(
                     category="development",
                     priority="medium",
                     title=f"OOM védelem javítása — {node_name} RSS: {rss:.0f}MB",
                     description=f"A {node_name} agent folyamata {rss:.0f}MB memóriát használ. A Restart=always beállítás véd, de a root cause (memóriaszivárgás) vizsgálata javasolt.",
                     current_value=f"{rss:.0f}MB RSS",
-                    suggested_value="<200MB RSS",
+                    suggested_value="<600MB RSS",
                     rationale="A memóriaszivárgás idővel OOM kill-hez vezet. Restart=always biztosítja az újraindítást, de a szivárgás forrását is meg kell találni.",
                     affected_nodes=[node_name],
                     node_name_override=node_name,
@@ -908,8 +1133,17 @@ class DiagnosticEngine:
                 new_suggestions.append(s)
 
             # Uptime stability — frequent restarts
+            # Cooldown: only generate once per node per 30 minutes to avoid
+            # spamming suggestions (and auto-delegated tasks) on every diagnostic
+            # cycle while the node is under 10 minutes uptime.
             uptime = health.get("uptime_seconds", 0)
-            if 0 < uptime < 600 and not _suggestion_exists("restart stabilitás"):
+            _restart_cooldown_key = f"_restart_sugg_cooldown_{node_name}"
+            _cooldown_secs = 1800  # 30 minutes
+            _in_cooldown = (
+                hasattr(self, _restart_cooldown_key)
+                and (time.time() - getattr(self, _restart_cooldown_key)) < _cooldown_secs
+            )
+            if 0 < uptime < 600 and not _in_cooldown and not _suggestion_exists("Gyakori restart"):
                 mins = uptime / 60
                 s = await self.generate_suggestion(
                     category="development",
@@ -923,6 +1157,7 @@ class DiagnosticEngine:
                     node_name_override=node_name,
                 )
                 new_suggestions.append(s)
+                setattr(self, _restart_cooldown_key, time.time())
 
             # Message throughput
             msgs_sent = health.get("messages_sent", 0)
@@ -943,6 +1178,18 @@ class DiagnosticEngine:
                 )
                     new_suggestions.append(s)
 
+        # ─── Vector memory enrichment (learning loop) ───────────────
+        # Enrich each new suggestion with relevant past experiences from the
+        # Brain vector memory DB. This makes the system self-improving: if a
+        # similar issue was seen before, the suggestion references it and may
+        # get upgraded priority.
+        if new_suggestions:
+            for i, sugg in enumerate(new_suggestions):
+                try:
+                    new_suggestions[i] = await self._enrich_suggestion_with_memory(sugg, report)
+                except Exception as e:
+                    log.debug(f"Memory enrichment failed for suggestion: {e}")
+        
         if new_suggestions:
             log.info(f"💡 Generated {len(new_suggestions)} auto-suggestions from report {report.report_id}")
             # Auto-delegate high/critical suggestions to the developer (nova)
@@ -1018,8 +1265,13 @@ class DiagnosticEngine:
         """Auto-delegate high/critical development suggestions as tasks to nova (developer)."""
         if not hasattr(self.node, 'delegation') or not self.node.delegation:
             return
+        # Patterns that should NOT be auto-delegated (recurring/known issues)
+        _no_delegate_keywords = ("verzióeltérés", "verzioelteres", "gyakori restart")
         for s in suggestions:
             if s.category == "development" and s.priority in ("high", "critical"):
+                if any(kw in s.title.lower() for kw in _no_delegate_keywords):
+                    log.debug(f"📋 Skipping auto-delegation for known recurring pattern: {s.title[:50]}")
+                    continue
                 try:
                     task_title = f"[DEV] {s.title}"
                     task_desc = f"**Fejlesztési javaslat ({s.priority} prioritás)**\n\n{s.description}\n\n**Jelenlegi érték:** {s.current_value}\n**Célérték:** {s.suggested_value}\n**Indoklás:** {s.rationale}\n\n**Érintett node:** {', '.join(s.affected_nodes)}\n**Javaslat ID:** {s.suggestion_id}"
@@ -1042,9 +1294,9 @@ class DiagnosticEngine:
         if mem:
             rss = mem.get("process_rss_mb", 0)
             sys_mem = mem.get("system_memory_percent", 0)
-            if rss > 1000 or sys_mem > 95:
+            if rss > 1200 or sys_mem > 95:
                 return "critical"
-            if rss > 500 or sys_mem > 85:
+            if rss > 800 or sys_mem > 85:
                 return "warning"
         
         # Isolated node (0 peers) = warning
@@ -1178,7 +1430,7 @@ class DiagnosticEngine:
     def update_suggestion_status(self, suggestion_id: str, new_status: str) -> Optional[ConfigSuggestion]:
         """Update the status of a suggestion (pending/accepted/rejected/implemented).
         Also persists the status change to PG."""
-        valid = {"pending", "accepted", "rejected", "implemented"}
+        valid = {"pending", "accepted", "rejected", "implemented", "completed"}
         if new_status not in valid:
             return None
         for s in self._suggestions:
@@ -1214,8 +1466,13 @@ class DiagnosticEngine:
             if not pg_pool:
                 log.debug("No PG pool available for loading suggestions")
                 return
+            # Load only ACTIVE suggestions: pending/accepted/implemented/
+            # investigated. Completed/superseded history must not consume the
+            # 100-row window — observed: stuck 'accepted' version-drift entries
+            # from Aug 28-29 fell out of the top-100 and were never resolvable.
             rows = await pg_pool.fetch(
-                """SELECT * FROM mesh.mesh_suggestions 
+                """SELECT * FROM mesh.mesh_suggestions
+                   WHERE status IN ('pending', 'accepted', 'implemented', 'investigated')
                    ORDER BY created_at DESC LIMIT 100"""
             )
             for row in rows:
@@ -1303,8 +1560,9 @@ class DiagnosticEngine:
         """
         implemented_ids: List[str] = []
         
-        # Step 1: Deduplicate pending suggestions in PG
+        # Step 1: Deduplicate pending AND accepted suggestions in PG
         await self._dedup_pending_suggestions_pg()
+        await self._dedup_accepted_suggestions_pg()
         
         # Step 2: Reload suggestions from PG (post-dedup)
         self._suggestions = []
@@ -1316,9 +1574,11 @@ class DiagnosticEngine:
             "Csak 1 peer": "accepted",         # Low resilience → accept
             "Nincs peer": "accepted",           # Isolated node → accept
             "Gyakori restart": "accepted",      # Frequent restart → accept
-            "Magas CPU": "accepted",            # High CPU → accept
+            "Magas effektiv CPU": "accepted",   # High CPU → accept
             "Magas memoriahasznalat": "accepted", # High memory → accept + action
             "Kritikus effektiv CPU": "accepted", # Critical CPU → accept
+            "Kritikus lemezterulet": "accepted",  # Critical disk → accept
+            "Magas lemezterulet": "accepted",     # High disk → accept
         }
 
         # Step 4: Auto-actions for specific patterns
@@ -1326,7 +1586,10 @@ class DiagnosticEngine:
             if s.status != "pending":
                 continue
             for pattern, target_status in safe_patterns.items():
-                if pattern.lower() in s.title.lower():
+                # ASCII-normalize: fresh in-memory titles keep Hungarian accents
+                # ("Magas memóriahasználat") while safe_patterns are ASCII
+                # ("Magas memoriahasznalat") — normalize title before compare.
+                if pattern.lower() in _safe_ascii(s.title).lower():
                     self.update_suggestion_status(s.suggestion_id, target_status)
                     implemented_ids.append(s.suggestion_id)
 
@@ -1367,6 +1630,11 @@ class DiagnosticEngine:
                 return
             
             # Mark duplicates as superseded — keep only the latest per (title, category)
+            # Two pass:
+            #  Pass 1: exact title match (original behaviour)
+            #  Pass 2: prefix match for dynamic titles that embed changing values
+            #          (e.g. "Gyakori restart — nova uptime: 3 perc" vs "...6 perc").
+            #          Groups by the text before the first " — " separator and by node.
             result = await pg_pool.execute(
                 """UPDATE mesh.mesh_suggestions s1
                    SET status = 'superseded', updated_at = NOW()
@@ -1374,17 +1642,108 @@ class DiagnosticEngine:
                    AND s1.created_at < (
                        SELECT MAX(s2.created_at)
                        FROM mesh.mesh_suggestions s2
-                       WHERE s2.title = s1.title
+                       WHERE s2.node = s1.node
                        AND s2.category = s1.category
                        AND s2.status = 'pending'
                    )""",
             )
+            # Pass 2: prefix-based dedup for dynamic titles (e.g. "Gyakori restart")
+            # Split on ' — ' (or ' \\u2014 ' stored as ASCII-safe) and match by prefix.
+            prefix_result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'pending'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh.mesh_suggestions s2
+                       WHERE s2.node = s1.node
+                       AND s2.category = s1.category
+                       AND s2.status = 'pending'
+                       AND split_part(s2.title, ' \\u2014 ', 1) = split_part(s1.title, ' \\u2014 ', 1)
+                   )""",
+            )
             # pg_pool.execute returns 'UPDATE N' string
-            if hasattr(result, 'split'):
-                count = result.split()[-1] if ' ' in str(result) else str(result)
-                log.info(f"📋 Dedup: {count} duplicate suggestions marked as superseded")
+            def _count(r):
+                if hasattr(r, 'split'):
+                    return r.split()[-1] if ' ' in str(r) else str(r)
+                return '?'
+            exact_count = _count(result)
+            prefix_count = _count(prefix_result)
+            total_count = int(exact_count) if exact_count.isdigit() else 0
+            total_count += int(prefix_count) if prefix_count.isdigit() else 0
+            if total_count:
+                log.info(f"📋 Dedup: {total_count} duplicate suggestions marked as superseded (exact={exact_count}, prefix={prefix_count})")
             else:
-                log.info(f"📋 Dedup: duplicate suggestions processed")
+                log.info(f"📋 Dedup: no duplicates found")
                 
         except Exception as e:
             log.warning(f"Failed to dedup suggestions in PG: {e}")
+        
+        # Auto-cleanup: mark old 'accepted' suggestions as 'superseded' (older than 3 days)
+        try:
+            cleanup_result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE status = 'accepted'
+                   AND created_at < NOW() - INTERVAL '3 days'"""
+            )
+            cleanup_count = cleanup_result.split()[-1] if hasattr(cleanup_result, 'split') else '0'
+            if cleanup_count.isdigit() and int(cleanup_count) > 0:
+                log.info(f"📋 Cleanup: {cleanup_count} old accepted suggestions → superseded (>3 days)")
+        except Exception as e:
+            log.warning(f"Failed to cleanup old accepted suggestions: {e}")
+
+    async def _dedup_accepted_suggestions_pg(self):
+        """Mark duplicate ACCEPTED suggestions as 'superseded' in PG.
+        
+        Groups by (title, node) and keeps only the most recent one as 'accepted'.
+        This prevents accumulation of 67+ copies of the same disk warning, etc.
+        Also handles prefix-based dedup for dynamic titles (e.g. "Gyakori restart — uptime: X perc").
+        """
+        try:
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            if not pg_pool:
+                return
+            
+            # Pass 1: exact title match — keep only latest per (title, node)
+            result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'accepted'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh.mesh_suggestions s2
+                       WHERE s2.node = s1.node
+                       AND s2.title = s1.title
+                       AND s2.status = 'accepted'
+                   )""",
+            )
+            # Pass 2: prefix-based dedup for dynamic titles
+            prefix_result = await pg_pool.execute(
+                """UPDATE mesh.mesh_suggestions s1
+                   SET status = 'superseded', updated_at = NOW()
+                   WHERE s1.status = 'accepted'
+                   AND s1.created_at < (
+                       SELECT MAX(s2.created_at)
+                       FROM mesh.mesh_suggestions s2
+                       WHERE s2.node = s1.node
+                       AND s2.category = s1.category
+                       AND s2.status = 'accepted'
+                       AND split_part(s2.title, ' \\u2014 ', 1) = split_part(s1.title, ' \\u2014 ', 1)
+                   )""",
+            )
+            def _count(r):
+                if hasattr(r, 'split'):
+                    return r.split()[-1] if ' ' in str(r) else str(r)
+                return '?'
+            exact_count = _count(result)
+            prefix_count = _count(prefix_result)
+            total_count = int(exact_count) if exact_count.isdigit() else 0
+            total_count += int(prefix_count) if prefix_count.isdigit() else 0
+            if total_count:
+                log.info(f"📋 Dedup accepted: {total_count} duplicate accepted suggestions marked superseded (exact={exact_count}, prefix={prefix_count})")
+            else:
+                log.info(f"📋 Dedup accepted: no duplicates found")
+                
+        except Exception as e:
+            log.warning(f"Failed to dedup accepted suggestions in PG: {e}")

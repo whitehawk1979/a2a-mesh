@@ -5,13 +5,13 @@ import asyncio
 import json
 import time
 from typing import Dict, List, Optional, Callable
-from ..core.message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
-from ..core.dedup import DedupCache
-from ..core.bounded_queue import BoundedQueue
-from ..core.stream_mux import StreamMultiplexer, create_default_mux
-from ..core.gossipsub import GossipSub
-from ..core.health_scorer import HealthScorer
-from ..core.offline_queue import OfflineQueue
+from .message import A2AMessage, SendResult, ProcessResult, A2A_PROTOCOL_VERSION, MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK
+from .dedup import DedupCache
+from .bounded_queue import BoundedQueue
+from .stream_mux import StreamMultiplexer, create_default_mux
+from .gossipsub import GossipSub
+from .health_scorer import HealthScorer
+from .offline_queue import OfflineQueue
 
 log = logging.getLogger("a2a_mesh.router")
 
@@ -138,6 +138,10 @@ class MeshRouter:
         # automatically flushes when a transport comes back online.
         self._offline_queue: Optional[OfflineQueue] = None
 
+        # Tree router reference (set by node via set_tree_router) — used for
+        # multi-hop P2P relay (ZigBee concept: route via parent/coordinator).
+        self._tree_router = None
+
         # Connection semaphore for P2P (AXL-inspired: limit concurrent connections)
         self._p2p_semaphore = asyncio.Semaphore(128)
         self._pq_running = False
@@ -160,6 +164,44 @@ class MeshRouter:
             "errors": 0,
             "broadcast_suppressed": 0,  # broadcasts suppressed to avoid duplication
         }
+
+    def set_tree_router(self, tree_router):
+        """Attach the node's TreeRouter for multi-hop relay decisions."""
+        self._tree_router = tree_router
+
+    def _pick_relay_peer(self) -> Optional[str]:
+        """Pick the next-hop relay peer for a non-direct recipient.
+
+        ZigBee concept: a child router that can't reach the recipient directly
+        sends via its PARENT (short address) — the parent chain leads to the
+        coordinator, which has full mesh visibility. Falls back to any other
+        connected P2P peer (mesh mode) when no tree parent is known.
+        """
+        # Tree parent first (deterministic, coordinator-bound)
+        try:
+            if self._tree_router is not None:
+                local = getattr(self._tree_router, "local_address", None)
+                parent_short = getattr(local, "parent_short", None) if local else None
+                if parent_short is not None:
+                    am = getattr(self._tree_router, "address_manager", None)
+                    # Reverse lookup: short address → node name
+                    parent_name = None
+                    if am:
+                        for uuid_key, addr in getattr(am, "assigned", {}).items():
+                            if getattr(addr, "short", None) == parent_short:
+                                parent_name = uuid_key
+                                break
+                    if parent_name and parent_name != self.node_name:
+                        return parent_name
+        except Exception:
+            pass
+        # Mesh fallback: any connected P2P peer that isn't the recipient
+        p2p = self.transports.get("p2p")
+        if p2p and hasattr(p2p, "_peers"):
+            for name in list(p2p._peers.keys()):
+                if name != self.node_name:
+                    return name
+        return None
 
     def register_transport(self, name: str, transport: 'TransportAdapter'):
         """Register a transport adapter."""
@@ -286,7 +328,7 @@ class MeshRouter:
 
         # Sign message
         if self.config and self.config.security.signing_key:
-            from ..core.encryption import MeshEncryption
+            from .encryption import MeshEncryption
             enc = MeshEncryption(self.config.security.signing_key)
             content = message.sign_content()
             message.signature = enc.sign_message(content)
@@ -343,6 +385,41 @@ class MeshRouter:
                     log.debug(f"P2P direct send to {recipient} failed: {e}, trying fallback transports")
 
         failures = []
+        # ── Multi-hop P2P relay (ZigBee concept) ──────────────────────
+        # If the recipient is not a direct P2P peer but we have a mesh parent
+        # (tree topology), send the message to the PARENT with relay_to=recipient.
+        # The parent (eventually the coordinator) forwards it onward. This keeps
+        # P2P usable for nodes that connect through another router — every
+        # channel (P2P, SSH-tunnel, heartbeat info) reaches the coordinator
+        # even when the direct route doesn't exist.
+        p2p_transport = self.transports.get("p2p")
+        if (
+            p2p_transport and p2p_transport.is_available()
+            and message.recipient
+            and not message.is_broadcast()
+            and hasattr(p2p_transport, '_peers')
+            and message.recipient not in p2p_transport._peers
+            and message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK)
+            and getattr(message, 'relay_to', None) is None  # never re-relay
+        ):
+            relay_via = self._pick_relay_peer()
+            if relay_via:
+                try:
+                    relayed = message
+                    relayed.relay_to = message.recipient
+                    relayed.recipient = relay_via  # next hop = parent
+                    result = await p2p_transport.send(relayed)
+                    if result.success:
+                        self._stats["sent"] += 1
+                        self._stats["relay_routes"] = self._stats.get("relay_routes", 0) + 1
+                        log.info(f"Relay: message {message.id[:8]} relayed via {relay_via} → final {message.relay_to}")
+                        return result
+                except Exception as e:
+                    log.debug(f"Relay via {relay_via} failed: {e} — falling back to transports")
+                finally:
+                    # restore original recipient if relay send failed
+                    message.recipient = getattr(message, 'relay_to', message.recipient)
+
         for transport_name in priority:
             transport = self.transports.get(transport_name)
             if not transport or not transport.is_available():
@@ -376,7 +453,12 @@ class MeshRouter:
         # All transports failed — enqueue in offline queue for later delivery
         self._stats["errors"] += 1
         # Health scorer: record failure for recipient
-        self._health_scorer.record_failure(message.recipient or "unknown")
+        # Skip empty recipients (broadcasts) — they must not pollute the scorer
+        # with a phantom "unknown" peer (was: 72k+ consecutive ghost failures).
+        if message.recipient:
+            self._health_scorer.record_failure(message.recipient)
+        elif message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
+            log.debug(f"Transport failure for broadcast {message.id[:8]} not recorded in health scorer")
         error_detail = "; ".join(failures)
         log.warning(f"All transports failed for {message.id[:8]}: {error_detail}")
 
@@ -521,6 +603,15 @@ class MeshRouter:
             return ProcessResult(status="self_reference", message=message)
 
         # 3. Not-for-me filter (but allow broadcast)
+        # HEARTBEAT NEVER FORWARDED — keepalive signals must not be reflooded.
+        # Empty-recipient heartbeats (P2P keepalives) caused a ping-pong loop:
+        # A forwards B's heartbeat → B forwards back → each INSERT into PG
+        # → trigger NOTIFY → received again → forward again → 240k+ msgs/12h,
+        # cgroup memory throttling, node D-state freeze. Heartbeats are terminal:
+        # update peer health (handled by transports) and STOP.
+        if message.type == MSG_TYPE_HEARTBEAT:
+            self._stats["heartbeat_filtered"] = self._stats.get("heartbeat_filtered", 0) + 1
+            return ProcessResult(status="duplicate", message=message)
         if self.not_for_me_filter and not message.is_broadcast() and message.recipient != self.node_name:
             # Not for me — forward only if we have multiple peer transports
             # In small meshes (3 nodes), reflooding on all transports creates
@@ -553,7 +644,14 @@ class MeshRouter:
 
         # 4. RE-chain filter (skip for heartbeat and ACK messages)
         if self.re_chain_limit > 0 and message.type not in ("heartbeat", "ack"):
-            re_count = message.payload.get("subject", "").count("RE:")
+            _payload = message.payload
+            if isinstance(_payload, str):
+                try:
+                    import json as _j
+                    _payload = _j.loads(_payload)
+                except Exception:
+                    _payload = {}
+            re_count = (_payload.get("subject", "") if isinstance(_payload, dict) else "").count("RE:")
             if re_count >= self.re_chain_limit:
                 self._stats["re_chain_filtered"] += 1
                 return ProcessResult(status="re_chain_filtered", message=message)

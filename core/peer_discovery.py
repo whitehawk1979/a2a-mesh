@@ -97,6 +97,7 @@ class PeerDiscovery:
         self._pg_conn = pg_conn
         self.registry = registry  # AgentRegistry for auto-registration
         self._on_peer_discovered = None  # Callback: async fn(peer_name) called when peer auto-approved
+        self._reg_dedup = {}  # v0.42.4: peer name -> ((name, version, caps), ts) — re-registration dedup (log hygiene)
 
         # Known peers: name → PeerInfo
         self._peers: Dict[str, PeerInfo] = {}
@@ -140,8 +141,28 @@ class PeerDiscovery:
         Otherwise, it goes into pending state for admin approval.
         
         Uses capabilities from: peer.capabilities (PG discovery) > PG mesh_nodes > default.
+
+        v0.42.4 log hygiene: skip re-registration if the same peer (name+version)
+        was registered within the last 10 minutes. The discovery cycle calls this
+        from 6 places every 60s — without dedup this produced ~11k INFO lines/day
+        plus an equal number of registry "already registered" lines. A version bump
+        or capability change always re-registers (10s fallback window).
         """
         from .registry import AgentCard
+
+        # Dedup: same peer, same version, recently registered -> skip
+        try:
+            key = (peer.name, getattr(peer, 'version', None), tuple(sorted(
+                c if isinstance(c, str) else str(c) for c in (peer.capabilities or [])[:50]
+            )))
+        except Exception:
+            key = None
+        if key:
+            now = time.time()
+            last = self._reg_dedup.get(peer.name)
+            if last and last[0] == key and (now - last[1]) < 600:
+                return  # Already registered this cycle — skip log spam
+            self._reg_dedup[peer.name] = (key, now)
         
         # Use peer capabilities if available (from PG discovery), else try PG query, else default
         # Filter out non-hashable items (dicts) from capabilities to prevent TypeError
@@ -226,7 +247,7 @@ class PeerDiscovery:
         )
         status = self.registry.request_registration(card)
         if status == "approved":
-            log.info(f"Auto-approved discovered peer: {peer.name} caps={capabilities}")
+            log.debug(f"Auto-approved discovered peer: {peer.name} caps={capabilities}")
             # Notify node that a new peer was discovered (triggers skills announcement)
             if self._on_peer_discovered:
                 try:
@@ -235,11 +256,10 @@ class PeerDiscovery:
                         loop.create_task(self._on_peer_discovered(peer.name))
                     except RuntimeError:
                         log.warning("No running event loop for on_peer_discovered callback")
-                    log.info(f"Triggered on_peer_discovered callback for {peer.name}")
                 except Exception as e:
                     log.warning(f"Could not trigger on_peer_discovered callback: {e}")
         else:
-            log.info(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
+            log.debug(f"Discovered peer {peer.name} pending approval (auto_approve=False)")
 
     def add_peer(self, name: str, host: str, p2p_port: int = 8645,
                  role: str = "router", health_port: int = 8650,
@@ -348,7 +368,7 @@ class PeerDiscovery:
         peer = self._peers.get(name)
         if not peer:
             return False
-        log.info(f"Auto-approved discovered peer: {name} caps={peer.capabilities or ['a2a_messaging']}")
+        log.debug(f"Auto-approved discovered peer: {name} caps={peer.capabilities or ['a2a_messaging']}")
         self._register_discovered_peer(peer)
         return True
 
@@ -615,11 +635,17 @@ class PeerDiscovery:
             await self.p2p_transport._connect_to_peer(
                 peer.name, peer.host, peer.p2p_port
             )
-            log.info(f"P2P connected to peer {peer.name} at {peer.host}:{peer.p2p_port}")
-            # Register connected peer with agent registry
-            if self.registry:
-                self._register_discovered_peer(peer)
-            return True
+            # Verify actual connection — _connect_to_peer catches TimeoutError internally
+            # and returns without raising, so we must check the peer dict
+            if peer.name in self.p2p_transport._peers:
+                log.info(f"P2P connected to peer {peer.name} at {peer.host}:{peer.p2p_port}")
+                # Register connected peer with agent registry
+                if self.registry:
+                    self._register_discovered_peer(peer)
+                return True
+            else:
+                log.warning(f"P2P connection to {peer.name} FAILED (not in peers dict after connect attempt)")
+                return False
         except Exception as e:
             log.warning(f"Failed to connect to {peer.name}: {e}")
             return False
@@ -639,7 +665,7 @@ class PeerDiscovery:
         if pg_pool or pg_conn:
             try:
                 new_peers = await self.discover_from_pg(pg_conn)
-                log.info(f"PG discovery cycle complete: {len(new_peers)} new peers, {len(self._peers)} known total")
+                log.debug(f"PG discovery cycle complete: {len(new_peers)} new peers, {len(self._peers)} known total")
                 if new_peers:
                     log.info(f"Discovered {len(new_peers)} new peers from PG: {[p.name for p in new_peers]}")
                     # Auto-register discovered peers with registry
@@ -659,7 +685,7 @@ class PeerDiscovery:
                 # If peer is P2P-connected, they share our PG instance
                 # (all mesh nodes use the same PG for transport)
                 peer.pg_available = True
-                log.info(f"Discovery: {peer.name} P2P-connected, set pg_available=True (shared mesh)")
+                log.debug(f"Discovery: {peer.name} P2P-connected, set pg_available=True (shared mesh)")
                 continue
             # Skip health check for peers in P2P backoff (known unreachable, avoids log spam)
             if self.p2p_transport and peer.name in self.p2p_transport._peer_backoff:

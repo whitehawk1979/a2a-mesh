@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A2A Mesh — Kanban</title>
+<style>
+:root {
+  --bg: #0d1117; --surface1: #161b22; --surface2: #21262d;
+  --text1: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --blue: #58a6ff; --border: #30363d;
+  --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #bc8cff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text1); min-height: 100vh; }
+.header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header a { color: var(--blue); text-decoration: none; font-size: 14px; }
+.toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+input, select, button { background: var(--surface2); border: 1px solid var(--border); color: var(--text1); padding: 8px 12px; border-radius: 8px; font-size: 13px; outline: none; }
+input:focus, select:focus { border-color: var(--blue); }
+button { cursor: pointer; transition: all 0.15s; }
+button:hover { border-color: var(--blue); background: var(--surface1); }
+.btn-primary { background: var(--blue); color: #fff; border: none; }
+.btn-primary:hover { opacity: 0.9; background: var(--blue); }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+
+.board-area { display: flex; gap: 16px; padding: 20px; overflow-x: auto; min-height: calc(100vh - 120px); }
+.column { min-width: 280px; flex: 1; max-width: 350px; background: var(--surface1); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; }
+.column-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.column-title { font-size: 13px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; }
+.column-count { background: var(--surface2); padding: 2px 8px; border-radius: 10px; font-size: 12px; color: var(--text3); }
+.card-list { padding: 10px; display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 60px; }
+.card-list.drag-over { background: rgba(88,166,255,0.08); border-radius: 8px; }
+
+.card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: grab; transition: border-color 0.15s; position: relative; }
+.card:hover { border-color: var(--text3); }
+.card.dragging { opacity: 0.4; }
+.card-title { font-size: 14px; font-weight: 500; margin-bottom: 4px; }
+.card-desc { font-size: 12px; color: var(--text3); margin-bottom: 6px; }
+.card-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.priority-high { color: var(--red); }
+.priority-medium { color: var(--orange); }
+.priority-low { color: var(--green); }
+.age-fresh { color: var(--green); }
+.age-warn { color: var(--orange); }
+.age-stale { color: var(--orange); font-weight: 600; }
+.age-dead { color: var(--red); font-weight: 700; }
+.card-del { position: absolute; top: 8px; right: 8px; background: none; border: none; color: var(--text3); cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+.card-del:hover { color: var(--red); background: rgba(248,81,73,0.1); }
+
+.modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: center; }
+.modal-bg.show { display: flex; }
+.modal { background: var(--surface1); border: 1px solid var(--border); border-radius: 16px; padding: 24px; width: 420px; max-width: 90vw; }
+.modal h2 { font-size: 18px; margin-bottom: 16px; }
+.modal label { display: block; font-size: 13px; color: var(--text2); margin: 10px 0 4px; }
+.modal input, .modal textarea, .modal select { width: 100%; }
+.modal textarea { resize: vertical; min-height: 60px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.empty { text-align: center; padding: 60px; color: var(--text3); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>📋 Kanban</h1>
+  <a href="/">← Dashboard</a>
+  <a href="/lab">🧪 Lab</a>
+  <div class="toolbar">
+    <select id="boardSelect" onchange="switchBoard()"></select>
+    <input type="text" id="searchInput" placeholder="🔍 Keresés..." oninput="renderBoard()" style="width:180px">
+    <button class="btn-sm" onclick="createBoardModal()">+ Tábla</button>
+    <button class="btn-primary btn-sm" onclick="addCardModal()">+ Kártya</button>
+  </div>
+</div>
+
+<div class="board-area" id="boardArea"></div>
+
+<div class="modal-bg" id="cardModal">
+  <div class="modal">
+    <h2 id="cardModalTitle">Új kártya</h2>
+    <label>Cím</label>
+    <input type="text" id="cardTitle" placeholder="Feladat neve...">
+    <label>Leírás</label>
+    <textarea id="cardDesc" placeholder="Részletek..."></textarea>
+    <label>Oszlop</label>
+    <select id="cardColumn"></select>
+    <label>Prioritás</label>
+    <select id="cardPriority">
+      <option value="low">🟢 Alacsony</option>
+      <option value="medium" selected>🟠 Közepes</option>
+      <option value="high">🔴 Magas</option>
+    </select>
+    <label>Hozzárendelve</label>
+    <input type="text" id="cardAssignee" placeholder="Agent neve...">
+    <div class="modal-actions">
+      <button onclick="closeModal('cardModal')">Mégse</button>
+      <button class="btn-primary" onclick="saveCard()">Mentés</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="boardModal">
+  <div class="modal">
+    <h2>Új tábla</h2>
+    <label>Tábla neve</label>
+    <input type="text" id="boardTitle" placeholder="pl. Sprint #1">
+    <div class="modal-actions">
+      <button onclick="closeModal('boardModal')">Mégse</button>
+      <button class="btn-primary" onclick="saveBoard()">Létrehoz</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var boards = [];
+var currentBoard = null;
+var editingCardId = null;
+
+function api(path, method, body) {
+  var opts = { method: method || "GET", headers: { "Content-Type": "application/json" } };
+  var token = localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || '';
+  if (token) opts.headers["Authorization"] = "Bearer " + token;
+  if (body) opts.body = JSON.stringify(body);
+  return fetch(path, opts).then(function(r) {
+    if (r.status === 401) {
+      // Try to login
+      return fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'zsolt', password: 'mesh2026' })
+      }).then(function(lr) { return lr.json(); }).then(function(ld) {
+        if (ld.token) {
+          localStorage.setItem('mesh_token', ld.token);
+          opts.headers["Authorization"] = "Bearer " + ld.token;
+          return fetch(path, opts).then(function(r2) { return r2.json(); });
+        }
+        throw new Error('Auth failed');
+      });
+    }
+    return r.json();
+  });
+}
+
+function loadBoards() {
+  api("/api/kanban").then(function(data) {
+    boards = data.boards || [];
+    var sel = document.getElementById("boardSelect");
+    if (boards.length === 0) {
+      sel.innerHTML = "<option>(nincs tábla)</option>";
+      document.getElementById("boardArea").innerHTML = '<div class="empty">Még nincs tábla. Kattints a "+ Tábla" gombra.</div>';
+      return;
+    }
+    sel.innerHTML = boards.map(function(b) { return '<option value="' + b.id + '">' + escapeHtml(b.title) + '</option>'; }).join("");
+    if (!currentBoard || !boards.find(function(b) { return b.id === currentBoard; })) {
+      currentBoard = boards[0].id;
+    }
+    sel.value = currentBoard;
+    renderBoard();
+  }).catch(function(e) { console.error(e); });
+}
+
+function switchBoard() {
+  currentBoard = document.getElementById("boardSelect").value;
+  renderBoard();
+}
+
+function renderBoard() {
+  var board = boards.find(function(b) { return b.id === currentBoard; });
+  if (!board) { document.getElementById("boardArea").innerHTML = '<div class="empty">Válassz egy táblát.</div>'; return; }
+  var q = (document.getElementById("searchInput").value || "").toLowerCase();
+  var area = document.getElementById("boardArea");
+  area.innerHTML = "";
+  board.columns.forEach(function(col) {
+    var cards = (board.cards || []).filter(function(c) { return c.column === col; });
+    if (q) cards = cards.filter(function(c) { return (c.title || "").toLowerCase().indexOf(q) >= 0 || (c.description || "").toLowerCase().indexOf(q) >= 0; });
+    var colDiv = document.createElement("div");
+    colDiv.className = "column";
+    colDiv.innerHTML = '<div class="column-header"><span class="column-title">' + escapeHtml(col) + '</span><span class="column-count">' + cards.length + '</span></div><div class="card-list" data-column="' + escapeHtml(col) + '"></div>';
+    var list = colDiv.querySelector(".card-list");
+    cards.forEach(function(card) { list.appendChild(createCardEl(card, board.id)); });
+    setupDropZone(list, board.id, col);
+    area.appendChild(colDiv);
+  });
+}
+
+function createCardEl(card, boardId) {
+  var el = document.createElement("div");
+  el.className = "card";
+  el.draggable = true;
+  el.dataset.cardId = card.id;
+  var ageClass = "age-" + (card.age_status || "fresh");
+  var ageIcon = card.age_status === "dead" ? "🔴" : card.age_status === "stale" ? "🟠" : card.age_status === "warn" ? "🟡" : "🟢";
+  el.innerHTML = '<button class="card-del" onclick="event.stopPropagation();deleteCard(\'' + boardId + '\',\'' + card.id + '\')">✕</button>' +
+    '<div class="card-title">' + escapeHtml(card.title || "") + '</div>' +
+    (card.description ? '<div class="card-desc">' + escapeHtml(card.description) + '</div>' : '') +
+    '<div class="card-meta">' +
+      '<span class="priority-' + (card.priority || "medium") + '">' + (card.priority === "high" ? "🔴" : card.priority === "low" ? "🟢" : "🟠") + ' ' + escapeHtml(card.priority || "medium") + '</span>' +
+      ' <span class="' + ageClass + '">' + ageIcon + '</span>' +
+      (card.assigned_to ? ' <span>👤 ' + escapeHtml(card.assigned_to) + '</span>' : '') +
+      (card.delegation_task_id ? ' <span>🔗</span>' : '') +
+    '</div>' +
+    (card.approval_required ? '<div style="font-size:11px;color:#ff9800;margin-top:4px;padding:4px;background:rgba(255,152,0,0.1);border-radius:4px">⏳ Jóváhagyás szükséges<br><button onclick="event.stopPropagation();approveCard(\\'' + boardId + '\\',\\'' + card.id + '\\')" style="margin-top:4px;padding:2px 8px;background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">✅ Jóváhagy</button></div>' : '') +
+    (card.delegation_status === 'completed' && !card.approval_required ? '<div style="font-size:11px;color:#4caf50;margin-top:4px">✅ completed</div>' : '') +
+    (card.delegation_status === 'failed' ? '<div style="font-size:11px;color:#f44336;margin-top:4px">❌ failed</div>' : '') +
+    (card.agent_history && card.agent_history.length > 0 ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">' + card.agent_history.map(function(h) {
+      var icon = h.role === 'delegator' ? '📤' : h.role === 'executor' ? '⚙️' : h.role === 'reviewer' ? '🔍' : '👤';
+      var vc = h.verdict === 'accept' ? '#4caf50' : h.verdict === 'reject' ? '#f44336' : 'var(--text3)';
+      return '<span style="color:' + vc + '">' + icon + ' ' + escapeHtml(h.agent || '') + '</span>';
+    }).join(' · ') + '</div>' : '') +
+    (card.review_status && card.review_status !== 'pending' ? '<div style="font-size:10px;margin-top:2px;color:' + (card.review_status === 'accept' || card.review_status === 'accepted' ? '#4caf50' : '#f44336') + '">' + (card.review_status === 'accept' || card.review_status === 'accepted' ? '✅' : '❌') + ' review: ' + escapeHtml(card.review_status) + '</div>' : '') +
+    (card.review_reason ? '<div style="font-size:10px;color:var(--text3);margin-top:2px;padding:3px;background:var(--surface2);border-radius:3px">💬 ' + escapeHtml(card.review_reason.substring(0,150)) + '</div>' : '') +
+    (card.review_analysis && card.review_analysis.reason ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">🔍 ' + escapeHtml(card.review_analysis.reason) + '</div>' : '') +
+    (card.delegation_result ? '<div style="font-size:11px;color:var(--text3);margin-top:2px;padding:4px;background:var(--surface2);border-radius:4px;max-height:60px;overflow:hidden">📋 ' + escapeHtml(card.delegation_result.substring(0,120)) + '</div>' : '') +
+    (card.result_file ? '<div style="font-size:11px;color:var(--primary);margin-top:2px">📎 <a href="' + escapeHtml(card.result_file) + '" target="_blank" style="color:var(--primary)">result file</a></div>' : '') +
+    (card.parent_card_id ? '<div style="font-size:10px;color:var(--text3);margin-top:2px">↳ subtask</div>' : '');
+  el.addEventListener("dragstart", function(e) { e.dataTransfer.setData("cardId", card.id); el.classList.add("dragging"); });
+  el.addEventListener("dragend", function() { el.classList.remove("dragging"); });
+  el.addEventListener("click", function() { editCard(boardId, card.id); });
+  return el;
+}
+
+function setupDropZone(list, boardId, column) {
+  list.addEventListener("dragover", function(e) { e.preventDefault(); list.classList.add("drag-over"); });
+  list.addEventListener("dragleave", function() { list.classList.remove("drag-over"); });
+  list.addEventListener("drop", function(e) {
+    e.preventDefault(); list.classList.remove("drag-over");
+    var cardId = e.dataTransfer.getData("cardId");
+    if (cardId) moveCard(boardId, cardId, column);
+  });
+}
+
+function moveCard(boardId, cardId, column) {
+  api("/api/kanban/" + boardId + "/cards/" + cardId, "PUT", { column: column }).then(function() { loadBoards(); });
+}
+
+function addCardModal() {
+  editingCardId = null;
+  document.getElementById("cardModalTitle").textContent = "Új kártya";
+  document.getElementById("cardTitle").value = "";
+  document.getElementById("cardDesc").value = "";
+  document.getElementById("cardPriority").value = "medium";
+  document.getElementById("cardAssignee").value = "";
+  var board = boards.find(function(b) { return b.id === currentBoard; });
+  var colSel = document.getElementById("cardColumn");
+  if (board) { colSel.innerHTML = board.columns.map(function(c) { return '<option value="' + c + '">' + c + '</option>'; }).join(""); }
+  document.getElementById("cardModal").classList.add("show");
+}
+
+function editCard(boardId, cardId) {
+  var board = boards.find(function(b) { return b.id === boardId; });
+  var card = (board.cards || []).find(function(c) { return c.id === cardId; });
+  if (!card) return;
+  editingCardId = cardId;
+  document.getElementById("cardModalTitle").textContent = "Kártya szerkesztése";
+  document.getElementById("cardTitle").value = card.title || "";
+  document.getElementById("cardDesc").value = card.description || "";
+  document.getElementById("cardPriority").value = card.priority || "medium";
+  document.getElementById("cardAssignee").value = card.assigned_to || "";
+  var colSel = document.getElementById("cardColumn");
+  colSel.innerHTML = board.columns.map(function(c) { return '<option value="' + c + '" ' + (c === card.column ? "selected" : "") + '>' + c + '</option>'; }).join("");
+  document.getElementById("cardModal").classList.add("show");
+}
+
+function saveCard() {
+  var body = {
+    title: document.getElementById("cardTitle").value.trim(),
+    description: document.getElementById("cardDesc").value.trim(),
+    column: document.getElementById("cardColumn").value,
+    priority: document.getElementById("cardPriority").value,
+    assigned_to: document.getElementById("cardAssignee").value.trim(),
+  };
+  if (!body.title) { alert("Cím kötelező!"); return; }
+  if (editingCardId) {
+    api("/api/kanban/" + currentBoard + "/cards/" + editingCardId, "PUT", body).then(function() { closeModal("cardModal"); loadBoards(); });
+  } else {
+    api("/api/kanban/" + currentBoard + "/cards", "POST", body).then(function() { closeModal("cardModal"); loadBoards(); });
+  }
+}
+
+function deleteCard(boardId, cardId) {
+  if (!confirm("Törlöd ezt a kártyát?")) return;
+  api("/api/kanban/" + boardId + "/cards/" + cardId, "DELETE").then(function() { loadBoards(); });
+}
+
+function approveCard(boardId, cardId) {
+  api("/api/kanban/" + boardId + "/cards/" + cardId + "/approve", "POST").then(function() { loadBoards(); });
+}
+
+function createBoardModal() { document.getElementById("boardTitle").value = ""; document.getElementById("boardModal").classList.add("show"); }
+function saveBoard() {
+  var title = document.getElementById("boardTitle").value.trim();
+  if (!title) { alert("Név kötelező!"); return; }
+  api("/api/kanban", "POST", { title: title, columns: ["todo", "in_progress", "review", "done"] }).then(function(b) { closeModal("boardModal"); currentBoard = b.id; loadBoards(); });
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove("show"); }
+
+function escapeHtml(s) { var d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+
+document.addEventListener("DOMContentLoaded", loadBoards);
+</script>
+</body>
+</html>

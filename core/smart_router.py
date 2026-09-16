@@ -15,8 +15,8 @@ import asyncio
 import logging
 import random
 from typing import Dict, List, Optional, Sequence, Tuple
-from ..core.registry import AgentRegistry, AgentCard, HealthRecord
-from ..core.message import A2AMessage, SendResult
+from .registry import AgentRegistry, AgentCard, HealthRecord
+from .message import A2AMessage, SendResult
 
 log = logging.getLogger("a2a_mesh.smart_router")
 
@@ -206,6 +206,14 @@ class SmartRouter:
     - Agent health scores
     - Current load
     - Routing strategy
+    - Capability routing mode (Marveen-inspired)
+
+    Capability routing modes (Marveen pattern):
+    - strong: Strict capability filtering — agent MUST have all required capabilities.
+    - catalog-first: Strict filtering with fallback — try strict match first, fall back
+      to any healthy agent if no exact match found.
+    - advisory: No strict filtering — suggest best matches based on health/load,
+      but don't reject agents for missing capabilities.
 
     Usage:
         registry = AgentRegistry()
@@ -226,9 +234,11 @@ class SmartRouter:
         # Returns: (AgentCard, "Strategy: health_weighted → Selected: morzsa ...")
     """
 
-    def __init__(self, registry: AgentRegistry, default_strategy: str = "health_weighted"):
+    def __init__(self, registry: AgentRegistry, default_strategy: str = "health_weighted",
+                 capability_routing_mode: str = "catalog_first"):
         self.registry = registry
         self.default_strategy = default_strategy
+        self.capability_routing_mode = capability_routing_mode  # strong | catalog_first | advisory
         self._strategies: Dict[str, RoutingStrategy] = {
             name: cls() for name, cls in STRATEGIES.items()
         }
@@ -264,21 +274,43 @@ class SmartRouter:
         strategy_name = strategy or self.default_strategy
         strat = self.get_strategy(strategy_name)
 
-        # Find agents by capability (if specified)
+        # ── Marveen-inspired capability routing modes ──
+        mode = self.capability_routing_mode  # strong | catalog_first | advisory
+        strict_agents = []
+        all_healthy = []
+
         if required_capabilities:
-            agents = self.registry.find_by_capability(
+            # Strict match: agents with ALL required capabilities
+            strict_agents = self.registry.find_by_capability(
                 required_capabilities,
                 healthy_only=True,
                 min_health_score=min_health_score,
             )
-        else:
-            # No capability filter — use all healthy agents
-            agents = self.registry.list_agents()
-            agents = [
+            # All healthy agents (for fallback)
+            all_healthy = self.registry.list_agents()
+            all_healthy = [
                 (card, health)
-                for card, health in agents
+                for card, health in all_healthy
                 if health.health_score >= min_health_score
             ]
+        else:
+            all_healthy = self.registry.list_agents()
+            all_healthy = [
+                (card, health)
+                for card, health in all_healthy
+                if health.health_score >= min_health_score
+            ]
+
+        # Select agent pool based on capability routing mode
+        if mode == "strong":
+            # Strict: only agents with ALL required capabilities
+            agents = strict_agents if required_capabilities else all_healthy
+        elif mode == "advisory":
+            # Advisory: all healthy agents, capabilities are suggestions not filters
+            agents = all_healthy
+        else:
+            # catalog_first (default): strict match first, fallback to all healthy
+            agents = strict_agents if (required_capabilities and strict_agents) else all_healthy
 
         # Exclude specified agents
         if exclude_agents:
@@ -291,7 +323,7 @@ class SmartRouter:
         if not agents:
             log.warning(
                 f"No agents found for capabilities={required_capabilities} "
-                f"strategy={strategy_name} min_health={min_health_score}"
+                f"strategy={strategy_name} mode={mode} min_health={min_health_score}"
             )
             return None
 
@@ -306,7 +338,7 @@ class SmartRouter:
 
         if result:
             log.info(
-                f"Routed via {strategy_name} → {result.name} "
+                f"Routed via {strategy_name} (mode={mode}) → {result.name} "
                 f"(caps={result.capabilities})"
             )
         return result

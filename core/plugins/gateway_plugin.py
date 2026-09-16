@@ -127,7 +127,7 @@ class GatewayPlugin(MeshPlugin):
                     f"(route={platform_config.get('route_name', 'N/A')})"
                 )
 
-    async def on_start(self):
+    async def on_start(self, node=None):
         """Start gateway polling for each configured platform."""
         await super().on_start()
 

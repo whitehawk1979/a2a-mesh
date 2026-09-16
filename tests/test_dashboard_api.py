@@ -451,11 +451,16 @@ class TestDashboardHTMLAgentRendering(unittest.TestCase):
     """Test that dashboard HTML contains agent rendering elements."""
 
     def test_agent_list_container_exists(self):
-        """Test that dashboard HTML has an agent list container."""
-        html_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                  "core", "dashboard.html")
+        """Test that dashboard HTML (or external dashboard.js) has an agent list container."""
+        core_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core")
+        html_path = os.path.join(core_dir, "dashboard.html")
         with open(html_path, 'r', encoding='utf-8') as f:
             html = f.read()
+        # JS was extracted to external dashboard.js — include it in the check
+        js_path = os.path.join(core_dir, "dashboard.js")
+        if os.path.exists(js_path):
+            with open(js_path, 'r', encoding='utf-8') as f:
+                html += "\n" + f.read()
 
         # Must have agent-related elements
         self.assertIn("loadAgents", html, "Dashboard must have loadAgents() function")
@@ -492,10 +497,15 @@ class TestDashboardHTMLAgentRendering(unittest.TestCase):
 
     def test_renderAgents_creates_agent_cards_or_updates_list(self):
         """Test that renderAgents function actually updates the UI."""
-        html_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                  "core", "dashboard.html")
+        core_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "core")
+        html_path = os.path.join(core_dir, "dashboard.html")
         with open(html_path, 'r', encoding='utf-8') as f:
             html = f.read()
+        # JS was extracted to external dashboard.js — include it in the check
+        js_path = os.path.join(core_dir, "dashboard.js")
+        if os.path.exists(js_path):
+            with open(js_path, 'r', encoding='utf-8') as f:
+                html += "\n" + f.read()
 
         # Check that renderAgents does something with agents data
         # Currently it only calls addDMChannel — this is the BUG we're checking for

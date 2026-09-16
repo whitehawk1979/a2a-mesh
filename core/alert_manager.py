@@ -54,6 +54,9 @@ class AlertRule:
     severity: AlertSeverity = AlertSeverity.WARNING
     cooldown: float = 300.0             # Seconds between repeated alerts
     enabled: bool = True
+    autonomy_level: Optional[int] = None             # 1=notify, 2=suggest, 3=auto-act (Optional override)
+    category: str = "general"                         # Category for autonomy overrides
+    auto_action: str = ""               # Action to take at level 3 (e.g., "reconnect_p2p")
     # Internal state
     state: AlertState = AlertState.OK
     last_fired: float = 0.0
@@ -95,6 +98,8 @@ class AlertRule:
             "state": self.state.value,
             "fire_count": self.fire_count,
             "last_fired": self.last_fired if self.last_fired else None,
+            "autonomy_level": self.autonomy_level,
+            "auto_action": self.auto_action,
         }
 
 
@@ -129,6 +134,8 @@ class AlertManager:
                 threshold=2,
                 severity=AlertSeverity.CRITICAL,
                 cooldown=300,
+                autonomy_level=3,    # Auto-act: trigger P2P reconnect
+                auto_action="reconnect_p2p",
             ),
             AlertRule(
                 id="transport_errors",
@@ -138,15 +145,18 @@ class AlertManager:
                 threshold=0,
                 severity=AlertSeverity.WARNING,
                 cooldown=60,
+                autonomy_level=2,    # Suggest: recommend restart
+                auto_action="suggest_transport_restart",
             ),
             AlertRule(
                 id="dedup_cache_large",
-                name="Dedup cache size above 500",
+                name="Dedup cache size above 1500",
                 metric="dedup_cache_size",
                 operator=">",
-                threshold=500,
+                threshold=1500,
                 severity=AlertSeverity.INFO,
                 cooldown=600,
+                autonomy_level=1,    # Notify only
             ),
         ]
         for rule in defaults:

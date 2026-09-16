@@ -74,7 +74,10 @@ class DashboardAuthMixin:
             "token": result["token"],
             "user": result["user"].to_dict(),
         })
-        response.set_cookie("a2a_token", result["token"], max_age=86400, httponly=True, samesite="Lax")
+        # Set cookie with matching max_age (0 = session cookie, lives until browser closes)
+        timeout_h = self.auth.get_session_timeout(result["user"].user_id)
+        max_age = int(timeout_h * 3600) if timeout_h > 0 else 0
+        response.set_cookie("a2a_token", result["token"], max_age=max_age or 87600, httponly=True, samesite="Lax")
         return response
 
     async def _api_auth_logout(self, request):
@@ -99,6 +102,61 @@ class DashboardAuthMixin:
         if err:
             return err
         return web.json_response({"user": user.to_dict()})
+
+    async def _api_auth_sessions(self, request):
+        """List active sessions (owner only)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+        sessions = self.auth.list_active_sessions()
+        return web.json_response({"sessions": sessions, "total": len(sessions)})
+
+    async def _api_auth_session_timeout(self, request):
+        """Get or set session timeout for a user (owner only).
+        GET: ?user_id=xxx → returns timeout
+        POST: {user_id, timeout_hours} → sets timeout (0 = never expires)"""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+
+        if request.method == "GET":
+            user_id = request.query.get("user_id", user.user_id)
+            timeout = self.auth.get_session_timeout(user_id)
+            return web.json_response({"user_id": user_id, "timeout_hours": timeout})
+
+        # POST
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        target_uid = data.get("user_id", user.user_id)
+        timeout = float(data.get("timeout_hours", 24))
+        self.auth.set_session_timeout(target_uid, timeout)
+        return web.json_response({"ok": True, "user_id": target_uid, "timeout_hours": timeout})
+
+    async def _api_auth_revoke_session(self, request):
+        """Revoke a session by token signature (owner only)."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role != "owner":
+            return web.json_response({"error": "Owner access required"}, status=403)
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        token_sig = data.get("token", "")
+        if not token_sig:
+            return web.json_response({"error": "token required"}, status=400)
+        self.auth.revoke_session(token_sig)
+        return web.json_response({"ok": True})
 
     async def _api_users(self, request):
         """List all users (owner only)."""

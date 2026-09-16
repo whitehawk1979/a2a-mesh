@@ -32,7 +32,7 @@ def ascii_json(obj, default=None) -> str:
             o = o.replace('\u2192', '->')   # right arrow
             o = o.replace('\u2190', '<-')   # left arrow
             # Remove any remaining non-ASCII
-            o = o.encode('ascii', 'replace').decode('ascii')
+            o = o
             return o
         elif isinstance(o, dict):
             return {k: _sanitize_strings(v) for k, v in o.items()}

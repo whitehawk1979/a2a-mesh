@@ -54,6 +54,79 @@ class DashboardSkillsMixin:
             log.error(f"Error listing skills: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _api_skills_stats(self, request):
+        """GET /api/skills/stats — Skill marketplace statistics for dashboard.
+        
+        Returns:
+          - total_skills: count of all active skills
+          - by_agent: {agent_name: count}
+          - by_type: {tag: count}
+          - auto_generated: count of auto-generated skills
+          - published_files: count of skills with published files
+          - recent: last 5 skills (name, agent, created)
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            pg_pool = getattr(self.node, '_pg_pool', None)
+            if not pg_pool:
+                return web.json_response({"error": "DB not available"}, status=503)
+
+            # Total active skills
+            total_row = await pg_pool.fetchrow(
+                "SELECT COUNT(*) as cnt FROM mesh.mesh_skills WHERE status = 'active'"
+            )
+            total_skills = total_row["cnt"] if total_row else 0
+
+            # By agent
+            agent_rows = await pg_pool.fetch(
+                """SELECT agent_name, COUNT(*) as cnt
+                   FROM mesh.mesh_skills WHERE status = 'active'
+                   GROUP BY agent_name ORDER BY cnt DESC"""
+            )
+            by_agent = {r["agent_name"]: r["cnt"] for r in agent_rows}
+
+            # Auto-generated count
+            auto_row = await pg_pool.fetchrow(
+                "SELECT COUNT(*) as cnt FROM mesh.mesh_skills WHERE status = 'active' AND 'auto-generated' = ANY(tags)"
+            )
+            auto_generated = auto_row["cnt"] if auto_row else 0
+
+            # Published files count
+            files_row = await pg_pool.fetchrow(
+                "SELECT COUNT(DISTINCT skill_id) as cnt FROM mesh.mesh_skill_files"
+            )
+            published_files = files_row["cnt"] if files_row else 0
+
+            # Recent skills
+            recent_rows = await pg_pool.fetch(
+                """SELECT skill_id, agent_name, skill_name, display_name, updated_at
+                   FROM mesh.mesh_skills WHERE status = 'active'
+                   ORDER BY updated_at DESC LIMIT 5"""
+            )
+            recent = []
+            for r in recent_rows:
+                recent.append({
+                    "skill_id": r["skill_id"],
+                    "agent": r["agent_name"],
+                    "skill_name": r["skill_name"],
+                    "display_name": r["display_name"],
+                    "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+                })
+
+            return web.json_response({
+                "total_skills": total_skills,
+                "by_agent": by_agent,
+                "auto_generated": auto_generated,
+                "published_files": published_files,
+                "recent": recent,
+            })
+        except Exception as e:
+            log.error(f"Error getting skill stats: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _api_skills_search(self, request):
         """GET /api/skills/search?q=... — Search skills by name, tag, or description."""
         from aiohttp import web
@@ -70,6 +143,8 @@ class DashboardSkillsMixin:
                 return web.json_response({"error": "DB not available"}, status=503)
 
             # Search in skill_name, display_name, description, tags
+            # Normalize: replace spaces with underscores for skill_name matching
+            query_norm = query.replace(' ', '_')
             rows = await pg_pool.fetch(
                 """SELECT skill_id, agent_name, skill_name, display_name,
                           description, tags, cost, avg_latency_ms, success_rate
@@ -78,9 +153,11 @@ class DashboardSkillsMixin:
                      AND (LOWER(skill_name) LIKE '%' || $1 || '%'
                           OR LOWER(display_name) LIKE '%' || $1 || '%'
                           OR LOWER(description) LIKE '%' || $1 || '%'
-                          OR $1 = ANY(tags))
+                          OR $1 = ANY(tags)
+                          OR LOWER(skill_name) LIKE '%' || $2 || '%'
+                          OR $2 = ANY(tags))
                    ORDER BY success_rate DESC, avg_latency_ms ASC""",
-                query
+                query, query_norm
             )
             results = []
             for r in rows:
@@ -181,6 +258,8 @@ class DashboardSkillsMixin:
             if not pg_pool:
                 return web.json_response({"error": "DB not available"}, status=503)
 
+            # Normalize: replace spaces with underscores for skill_name matching
+            task_normalized = task.replace(' ', '_')
             rows = await pg_pool.fetch(
                 """SELECT skill_id, agent_name, skill_name, display_name,
                           description, tags, cost, max_concurrent,
@@ -188,10 +267,12 @@ class DashboardSkillsMixin:
                    FROM mesh.mesh_skills
                    WHERE status = 'active'
                      AND (LOWER(skill_name) LIKE '%' || $1 || '%'
-                          OR $1 = ANY(tags))
+                          OR LOWER(skill_name) LIKE '%' || $2 || '%'
+                          OR $1 = ANY(tags)
+                          OR $2 = ANY(tags))
                    ORDER BY success_rate DESC, avg_latency_ms ASC
                    LIMIT 5""",
-                task
+                task, task_normalized
             )
             if not rows:
                 return web.json_response({"error": "No matching skills found"}, status=404)
@@ -526,4 +607,74 @@ class DashboardSkillsMixin:
             })
         except Exception as e:
             log.error(f"Error syncing skills: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_skills_auto_sync(self, request):
+        """POST /api/skills/auto-sync — Peer node requests pull of specific skills.
+        
+        Body: {"skill_ids": ["skill-morzsa-monitoring", ...]}
+        If no skill_ids provided, pulls ALL published skills.
+        
+        Saves skill files to local skills/ directory and registers in local registry.
+        No auth required — this is a peer-to-peer mesh sync call.
+        """
+        from aiohttp import web
+        import os as _os
+        try:
+            pg_pool = getattr(self.node, "_pg_pool", None)
+            if not pg_pool:
+                return web.json_response({"error": "DB not available"}, status=503)
+
+            body = {}
+            try:
+                body = await request.json()
+            except Exception:
+                pass
+            requested = body.get("skill_ids", [])
+
+            if requested:
+                rows = await pg_pool.fetch(
+                    "SELECT DISTINCT skill_id FROM mesh.mesh_skill_files WHERE skill_id = ANY($1)",
+                    requested,
+                )
+            else:
+                rows = await pg_pool.fetch("SELECT DISTINCT skill_id FROM mesh.mesh_skill_files")
+
+            if not rows:
+                return web.json_response({"synced": 0, "message": "No published skills found"})
+
+            skill_ids = [r["skill_id"] for r in rows]
+            repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            skills_dir = _os.path.join(repo_root, "skills")
+            _os.makedirs(skills_dir, exist_ok=True)
+
+            synced = 0
+            for skill_id in skill_ids:
+                file_rows = await pg_pool.fetch(
+                    "SELECT filename, content FROM mesh.mesh_skill_files WHERE skill_id = $1",
+                    skill_id,
+                )
+                parts = skill_id.split("-", 2)
+                skill_name = parts[2] if len(parts) > 2 else skill_id
+                skill_dir = _os.path.join(skills_dir, skill_name)
+                _os.makedirs(skill_dir, exist_ok=True)
+
+                for fr in file_rows:
+                    filepath = _os.path.join(skill_dir, fr["filename"])
+                    filedir = _os.path.dirname(filepath)
+                    if filedir and not _os.path.exists(filedir):
+                        _os.makedirs(filedir, exist_ok=True)
+                    with open(filepath, "w") as f:
+                        f.write(fr["content"])
+
+                synced += 1
+                log.info(f"📦 Auto-synced skill: {skill_id} → {skill_dir} ({len(file_rows)} files)")
+
+            return web.json_response({
+                "synced": synced,
+                "skill_ids": skill_ids,
+                "skills_dir": skills_dir,
+            })
+        except Exception as e:
+            log.error(f"Error auto-syncing skills: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)

@@ -5,7 +5,7 @@
 # Syncs core/, transports/, discovery/, cli.py, node.py, pyproject.toml
 # Does NOT overwrite: mesh_config_*.yaml, certs/, local_store_*.db, incoming_files/
 
-set -e
+# No set -e: a failure on one node must not abort sync to the other
 
 RESTART=false
 [[ "$1" == "--restart" ]] && RESTART=true
@@ -13,7 +13,7 @@ RESTART=false
 MORZSA_HOST="openclaw@192.168.1.30"
 MORZSA_PASS="2009December16"
 RUNA_HOST="zsolt@192.168.1.100"
-RUNA_PASS="2009December16"
+RUNA_KEY="$HOME/.ssh/id_ed25519_openclaw"   # key auth: password auth times out on Runa
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
 
 LOCAL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -69,7 +69,7 @@ done
 if $RESTART; then
     echo "🔄 Restarting Morzsa mesh node..."
     sshpass -p "$MORZSA_PASS" ssh $SSH_OPTS "$MORZSA_HOST" \
-        "pkill -f 'cli.py start' 2>/dev/null; sleep 1; cd ~/$MORZSA_REMOTE_DIR && nohup .venv/bin/python3 cli.py start --name morzsa --port 8650 --config ~/.hermes/mesh_config.yaml > /dev/null 2>&1 &" 2>/dev/null
+        "systemctl --user restart a2a-mesh 2>/dev/null || (pkill -f '[c]li.py start' 2>/dev/null; sleep 1; cd ~/$MORZSA_REMOTE_DIR && nohup .venv/bin/python3 cli.py start --name morzsa --port 8650 --config ~/.hermes/mesh_config.yaml > /dev/null 2>&1 &)" 2>/dev/null
     echo "  ✅ Morzsa restarted"
 fi
 
@@ -77,7 +77,7 @@ fi
 echo "📡 Syncing to Runa ($RUNA_HOST)..."
 for path in "${SYNC_PATHS[@]}"; do
     if [ -e "$LOCAL_DIR/$path" ]; then
-        sshpass -p "$RUNA_PASS" rsync -az --delete \
+        rsync -az --delete -e "ssh -i $RUNA_KEY -o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=10" \
             "${EXCLUDES[@]}" \
             "$LOCAL_DIR/$path" \
             "$RUNA_HOST:$RUNA_REMOTE_DIR/$path" 2>/dev/null && echo "  ✅ $path" || echo "  ⚠️  $path (failed)"
@@ -86,7 +86,7 @@ done
 
 if $RESTART; then
     echo "🔄 Restarting Runa mesh node..."
-    sshpass -p "$RUNA_PASS" ssh $SSH_OPTS "$RUNA_HOST" \
+    ssh -i "$RUNA_KEY" -o BatchMode=yes $SSH_OPTS "$RUNA_HOST" \
         "systemctl --user restart a2a-mesh.service 2>/dev/null || (pkill -f 'cli.py start' 2>/dev/null; sleep 1; cd ~/$RUNA_REMOTE_DIR && nohup .venv/bin/python3 cli.py start --name runa --port 8650 > /dev/null 2>&1 &)" 2>/dev/null
     echo "  ✅ Runa restarted"
 fi

@@ -2,8 +2,11 @@
 """A2A Mesh Gateway Watchdog — monitors Hermes gateway and restarts if down.
 
 Runs as a cron job on each mesh node. Checks:
-1. Gateway health endpoint (localhost:8650/health)
-2. Process existence (pgrep)
+1. Process existence (pgrep) — PRIMARY indicator
+2. Gateway health endpoint (localhost:8650/health) — SECONDARY indicator
+
+Only restarts if BOTH process AND health are down.
+Uses ProxyHandler({}) to bypass SOCKS5/HTTP proxies for localhost.
 
 If either fails, attempts restart via the node-appropriate method.
 Logs to ~/.hermes/logs/gateway_watchdog.log
@@ -45,12 +48,14 @@ log = logging.getLogger("gateway_watchdog")
 
 
 def check_health_endpoint() -> bool:
-    """Check if the gateway health endpoint responds."""
+    """Check if the gateway health endpoint responds.
+    Uses ProxyHandler({}) to bypass SOCKS5/HTTP proxies for localhost."""
     try:
         import urllib.request
         import urllib.error
         req = urllib.request.Request(HEALTH_URL, method="GET")
-        resp = urllib.request.urlopen(req, timeout=HEALTH_TIMEOUT)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        resp = opener.open(req, timeout=HEALTH_TIMEOUT)
         return resp.status == 200
     except Exception:
         return False
@@ -90,7 +95,7 @@ def restart_gateway(node: str) -> bool:
         # Linux (Morzsa/Runa) — systemctl --user
         # Use setsid to bypass lifecycle guard
         try:
-            script = f"""
+            script = """
 import subprocess, time, os
 time.sleep(2)
 subprocess.run(
@@ -189,13 +194,13 @@ def main():
     health_ok = check_health_endpoint()
     process_ok = check_process()
 
-    # Health endpoint is the primary indicator — if it's up, gateway is serving.
-    # Process check is secondary (on macOS the mesh node serves the health endpoint).
-    if health_ok:
-        log.info(f"[{args.node}] Gateway healthy (health=✅ process={'✅' if process_ok else '⚠️'})")
+    # Process check is PRIMARY — if the process is running, the gateway is alive.
+    # Health endpoint is SECONDARY — only restart if BOTH process AND health are down.
+    if process_ok:
+        log.info(f"[{args.node}] Gateway healthy (process=OK health={'OK' if health_ok else 'WARN'})")
         return
 
-    log.warning(f"[{args.node}] Gateway unhealthy (health=❌ process={'✅' if process_ok else '❌'})")
+    log.warning(f"[{args.node}] Gateway unhealthy (process=DOWN health={'OK' if health_ok else 'DOWN'})")
 
     if args.dry_run:
         log.info("Dry run — skipping restart")
@@ -216,11 +221,11 @@ def main():
         # Wait and verify
         time.sleep(30)
         if check_health_endpoint() and check_process():
-            log.info(f"[{args.node}] ✅ Gateway recovered after restart")
+            log.info(f"[{args.node}] Gateway recovered after restart")
         else:
-            log.error(f"[{args.node}] ❌ Gateway still unhealthy after restart")
+            log.error(f"[{args.node}] Gateway still unhealthy after restart")
     else:
-        log.error(f"[{args.node}] ❌ Restart failed")
+        log.error(f"[{args.node}] Restart failed")
 
 
 if __name__ == "__main__":

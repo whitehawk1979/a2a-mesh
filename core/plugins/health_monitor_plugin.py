@@ -60,7 +60,7 @@ class HealthMonitorPlugin(MeshPlugin):
             "peers_offline": 0,
         }
 
-    async def on_start(self):
+    async def on_start(self, node=None):
         """Start the health monitoring loop."""
         await super().on_start()
         interval = self._config.get("check_interval", 60)

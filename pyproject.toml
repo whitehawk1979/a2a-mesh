@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "a2a-mesh"
-version = "0.28.6"
+# Version is auto-resolved from git tag at startup (see core/config.py _resolve_version)
+# This is only a fallback for non-git deployments — git tag is SSOT
+version = "0.41.0"
 description = "Zigbee-inspired A2A mesh networking for AI agents — P2P transport, PG NOTIFY, mDNS discovery, TLS encryption"
 readme = "README.md"
 requires-python = ">=3.9"

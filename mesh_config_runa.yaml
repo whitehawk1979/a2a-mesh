@@ -65,7 +65,8 @@ mesh:
   log_file: ~/a2a_mesh/a2a_mesh.log
   auth_mode: open
   health_port: 8650
-  wake_agent_on_message: true  # Wake local agent on incoming messages (non-blocking, mesh infra unaffected)
+  wake_agent_on_message: true
+  ollama_url: http://100.75.253.52:11434
   transports:
     pg_notify:
       host: 192.168.1.30
@@ -92,11 +93,41 @@ mesh:
       tls_enabled: true
     http:
       url: http://192.168.1.30:8650
-      health_url: http://192.168.1.30:8650/health
-      timeout: 5
+      health_url: http://192.168.1.30:8650/api/health
+      timeout: 10
       retries: 3
+    ssh_tunnel:
+      enabled: true
+      default_ssh_user: ''
+      default_identity_file: ~/.ssh/id_ed25519_openclaw
+      local_port_start: 9200
+      connect_timeout: 15
+      keepalive_interval: 30
+      max_retries: 3
+      reconnect_interval: 10
+      peers:
+        nova:
+          ssh_host: 192.168.1.8
+          ssh_user: zsolt
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_ed25519_openclaw
+        morzsa:
+          ssh_host: 192.168.1.30
+          ssh_user: openclaw
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_ed25519_openclaw
+        tor:
+          ssh_host: 100.74.221.46
+          ssh_user: root
+          ssh_port: 2222
+          remote_port: 8645
+          identity_file: ~/.ssh/id_ed25519_openclaw
   discovery:
     min_target_peers: 2
+    # VPN (Tailscale) IP-preferencia: lan | vpn | auto — auto: VPN fut, ha elerheto
+    prefer: auto
     mdns:
       enabled: true
       service: _a2a._tcp
@@ -133,10 +164,20 @@ mesh:
         p2p_port: 8645
         health_port: 8650
         transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.43
+        name: mano
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.74.221.46
+        name: tor
+        p2p_port: 8645
+        transport: p2p
   auto_update:
     enabled: true
     check_interval: 300
-    apply_automatically: true
+    apply_automatically: false
     gitea_url: http://192.168.1.100:3001
     gitea_repo: nova/a2a-mesh
     gitea_user: zsolt
@@ -176,6 +217,8 @@ mesh:
     coordinator_heartbeat_interval: 10
     enable_route_cache: true
     route_cache_ttl: 300
+  gossipsub:
+    flood_threshold: 6
   topology_tuning:
     enabled: true
     check_interval: 300

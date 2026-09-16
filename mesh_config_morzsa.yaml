@@ -15,7 +15,7 @@ mesh:
     priority_threshold: 10
     queue_lower_priorities: true
   auto_update:
-    apply_automatically: true
+    apply_automatically: false
     check_interval: 300
     enabled: true
     gitea_pass: admin1234
@@ -32,6 +32,8 @@ mesh:
   - dashboard
   - image_gen
   discovery:
+    # VPN (Tailscale) IP-preferencia: lan | vpn | auto — auto: VPN fut, ha elerheto
+    prefer: auto
     mdns:
       enabled: true
       port: 8645
@@ -68,8 +70,24 @@ mesh:
         name: runa
         p2p_port: 8645
         transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.43
+        name: mano
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.74.221.46
+        name: tor
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 18650
+        host: 127.0.0.1
+        name: tor
+        p2p_port: 18645
+        transport: p2p
+  gossipsub:
+    flood_threshold: 6
   health_port: 8650
-  wake_agent_on_message: true  # Wake local agent on incoming messages (non-blocking, mesh infra unaffected)
   heartbeat:
     critical_threshold: 900
     interval: 300
@@ -108,7 +126,8 @@ mesh:
     tags:
     - health
     - monitoring
-  - description: Coordinate multi-agent decisions with voting, consensus, and ranking protocols
+  - description: Coordinate multi-agent decisions with voting, consensus, and ranking
+      protocols
     id: gdm
     name: Group Decision Making
     tags:
@@ -124,7 +143,9 @@ mesh:
     - task
     - execution
     - delegation
-  - description: Generate images from text prompts using Pollinations.ai (Flux, Flux Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram chats.
+  - description: Generate images from text prompts using Pollinations.ai (Flux, Flux
+      Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram
+      chats.
     id: image_gen
     name: Image Generation
     tags:
@@ -166,10 +187,10 @@ mesh:
   - http
   transports:
     http:
-      health_url: http://192.168.1.30:8198/health
+      health_url: http://localhost:8650/api/health
       retries: 3
-      timeout: 5
-      url: http://192.168.1.30:8199
+      timeout: 10
+      url: http://localhost:8650
     p2p:
       enabled: true
       idle_timeout: 300
@@ -180,7 +201,7 @@ mesh:
       tls_cert: ~/.hermes/scripts/a2a_mesh/certs/morzsa.crt
       tls_enabled: true
       tls_key: ~/.hermes/scripts/a2a_mesh/certs/morzsa.key
-      tls_verify_peer: false
+      tls_verify_peer: true
     pg_notify:
       channels:
       - a2a_channel
@@ -193,6 +214,37 @@ mesh:
       password: nova_agent_2026
       port: 5432
       user: nova
+    ssh_tunnel:
+      connect_timeout: 15
+      default_identity_file: ~/.ssh/id_ed25519_openclaw
+      default_ssh_user: ''
+      enabled: true
+      keepalive_interval: 30
+      local_port_start: 9200
+      max_retries: 3
+      peers:
+        nova:
+          identity_file: ~/.ssh/id_ed25519_openclaw
+          remote_port: 8645
+          ssh_host: 192.168.1.8
+          ssh_port: 22
+          ssh_user: zsolt
+        runa:
+          identity_file: ~/.ssh/id_ed25519_openclaw
+          remote_port: 8645
+          ssh_host: 192.168.1.100
+          ssh_port: 22
+          ssh_user: zsolt
+        tor:
+          identity_file: ~/.ssh/id_ed25519_openclaw
+          remote_port: 8645
+          ssh_host: 127.0.0.1
+          ssh_port: 18222
+          ssh_user: root
+      reconnect_interval: 10
+  wake_agent_on_message: true
+  # Ollama embedding endpoint (nomic-embed-text) — local on Morzsa
+  ollama_url: http://100.75.253.52:11434
   webhook_port: 8765
   webhook_secret: ${WEBHOOK_SECRET}
 plugins:

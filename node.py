@@ -40,6 +40,7 @@ from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
 from .transports.ble_transport import BLETransport
+from .transports.ssh_tunnel_transport import SSHTunnelTransport
 from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
 from .core.plugin_loader import PluginLoader
@@ -187,6 +188,16 @@ class MeshNode:
         )
         self.delegation.router = self.router  # Wire router for A2A message sending
 
+        # Initialize message router (Marveen-inspired: tracing + backlog batching)
+        from .core.message_router import create_message, process_backlog, get_router_status
+        self._msg_router_create = create_message
+        self._msg_router_process = process_backlog
+        self._msg_router_status = get_router_status
+
+        # Initialize Marveen DB (audit trail, kanban comments, daily logs)
+        from .core.marveen_db import set_pg_pool as set_marveen_db_pool
+        self._set_marveen_db_pool = set_marveen_db_pool
+
         # Initialize P2P file transfer
         self.file_transfer = P2PFileTransfer(
             node_name=self.node_name,
@@ -210,7 +221,45 @@ class MeshNode:
 
         # Link registry to peer discovery (after dashboard init)
         self.peer_discovery.registry = self.dashboard.registry
-        
+
+        # Initialize SSH key auto-sync (approved peers exchange pubkeys,
+        # enabling bidirectional SSH tunnels without manual key copies)
+        from .core.ssh_key_sync import SSHKeySync
+        ssh_cfg = getattr(self.config, 'ssh_tunnel', None) or getattr(getattr(self.config, 'transports', None), 'ssh_tunnel', None)
+        self.ssh_key_sync = SSHKeySync(
+            node_name=self.node_name,
+            registry=self.dashboard.registry,
+            router=self.router,
+            pg_pool=None,  # injected after PG pool connect
+            identity_files=(list(ssh_cfg.identity_files) if ssh_cfg and getattr(ssh_cfg, 'identity_files', None) else None),
+            advertised_ssh_port=int(getattr(self.config, 'advertised_ssh_port', 0) or 0),
+            node_config=self.config,
+        )
+        self.ssh_key_sync.set_node_ref(self)
+        # Embedded sshd manager: guarantees a reachable sshd for INBOUND
+        # tunnels on every node (installs openssh in containers, self-heals).
+        from .core.ssh_server import detect_environment, start_embedded_sshd
+        self._env_kind = detect_environment()
+        sshd_enabled = bool(getattr(ssh_cfg, 'embedded_sshd', False)) if ssh_cfg else False
+        # Auto-enable inside containers/HAOS — no system sshd there
+        if not sshd_enabled and self._env_kind in ('docker', 'haos'):
+            sshd_enabled = True
+        self.embedded_sshd = None
+        if sshd_enabled:
+            sshd_cfg = {
+                'sshd_port': int(getattr(ssh_cfg, 'sshd_port', 2230) or 2230) if ssh_cfg else 2230,
+                'sshd_bind': getattr(ssh_cfg, 'sshd_bind', '0.0.0.0') if ssh_cfg else '0.0.0.0',
+                'sshd_config_dir': getattr(ssh_cfg, 'sshd_config_dir', '') if ssh_cfg else '',
+            }
+            self.embedded_sshd = start_embedded_sshd(self.node_name, sshd_cfg)
+            if self.embedded_sshd:
+                log.info(f"Embedded sshd active on :{self.embedded_sshd.port} (env={self._env_kind})")
+                # Peer keys land in the sshd's PERSISTENT authorized_keys
+                # (containers wipe /root/.ssh — /config/.ssh survives).
+                try:
+                    self.ssh_key_sync._ak_path = self.embedded_sshd._authorized_keys
+                except Exception:
+                    pass
         # Set callback for peer discovery → triggers skills announcement via PG broadcast
         self.peer_discovery._on_peer_discovered = self._on_peer_discovered
 
@@ -249,17 +298,31 @@ class MeshNode:
             self._health_port = self.config.p2p.listen_port + 5
             log.warning(f"health_port == p2p_port ({self.config.p2p.listen_port}), auto-corrected to {self._health_port}")
 
-        # Initialize transports
+        # Initialize transports (shared PG pool injected after _init_pg_write_conn)
         self._pg_transport = PGTransport(self.config)
         self._p2p_transport = P2PTransport(self.config, node_version=self._resolved_version)
         self._http_transport = HTTPTransport(self.config)
         self._ble_transport = BLETransport(self.config)
+        self._ssh_tunnel_transport = SSHTunnelTransport(
+            self.config.ssh_tunnel,
+            node_name=self.node_name,
+            node_version=self._resolved_version,
+            peer_discovery=getattr(self, '_discovery', None),
+            peer_connected_callback=self._on_transport_peer_connected,
+            mesh_config=self.config,
+        )
 
         # Register transports with router
         self.router.register_transport("pg_notify", self._pg_transport)
+
+        # Multi-hop relay: give the router our tree topology (parent lookup)
+        if getattr(self, 'tree_router', None):
+            self.router.set_tree_router(self.tree_router)
         self.router.register_transport("p2p", self._p2p_transport)
         self.router.register_transport("http", self._http_transport)
         self.router.register_transport("ble", self._ble_transport)
+        if self.config.ssh_tunnel.enabled:
+            self.router.register_transport("ssh_tunnel", self._ssh_tunnel_transport)
 
         # Initialize discovery
         self._discovery = MeshDiscovery(
@@ -367,6 +430,42 @@ class MeshNode:
                 log.warning(f"Failed to handle diagnostic message: {e}")
             return
 
+        # Handle SSH key sync — automatic pubkey exchange between approved peers
+        if message.type == "ssh_key_sync":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                if getattr(self, 'ssh_key_sync', None):
+                    await self.ssh_key_sync.handle_incoming(payload, message.sender)
+                else:
+                    log.warning("ssh_key_sync message received but module not initialized")
+            except Exception as e:
+                log.warning(f"SSH key sync handling failed: {e}")
+            return
+
+        # v2: coordinator-aggregated key bundle — apply all peers' keys + tunnels
+        if message.type == "ssh_key_bundle":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                if getattr(self, 'ssh_key_sync', None):
+                    await self.ssh_key_sync.handle_bundle(payload, message.sender)
+                else:
+                    log.warning("ssh_key_bundle message received but module not initialized")
+            except Exception as e:
+                log.warning(f"SSH key bundle handling failed: {e}")
+            return
+
         # Handle skills announcement — P2P auto-discovery of agent skills
         if message.type == "skills_announcement":
             payload = message.payload if isinstance(message.payload, dict) else {}
@@ -449,6 +548,107 @@ class MeshNode:
                     log.info(f"Synced {peer_name} skills/caps to DB")
             except Exception as e:
                 log.warning(f"Failed to sync {peer_name} skills to DB: {e}")
+            return
+
+        # Handle vault share protocol — per-agent vault access + cross-node secret sharing
+        if message.type in ("vault_request", "vault_share", "vault_response"):
+            from .core.vault_share import (
+                handle_vault_request, handle_vault_response, handle_vault_share,
+            )
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                if message.type == "vault_request":
+                    resp_payload = handle_vault_request(payload)
+                    if isinstance(resp_payload, dict):
+                        resp_payload.setdefault("node", self.node_name)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        msg_type="vault_response",
+                        payload=resp_payload,
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                elif message.type == "vault_share":
+                    resp_payload = handle_vault_share(payload)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        msg_type="vault_response",
+                        payload=resp_payload,
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                elif message.type == "vault_response":
+                    handle_vault_response(payload)
+            except Exception as e:
+                log.warning(f"vault_share protocol error from {message.sender}: {e}")
+            return
+
+        # Handle idea_submit — agents submit ideas to the shared Ötletláda
+        if message.type == "idea_submit":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                from .core.idea_review import parse_idea_submit, store_agent_idea
+                idea = parse_idea_submit(payload)
+                if idea:
+                    if not idea.get("submitted_by") or idea.get("submitted_by") == "agent":
+                        idea["submitted_by"] = message.sender
+                    pg_pool = getattr(self, "_pg_pool", None)
+                    idea_id = await store_agent_idea(pg_pool, idea)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        msg_type="idea_submit_ack",
+                        payload={"ok": bool(idea_id), "idea_id": idea_id, "title": idea["title"][:100]},
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                    log.info(f"💡 idea_submit from {message.sender}: {idea['title'][:60]} → {idea_id}")
+                else:
+                    log.warning(f"idea_submit invalid payload from {message.sender}")
+            except Exception as e:
+                log.warning(f"idea_submit error from {message.sender}: {e}")
+            return
+
+        # Handle idea_vote — agents vote on ideas (determinisztikus szabályokkal)
+        if message.type == "idea_vote":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                from .core.idea_review import apply_vote_with_rules, make_implement_fn
+                idea_id = (payload or {}).get("idea_id", "")
+                vote = (payload or {}).get("vote", "up")
+                pg_pool = getattr(self, "_pg_pool", None)
+                if idea_id and pg_pool:
+                    voter = f"agent:{message.sender}"
+                    implement_fn = make_implement_fn(self, pg_pool)
+                    result = await apply_vote_with_rules(pg_pool, idea_id, voter, vote, implement_fn=implement_fn)
+                    resp = A2AMessage.create(
+                        sender=self.node_name,
+                        recipient=message.sender,
+                        msg_type="idea_vote_ack",
+                        payload={"idea_id": idea_id, "ok": bool(result.get("ok")),
+                                 "score": result.get("score"), "action": result.get("action", "none")},
+                    )
+                    asyncio.create_task(self.router.send(resp))
+                    log.info(f"🗳️ idea_vote from {message.sender} on {idea_id}: {vote} → {result.get('action')}")
+            except Exception as e:
+                log.warning(f"idea_vote error from {message.sender}: {e}")
             return
 
         # Handle peer_offline / peer_online status broadcasts — update peer_discovery
@@ -591,12 +791,47 @@ class MeshNode:
         log.info(f"Starting mesh node '{self.node_name}' (role={self.role.value})")
         self._start_time = time.time()
 
+        # Ensure an SSH identity keypair exists for mesh tunnels (installer
+        # does this too, but nodes started without install get it here).
+        try:
+            from .core.bootstrap import ensure_ssh_key
+            _priv, _pub = ensure_ssh_key(self.node_name)
+            if _priv:
+                log.info(f"SSH identity ready: {_priv}")
+        except Exception as e:
+            log.debug(f"ensure_ssh_key skipped: {e}")
+
+        # ── Process Lock Takeover (Marveen-inspired) ──
+        # Ensure only one instance runs per port — kill zombie predecessors
+        try:
+            from .core.process_lock import ensure_single_instance
+            port = getattr(self.config, 'api_port', 8650)
+            lock_ok = await ensure_single_instance(port, grace_s=3.0)
+            if not lock_ok:
+                log.error(f"Port {port} is held by another process — takeover failed")
+                return False
+        except ImportError:
+            pass
+        except Exception as e:
+            log.warning(f"Process lock check failed (non-fatal): {e}")
+
         # Apply resource limits early (memory cap, nice, etc.)
         self.apply_resource_limits()
 
-        # Initialize direct PG connection for writes
+        # Initialize direct PG connection for writes (shared pool for all subsystems)
         if not await self._init_pg_write_conn():
             log.warning("PG write connection failed — will retry")
+
+        # Inject shared pool into subsystems that would otherwise create their own
+        if self._pg_pool and self._pg_pool.is_connected():
+            self._pg_transport._shared_pool = self._pg_pool
+            self._pg_transport._owns_pool = False
+            self._p2p_transport._shared_pool = self._pg_pool
+            log.info("Shared PG pool injected into PG transport + P2P MessageAuth")
+
+            # Inject PG pool into SSH key sync (audit persist)
+            if getattr(self, 'ssh_key_sync', None):
+                self.ssh_key_sync._pg_pool = self._pg_pool._pool if hasattr(self._pg_pool, '_pool') else self._pg_pool
 
         # Register self in mesh.mesh_nodes
         await self._register_node()
@@ -646,6 +881,15 @@ class MeshNode:
             log.warning("❌ BLE transport failed (non-critical)")
             await self.debug_log("WARNING", "transport", "BLE transport failed (non-critical, bleak not installed)")
 
+        # Start SSH tunnel transport (if enabled)
+        if self.config.ssh_tunnel.enabled:
+            results["ssh_tunnel"] = await self._ssh_tunnel_transport.start()
+            if results["ssh_tunnel"]:
+                log.info("✅ SSH tunnel transport started")
+            else:
+                log.warning("❌ SSH tunnel transport failed (non-critical, P2P fallback)")
+                await self.debug_log("WARNING", "transport", "SSH tunnel transport failed (non-critical)")
+
         # 4. mDNS discovery (linked to peer_discovery for auto-connect)
         if self.config.discovery.mdns_enabled:
             host_ip = self._get_local_ip()
@@ -656,7 +900,10 @@ class MeshNode:
                 log.info("✅ mDNS discovery started")
             else:
                 log.warning("❌ mDNS discovery failed")
-                await self.debug_log("WARNING", "transport", "mDNS discovery failed (zeroconf not installed or multicast unavailable)")
+                try:
+                    await self.debug_log("WARNING", "transport", "mDNS discovery failed (zeroconf not installed or multicast unavailable)")
+                except Exception:
+                    pass  # debug_log may block if PG pool not fully ready
 
         # 5. UDP broadcast discovery (works on local network + Tailscale)
         tailscale_if = self.config.discovery.tailscale_interface
@@ -683,6 +930,44 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._health_monitor_loop()))
         self._tasks.append(asyncio.create_task(self._stats_update_loop()))
+        # v2 SSH key protocol: periodic announce to coordinator (new nodes
+        # announce themselves; the root aggregates and bundles for everyone)
+        if getattr(self, 'ssh_key_sync', None):
+            self._tasks.append(asyncio.create_task(self._ssh_key_announce_loop()))
+            # Embedded sshd self-heal loop (containers: restarts heal sshd)
+            if getattr(self, 'embedded_sshd', None):
+                self._tasks.append(asyncio.create_task(self.embedded_sshd.self_heal_loop(interval=60)))
+        # v0.29: Auto-Bootstrap + Self-Healing loop
+        self._tasks.append(asyncio.create_task(self._auto_bootstrap_heal_loop()))
+
+        # v0.40: Memory maintenance loop — capsule promotion + auto skill generation
+        self._tasks.append(asyncio.create_task(self._memory_maintenance_loop()))
+
+        # v0.42: Built-in log rotation — gzip+truncate at log_max_mb (default 100MB)
+        self._tasks.append(asyncio.create_task(self._log_rotation_loop()))
+        self._prune_node_log_archives()
+
+        # v0.43: VPN (Tailscale) health loop — figyeli a VPN-állapotot, state-váltásnál logol
+        try:
+            from .core.vpn import vpn_health_loop
+            self._tasks.append(asyncio.create_task(vpn_health_loop(self)))
+        except Exception as _vpn_loop_err:
+            log.debug(f"VPN health loop indítása kihagyva: {_vpn_loop_err}")
+
+        # v0.41: Coordinator idea-review loop — ötletláda felülvizsgálat (csak coordinatoron fut)
+        try:
+            from .core.idea_review import start_review_loop, make_implement_fn
+            # Az auto-approve a node delegációján keresztül valósítson meg:
+            self._idea_implement_fn = make_implement_fn(self, getattr(self, "_pg_pool", None))
+            review_task = await start_review_loop(self)
+            if review_task:
+                self._tasks.append(review_task)
+        except Exception as e:
+            log.debug(f"idea-review loop not started: {e}")
+
+        # Start alert manager evaluation loop
+        if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'alert_manager'):
+            asyncio.create_task(self.dashboard.alert_manager.start())
 
         # Auto-update: check for new versions periodically
         auto_update_cfg = getattr(self.config, 'auto_update', None)
@@ -708,9 +993,26 @@ class MeshNode:
         self.memory_sync._pg_pool = self._pg_pool
         # Wire up delegation manager with PG pool and start polling
         self.delegation.pg_pool = self._pg_pool
+        # Wire up Marveen DB (audit trail, kanban comments, daily logs)
+        self._set_marveen_db_pool(self._pg_pool)
         # Wire up health scorer with PG pool for persistence
         if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
             self.router._health_scorer.set_pg_pool(self._pg_pool, self.node_name)
+            # Restrict health records to real mesh agents (self + known peers).
+            # Without this, load_from_pg() skips EVERYTHING (empty
+            # valid_node_names regression from 2026-08-31 patch) or loads
+            # phantom entries ("unknown", "http", "pg_notify", human names).
+            valid_names = {self.node_name}
+            try:
+                if self.peer_discovery:
+                    for pname in (self.peer_discovery.get_all_peers() or {}):
+                        valid_names.add(pname)
+            except Exception as e:
+                log.debug(f"Could not enumerate peers for health scorer: {e}")
+            try:
+                self.router._health_scorer.set_valid_node_names(valid_names)
+            except Exception as e:
+                log.debug(f"set_valid_node_names failed: {e}")
             # Load previous health scores from PG
             asyncio.create_task(self.router._health_scorer.load_from_pg())
             # Start background persistence (60s interval)
@@ -718,13 +1020,22 @@ class MeshNode:
         # Register built-in task handlers
         self.delegation.register_handler("monitoring", self._handle_monitoring_task)
         self.delegation.register_handler("generic", self._handle_generic_task)
-        self.delegation.register_handler("research", self._handle_generic_task)
+        # Research/analysis: dedicated handler — the keyword dispatcher inside
+        # _handle_generic_task misroutes research tasks with "teszt"/"validalas"/"generate"
+        # wording into code-generation. task_type is the EXPLICIT signal: honor it.
+        self.delegation.register_handler("research", self._handle_research_task)
+        self.delegation.register_handler("analysis", self._handle_research_task)
+        self.delegation.register_handler("web_search", self._handle_research_task)
         self.delegation.register_handler("code", self._handle_generic_task)
-        self.delegation.register_handler("analysis", self._handle_generic_task)
         self.delegation.register_handler("diagnostic", self._handle_generic_task)  # diagnostic tasks use generic handler
         self.delegation.register_handler("deploy", self._handle_deploy_task)
         self.delegation.register_handler("code_review", self._handle_code_review_task)
         self.delegation.register_handler("local_maintenance", self._handle_local_maintenance_task)
+        # Workflow capability task types → generic handler
+        self.delegation.register_handler("web_search", self._handle_generic_task)
+        self.delegation.register_handler("summarization", self._handle_generic_task)
+        self.delegation.register_handler("data_analysis", self._handle_generic_task)
+        self.delegation.register_handler("code_generation", self._handle_generic_task)
         self.delegation.on_result(self._on_delegation_result)
 
 
@@ -776,6 +1087,9 @@ class MeshNode:
             await self._auto_advertise_skills()
         except Exception as e:
             log.warning(f"Skill auto-advertise failed (non-fatal): {e}")
+
+        # Auto-sync published skills from PG (pull skills from other nodes)
+        asyncio.create_task(self._auto_sync_skills_delayed())
 
         # At least one transport must be working
         any_ok = any(results.values())
@@ -886,6 +1200,59 @@ class MeshNode:
         elif status == "failed":
             log.warning(f"Delegated task '{subject}' FAILED on {assigned}: {result[:200]}")
         
+        # ── Update Kanban card agent_history ──
+        if status in ("completed", "failed"):
+            try:
+                import time as _time
+                from .core.kanban import _load_boards, _save_boards
+                kanban_card_id = task_row.get("kanban_card_id", "")
+                task_type = task_row.get("task_type", "")
+                if kanban_card_id:
+                    boards = _load_boards()
+                    for board in boards:
+                        for c in board.get("cards", []):
+                            if c["id"] == kanban_card_id:
+                                if "agent_history" not in c:
+                                    c["agent_history"] = []
+                                # Determine role
+                                role = "executor"
+                                if task_type == "code_review":
+                                    role = "reviewer"
+                                entry = {
+                                    "agent": assigned,
+                                    "role": role,
+                                    "action": f"{'completed' if status == 'completed' else 'failed'} {'review' if task_type == 'code_review' else 'task'}",
+                                    "result": (result or "")[:500],
+                                    "timestamp": _time.time(),
+                                }
+                                if task_type == "code_review":
+                                    # Parse verdict from result
+                                    import re as _re
+                                    json_match = _re.search(r'\{[^{}]*"verdict"[^{}]*\}', result or "", _re.DOTALL)
+                                    if json_match:
+                                        try:
+                                            import json as _json
+                                            vd = _json.loads(json_match.group())
+                                            entry["verdict"] = vd.get("verdict", "")
+                                            entry["reason"] = vd.get("reason", "")[:300]
+                                        except Exception:
+                                            pass
+                                c["agent_history"].append(entry)
+                                c["updated_at"] = _time.time()
+                                if task_type == "code_review":
+                                    c["review_status"] = entry.get("verdict", status)
+                                    if entry.get("reason"):
+                                        c["review_reason"] = entry["reason"]
+                                    c["reviewed_at"] = _time.time()
+                                else:
+                                    c["delegation_status"] = status
+                                    c["delegation_result"] = (result or "")[:2000]
+                                    c["completed_at"] = str(task_row.get("completed_at", ""))[:30]
+                                break
+                    _save_boards(boards)
+            except Exception as e:
+                log.debug(f"Kanban agent_history update failed: {e}")
+        
         # Feed delegation result into health scorer
         try:
             if hasattr(self, 'router') and hasattr(self.router, '_health_scorer'):
@@ -921,6 +1288,65 @@ class MeshNode:
                 await self._hindsight_sync.save_delegation_result(task_row)
         except Exception as e:
             log.debug(f"Hindsight save skipped: {e}")
+        
+        # ── Record token usage + cost ──
+        try:
+            from .core.token_usage import record_usage as _record_usage
+            # Extract token counts from result if available
+            result_str = str(result or "")
+            # Try to parse token info from result JSON
+            input_tokens = 0
+            output_tokens = 0
+            model = "unknown"
+            try:
+                import json as _json
+                # result may be JSON with token info, or plain text
+                result_data = _json.loads(result_str) if result_str.startswith("{") else {}
+                if isinstance(result_data, dict):
+                    usage = result_data.get("usage", {})
+                    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
+                    output_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0))
+                    model = result_data.get("model", "unknown")
+            except Exception:
+                pass
+            # Fallback: estimate tokens from result length (rough: 1 token ≈ 4 chars)
+            if input_tokens == 0 and output_tokens == 0:
+                output_tokens = min(len(result_str) // 4, 50000)
+            _record_usage(assigned, model, input_tokens, output_tokens, task_id=str(task_row.get("id", "")))
+            log.debug(f"[costops] Recorded: {assigned} model={model} in={input_tokens} out={output_tokens}")
+        except Exception as e:
+            log.debug(f"[costops] Token usage recording skipped: {e}")
+        
+        # ── Auto Skill-Factory ──
+        try:
+            from .core.auto_skill import maybe_generate_skill
+            skill_name = await maybe_generate_skill(task_row, self.node_name)
+            if skill_name:
+                log.info(f"🧠 Auto-skill generated: {skill_name}")
+                # Register in PG mesh_skills
+                if self._pg_pool:
+                    try:
+                        skill_id = "skill-" + self.node_name + "-" + skill_name
+                        async with self._pg_pool.acquire() as conn:
+                            await conn.execute(
+                                """INSERT INTO mesh.mesh_skills (skill_id, agent_name, skill_name, display_name, description, tags, status)
+                                   VALUES ($1, $2, $3, $4, $5, $6, 'active')
+                                   ON CONFLICT (skill_id) DO UPDATE SET updated_at = NOW()""",
+                                skill_id, self.node_name, skill_name,
+                                skill_name.replace('-', ' ').title(),
+                                "Auto-generated from delegation: " + task_row.get("subject", "")[:200],
+                                ["auto", "generated"]
+                            )
+                            log.info(f"🧠 Auto-skill registered in mesh: {skill_id}")
+                    except Exception as re:
+                        log.debug(f"Auto-skill PG register skipped: {re}")
+                # Broadcast to mesh so other nodes know about the new skill
+                try:
+                    await self._auto_advertise_skills()
+                except Exception:
+                    pass
+        except Exception as e:
+            log.debug(f"Auto-skill generation skipped: {e}")
 
 
     # ── Delegation task handlers ──
@@ -1265,37 +1691,57 @@ class MeshNode:
         
         steps.append(f"[{node}] repo_path={repo_path}")
 
-        # Step 1: Git fetch + pull
+        # Step 1: Git fetch + pull (robust: stale-lock cleanup, retry, FETCH_HEAD merge)
         try:
+            import os as _os
+            # Stale index.lock cleanup — known issue on Runa after crashed deploy processes
+            try:
+                lock = _os.path.join(repo_path, ".git", "index.lock")
+                if _os.path.exists(lock):
+                    _os.remove(lock)
+                    steps.append(f"[{node}] git: removed stale index.lock")
+            except Exception:
+                pass
+
+            fetch_ok = False
+            # Try full prune fetch first; fallback to branch-only fetch (immune to ref-lock)
+            for fetch_args in ([remote], [remote, branch]):
+                try:
+                    r = subprocess.run(
+                        ["git", "fetch"] + fetch_args,
+                        cwd=repo_path, capture_output=True, text=True, timeout=60
+                    )
+                    if r.returncode == 0:
+                        fetch_ok = True
+                        steps.append(f"[{node}] git fetch {' '.join(fetch_args)}: OK")
+                        break
+                    steps.append(f"[{node}] git fetch {' '.join(fetch_args)}: FAIL — {r.stderr.strip()[:150]}")
+                except subprocess.TimeoutExpired:
+                    steps.append(f"[{node}] git fetch {' '.join(fetch_args)}: TIMEOUT")
+            if not fetch_ok:
+                return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_git"}}
+
+            # Merge from FETCH_HEAD — always reflects the last successful fetch,
+            # immune to 'cannot lock ref' failures that leave origin/main stale.
             r = subprocess.run(
-                ["git", "fetch", "--prune", remote],
-                cwd=repo_path, capture_output=True, text=True, timeout=15
+                ["git", "merge", "--ff-only", "FETCH_HEAD"],
+                cwd=repo_path, capture_output=True, text=True, timeout=30
             )
             if r.returncode != 0:
-                steps.append(f"[{node}] git fetch: FAIL — {r.stderr.strip()[:200]}")
-            else:
-                steps.append(f"[{node}] git fetch: OK")
-            
-            # Try merge --ff-only, fallback to reset --hard
-            r = subprocess.run(
-                ["git", "merge", "--ff-only", f"{remote}/{branch}"],
-                cwd=repo_path, capture_output=True, text=True, timeout=15
-            )
-            if r.returncode != 0:
-                steps.append(f"[{node}] git merge --ff-only: retry with reset --hard")
+                steps.append(f"[{node}] git merge --ff-only: retry with reset --hard FETCH_HEAD")
                 r2 = subprocess.run(
-                    ["git", "reset", "--hard", f"{remote}/{branch}"],
-                    cwd=repo_path, capture_output=True, text=True, timeout=15
+                    ["git", "reset", "--hard", "FETCH_HEAD"],
+                    cwd=repo_path, capture_output=True, text=True, timeout=30
                 )
                 if r2.returncode != 0:
                     steps.append(f"[{node}] git reset: FAIL — {r2.stderr.strip()[:200]}")
                     return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_git"}}
-                steps.append(f"[{node}] git reset --hard: OK — {r2.stdout.strip()[:100]}")
+                steps.append(f"[{node}] git reset --hard FETCH_HEAD: OK — {r2.stdout.strip()[:100]}")
             else:
                 # Check if anything actually changed
                 r_status = subprocess.run(
                     ["git", "log", "--oneline", "-1"],
-                    cwd=repo_path, capture_output=True, text=True, timeout=5
+                    cwd=repo_path, capture_output=True, text=True, timeout=10
                 )
                 steps.append(f"[{node}] git merge: OK — {r_status.stdout.strip()[:80]}")
         except subprocess.TimeoutExpired:
@@ -1535,6 +1981,43 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
             steps.append(f"[{node}] LLM review error: {e}")
             return {"result": "\n".join(steps), "files": [], "context_updates": {"review_status": "error"}}
 
+    async def _handle_research_task(self, task: dict, context: dict) -> dict:
+        """Dedicated handler for research/analysis task types.
+
+        task_type='research'|'analysis'|'web_search' is the EXPLICIT route: it goes
+        straight to the LLM text-answer path (_task_llm_research) without passing
+        through the keyword dispatcher, which can misroute research-y wording
+        ("teszt", "validalas", "generate") into code generation. Falls back to
+        the generic handler when no LLM is reachable on this node.
+        """
+        import json as _json
+        from datetime import datetime, timezone
+
+        subject = task.get("subject", "unknown")
+        desc_raw = task.get("description", "")
+        now = datetime.now(timezone.utc)
+        node = self.node_name
+
+        # Extract description text (same parsing as the generic handler)
+        desc_text = ""
+        try:
+            d = _json.loads(desc_raw) if isinstance(desc_raw, str) else desc_raw
+            desc_text = d.get("description", "") if isinstance(d, dict) else str(desc_raw)
+        except (ValueError, TypeError, AttributeError):
+            desc_text = desc_raw if desc_raw else subject
+
+        # Inject prior memory if available in context
+        if isinstance(context, dict) and context.get("prior_memory"):
+            desc_text = desc_text + "\n\n--- Prior Memory ---\n" + context["prior_memory"]
+
+        result = await self._task_llm_research(node, now, subject, desc_text)
+        if result:
+            return result
+
+        # No LLM on this node → let the generic handler try its deterministic paths
+        log.info(f"[{node}] research: no LLM reachable, falling back to generic handler")
+        return await self._handle_generic_task(task, context)
+
     async def _handle_generic_task(self, task: dict, context: dict) -> dict:
         """Handle generic delegated tasks. Parses description for instructions
         and dispatches to specialized sub-handlers based on keywords."""
@@ -1563,8 +2046,22 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
             d = _json.loads(desc_raw)
             desc_text = d.get("description", "")
             desc_ctx = d.get("context", {})
+            # Ötletláda-meta: az idea_id és source maradjon elérhető a végrehajtó
+            # útvonalak számára (a JSON top-level mezői egyébként elvesznének itt)
+            if isinstance(d, dict) and d.get("idea_id"):
+                desc_ctx = dict(desc_ctx) if desc_ctx else {}
+                desc_ctx["idea_id"] = d.get("idea_id")
+                desc_ctx["idea_source"] = d.get("source", "")
+                # A desc_text végére is ráfűzzük, hogy a kód-integrációs blokk megtalálja
+                desc_text = (desc_text or "") + f"\n\n[idea_id: {d.get('idea_id')}]"
         except (ValueError, TypeError, AttributeError):
             desc_text = desc_raw if desc_raw else subject
+
+        # Inject prior_memory from HindsightSync recall
+        if isinstance(context, dict) and context.get("prior_memory"):
+            desc_ctx = dict(desc_ctx) if desc_ctx else {}
+            desc_ctx["prior_memory"] = context["prior_memory"]
+            desc_text = desc_text + "\n\n--- Prior Memory ---\n" + context["prior_memory"]
 
         # ── Task dispatcher based on keywords ────────────────────────
         # Normalize: remove diacritics for matching (írj -> irj, fájl -> fajl)
@@ -1573,6 +2070,23 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
         # Also create an ASCII-normalized version for matching
         nfkd = unicodedata.normalize('NFKD', lower_raw)
         lower = ''.join(c for c in nfkd if not unicodedata.combining(c))
+
+        # --- Research / analysis / comparison tasks → LLM text answer (NO code exec) ---
+        # These must NOT reach the code-generation path: the LLM there treats the
+        # description as a spec to program from (observed: it tried to execute the
+        # task text as Python → SyntaxError). Research tasks need an ANSWER.
+        # Trigger: explicit type in JSON description, or research-y keywords.
+        _explicit_type = ""
+        if isinstance(desc_ctx, dict):
+            _explicit_type = str(desc_ctx.get("type", "")).lower()
+        research_kws = ("felmérés", "felmeres", "felmérését", "survey", "research", "összehasonlít", "osszehasonlit",
+                        "comparison", "compare", "elemzés", "elemzes", "analysis", "evaluation", "értékelés",
+                        "ertekeles", "marveen.io", "marveen io", "review a projekt", "vélemény", "velemeny")
+        if _explicit_type == "research" or any(kw in lower_raw for kw in research_kws):
+            research_result = await self._task_llm_research(node, now, subject, desc_text)
+            if research_result:
+                return research_result
+            # LLM unreachable → fall through to the normal paths below
 
         # --- Development suggestions / LLM analysis (check BEFORE system analysis) ---
         if any(kw in lower for kw in ("javaslat", "suggestion", "fejlesztesi", "development", "improvement", "optimalizal", "optimize", "refactor", "hiba", "bug", "fix", "problema", "problem", "issue", "hiány", "missing", "javit", "improve")):
@@ -1785,6 +2299,108 @@ Be concise but thorough. Only report real issues, not style nitpicks unless focu
             "context_updates": {"task_type": "file_ops", "path": path},
         }
 
+    async def _task_llm_research(self, node: str, now, subject: str, desc_text: str) -> dict | None:
+        """Handle research/analysis/comparison tasks via LLM (text answer, NO code execution).
+
+        The code-generation path treats the description as a spec to write a program
+        from — for research tasks (surveys, comparisons, evaluations) that is the
+        wrong tool: the LLM once tried to run the task text itself as Python
+        (SyntaxError on the first em-dash). This handler asks the LLM to ANSWER
+        the question instead, in the style of the code-review handler.
+        Returns a result dict, or None if no LLM is reachable (caller falls back).
+        """
+        import aiohttp
+        import json as _json
+
+        ollama_url = getattr(self, '_ollama_url', None)
+        if not ollama_url:
+            for url in ["http://localhost:11434", "http://127.0.0.1:11434"]:
+                try:
+                    import urllib.request
+                    urllib.request.urlopen(f"{url}/api/tags", timeout=2)
+                    ollama_url = url
+                    self._ollama_url = url
+                    break
+                except Exception:
+                    continue
+        if not ollama_url:
+            return None
+
+        # Pick model (same preference list as code review)
+        preferred_models = ["glm-5.2", "glm-5.1", "glm-4.7", "gemma4:31b", "kimi-k2.5", "qwen2.5:7b", "qwen2.5:3b"]
+        model = None
+        try:
+            import urllib.request
+            resp = urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3)
+            models_data = _json.loads(resp.read())
+            available = [m["name"] for m in models_data.get("models", [])]
+            for pref in preferred_models:
+                for avail in available:
+                    if pref in avail:
+                        model = avail
+                        break
+                if model:
+                    break
+            if not model and available:
+                model = available[0]
+        except Exception:
+            pass
+        if not model:
+            return None
+
+        prompt = f"""You are the '{node}' agent of the A2A Mesh — a decentralized multi-agent
+network (4 nodes: nova/macOS, morzsa+runa/Linux, tor/HAOS container; each agent runs
+on its OWN machine with its OWN local LLM; core mesh features are deterministic,
+LLM is an optional layer). You are completing a RESEARCH task delegated to you.
+
+Task subject: {subject}
+
+Task description:
+{desc_text[:12000]}
+
+Answer the task as a research agent would — structured TEXT, not code:
+1. Do what the task asks (analysis, comparison, evaluation, survey).
+2. Structure the answer with clear sections/bullet lists.
+3. If the task names external sources, reason about them from your knowledge
+   and clearly mark what you could NOT verify.
+4. If the task expects concrete suggestions, list them explicitly
+   (e.g. 'SUGGESTION: <title> | <description> | <priority>').
+Answer in Hungarian unless the task is in another language."""
+
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=300)) as session:
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.3, "num_predict": 4096},
+                }
+                async with session.post(f"{ollama_url}/api/generate", json=payload) as resp:
+                    if resp.status != 200:
+                        log.warning(f"[{node}] research LLM HTTP {resp.status}")
+                        return None
+                    data = await resp.json()
+                    answer = data.get("response", "").strip()
+
+            if not answer or len(answer) < 20:
+                return None
+
+            result_text = f"[{node}] Research via {model}\nTask: {subject[:80]}\n\n{answer}"
+            answer_file = {
+                "filename": f"research_{now.strftime('%Y%m%d_%H%M%S')}.md",
+                "content_type": "text/markdown",
+                "content": answer,
+                "size": len(answer),
+            }
+            return {
+                "result": result_text,
+                "files": [answer_file],
+                "context_updates": {"task_type": "research", "model": model, "llm": True},
+            }
+        except Exception as e:
+            log.warning(f"[{node}] research LLM error: {e}")
+            return None
+
     async def _task_llm_generate(self, node: str, now, subject: str, desc_text: str) -> dict | None:
         """Try to generate code using Ollama LLM. Returns result dict or None."""
         import aiohttp
@@ -1867,20 +2483,36 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                         return None
 
             # Detect language/extension from generated code
+            # Először a markdown-fence nyelvi jelölése (```python) — az LLM-ek gyakran
+            # fence-en belül adják a kódot, ilyenkor a raw startswith sosem matchel
+            _strip = generated.strip()
+            _fence_lang = None
+            _fence_body = _strip
+            if _strip.startswith("```"):
+                _first_line = _strip.split("\n", 1)[0]
+                _fence_lang = _first_line.replace("```", "").strip().lower() or None
+                rest = _strip.split("\n", 1)[1] if "\n" in _strip else ""
+                _fence_body = rest.rsplit("```", 1)[0] if "```" in rest else rest
+            _start = (_fence_body.lstrip())[:200]
+
             ext = "txt"
             lang = "python"
-            if generated.strip().startswith("<!DOCTYPE") or generated.strip().startswith("<html"):
-                ext = "html"
-                lang = "html"
-            elif generated.strip().startswith("#!/bin/bash") or generated.strip().startswith("#!/bin/sh"):
-                ext = "bash"
-                lang = "bash"
-            elif generated.strip().startswith("#!/usr/bin/env python") or "import " in generated[:200]:
-                ext = "py"
-                lang = "python"
-            elif "function " in generated[:200] or "const " in generated[:200] or "=>" in generated[:200]:
-                ext = "js"
-                lang = "javascript"
+            if _fence_lang in ("python", "py"):
+                ext = "py"; lang = "python"
+            elif _fence_lang in ("bash", "sh", "shell"):
+                ext = "bash"; lang = "bash"
+            elif _fence_lang in ("javascript", "js"):
+                ext = "js"; lang = "javascript"
+            elif _fence_lang == "html":
+                ext = "html"; lang = "html"
+            elif _start.startswith("<!DOCTYPE") or _start.startswith("<html"):
+                ext = "html"; lang = "html"
+            elif _start.startswith("#!/bin/bash") or _start.startswith("#!/bin/sh"):
+                ext = "bash"; lang = "bash"
+            elif _start.startswith("#!/usr/bin/env python") or "import " in _start or "def " in _start:
+                ext = "py"; lang = "python"
+            elif "function " in _start or "const " in _start or "=>" in _start:
+                ext = "js"; lang = "javascript"
 
             filename = f"generated_{ext}_{node}_{now.strftime('%Y%m%d_%H%M%S')}.{ext}"
             log.info(f"[{node}] LLM generated {len(generated)} chars, saved as {filename}")
@@ -2029,6 +2661,60 @@ Output ONLY the code, no explanations. Start with the appropriate shebang or DOC
                     result_text += f"\n\n── Execution Error ──\n{execution_error}"
             elif execution_error:
                 result_text += f"\n\n── Execution Error ──\n{execution_error}"
+
+            # ── Ötletláda Implementation Pipeline: a generált kód bekerül a repóba ──
+            # Ha a description-ben idea_id van (ötletláda-megvalósítás), a kód a repó
+            # ideas/ mappájába mentődik + git commit — valódi beépítés, nem csak artifact.
+            repo_integrated = False
+            try:
+                import json as _json_mod
+                _desc_obj = None
+                try:
+                    _desc_obj = _json_mod.loads(desc_text) if desc_text else None
+                except Exception:
+                    _desc_obj = None
+                _idea_id = None
+                if isinstance(_desc_obj, dict):
+                    _idea_id = _desc_obj.get("idea_id") or (_desc_obj.get("description") if isinstance(_desc_obj.get("description"), dict) else None)
+                    if isinstance(_idea_id, dict):
+                        _idea_id = _idea_id.get("idea_id")
+                if not _idea_id and desc_text and "idea_id" in desc_text:
+                    import re as _re2
+                    _m = _re2.search(r'"idea_id"\s*:\s*"([^"]+)"', desc_text)
+                    if not _m:
+                        _m = _re2.search(r'\[idea_id:\s*([a-zA-Z0-9_]+)\]', desc_text)
+                    if _m:
+                        _idea_id = _m.group(1)
+                if _idea_id and lang in ("python", "bash", "js", "javascript", "html"):
+                    import os as _os2, subprocess as _sp2
+                    _repo_root = _os2.path.dirname(_os2.path.abspath(__file__))
+                    _ideas_dir = _os2.path.join(_repo_root, "ideas")
+                    _os2.makedirs(_ideas_dir, exist_ok=True)
+                    _slug = _re2.sub(r'[^a-zA-Z0-9_-]', '_', subject[:40]).strip('_') or "idea_impl"
+                    _impl_ext = {"python": "py", "bash": "sh", "js": "js", "javascript": "js", "html": "html"}.get(lang, "py")
+                    _impl_name = f"{_idea_id}_{_slug}.{_impl_ext}"
+                    _impl_path = _os2.path.join(_ideas_dir, _impl_name)
+                    with open(_impl_path, "w", encoding="utf-8") as _f:
+                        _f.write(cleaned if lang in ("python", "bash") else generated)
+                    # Git commit a repóban
+                    _git = _sp2.run(["git", "add", "-A", "ideas/"], cwd=_repo_root, capture_output=True, text=True, timeout=15)
+                    _git = _sp2.run(
+                        ["git", "commit", "-m", f"feat(idea): {_idea_id} implementáció — ötletláda pipeline\n\nGenerálta: {node} ({model})\nSubject: {subject[:100]}"],
+                        cwd=_repo_root, capture_output=True, text=True, timeout=15,
+                    )
+                    if _git.returncode == 0:
+                        repo_integrated = True
+                        result_text += f"\n\n✅ Repóba integrálva: ideas/{_impl_name} (git commit)"
+                        log.info(f"[{node}] Idea {str(_idea_id)[:16]} implemented → ideas/{_impl_name}")
+                    else:
+                        # Már commitolva van / nincs változás
+                        if "nothing to commit" in (_git.stdout or "") + (_git.stderr or ""):
+                            repo_integrated = True
+                            result_text += f"\n\n✅ Repóban: ideas/{_impl_name}"
+                        else:
+                            log.warning(f"[{node}] Idea git commit failed: {(_git.stderr or '')[:200]}")
+            except Exception as _integ_err:
+                log.warning(f"[{node}] Idea repo-integration failed: {_integ_err}")
 
             files_list = [{"filename": filename,
                             "content_type": "text/plain", "content": generated,
@@ -2520,6 +3206,8 @@ echo "Status: ok"
         await self._p2p_transport.stop()
         await self._http_transport.stop()
         await self._ble_transport.stop()
+        if self.config.ssh_tunnel.enabled:
+            await self._ssh_tunnel_transport.stop()
         await self._discovery.stop()
         await self._udp_discovery.stop()
 
@@ -2596,14 +3284,29 @@ echo "Status: ok"
             content = message.sign_content()
             message.signature = self.encryption.sign_message(content)
 
-        # Check if recipient is online — if not, queue for later
-        if not message.is_broadcast() and self.offline_queue.is_node_online(message.recipient) is False:
+        # Check if recipient is online — if not, queue for later.
+        # NOTE: skip the check for empty/None recipients (heartbeat forwards) and
+        # non-broadcast forwarding paths — only queue for real directed recipients.
+        if (
+            not message.is_broadcast()
+            and message.recipient
+            and message.recipient not in ("", "*", "broadcast")
+            and await self.offline_queue.is_node_online(message.recipient) is False
+        ):
             log.info(f"Recipient {message.recipient} is offline — queuing message")
-            self.offline_queue.enqueue(message)
+            await self.offline_queue.enqueue(message)
             return SendResult(transport="offline_queue", success=True, error="Queued for offline delivery")
 
         # Track for ACK (non-broadcast only)
-        if not message.is_broadcast() and message.type != MSG_TYPE_HEARTBEAT:
+        # Skip self-directed messages: no peer will ACK them, so tracking
+        # always exhausts retries → spurious "ACK failed → <self>" warnings
+        # (~118/day from Dream Engine self-reports and dashboard self-sends).
+        if (
+            not message.is_broadcast()
+            and message.type != MSG_TYPE_HEARTBEAT
+            and message.recipient not in ("", "*", "broadcast")
+            and message.recipient != self.node_name
+        ):
             self.ack_manager.track(message)
 
         # Also persist to PG for reliability
@@ -2613,7 +3316,10 @@ echo "Status: ok"
 
     async def send_direct(self, recipient: str, msg_type: str,
                           payload: dict, priority: int = 5) -> SendResult:
-        """Convenience method to send a directed message."""
+        """Convenience method to send a directed message.
+        
+        Marveen-inspired: logs to message_router for distributed tracing.
+        """
         msg = A2AMessage.create(
             sender=self.node_name,
             recipient=recipient,
@@ -2621,6 +3327,17 @@ echo "Status: ok"
             payload=payload,
             priority=priority,
         )
+        # Trace via message_router
+        try:
+            trace_id = payload.get("trace_id") if isinstance(payload, dict) else None
+            self._msg_router_create(
+                self.node_name, recipient,
+                f"[{msg_type}] {str(payload.get('text', payload.get('subject', '')))[:100]}",
+                msg_type=msg_type,
+                trace_id=trace_id,
+            )
+        except Exception:
+            pass
         return await self.send(msg)
 
     async def broadcast(self, msg_type: str, payload: dict,
@@ -2708,6 +3425,15 @@ echo "Status: ok"
         """Callback when a P2P heartbeat is received — update peer version + provider health."""
         if not self.peer_discovery:
             return
+        # Late-discovered peers must be allowed into the health scorer
+        # (valid_node_names is seeded at startup when discovery may be empty).
+        try:
+            if hasattr(self, 'router') and self.router and hasattr(self.router, '_health_scorer'):
+                hs = self.router._health_scorer
+                if peer_name not in hs.valid_node_names:
+                    hs.valid_node_names.add(peer_name)
+        except Exception:
+            pass
         peer = self.peer_discovery.get_peer(peer_name)
         if peer:
             if not peer.version or peer.version == 'unknown' or peer.version == '1.0.0':
@@ -2736,6 +3462,14 @@ echo "Status: ok"
             log.info(f"PG message {ack_for_id[:8]} status → acknowledged (P2P ACK: {ack_type})")
         except Exception as e:
             log.error(f"Failed to update message status for ACK {ack_for_id[:8]}: {e}")
+
+    async def _on_transport_peer_connected(self, peer_name: str):
+        """Callback when any transport (P2P, SSH tunnel) establishes a connection.
+        Delegates to the P2P peer connected handler for registry + skills sync."""
+        log.info(f"Transport peer_connected callback: {peer_name}")
+        await self.debug_log("INFO", "transport", f"Peer {peer_name} connected via SSH tunnel")
+        # Reuse the P2P peer connected logic for registry registration
+        await self._on_p2p_peer_connected(peer_name)
 
     async def _on_p2p_peer_connected(self, peer_name: str):
         """Callback when a P2P connection is established (including reconnects).
@@ -2785,6 +3519,10 @@ echo "Status: ok"
         if pending_task and not pending_task.done():
             pending_task.cancel()
             log.info(f"Cancelled pending offline broadcast for {peer_name} — peer reconnected during grace period")
+
+        # SSH key auto-sync: exchange pubkeys with the (re)connected peer
+        if getattr(self, 'ssh_key_sync', None):
+            asyncio.create_task(self.ssh_key_sync.on_peer_connected(peer_name))
 
         # If we previously broadcast peer_offline for this peer, send peer_online to restore mesh state.
         # This handles the case where the grace period already expired (offline was broadcast)
@@ -2845,13 +3583,16 @@ echo "Status: ok"
             log.debug(f"Skipping P2P skills announcement to {peer_name} — rate limited (last sent {now - self._last_skills_announcement:.0f}s ago)")
             return
         self._last_skills_announcement = now
+        # Use full skills + capabilities from registry (auto-built in _auto_register_self)
         skills = list(getattr(self.config, 'skills', []) or [])
-        if skills:
+        # Get capabilities from registry card (includes workflow + transport + role caps)
+        reg_card = self.dashboard.registry.get(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        full_caps = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else list(getattr(self.config, 'capabilities', []) or [])
+        if skills or full_caps:
             sent_via = []
             # Try P2P transport
             if self._p2p_transport and self._p2p_transport.is_available():
                 try:
-                    from .core.message import A2AMessage
                     import uuid
                     skills_msg = A2AMessage(
                         id=str(uuid.uuid4()),
@@ -2860,7 +3601,7 @@ echo "Status: ok"
                         payload={
                             "type": "skills_announcement",
                             "skills": skills,
-                            "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                            "capabilities": full_caps,
                             "version": self._resolved_version,
                         },
                         type="skills_announcement",
@@ -2876,7 +3617,6 @@ echo "Status: ok"
             # duplicate delivery on all nodes, inflating dedup hit rate from ~0% to ~50%.
             if hasattr(self, '_pg_transport') and self._pg_transport and self._pg_transport.is_available():
                 try:
-                    from .core.message import A2AMessage
                     import uuid
                     pg_skills_msg = A2AMessage(
                         id=str(uuid.uuid4()),
@@ -2885,7 +3625,7 @@ echo "Status: ok"
                         payload={
                             "type": "skills_announcement",
                             "skills": skills,
-                            "capabilities": list(getattr(self.config, 'capabilities', []) or []),
+                            "capabilities": full_caps,
                             "version": self._resolved_version,
                         },
                         type="skills_announcement",
@@ -2998,7 +3738,18 @@ echo "Status: ok"
 
     async def _on_peer_discovered(self, peer_name: str):
         """Callback when a new peer is discovered (via PG or static config).
-        Sends our skills announcement via PG broadcast — rate limited to max 1 per 60s."""
+        Sends our skills announcement via PG broadcast — rate limited to max 1 per 60s.
+        Also registers the peer's HTTP URL for the HTTP transport."""
+        # Register peer HTTP URL for HTTP transport fallback
+        try:
+            peer = self.peer_discovery._peers.get(peer_name)
+            if peer and peer.host:
+                peer_http = f"http://{peer.host}:8650"
+                if hasattr(self, '_http_transport') and hasattr(self._http_transport, 'register_peer_url'):
+                    self._http_transport.register_peer_url(peer_name, peer_http)
+        except Exception as e:
+            log.debug(f"Peer HTTP URL registration failed for {peer_name}: {e}")
+
         import time as _time
         now = _time.time()
         if now - self._last_skills_announcement < 60:
@@ -3006,9 +3757,11 @@ echo "Status: ok"
             return
         self._last_skills_announcement = now
         skills = list(getattr(self.config, 'skills', []) or [])
-        if not skills:
+        # Get capabilities from registry card (includes workflow + transport + role caps)
+        reg_card = self.dashboard.registry.get(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        capabilities = list(getattr(reg_card, 'capabilities', []) or []) if reg_card else list(getattr(self.config, 'capabilities', []) or [])
+        if not skills and not capabilities:
             return
-        capabilities = list(getattr(self.config, 'capabilities', []) or [])
         
         # Use router broadcast for skills announcement — this applies smart dedup
         # (P2P first + PG store-only) instead of direct PG NOTIFY which causes
@@ -3016,7 +3769,6 @@ echo "Status: ok"
         # If P2P is available, it delivers in real-time and PG only stores for
         # offline resilience (notify=False). Without P2P, PG NOTIFY delivers.
         try:
-            from .core.message import A2AMessage
             import uuid
             skills_msg = A2AMessage(
                 id=str(uuid.uuid4()),
@@ -3053,6 +3805,21 @@ echo "Status: ok"
         capabilities = list(getattr(self.config, 'capabilities', []) or [
             "a2a_messaging", "file_transfer"
         ])
+        
+        # Add skills as capabilities (skills are advertised but not used for routing)
+        skills = list(getattr(self.config, 'skills', []) or [])
+        for skill in skills:
+            if isinstance(skill, dict):
+                skill_id = skill.get('id', '')
+                if skill_id and skill_id not in capabilities:
+                    capabilities.append(skill_id)
+            elif isinstance(skill, str) and skill not in capabilities:
+                capabilities.append(skill)
+        
+        # Add common workflow capabilities (all nodes can execute delegated tasks)
+        for cap in ["task_execution", "web_search", "summarization", "data_analysis", "code_generation"]:
+            if cap not in capabilities:
+                capabilities.append(cap)
         
         # Add role-based capabilities
         if self.role == NodeRole.COORDINATOR:
@@ -3094,6 +3861,24 @@ echo "Status: ok"
 
         # P0: Send PG NOTIFY for near-instant peer discovery
         self._notify_node_update("register")
+
+        # Update PG with full capabilities (async, fire-and-forget)
+        import asyncio as _aio
+        _aio.ensure_future(self._update_pg_capabilities(card.capabilities))
+
+    async def _update_pg_capabilities(self, capabilities: list):
+        """Update PG mesh_nodes.capabilities with the full list from registry."""
+        try:
+            if self._pg_pool and self._pg_pool.is_connected():
+                import json as _json
+                await self._pg_pool.execute(
+                    "UPDATE mesh.mesh_nodes SET capabilities = $1 WHERE node_name = $2",
+                    _json.dumps(capabilities),
+                    self.node_name,
+                )
+                log.info(f"PG capabilities updated for {self.node_name}: {len(capabilities)} caps")
+        except Exception as e:
+            log.warning(f"Failed to update PG capabilities: {e}")
 
     def _notify_node_update(self, action: str = "register"):
         """Send PG NOTIFY for peer discovery (P0: near-instant node discovery).
@@ -3139,6 +3924,7 @@ echo "Status: ok"
                 except Exception:
                     pass
             status = {
+            "version": self._resolved_version or "",
                 "status": "running" if self._running else "stopped",
                 "node": self.node_name,
                 "role": self.role.value,
@@ -3151,7 +3937,9 @@ echo "Status: ok"
                     "p2p": self._p2p_transport.is_available(),
                     "http": self._http_transport.is_available(),
                     "ble": self._ble_transport.is_available(),
+                    "ssh_tunnel": self._ssh_tunnel_transport.is_available() if self.config.ssh_tunnel.enabled else False,
                 },
+                "ssh_tunnel": self._ssh_tunnel_transport.get_peer_status() if self.config.ssh_tunnel.enabled else {},
                 "election": self.election.get_status() if self.election else {},
                 "ack": self.ack_manager.get_stats(),
                 "offline_queue": await self.offline_queue.get_stats(),
@@ -3180,7 +3968,11 @@ echo "Status: ok"
                 return web.json_response({"ready": True})
             return web.json_response({"ready": False}, status=503)
 
-        app = web.Application()
+        app = web.Application(
+            # 60MB upload limit — aiohttp default is 1MB, which rejected real
+            # chat file uploads with 413 (server handler checks 50MB itself)
+            client_max_size=60 * 1024 * 1024,
+        )
         app.router.add_get("/health", health_handler)
         app.router.add_get("/ready", ready_handler)
 
@@ -3274,22 +4066,39 @@ echo "Status: ok"
 
         Replaces the old psycopg2 synchronous connection with asyncpg pool.
         All DB operations are now async and non-blocking.
+
+        Retries up to 5 times with 2s delay — handles PG startup race condition
+        where the node starts before PG is fully ready (e.g. after deploy).
         """
-        try:
-            self._pg_pool = AsyncDBPool(self.config)
-            if not await self._pg_pool.connect():
-                log.error("Failed to create asyncpg connection pool")
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                self._pg_pool = AsyncDBPool(self.config)
+                if not await self._pg_pool.connect():
+                    log.error(f"Failed to create asyncpg connection pool (attempt {attempt + 1}/{max_retries})")
+                    self._pg_pool = None
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2)
+                    continue
+                log.info("AsyncPG connection pool established")
+                # Initialize offline queue pool
+                await self.offline_queue.init_pool(self._pg_pool)
+                await self.offline_queue.ensure_table()
+                # Attach offline queue to the router so _flush_offline_queue()
+                # (self-heal step 15 + transport recovery) actually finds it.
+                # Previously set_offline_queue() was never called, leaving
+                # router._offline_queue = None — flush was a silent no-op.
+                if getattr(self, "router", None) is not None:
+                    self.router.set_offline_queue(self.offline_queue)
+                return True
+            except Exception as e:
+                log.error(f"AsyncPG connection pool failed (attempt {attempt + 1}/{max_retries}): {e}")
                 self._pg_pool = None
-                return False
-            log.info("AsyncPG connection pool established")
-            # Initialize offline queue pool
-            await self.offline_queue.init_pool(self._pg_pool)
-            await self.offline_queue.ensure_table()
-            return True
-        except Exception as e:
-            log.error(f"AsyncPG connection pool failed: {e}")
-            self._pg_pool = None
-            return False
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
+
+        log.error(f"PG write connection failed after {max_retries} retries — running in P2P-only mode")
+        return False
 
     async def _persist_message(self, message: A2AMessage):
         """Persist message to mesh.mesh_messages for reliability and NOTIFY trigger.
@@ -3303,8 +4112,8 @@ echo "Status: ok"
             await self._pg_pool.execute("""
                 INSERT INTO mesh.mesh_messages 
                     (id, sender, recipient, msg_type, priority, payload, 
-                     routing_mode, src_addr, dst_addr, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent')
+                     routing_mode, src_addr, dst_addr, status, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent', NOW())
             """,
                 message.id,
                 message.sender,
@@ -3336,12 +4145,26 @@ echo "Status: ok"
             log.error("_register_node: PG pool not available after retries, skipping registration")
             return
 
-        # Get capabilities from config (same as _auto_register_self)
-        capabilities = list(getattr(self.config, 'capabilities', []) or [
-            "a2a_messaging", "file_transfer"
-        ])
-        if self.role == NodeRole.COORDINATOR:
-            capabilities.extend(["coordinator", "dashboard", "registry"])
+        # Get capabilities from registry card (auto-built in _auto_register_self), fallback to config
+        reg_card = self.dashboard.registry.get(self.node_name) if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') else None
+        if reg_card and reg_card.capabilities:
+            capabilities = list(reg_card.capabilities)
+        else:
+            # Build full capabilities list (same as _auto_register_self)
+            capabilities = list(getattr(self.config, 'capabilities', []) or [
+                "a2a_messaging", "file_transfer"
+            ])
+            # Add workflow capabilities
+            for cap in ["task_execution", "web_search", "summarization", "data_analysis", "code_generation"]:
+                if cap not in capabilities:
+                    capabilities.append(cap)
+            # Add role-based capabilities
+            if self.role == NodeRole.COORDINATOR:
+                capabilities.extend(["coordinator", "dashboard", "registry"])
+            # Add transport + health caps
+            capabilities.append("p2p_transport")
+            capabilities.append("pg_transport")
+            capabilities.append("health_monitor")
         capabilities = list(set(c for c in capabilities if isinstance(c, (str, int, float, tuple))))
 
         # Get skills from config — these are the node's own skills (not from plugins)
@@ -3503,12 +4326,14 @@ echo "Status: ok"
             return
 
         # Provider health check for PG storage
-        provider_status = {}
+        provider_status = {
+            "version": self._resolved_version or "",}
         try:
             # Try multiple import strategies
             try:
                 from core.provider_health import check_provider_health
-                provider_status = check_provider_health(self.node_name)
+                provider_status = await asyncio.to_thread(check_provider_health, self.node_name)
+                log.info(f"Provider health (PG) via import: {provider_status}")
             except ImportError:
                 import importlib.util as _ilu
                 # Try relative to this file
@@ -3521,9 +4346,24 @@ echo "Status: ok"
                     _spec = _ilu.spec_from_file_location("provider_health_pg", _ph_path)
                     _mod = _ilu.module_from_spec(_spec)
                     _spec.loader.exec_module(_mod)
-                    provider_status = _mod.check_provider_health(self.node_name)
+                    provider_status = await asyncio.to_thread(_mod.check_provider_health, self.node_name)
+                    log.info(f"Provider health (PG) via importlib: {provider_status}")
+            else:
+                if not isinstance(provider_status, dict) or "primary" not in provider_status:
+                    log.warning(f"Provider health returned unexpected: {provider_status}")
         except Exception as e:
-            log.debug(f"Provider health check (PG) failed: {e}")
+            log.error(f"Provider health check (PG) failed: {e}", exc_info=True)
+
+        # Augment provider_status with this node's own live model profile so the
+        # context gate can read per-node context_length/max_turns/model dynamically.
+        if isinstance(provider_status, dict):
+            try:
+                from core.context_gate import resolve_local_model_info
+                local = await asyncio.to_thread(resolve_local_model_info)
+                if isinstance(local, dict) and local.get("model", "unknown") != "unknown":
+                    provider_status["model"] = local
+            except Exception as _mpe:
+                log.debug(f"Local model profile augment failed: {_mpe}")
 
         try:
             await self._pg_pool.execute("""
@@ -3532,6 +4372,7 @@ echo "Status: ok"
                     status = 'active',
                     host = $1,
                     health_port = $2,
+                    p2p_port = $8,
                     pg_available = $3,
                     p2p_available = $4,
                     http_available = $5,
@@ -3545,6 +4386,7 @@ echo "Status: ok"
                 self._http_transport.is_available() if hasattr(self, "_http_transport") else False,
                 self.node_name,
                 json.dumps(list(getattr(self.config, 'capabilities', []) or [])),
+                self.config.p2p.listen_port,
             )
             # Separate update for provider_status (backward compatible)
             if provider_status:
@@ -3575,8 +4417,44 @@ echo "Status: ok"
                         if messages:
                             log.debug(f"Receive loop got {len(messages)} messages from {transport_name}")
                         for msg, from_transport in messages:
-                            # Skip own messages (loop prevention)
-                            if msg.sender == self.node_name:
+                            # ── Multi-hop relay (ZigBee concept) ──────────────────
+                            # If this message carries relay_to and WE are not the
+                            # final destination, forward it toward relay_to and
+                            # skip local processing. Every channel (P2P, SSH-tunnel)
+                            # thus reaches the coordinator even through chained routers.
+                            _relay_final = getattr(msg, 'relay_to', '') or ''
+                            if (
+                                _relay_final
+                                and _relay_final != self.node_name
+                                and msg.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK)
+                            ):
+                                # Prevent relay loops: TTL + path check
+                                if msg.ttl <= 0 or self.node_name in (msg.path or []):
+                                    log.warning(f"Relay: dropping {msg.id[:8]} (ttl={msg.ttl}, loop) final={_relay_final}")
+                                    continue
+                                log.info(f"Relay: forwarding {msg.id[:8]} to final destination {_relay_final}")
+                                fwd = msg.add_hop(self.node_name)
+                                fwd.recipient = _relay_final  # final destination
+                                fwd.relay_to = ""  # let router pick the next hop fresh
+                                asyncio.create_task(self.router.send(fwd))
+                                continue
+                            if _relay_final == self.node_name:
+                                # We are the final destination — clear relay header, process locally
+                                msg.relay_to = ""
+                                log.info(f"Relay: message {msg.id[:8]} arrived via relay (hops={msg.hop_count})")
+
+                            # Skip own messages (loop prevention) — except directives and broadcast chat
+                            _is_broadcast_chat = False
+                            try:
+                                _p = msg.payload
+                                if isinstance(_p, str):
+                                    import json as _j2
+                                    _p = _j2.loads(_p)
+                                if isinstance(_p, dict) and _p.get("chat_type") == "broadcast":
+                                    _is_broadcast_chat = True
+                            except Exception:
+                                pass
+                            if msg.sender == self.node_name and msg.type not in ("directive",) and not _is_broadcast_chat:
                                 continue
 
                             # Skip empty payloads (wake-agent noise, not real messages)
@@ -3585,6 +4463,108 @@ echo "Status: ok"
                                 log.debug(f"Skipping empty payload message {msg.id[:8]} from {msg.sender}")
                                 continue
 
+                            # ── Per-user chat: extract chat_username BEFORE untrusted framing ──
+                            # The framing converts payload to string, breaking JSON parsing.
+                            # So we extract chat_username from the original dict payload first.
+                            _chat_user = None
+                            _chat_reply_text = ""
+                            if msg.type in ("a2a_message", "agent_reply"):
+                                # Try dict payload first, then parse string
+                                _p = payload
+                                log.info(f"🔍 Chat DM debug: msg.id={msg.id[:8]} msg.type={msg.type} payload_type={type(_p).__name__} payload_preview={str(_p)[:200]}")
+                                if isinstance(_p, str):
+                                    try:
+                                        import json as _j
+                                        _p = _j.loads(_p)
+                                    except Exception:
+                                        _p = None
+                                if isinstance(_p, dict):
+                                    _chat_user = _p.get("chat_username")
+                                    _chat_type = _p.get("chat_type", "")
+                                    if _chat_user:
+                                        _chat_reply_text = _p.get("text", "") or _p.get("content", "")
+                                    elif _chat_type == "agent_dm":
+                                        # Agent-to-agent DM — always accept, set chat_user to sender
+                                        _chat_user = _p.get("sender_display", msg.sender or "")
+                                        _chat_reply_text = _p.get("text", "") or _p.get("content", "")
+
+                            # ── Untrusted framing for peer messages ──
+                            # Wrap only user-facing message types (a2a_message, agent_reply)
+                            # Internal protocol messages (ACK, heartbeat, skills_announcement,
+                            # memory_sync, file_transfer, diagnostic_report) keep their original
+                            # dict/bytes payload — wrapping them would break protocol parsing.
+                            if msg.type in ("a2a_message", "agent_reply"):
+                                from .core.prompt_safety import wrap_trusted_peer
+                                trust = self._get_peer_trust_level(msg.sender)
+                                _is_agent_dm = False
+                                try:
+                                    _p2 = payload
+                                    if isinstance(_p2, str):
+                                        import json as _j3
+                                        _p2 = _j3.loads(_p2)
+                                    if isinstance(_p2, dict) and _p2.get("chat_type") == "agent_dm":
+                                        _is_agent_dm = True
+                                except Exception:
+                                    pass
+                                if trust == "full":
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                elif trust == "limited":
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload) + "\n\n⚠️ LIMITED TRUST — verify all claims."
+                                elif _is_agent_dm:
+                                    # Agent-to-agent DM — always accept (mesh-internal)
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                    log.debug(f"Agent DM accepted from {msg.sender} (trust={trust})")
+                                elif _chat_user:
+                                    # Chat DM from dashboard — always accept, wrap as trusted
+                                    msg.payload = wrap_trusted_peer(msg.sender, str(msg.payload) if not isinstance(msg.payload, str) else msg.payload)
+                                    log.debug(f"Chat DM accepted from {msg.sender} (trust={trust}, chat_user={_chat_user})")
+                                else:
+                                    log.warning(f"Rejected message from untrusted peer: {msg.sender}")
+                                    continue
+                                log.debug(f"Untrusted framing applied to {msg.type} {msg.id[:8]} from {msg.sender}")
+
+                            # ── Per-user chat: trigger wake-agent (BEFORE router.receive) ──
+                            # Auto-ack removed — the real LLM response arrives in 15-30s
+                            # and serves as the natural acknowledgment.
+                            # Debug-level only: at INFO this fired on EVERY inbound
+                            # message (heartbeats, acks) — 23k lines per 200k on
+                            # Nova, 722MB unbounded launchd stdout log.
+                            log.debug(f"🔍 Chat check: msg.type={msg.type} _chat_user={_chat_user!r}")
+                            # ── Anti-ping-pong: skip wake-agent for agent replies and agent DMs ──
+                            # Agent-generated messages must NOT trigger new wake-agent calls
+                            # on peer nodes — that creates infinite reply chains.
+                            _skip_wake_types = ("agent_reply", "agent_dm", MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT,
+                                                 "skills_announcement", "memory_sync")
+                            if msg.type == "a2a_message" and _chat_user and msg.type not in _skip_wake_types:
+                                # Check if sender is another mesh agent (not a human user)
+                                _agent_senders = ("nova", "morzsa", "runa", "tor")
+                                if msg.sender.lower() in _agent_senders:
+                                    log.info(f"🔇 Skip wake-agent for agent→agent msg from {msg.sender} (anti-ping-pong)")
+                                else:
+                                    # ── @mention targeting: in broadcast, only wake if @mentioned ──
+                                    _msg_text = ""
+                                    try:
+                                        _mp = msg.payload
+                                        if isinstance(_mp, str):
+                                            import json as _mj
+                                            _mp = _mj.loads(_mp)
+                                        if isinstance(_mp, dict):
+                                            _msg_text = _mp.get("text", "") or ""
+                                    except Exception:
+                                        _msg_text = ""
+                                    import re as _re_ment_rx
+                                    _mentioned_here = [m.lower() for m in _re_ment_rx.findall(r"@(\w+)", _msg_text)]
+                                    _is_broadcast_msg = (msg.recipient or "") in ("", "broadcast", "*")
+                                    if _is_broadcast_msg and _mentioned_here and self.node_name.lower() not in _mentioned_here:
+                                        log.info(f"🔇 Skip wake-agent: @{'@'.join(_mentioned_here)} mentioned, not me ({self.node_name})")
+                                    else:
+                                        try:
+                                            asyncio.create_task(self._trigger_webhook(msg))
+                                            _mention_note = " (@megszólított ÖN)" if _is_broadcast_msg and self.node_name.lower() in _mentioned_here else ""
+                                            log.info(f"🔔 Wake-agent triggered for chat DM from {msg.sender}→user:{_chat_user}{_mention_note}")
+                                        except Exception as e:
+                                            log.warning(f"Wake-agent trigger failed: {e}")
+
                             result = await self.router.receive(msg, from_transport)
                             if result.status == "duplicate":
                                 log.debug(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
@@ -3592,6 +4572,7 @@ echo "Status: ok"
                                 log.info(f"Received message {msg.id[:8]} from {msg.sender} → {msg.recipient} via {from_transport}: {result.status}")
                             # Skip internal mesh protocol messages for dashboard notification
                             # (ACK, heartbeat, skills_announcement are not user-facing)
+
                             if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
                                 # Forwarded messages are replies to dashboard users that need to be displayed
@@ -3600,17 +4581,21 @@ echo "Status: ok"
                                 except Exception as e:
                                     log.debug(f"Dashboard notification failed: {e}")
 
-                            if result.status == "processed":
-                                log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
+                                if result.status == "processed":
+                                    log.debug(f"Processing msg id={msg.id[:8]} type={msg.type} from {msg.sender} pri={msg.priority}")
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
-                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "peer_offline", "peer_online"):
+                                if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "agent_dm", "peer_offline", "peer_online",
+                                                    "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack",
+                                                    "idea_vote", "idea_vote_ack", "ssh_key_sync", "ssh_key_bundle"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
                                 # regardless of priority level (file_transfer, memory_sync, diagnostic)
-                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online"):
+                                if msg.type in ("file_transfer", "memory_sync", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online",
+                                                "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack",
+                                                "idea_vote", "idea_vote_ack"):
                                     log.info(f"Dispatching {msg.type} msg id={msg.id[:8]} from {msg.sender} to handlers")
                                     await self._dispatch_to_handlers(msg)
                                 else:
@@ -3647,7 +4632,7 @@ echo "Status: ok"
                                     log.debug(f"Skipping forwarded broadcast msg type={msg.type} from {msg.sender}")
 
                     except Exception as e:
-                        log.debug(f"Receive error on {transport_name}: {e}")
+                        log.warning(f"Receive error on {transport_name}: {e}", exc_info=True)
 
                 await asyncio.sleep(0.1)  # 100ms polling interval
 
@@ -3656,6 +4641,14 @@ echo "Status: ok"
             except Exception as e:
                 log.error(f"Receive loop error: {e}")
                 await asyncio.sleep(1)
+
+    def _get_peer_trust_level(self, peer_name):
+        """Get trust level for a peer. Returns 'full', 'limited', or 'none'."""
+        try:
+            from .core.team_trust import get_trust_level
+            return get_trust_level(self.node_name, peer_name)
+        except Exception:
+            return "full"  # Default: full trust (mesh internal)
 
     async def _auto_advertise_skills(self):
         """Auto-advertise config skills to mesh_skills table on startup.
@@ -3709,6 +4702,110 @@ echo "Status: ok"
         
         if advertised:
             log.info(f"📋 Auto-advertised {advertised} skills to marketplace")
+        
+        # Auto-publish skill FILES to PG for cross-node replication
+        try:
+            import os as _os
+            repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            skills_dir = _os.path.join(repo_root, "skills")
+            published = 0
+            if _os.path.isdir(skills_dir):
+                for skill_name in _os.listdir(skills_dir):
+                    skill_dir = _os.path.join(skills_dir, skill_name)
+                    if not _os.path.isdir(skill_dir):
+                        continue
+                    skill_id = f"skill-{self.node_name}-{skill_name}"
+                    files_to_publish = {}
+                    for fn in _os.listdir(skill_dir):
+                        fp = _os.path.join(skill_dir, fn)
+                        if _os.path.isfile(fp) and fn.endswith(('.md', '.py', '.sh', '.txt', '.yaml', '.yml', '.json')):
+                            try:
+                                with open(fp, 'r', errors='replace') as f:
+                                    files_to_publish[fn] = f.read()
+                            except Exception:
+                                pass
+                    if files_to_publish:
+                        import time as _time
+                        now_ts = _time.time()
+                        for fn, content in files_to_publish.items():
+                            await self._pg_pool.execute(
+                                """INSERT INTO mesh.mesh_skill_files (skill_id, filename, content, updated_at)
+                                   VALUES ($1, $2, $3, $4)
+                                   ON CONFLICT (skill_id, filename)
+                                   DO UPDATE SET content = EXCLUDED.content, updated_at = EXCLUDED.updated_at""",
+                                skill_id, fn, content, now_ts,
+                            )
+                        published += 1
+            if published:
+                log.info(f"📦 Auto-published {published} skill files to PG")
+        except Exception as e:
+            log.warning(f"Auto-publish skill files failed (non-fatal): {e}")
+
+    async def _auto_sync_skills_delayed(self):
+        """Auto-sync published skills from PG 10s after startup (non-blocking)."""
+        try:
+            await asyncio.sleep(10)
+            if not self._pg_pool:
+                return
+            import os as _os
+            rows = await self._pg_pool.fetch("SELECT DISTINCT skill_id FROM mesh.mesh_skill_files")
+            if not rows:
+                return
+            repo_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+            skills_dir = _os.path.join(repo_root, "skills")
+            _os.makedirs(skills_dir, exist_ok=True)
+            synced = 0
+            for row in rows:
+                skill_id = row["skill_id"]
+                # Only sync skills from OTHER nodes
+                if f"-{self.node_name}-" in skill_id:
+                    continue
+                file_rows = await self._pg_pool.fetch(
+                    "SELECT filename, content FROM mesh.mesh_skill_files WHERE skill_id = $1",
+                    skill_id,
+                )
+                parts = skill_id.split("-", 2)
+                skill_name = parts[2] if len(parts) > 2 else skill_id
+                skill_dir = _os.path.join(skills_dir, skill_name)
+                _os.makedirs(skill_dir, exist_ok=True)
+                for fr in file_rows:
+                    filepath = _os.path.join(skill_dir, fr["filename"])
+                    filedir = _os.path.dirname(filepath)
+                    if filedir and not _os.path.exists(filedir):
+                        _os.makedirs(filedir, exist_ok=True)
+                    with open(filepath, "w") as f:
+                        f.write(fr["content"])
+                synced += 1
+            if synced:
+                log.info(f"📦 Auto-synced {synced} skills from other nodes")
+        except Exception as e:
+            log.warning(f"Auto-sync skills failed (non-fatal): {e}")
+
+    async def _broadcast_skill_to_peers(self, skill_name: str):
+        """Notify peer nodes to pull a newly auto-generated skill from PG."""
+        import aiohttp as aiohttp_lib
+        try:
+            peers = getattr(self.peer_discovery, '_peers', {})
+            if not peers:
+                return
+            skill_id = f"skill-{self.node_name}-{skill_name}"
+            for name, peer in peers.items():
+                host = getattr(peer, 'host', None) or ''
+                if not host:
+                    continue
+                url = f"http://{host}:8650/api/skills/auto-sync"
+                try:
+                    timeout = aiohttp_lib.ClientTimeout(total=5)
+                    async with aiohttp_lib.ClientSession(timeout=timeout) as session:
+                        async with session.post(url, json={"skill_ids": [skill_id]}) as resp:
+                            if resp.status == 200:
+                                log.info(f"📦 Skill {skill_name} synced to {name}")
+                            else:
+                                log.debug(f"Skill sync to {name} failed: {resp.status}")
+                except Exception as e:
+                    log.debug(f"Skill sync to {name} skipped: {e}")
+        except Exception as e:
+            log.debug(f"Broadcast skill to peers skipped: {e}")
 
     async def _heartbeat_loop(self):
         """Send periodic heartbeat messages."""
@@ -3721,11 +4818,13 @@ echo "Status: ok"
                 uptime = int(time.time() - self._start_time)
 
                 # Provider health check — include in heartbeat payload
-                provider_status = {}
+                provider_status = {
+            "version": self._resolved_version or "",}
                 try:
                     try:
                         from core.provider_health import check_provider_health
-                        provider_status = check_provider_health(self.node_name)
+                        provider_status = await asyncio.to_thread(check_provider_health, self.node_name)
+                        log.info(f"Provider health (heartbeat) via import: {provider_status}")
                     except ImportError:
                         import importlib.util as _ilu
                         _this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -3734,9 +4833,10 @@ echo "Status: ok"
                             _spec = _ilu.spec_from_file_location("provider_health", _ph_path)
                             _mod = _ilu.module_from_spec(_spec)
                             _spec.loader.exec_module(_mod)
-                            provider_status = _mod.check_provider_health(self.node_name)
+                            provider_status = await asyncio.to_thread(_mod.check_provider_health, self.node_name)
+                            log.info(f"Provider health (heartbeat) via importlib: {provider_status}")
                 except Exception as e:
-                    log.debug(f"Provider health check failed: {e}")
+                    log.error(f"Provider health check failed: {e}", exc_info=True)
 
                 msg = A2AMessage.create(
                     sender=self.node_name,
@@ -3837,9 +4937,33 @@ echo "Status: ok"
     def _get_advertise_ip(self) -> str:
         """Get the IP to advertise to other nodes.
         
-        For Docker/HA addon containers, use advertise_host from config
+        For Docker/HA containers, use advertise_host from config
         (the host IP) instead of the container's internal IP.
+        VPN (Tailscale) preference: if `discovery.prefer` is vpn|auto and a
+        Tailscale IP is available, advertise the VPN IP — encrypted transport
+        that works even when the LAN is unreachable (WAN/remote nodes).
         """
+        # VPN-beépítés: prefer=vpn kényszeríti, auto pedig VPN-t használ, ha fut
+        try:
+            from .core.vpn import get_preferred_address, resolve_peer_addresses
+            _own_candidates = []
+            # A saját node-névhez tartozó static_nodes bejegyzések = saját címek
+            for _sn in (getattr(getattr(self.config, "discovery", None), "static_nodes", None) or []):
+                try:
+                    if (str(_sn.get("name", "")).lower() == str(self.node_name).lower()
+                            and _sn.get("ip")):
+                        _own_candidates.append({"ip": _sn.get("ip", "")})
+                except Exception:
+                    continue
+            if _own_candidates:
+                _addr = get_preferred_address(
+                    getattr(self.config, "discovery", None), _own_candidates)
+                if _addr and _addr.get("ip"):
+                    return _addr["ip"]
+        except ImportError:
+            pass
+        except Exception as _vpn_err:
+            log.debug(f"VPN advertise-IP választás kihagyva: {_vpn_err}")
         # Check for advertise_host in P2P config
         if hasattr(self.config, 'p2p') and hasattr(self.config.p2p, 'advertise_host'):
             adv = self.config.p2p.advertise_host
@@ -3852,9 +4976,15 @@ echo "Status: ok"
                 return docker_cfg['host_ip']
         return self._get_local_ip()
 
+    @property
+    def pg_pool(self):
+        """Expose _pg_pool as pg_pool for dashboard handlers."""
+        return self._pg_pool
+
     def get_status(self) -> dict:
         """Return node status."""
         status = {
+            "version": self._resolved_version or "",
             "node_name": self.node_name,
             "role": self.role.value,
             "running": self._running,
@@ -3923,16 +5053,557 @@ echo "Status: ok"
                         metrics = self._collect_alert_metrics()
                         fired = self.dashboard.alert_manager.evaluate(metrics)
                         for alert in fired:
-                            log.warning(f"ALERT: {alert['name']} — {alert['message']}")
+                            level = alert.get("autonomy_level", 1)
+                            action = alert.get("auto_action", "")
+                            if level == 1:
+                                # Notify only — just log
+                                log.warning(f"🟡 ALERT [L1-NOTIFY]: {alert['name']} — {alert['message']}")
+                            elif level == 2:
+                                # Suggest — log + suggest action
+                                log.warning(f"🟠 ALERT [L2-SUGGEST]: {alert['name']} — {alert['message']} → Suggested: {action}")
+                            elif level == 3:
+                                # Auto-act — log + take action
+                                log.warning(f"🔴 ALERT [L3-AUTO]: {alert['name']} — {alert['message']} → Auto-action: {action}")
+                                if action == "reconnect_p2p":
+                                    # Force P2P reconnect for all peers
+                                    if hasattr(self, 'router'):
+                                        for name, transport in self.router.transports.items():
+                                            if name == 'p2p' and hasattr(transport, 'reconnect_all'):
+                                                try:
+                                                    await transport.reconnect_all()
+                                                    log.info("🟢 Auto-action: P2P reconnect triggered")
+                                                except Exception as e:
+                                                    log.error(f"Auto-action P2P reconnect failed: {e}")
                     except Exception as e:
                         log.debug(f"Alert evaluation error: {e}")
+
+                        # ── Channel Monitor Watchdog (Marveen-inspired) ──
+                        try:
+                            from .core.channel_monitor import watchdog_tick, get_watchdog_status
+                            # Run watchdog for each known peer
+                            for peer_name in (self.router.peers if hasattr(self, 'router') else {}):
+                                async def _get_hb(name):
+                                    peers = self.router.peers if hasattr(self, 'router') else {}
+                                    p = peers.get(name, {})
+                                    last_hb = p.get("last_heartbeat")
+                                    if last_hb is None:
+                                        return None
+                                    import time as _t
+                                    return _t.time() - last_hb
+                                async def _get_active(name):
+                                    if self._pg_pool and self._pg_pool.is_connected():
+                                        try:
+                                            row = await self._pg_pool.fetchrow(
+                                                "SELECT COUNT(*) as n FROM shared_delegations WHERE assigned_agent=$1 AND status IN ('pending','running')",
+                                                name)
+                                            return row["n"] if row else 0
+                                        except Exception:
+                                            return 0
+                                    return 0
+                                async def _get_progress(name):
+                                    if self._pg_pool and self._pg_pool.is_connected():
+                                        try:
+                                            row = await self._pg_pool.fetchrow(
+                                                "SELECT EXTRACT(EPOCH FROM (NOW() - MAX(updated_at))) as age FROM shared_delegations WHERE assigned_agent=$1 AND status='running'",
+                                                name)
+                                            return float(row["age"]) if row and row["age"] else None
+                                        except Exception:
+                                            return None
+                                    return None
+                                async def _get_proc_age(name):
+                                    import time as _t
+                                    return _t.time() - getattr(self, '_start_time', _t.time())
+                                async def _restart_node(name):
+                                    log.warning(f"Watchdog: restarting peer {name}")
+                                    # Trigger P2P reconnect as recovery
+                                    if hasattr(self, 'router'):
+                                        for tname, transport in self.router.transports.items():
+                                            if tname == 'p2p' and hasattr(transport, 'reconnect_all'):
+                                                try:
+                                                    await transport.reconnect_all()
+                                                except Exception:
+                                                    pass
+                                async def _alert(name, msg):
+                                    log.error(f"Watchdog ALERT {name}: {msg}")
+                                try:
+                                    await watchdog_tick(self._pg_pool, peer_name,
+                                        get_heartbeat_age=_get_hb,
+                                        get_active_delegations=_get_active,
+                                        get_last_progress=_get_progress,
+                                        get_process_age=_get_proc_age,
+                                        restart_callback=_restart_node,
+                                        alert_callback=_alert)
+                                except Exception as e:
+                                    log.debug(f"Watchdog tick for {peer_name}: {e}")
+                        except ImportError:
+                            pass
+                        except Exception as e:
+                            log.debug(f"Watchdog loop error: {e}")
+
+                        # ── Desired State Reconciler (Marveen-inspired) ──
+                        try:
+                            from .core.desired_state import (
+                                reconcile_desired_state,
+                                ensure_initialized,
+                                set_pg_pool as ds_set_pg_pool,
+                            )
+                            ds_set_pg_pool(self._pg_pool)
+                            await ensure_initialized()
+                            # Build known_nodes from registry
+                            known = {}
+                            for name, info in self._registry._nodes.items():
+                                known[name] = {
+                                    "last_heartbeat": info.get("last_heartbeat", 0),
+                                    "status": info.get("status", "unknown"),
+                                    "address": info.get("address", ""),
+                                }
+                            # Add self
+                            known[self.node_name] = {
+                                "last_heartbeat": time.time(),
+                                "status": "online",
+                            }
+                            reconcile_result = await reconcile_desired_state(known)
+                            if reconcile_result.restarted:
+                                log.warning(f"Desired state restarted: {reconcile_result.restarted}")
+                            if reconcile_result.failed:
+                                log.error(f"Desired state failed: {reconcile_result.failed}")
+                        except ImportError:
+                            pass
+                        except Exception as e:
+                            log.debug(f"Desired state reconcile error: {e}")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 log.error(f"Health monitor error: {e}")
 
+    # ─── v0.29: Auto-Bootstrap + Self-Healing Loop ────────────────────
+
+    async def _ssh_key_announce_loop(self):
+        """v2 SSH key protocol: keep ourselves registered with the coordinator.
+
+        - Every 10 min (or when never registered): announce our keys to the
+          tree root. The root aggregates all peers and broadcasts the bundle.
+        - On the coordinator itself: periodically rebundle so new nodes that
+          joined while a leaf was restarting converge on the full registry.
+        """
+        _last_announce = 0.0
+        _ANNOUNCE_INTERVAL = 600.0  # 10 minutes
+        while self._running:
+            try:
+                await asyncio.sleep(60)
+                if not self._running:
+                    break
+                sync = getattr(self, 'ssh_key_sync', None)
+                if sync is None:
+                    continue
+                now = time.time()
+                # Coordinator: rebundle periodically (covers nodes that missed
+                # the last bundle broadcast — e.g. were restarting)
+                if sync._is_coordinator():
+                    if now - sync._last_bundle_ts > _ANNOUNCE_INTERVAL:
+                        await sync.broadcast_bundle()
+                        sync._last_bundle_ts = now
+                    continue
+                # Leaf: announce (re-register) periodically so the coordinator
+                # registry has fresh entries even after root failover
+                if not sync._self_registered or now - _last_announce > _ANNOUNCE_INTERVAL:
+                    await sync.announce_to_coordinator()
+                    _last_announce = now
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.debug(f"ssh_key_announce_loop error: {e}")
+                await asyncio.sleep(30)
+
+    async def _auto_bootstrap_heal_loop(self):
+        """v0.29: Auto-bootstrap + self-healing loop.
+
+        Runs every 60s and performs:
+        1. PG connection health check + auto-reconnect (bootstrap retry)
+        2. Node re-registration if PG was lost and restored
+        3. P2P peer connection audit — reconnect disconnected peers
+        4. Capability re-broadcast if peers are missing caps
+        5. Transport recovery — restart failed transports
+        """
+        _pg_was_down = False
+        _last_caps_broadcast = 0
+        _last_decay = 0
+        _last_dream = 0
+        _last_inbox_check = 0
+        _last_context_gate = 0
+        _last_context_guard = 0
+        _last_precompact = 0
+        _last_auto_skill = 0
+        _last_cap_sync = 0
+        _last_gw_watchdog = 0
+        _last_oq_flush = 0
+        CAPS_REBROADCAST_INTERVAL = 300  # 5 min
+        DECAY_INTERVAL = 3600  # 1 hour
+        DREAM_INTERVAL = 21600  # 6 hours
+        INBOX_CHECK_INTERVAL = 300  # 5 min
+        CONTEXT_GATE_INTERVAL = 300  # 5 min
+        CONTEXT_GUARD_INTERVAL = 300  # 5 min
+        PRECOMPACT_INTERVAL = 1800  # 30 min
+        AUTO_SKILL_INTERVAL = 600  # 10 min
+        CAP_SYNC_INTERVAL = 600  # 10 min
+        OQ_FLUSH_INTERVAL = 300  # 5 min
+
+        while self._running:
+            try:
+                await asyncio.sleep(60)  # Check every 60s
+                if not self._running:
+                    break
+
+                log.info("[self-heal] Loop tick — checking node health")
+
+                # 1. PG connection check + auto-reconnect
+                pg_ok = False
+                if self._pg_pool:
+                    # ASYNC check: a szinkron is_connected() csak a pool-objektum
+                    # létezését nézi — az elhalt kapcsolatok ("closed mid-operation")
+                    # láthatatlanok maradnak neki, és a pool 30+ percig "élőnek"
+                    # tűnik. Az async verzió VALÓDI SELECT 1 health-checket futtat.
+                    pg_ok = await self._pg_pool.is_connected_async()
+                    if not pg_ok:
+                        log.warning("[self-heal] PG pool disconnected — attempting reconnect")
+                        try:
+                            if await self._pg_pool.connect():
+                                log.info("[self-heal] PG pool reconnected")
+                                pg_ok = True
+                        except Exception as e:
+                            log.error(f"[self-heal] PG reconnect failed: {e}")
+                elif not self._pg_pool:
+                    # No PG pool at all (pool init failed at startup) — retry bootstrap.
+                    # NOTE: MeshNode has no _pg_conn attribute (only _pg_pool); the old
+                    # `elif not self._pg_conn:` reference raised AttributeError in this
+                    # loop and silently killed the self-heal cycle on pg-less nodes.
+                    if not _pg_was_down:
+                        log.warning("[self-heal] No PG pool — attempting bootstrap")
+                    if await self._init_pg_write_conn():
+                        # Re-inject shared pool into subsystems
+                        if self._pg_pool and self._pg_pool.is_connected():
+                            self._pg_transport._shared_pool = self._pg_pool
+                            self._pg_transport._owns_pool = False
+                            self._p2p_transport._shared_pool = self._pg_pool
+                        log.info("[self-heal] PG bootstrap successful")
+                        pg_ok = True
+
+                # 2. Re-register node if PG was lost and is now restored
+                if pg_ok and _pg_was_down:
+                    log.info("[self-heal] PG restored — re-registering node")
+                    try:
+                        await self._register_node()
+                        log.info("[self-heal] Node re-registered in PG")
+                        _pg_was_down = False
+                    except Exception as e:
+                        log.error(f"[self-heal] Node re-registration failed: {e}")
+                elif not pg_ok:
+                    _pg_was_down = True
+
+                # 3. P2P peer connection audit
+                if self._p2p_transport and self.peer_discovery:
+                    p2p_connected = set(self._p2p_transport._peers.keys())
+                    all_peers = set()
+                    try:
+                        all_peers = set(self.peer_discovery.get_all_peers().keys())
+                    except Exception:
+                        pass
+                    disconnected = all_peers - p2p_connected - {self.node_name}
+                    if disconnected:
+                        log.info(f"[self-heal] Disconnected peers: {disconnected} — triggering discovery cycle")
+                        try:
+                            await self.peer_discovery.discover_and_connect()
+                        except Exception as e:
+                            log.debug(f"[self-heal] Discovery cycle error: {e}")
+
+                # 4. Capability sync — compare PG caps vs registry caps, update if mismatch
+                now = time.time()
+                if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'registry') and \
+                   (now - _last_caps_broadcast > 60):  # Check every 60s
+                    try:
+                        reg_card = self.dashboard.registry.get(self.node_name)
+                        if reg_card and getattr(reg_card, 'capabilities', None):
+                            my_cap_count = len(reg_card.capabilities)
+                            # Direct PG check — if PG has fewer caps, update
+                            if self._pg_pool and pg_ok:
+                                try:
+                                    async with self._pg_pool.acquire() as conn:
+                                        pg_caps = await conn.fetchval(
+                                            "SELECT jsonb_array_length(capabilities) FROM mesh.mesh_nodes WHERE node_name=$1",
+                                            self.node_name
+                                        )
+                                    if pg_caps is not None and pg_caps < my_cap_count:
+                                        log.info(f"[self-heal] PG caps mismatch: PG={pg_caps}, registry={my_cap_count} — updating PG")
+                                        await self._update_pg_capabilities(reg_card.capabilities)
+                                        self._last_skills_announcement = 0
+                                        await self._auto_advertise_skills()
+                                except Exception as e:
+                                    log.debug(f"[self-heal] PG caps check error: {e}")
+                            _last_caps_broadcast = now
+                    except Exception as e:
+                        log.debug(f"[self-heal] Capabilities broadcast check error: {e}")
+
+                # 5. Transport recovery — restart failed transports
+                for name, transport in self.router.transports.items():
+                    if not transport.is_available():
+                        log.debug(f"[self-heal] Transport {name} unavailable — checking if restartable")
+                        # P2P transport: let the reconnect loop handle it
+                        if name == 'p2p':
+                            continue
+                        # PG transport: health monitor already handles reconnect
+                        if name == 'pg_notify':
+                            continue
+                        # HTTP transport: try health check
+                        if name == 'http' and hasattr(transport, 'health_check'):
+                            try:
+                                await transport.health_check()
+                            except Exception:
+                                pass
+
+                # 6. Salience decay — fade unused memories hourly
+                now_ts = time.time()
+                if now_ts - _last_decay > DECAY_INTERVAL:
+                    await self._salience_decay_tick()
+                    _last_decay = now_ts
+
+                # 7. Dream Engine — nightly analysis (every 6h)
+                if now_ts - _last_dream > DREAM_INTERVAL:
+                    try:
+                        from .core.dream_engine import run_dream_cycle
+                        kanban_mgr = getattr(self.dashboard, '_kanban_mgr', None) if hasattr(self, 'dashboard') else None
+                        dream_result = await run_dream_cycle(self._pg_pool, node_name=self.node_name, kanban_mgr=kanban_mgr)
+                        log.info(f"[self-heal] Dream Engine: {len(dream_result.get('buckets', {}))} buckets analyzed")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Dream Engine skipped: {e}")
+                    _last_dream = now_ts
+
+                # 8. Inbox Nudge — check unread messages, escalate if needed (5 min)
+                if now_ts - _last_inbox_check > INBOX_CHECK_INTERVAL:
+                    try:
+                        from .core.inbox_nudge import check_nudges
+                        actions = check_nudges()
+                        for action in actions:
+                            if action["action"] == "alert":
+                                log.warning(f"[inbox] ALERT: {action['to_node']} has unread from {action['from_node']} ({action['age_min']}min old)")
+                                # Send alert via alert_manager if available
+                                if hasattr(self, 'dashboard') and hasattr(self.dashboard, 'alert_manager'):
+                                    try:
+                                        await self.dashboard.alert_manager.send_alert(
+                                            title=f"Inbox alert: {action['to_node']}",
+                                            body=f"Unread message from {action['from_node']} ({action['age_min']}min): {action['preview']}",
+                                            severity="warning",
+                                        )
+                                    except Exception:
+                                        pass
+                            elif action["action"] == "nudge":
+                                log.info(f"[inbox] NUDGE: {action['to_node']} has unread from {action['from_node']} ({action['age_min']}min old)")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Inbox nudge check skipped: {e}")
+                    _last_inbox_check = now_ts
+
+                # 9. Context Gate — check agent context saturation (5 min)
+                if now_ts - _last_context_gate > CONTEXT_GATE_INTERVAL:
+                    try:
+                        from .core.context_gate import context_gate_tick
+                        gate_results = await context_gate_tick(self._pg_pool)
+                        for gr in gate_results:
+                            log.warning(f"[context-gate] {gr['message']}")
+                            if gr["severity"] == "critical" and hasattr(self, 'dashboard') and hasattr(self.dashboard, 'alert_manager'):
+                                try:
+                                    await self.dashboard.alert_manager.send_alert(
+                                        title=f"Context gate: {gr['node']}",
+                                        body=gr["message"],
+                                        severity="critical",
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        log.debug(f"[self-heal] Context gate tick skipped: {e}")
+                    _last_context_gate = now_ts
+
+                # 10. Auto-Skill — generate skills from completed delegations (10 min)
+                if now_ts - _last_auto_skill > AUTO_SKILL_INTERVAL:
+                    try:
+                        from .core.auto_skill import maybe_generate_skill
+                        # Check recently completed tasks from Kanban
+                        if self._pg_pool:
+                            async with self._pg_pool.acquire() as conn:
+                                rows = await conn.fetch(
+                                    """SELECT * FROM shared_delegations
+                                       WHERE status = 'completed' AND created_at > NOW() - INTERVAL '1 hour'
+                                       ORDER BY created_at DESC LIMIT 5"""
+                                )
+                                for row in rows:
+                                    task = dict(row)
+                                    skill_name = await maybe_generate_skill(task, self.node_name)
+                                    if skill_name:
+                                        log.info(f"[auto-skill] Generated: {skill_name}")
+                                        # Register in mesh_skills table
+                                        try:
+                                            skill_id = "skill-" + self.node_name + "-" + skill_name
+                                            await conn.execute(
+                                                """INSERT INTO mesh.mesh_skills (skill_id, agent_name, skill_name, display_name, description, tags, status)
+                                                   VALUES ($1, $2, $3, $4, $5, $6, 'active')
+                                                   ON CONFLICT (skill_id) DO UPDATE SET updated_at = NOW()""",
+                                                skill_id, self.node_name, skill_name,
+                                                skill_name.replace('-', ' ').title(),
+                                                "Auto-generated from delegation: " + task.get("subject", "")[:200],
+                                                ["auto", "generated"]
+                                            )
+                                            log.info(f"[auto-skill] Registered in mesh: {skill_id}")
+                                        except Exception as re:
+                                            log.debug(f"[auto-skill] PG register skipped: {re}")
+                                        # Broadcast to mesh
+                                        try:
+                                            await self._auto_advertise_skills()
+                                        except Exception:
+                                            pass
+                    except Exception as e:
+                        log.debug(f"[self-heal] Auto-skill check skipped: {e}")
+                    _last_auto_skill = now_ts
+
+                # 11. Capability Registry Sync — update SmartRouter from node capabilities (10 min)
+                if now_ts - _last_cap_sync > CAP_SYNC_INTERVAL:
+                    try:
+                        smart_router = getattr(self, 'smart_router', None) or getattr(self.router, 'smart_router', None)
+                        if smart_router and hasattr(smart_router, 'registry') and self._pg_pool and self._pg_pool.is_connected():
+                            async with self._pg_pool.acquire() as conn:
+                                rows = await conn.fetch(
+                                    """SELECT node_name, capabilities FROM mesh_nodes WHERE capabilities IS NOT NULL"""
+                                )
+                                for row in rows:
+                                    name = row["node_name"]
+                                    caps = row["capabilities"] if isinstance(row["capabilities"], list) else []
+                                    # Update registry with latest capabilities
+                                    try:
+                                        smart_router.registry.update_capabilities(name, caps)
+                                    except Exception:
+                                        pass
+                            log.debug("[self-heal] Capability registry synced from PG")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Capability sync skipped: {e}")
+                    _last_cap_sync = now_ts
+
+                # 12. Gateway Watchdog — check Hermes gateway health (every 2 min)
+                # Process check is PRIMARY. Health endpoint is SECONDARY.
+                # Only restart if BOTH are down (prevents false positives from
+                # mesh node being briefly slow during self-healing loop).
+                if now_ts - _last_gw_watchdog > 120:
+                    try:
+                        from .core.gateway_watchdog import check_process as _gw_check_process
+                        gw_process_ok = _gw_check_process()
+                        if gw_process_ok:
+                            # Gateway process is running — it's healthy
+                            log.debug("[self-heal] Gateway watchdog: process running ✅")
+                        else:
+                            # No gateway process found — check health endpoint
+                            import urllib.request as _urllib
+                            try:
+                                req = _urllib.request.Request("http://localhost:8650/api/health", method="GET")
+                                resp = _urllib.request.urlopen(req, timeout=10)
+                                gw_ok = resp.status == 200
+                            except Exception:
+                                gw_ok = False
+                            if gw_ok:
+                                # Health endpoint responds but no process — probably
+                                # running inside desktop app (macOS) or as child process
+                                log.debug("[self-heal] Gateway watchdog: health OK but no separate process — likely inside desktop app")
+                            else:
+                                # BOTH down — actual gateway failure
+                                log.warning("[self-heal] Gateway watchdog: process AND health both down — restarting")
+                                try:
+                                    from .core.gateway_watchdog import check_cooldown, check_restart_rate, restart_gateway, record_restart
+                                    if check_cooldown() and check_restart_rate():
+                                        success = restart_gateway(self.node_name)
+                                        if success:
+                                            record_restart()
+                                            log.info(f"[self-heal] Gateway restart dispatched for {self.node_name}")
+                                except Exception as gw_err:
+                                    log.debug(f"[self-heal] Gateway watchdog restart failed: {gw_err}")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Gateway watchdog check skipped: {e}")
+                    _last_gw_watchdog = now_ts
+
+                # 13. Context Guard — proactive agent context monitoring (5 min)
+                if now_ts - _last_context_guard > CONTEXT_GUARD_INTERVAL:
+                    try:
+                        from .core.context_guard import context_guard_tick
+                        guard_results = await context_guard_tick(self._pg_pool, node_name=self.node_name)
+                        for gr in guard_results:
+                            log.warning(f"[context-guard] {gr['message']}")
+                            if gr.get("action") in ("force_restart", "hard_restart") and hasattr(self, 'dashboard') and hasattr(self.dashboard, 'alert_manager'):
+                                try:
+                                    await self.dashboard.alert_manager.send_alert(
+                                        title=f"Context guard: {gr['agent']}",
+                                        body=gr["message"],
+                                        severity="critical" if gr["action"] == "force_restart" else "warning",
+                                    )
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        log.debug(f"[self-heal] Context guard tick skipped: {e}")
+                    _last_context_guard = now_ts
+
+                # 14. PreCompact Hook — audit context pressure, save critical info (30 min)
+                if now_ts - _last_precompact > PRECOMPACT_INTERVAL:
+                    try:
+                        from .core.precompact_hook import precompact_audit
+                        audit = await precompact_audit(self._pg_pool, node_name=self.node_name)
+                        if audit.get("total", 0) > 0:
+                            log.info(f"[precompact] {audit['total']} critical context saves in last 24h")
+                    except Exception as e:
+                        log.debug(f"[self-heal] PreCompact audit skipped: {e}")
+                    _last_precompact = now_ts
+
+                # 15. Offline Queue Periodic Flush — deliver queued messages when
+                # recipients are back online (previously ONLY ran on transport-recovery
+                # events, so messages queued during a brief offline window stayed stuck
+                # forever — e.g. 415 ssh_key_sync messages stuck for 3 days while all
+                # nodes were actually online).
+                if now_ts - _last_oq_flush > OQ_FLUSH_INTERVAL:
+                    try:
+                        oq = getattr(self.router, "_offline_queue", None)
+                        if oq is not None:
+                            flushed = await self.router._flush_offline_queue()
+                            if flushed:
+                                log.info(f"[self-heal] Offline queue flush: {flushed} message(s) delivered")
+                    except Exception as e:
+                        log.debug(f"[self-heal] Offline queue flush skipped: {e}")
+                    _last_oq_flush = now_ts
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"[self-heal] Loop error: {e}")
+
+    async def _salience_decay_tick(self):
+        """Apply salience decay to Brain memories. Called hourly by self-healing loop."""
+        try:
+            from .core.salience_decay import apply_decay
+            if self._pg_pool and self._pg_pool.is_connected():
+                async with self._pg_pool.acquire() as conn:
+                    result = await apply_decay(conn, hours=1.0)
+                    if result:
+                        log.info(f"[self-heal] Salience decay: {result}")
+        except Exception as e:
+            log.debug(f"[self-heal] Salience decay skipped: {e}")
+
     # ─── Stats Update Loop ───────────────────────────────────────────
+
+    def _transport_error_delta(self, current_total: int) -> int:
+        """v0.41.1: Transport error delta since last collection.
+
+        The router 'errors' stat is a cumulative counter since process start.
+        Alert rules using '> 0' on a cumulative counter fire forever (RE-FIRE
+        loop). This returns errors since the last collection, so rules only
+        fire on NEW errors. First call returns 0 (baseline).
+        """
+        prev = getattr(self, "_prev_transport_errors", None)
+        self._prev_transport_errors = current_total
+        if prev is None:
+            return 0  # baseline: don't fire on historical errors
+        return max(0, current_total - prev)
 
     def _collect_alert_metrics(self) -> dict:
         """Collect current metrics for alert rule evaluation."""
@@ -3947,7 +5618,7 @@ echo "Status: ok"
             "messages_sent": t_stats.get("sent", 0),
             "messages_received": t_stats.get("received", 0),
             "messages_forwarded": t_stats.get("forwarded", 0),
-            "transport_errors": t_stats.get("errors", 0),
+            "transport_errors": self._transport_error_delta(t_stats.get("errors", 0)),
             "dedup_cache_size": t_stats.get("dedup", {}).get("size", 0),
             "retry_queue_size": p2p.get_retry_queue_size() if p2p else 0,
             "peer_count": len(peer_stats),
@@ -3980,6 +5651,177 @@ echo "Status: ok"
                 break
             except Exception as e:
                 log.warning(f"Stats update error: {e}")
+
+    async def _log_rotation_loop(self, check_interval: int = 3600):
+        """v0.42: Built-in log rotation — gzip + truncate when log exceeds threshold.
+
+        Deterministic, no LLM. Guards against the 2026-09-05 incident
+        (231MB log). The node holds fd 1/2 on the log file, so we
+        truncate (gzip archive first) instead of move — the fd keeps
+        writing to the same inode.
+        """
+        max_mb = getattr(self.config, 'log_max_mb', 100)
+        keep = max(1, getattr(self.config, 'log_archives_keep', 5))
+        log_file = os.path.expanduser(getattr(self.config, 'log_file', '') or '')
+        # fd 1/2 log (launchd/systemd stdout+stderr capture) — a2a_mesh_node.log
+        node_log = os.path.join(os.path.dirname(log_file) or os.path.expanduser('~/.hermes/logs'), 'a2a_mesh_node.log')
+        while self._running:
+            try:
+                await asyncio.sleep(check_interval)
+                if not self._running:
+                    break
+                for target in (log_file, node_log):
+                    if not target or not os.path.exists(target):
+                        continue
+                    try:
+                        size_mb = os.path.getsize(target) / (1024 * 1024)
+                        if size_mb <= max_mb:
+                            continue
+                        archive = f"{target}.{int(time.time())}.gz"
+                        with open(target, 'rb') as f_in:
+                            import gzip as _gz
+                            with _gz.open(archive, 'wb') as f_out:
+                                while True:
+                                    chunk = f_in.read(1024 * 1024)
+                                    if not chunk:
+                                        break
+                                    f_out.write(chunk)
+                        # Truncate IN PLACE (fd 1/2 stays valid, keeps writing here)
+                        with open(target, 'r+b') as f:
+                            f.truncate(0)
+                        log.info(f"📦 Log rotation: {os.path.basename(target)} {size_mb:.1f}MB → {os.path.basename(archive)}")
+                        # Prune old archives beyond keep-count
+                        base = os.path.basename(target)
+                        sib = sorted(
+                            (f for f in os.listdir(os.path.dirname(target) or '.') if f.startswith(base + '.') and f.endswith('.gz')),
+                            key=lambda f: os.path.getmtime(os.path.join(os.path.dirname(target) or '.', f))
+                        )
+                        for old in sib[:-keep]:
+                            try:
+                                os.remove(os.path.join(os.path.dirname(target) or '.', old))
+                            except OSError:
+                                pass
+                    except Exception as e:
+                        log.debug(f"Log rotation skipped for {target}: {e}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"Log rotation loop error: {e}")
+
+    def _prune_node_log_archives(self, keep: int = 3):
+        """One-shot prune of old a2a_mesh_node.log.*.gz archives (startup housekeeping)."""
+        try:
+            log_dir = os.path.expanduser('~/.hermes/logs')
+            base = 'a2a_mesh_node.log'
+            archs = sorted(
+                (f for f in os.listdir(log_dir) if f.startswith(base + '.') and f.endswith('.gz')),
+                key=lambda f: os.path.getmtime(os.path.join(log_dir, f))
+            )
+            for old in archs[:-keep]:
+                os.remove(os.path.join(log_dir, old))
+        except Exception:
+            pass
+
+    async def _memory_maintenance_loop(self):
+        """v0.40.4: Periodic capsule promotion + auto skill generation + self-reflection.
+
+        Runs every 5 minutes. Each node:
+        1. Fetches recent mesh chat messages and creates capsules from them
+        2. Promotes mature capsules to engramms
+        3. Generates SKILL.md from well-referenced engramms
+
+        This ensures ALL nodes (not just Nova) generate memory capsules
+        and skills from their own perspective.
+        """
+        from core.capsules import check_and_promote_capsules, check_and_generate_skills, store_capsule
+        from core.reflection import run_reflection_cycle
+        # Restart-safe cursor: initialize from DB max(id) on the FIRST loop iteration
+        # (after PG pool is confirmed connected) so we never re-process old messages
+        # after a node restart (prevents reflection/capsule flood).
+        last_reflection_msg_id = 0
+        _cursor_init_done = False
+        while self._running:
+            try:
+                await asyncio.sleep(300)  # Every 5 minutes
+                if not self._running:
+                    break
+                pg_pool = getattr(self, '_pg_pool', None)
+                if not pg_pool or not hasattr(pg_pool, 'is_connected') or not pg_pool.is_connected():
+                    continue
+
+                if not _cursor_init_done:
+                    try:
+                        _cursor_row = await pg_pool.fetchrow(
+                            "SELECT COALESCE(MAX(id), 0) AS max_id FROM mesh.mesh_chat_messages"
+                        )
+                        if _cursor_row:
+                            last_reflection_msg_id = int(_cursor_row['max_id'] or 0)
+                            log.info(f"🧠 Memory cursor initialized at msg_id={last_reflection_msg_id} (restart-safe)")
+                    except Exception as e:
+                        log.warning(f"Memory cursor init failed: {e}")
+                    _cursor_init_done = True
+
+                # ── Ollama endpoint for embeddings/deep-reflection (config-driven) ──
+                ollama_url = getattr(self.config, 'ollama_url', 'http://localhost:11434')
+
+                # ── Step 1: Self-reflection from recent mesh chat messages ──
+                # Each node processes chat messages independently, creating
+                # capsules and reflections from their own perspective.
+                try:
+                    rows = await pg_pool.fetch(
+                        """SELECT id, sender, content, created_at
+                           FROM mesh.mesh_chat_messages
+                           WHERE id > $1
+                           ORDER BY id ASC LIMIT 50""",
+                        last_reflection_msg_id,
+                    )
+                    if rows and len(rows) >= 5:
+                        # Group messages by topic (simple: use time gap > 10 min as topic boundary)
+                        messages = []
+                        for r in rows:
+                            messages.append({
+                                'id': r['id'],
+                                'sender': r['sender'],
+                                'content': r['content'] or '',
+                                'created_at': r['created_at'],
+                            })
+                            last_reflection_msg_id = max(last_reflection_msg_id, r['id'])
+
+                        # Build agents list
+                        agents = list(set(m['sender'] for m in messages if m['sender']))
+                        topic = messages[0]['content'][:80] if messages else 'mesh activity'
+
+                        # Run reflection cycle (LLM deep reflection using this node's own model)
+                        prompt_text, ref_id = await run_reflection_cycle(
+                            pg_pool, messages, topic, agents, ollama_url,
+                        )
+
+                        # Also store a capsule if we have enough messages
+                        if len(messages) >= 5 and ref_id:
+                            msg_ids = [m['id'] for m in messages]
+                            await store_capsule(
+                                pg_pool, topic,
+                                ' '.join(m['content'][:200] for m in messages[:5]),
+                                agents,
+                                min(msg_ids), max(msg_ids),
+                                ollama_url,
+                            )
+                            log.info(f"🧠 Self-reflection: {len(messages)} msgs, capsule+reflection stored for topic '{topic[:50]}'")
+                except Exception as e:
+                    log.debug(f"Self-reflection step skipped: {e}")
+
+                # ── Step 2: Promote capsules → engramms ──
+                promoted = await check_and_promote_capsules(pg_pool, ollama_url)
+
+                # ── Step 3: Generate skills from engramms ──
+                generated = await check_and_generate_skills(pg_pool)
+
+                if promoted or generated:
+                    log.info(f"🧠 Memory maintenance: promoted={promoted}, skills_generated={generated}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.warning(f"Memory maintenance error: {e}")
 
     async def _auto_update_loop(self, check_interval: int = 300):
         """Periodically check Gitea for new versions and auto-update if configured."""
@@ -4111,7 +5953,7 @@ echo "Status: ok"
                 except Exception:
                     pass
             
-            host_ip = self._get_local_ip()
+            host_ip = self._get_advertise_ip()
             
             # UPSERT into mesh_nodes — only UPDATE if exists (INSERT requires short_addr etc.)
             try:
@@ -4119,9 +5961,10 @@ echo "Status: ok"
                     UPDATE mesh.mesh_nodes 
                     SET last_heartbeat = NOW(),
                         status = 'active',
-                        host = $1
+                        host = $1,
+                        p2p_port = $3
                     WHERE node_name = $2
-                """, host_ip, self.node_name)
+                """, host_ip, self.node_name, self.config.p2p.listen_port)
             except Exception as node_err:
                 log.debug(f"mesh_nodes update failed (non-critical): {node_err}")
             
@@ -4230,11 +6073,70 @@ echo "Status: ok"
             if dashboard_url:
                 payload["reply_endpoint"] = dashboard_url.replace("/api/wake-agent", "/api/agent-reply")
             
+            # Extract chat_username from payload; determine chat_type from recipient
+            _chat_user = None
+            _chat_type = "broadcast" if message.recipient == "broadcast" else "user_dm"
+            try:
+                import json as _j
+                _p = message.payload
+                if isinstance(_p, str):
+                    try:
+                        _p = _j.loads(_p)
+                    except Exception:
+                        # Wrapped/trusted-peer envelope (not raw JSON) — regex-extract the
+                        # chat_username field so per-user history persistence survives framing
+                        import re as _re_cu
+                        _m = _re_cu.search(r"'chat_username':\s*'([^']+)'", _p)
+                        if not _m:
+                            _m = _re_cu.search(r'"chat_username":\s*"([^"]+)"', _p)
+                        if _m:
+                            _chat_user = _m.group(1)
+                        _p = {}
+                if isinstance(_p, dict):
+                    _chat_user = _p.get("chat_username") or _chat_user
+            except Exception:
+                pass
+            if _chat_user:
+                payload["chat_username"] = _chat_user
+                payload["chat_type"] = _chat_type
+            
             # Add mesh_secret for dashboard wake-agent API auth
             if wake_url == dashboard_url:
                 payload["mesh_secret"] = "mesh-wake-secret-2026"
                 # Build prompt from message content for wake-agent
-                prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
+                if _chat_user:
+                    # Extract just the text content, not the full JSON payload
+                    _content_text = payload['content']
+                    if isinstance(_p, dict):
+                        _content_text = _p.get('text', _p.get('subject', str(_p)[:500]))
+                    # ── @mention directive: if this node is @mentioned in a broadcast, emphasize ──
+                    import re as _re_ment_p
+                    _mentions_in_msg = [m.lower() for m in _re_ment_p.findall(r"@(\w+)", _content_text or "")]
+                    if _chat_type == "broadcast" and self.node_name.lower() in _mentions_in_msg:
+                        prompt_text = f"🔔 NEKED ÍRTÁK a közös szobában! {_chat_user} kifejezetten hozzád intézte: {_content_text[:1500]} — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
+                    else:
+                        # [:1500] — a /ideas, /debate parancs-prefixek (~600 char) teljes
+                        # átviteléhez kell; a korábbi [:300] levágta a [ÖTLET]-formátum-
+                        # utasítást, így az agentek sosem látták és nem küldtek ötleteket.
+                        prompt_text = f"Új üzenet érkezett {_chat_user}-tól: {_content_text[:1500]}"
+                else:
+                    prompt_text = f"[A2A Message from {message.sender}] {payload['content']}"
+
+                # ── Engramm injection: retrieve relevant past conclusions for this prompt ──
+                # Makes the engramm system actually feed back into conversations.
+                try:
+                    from core.capsules import retrieve_engramms, format_engramms_for_prompt
+                    _eng_pool = getattr(self, '_pg_pool', None)
+                    if _eng_pool and hasattr(_eng_pool, 'is_connected') and _eng_pool.is_connected():
+                        _eng_ollama = getattr(self.config, 'ollama_url', 'http://localhost:11434')
+                        _engramms = await retrieve_engramms(_eng_pool, (prompt_text or "")[:500], ollama_url=_eng_ollama)
+                        _eng_ctx = format_engramms_for_prompt(_engramms)
+                        if _eng_ctx:
+                            prompt_text = f"{_eng_ctx}\n\n{prompt_text}"
+                            log.info(f"🧠 Engramm context injected into wake-agent prompt ({len(_engramms)} relevant)")
+                except Exception as _eng_e:
+                    log.debug(f"Engramm injection skipped: {_eng_e}")
+
                 payload["prompt"] = prompt_text
                 payload["agent_name"] = self.node_name
             
@@ -4248,17 +6150,33 @@ echo "Status: ok"
                 headers["Content-Type"] = "application/json"
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-                    if resp.status == 200:
-                        log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
-                        return  # Success, no need for fallback
-                    else:
-                        body = await resp.text()
-                        # Auth errors (401/403) mean the endpoint exists but rejects us — don't fallback to webhook
-                        if resp.status in (401, 403):
-                            log.warning(f"Wake-agent auth error {resp.status} from {wake_url}: check mesh_secret config")
-                            return  # Don't fallback — auth issue won't be solved by trying another endpoint
-                        log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
+                # Retry on 429 (another wake in progress / cooldown) — chat DMs must not be dropped.
+                # Honor retry_after when provided; otherwise back off 8s per attempt, max 4 attempts (~30s window).
+                _max_wake_attempts = 4
+                for _attempt in range(1, _max_wake_attempts + 1):
+                    async with session.post(wake_url, json=payload, headers=headers, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                        if resp.status == 200:
+                            log.info(f"Wake-agent triggered for message {message.id[:8]} from {message.sender} via {wake_url}")
+                            return  # Success, no need for fallback
+                        elif resp.status == 429 and _attempt < _max_wake_attempts:
+                            _retry_body = await resp.text()
+                            _retry_after = 8
+                            try:
+                                import json as _rj
+                                _retry_after = int(_rj.loads(_retry_body).get("retry_after", 8))
+                            except Exception:
+                                pass
+                            _retry_after = max(2, min(_retry_after, 20))
+                            log.info(f"⏳ Wake-agent 429 (busy) — attempt {_attempt}/{_max_wake_attempts}, retrying in {_retry_after}s for {message.id[:8]}")
+                            await asyncio.sleep(_retry_after)
+                            continue
+                        else:
+                            body = await resp.text()
+                            # Auth errors (401/403) mean the endpoint exists but rejects us — don't fallback to webhook
+                            if resp.status in (401, 403):
+                                log.warning(f"Wake-agent auth error {resp.status} from {wake_url}: check mesh_secret config")
+                                return  # Don't fallback — auth issue won't be solved by trying another endpoint
+                            log.warning(f"Wake-agent response {resp.status} from {wake_url}: {body[:200]}")
         except aiohttp.ClientError as e:
             log.debug(f"Wake-agent network error via {wake_url}: {e}")
             # Network error — try fallback URL

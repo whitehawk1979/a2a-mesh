@@ -46,6 +46,7 @@ GITEA_BASE = os.environ.get("A2A_GITEA_URL", "http://192.168.1.100:3001")
 GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "nova/a2a-mesh")
 GITEA_USER = os.environ.get("A2A_GITEA_USER", "zsolt")
 GITEA_PASS = os.environ.get("A2A_GITEA_PASS", "admin1234")
+GITEA_TOKEN = os.environ.get("A2A_GITEA_TOKEN", "")  # token auth wins over BasicAuth
 
 HEALTH_TIMEOUT = 90       # seconds to wait for health check after restart
 DRAIN_TIMEOUT = 60        # seconds to wait for in-flight messages
@@ -93,6 +94,7 @@ class AutoUpdater:
         self._gitea_repo = GITEA_REPO
         self._gitea_user = GITEA_USER
         self._gitea_pass = GITEA_PASS
+        self._gitea_token = GITEA_TOKEN
         if node and hasattr(node, 'config'):
             au_cfg = getattr(node.config, 'auto_update', None)
             if au_cfg:
@@ -107,7 +109,10 @@ class AutoUpdater:
 
         Priority:
         1. node._resolved_version (git tag — single source of truth, set at startup)
-        2. pyproject.toml version (fallback when node not available)
+        2. Git tag via `git describe --tags` (CLI fallback — git tag is SSOT,
+           pyproject.toml version is a stale placeholder and causes false
+           "update available" alerts)
+        3. pyproject.toml version (last fallback for non-git deployments)
         """
         # Prefer the node's resolved version (from git tag at startup) — this is
         # the *running* version, not the pyproject.toml version which may have
@@ -116,6 +121,17 @@ class AutoUpdater:
             rv = self.node._resolved_version
             if rv and rv != 'unknown':
                 return rv
+        # CLI fallback: resolve from git tag first (SSOT)
+        try:
+            import subprocess
+            tag = subprocess.check_output(
+                ["git", "describe", "--tags", "--abbrev=0"],
+                cwd=self.mesh_dir, stderr=subprocess.DEVNULL
+            ).decode().strip().lstrip("v")
+            if tag:
+                return tag
+        except Exception:
+            pass
         toml_path = self.mesh_dir / "pyproject.toml"
         if toml_path.exists():
             for line in toml_path.read_text().splitlines():
@@ -136,10 +152,18 @@ class AutoUpdater:
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._http_session is None or self._http_session.closed:
-            self._http_session = aiohttp.ClientSession(
-                auth=aiohttp.BasicAuth(self._gitea_user, self._gitea_pass),
-                timeout=aiohttp.ClientTimeout(total=30),
-            )
+            if self._gitea_token:
+                # Token auth (A2A_GITEA_TOKEN env var) — works even after
+                # password rotation; avoids BasicAuth 401 warning noise.
+                self._http_session = aiohttp.ClientSession(
+                    headers={"Authorization": f"token {self._gitea_token}"},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                )
+            else:
+                self._http_session = aiohttp.ClientSession(
+                    auth=aiohttp.BasicAuth(self._gitea_user, self._gitea_pass),
+                    timeout=aiohttp.ClientTimeout(total=30),
+                )
         return self._http_session
 
     async def close(self):
@@ -153,6 +177,19 @@ class AutoUpdater:
         session = await self._get_session()
         try:
             async with session.get(self.gitea_releases_url) as resp:
+                if resp.status in (401, 403):
+                    # Stale credentials — retry anonymous (public repo)
+                    logger.warning(
+                        "Gitea auth failed (HTTP %s) on releases — retrying anonymous",
+                        resp.status,
+                    )
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as anon:
+                        async with anon.get(self.gitea_releases_url) as resp2:
+                            if resp2.status != 200:
+                                return None
+                            return await resp2.json()
                 if resp.status != 200:
                     logger.error(f"Failed to fetch releases: HTTP {resp.status}")
                     return None
@@ -170,10 +207,37 @@ class AutoUpdater:
             return None
 
     async def get_latest_tag(self) -> Optional[str]:
-        """Get the latest git tag from Gitea."""
+        """Get the latest git tag from Gitea.
+
+        Handles stale credentials: if the repo is public, an anonymous
+        retry succeeds where BasicAuth may fail with 401 (e.g. rotated
+        password). Auth attempt first, anonymous fallback on 401/403.
+        """
         session = await self._get_session()
         try:
             async with session.get(f"{self.gitea_tags_url}?limit=20") as resp:
+                if resp.status in (401, 403):
+                    # Stale credentials on a (possibly) public repo — retry anonymous
+                    logger.warning(
+                        "Gitea auth failed (HTTP %s) — retrying anonymous (public repo)",
+                        resp.status,
+                    )
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=30)
+                    ) as anon:
+                        async with anon.get(f"{self.gitea_tags_url}?limit=20") as resp2:
+                            if resp2.status != 200:
+                                return None
+                            tags = await resp2.json()
+                            if not tags:
+                                return None
+                            version_tags = []
+                            for t in tags:
+                                name = t.get("name", "")
+                                if name.startswith("v"):
+                                    version_tags.append(name)
+                            version_tags.sort(key=self._version_key, reverse=True)
+                            return version_tags[0] if version_tags else None
                 if resp.status != 200:
                     return None
                 tags = await resp.json()
@@ -538,7 +602,7 @@ class AutoUpdater:
                 if node_name == "morzsa":
                     service = "a2a-mesh"
                 elif node_name == "runa":
-                    service = "a2a-mesh-runa"
+                    service = "a2a-mesh"
                 else:
                     service = "a2a-mesh"
 

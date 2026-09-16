@@ -41,7 +41,7 @@ class MemorySync:
             log.warning("PG transport not available, cannot broadcast memory")
             return False
 
-        from ..core.message import A2AMessage
+        from .message import A2AMessage
 
         message = A2AMessage.create(
             sender=self.node.node_name,
@@ -134,7 +134,7 @@ class MemorySync:
             log.warning("PG transport not available")
             return False
 
-        from ..core.message import A2AMessage
+        from .message import A2AMessage
 
         message = A2AMessage.create(
             sender=self.node.node_name,

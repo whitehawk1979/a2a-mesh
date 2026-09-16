@@ -49,6 +49,7 @@ while [[ $# -gt 0 ]]; do
         --pg-db)      PG_DB="$2"; shift 2 ;;
         --pg-init)    PG_INIT=true; shift ;;
         --config)     CONFIG_FILE="$2"; shift 2 ;;
+        --ssh-port)   ADVERTISED_SSH_PORT_ARG="$2"; shift 2 ;;
         --skip-venv)  SKIP_VENV=true; shift ;;
         --skip-certs) SKIP_CERTS=true; shift ;;
         --skip-service) SKIP_SERVICE=true; shift ;;
@@ -70,6 +71,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --pg-db NAME        PostgreSQL database (default: agent_memory)"
             echo "  --pg-init           Initialize PG schema (schema_init.sql)"
             echo "  --config FILE       Config file path (default: mesh_config_<node>.yaml)"
+            echo "  --ssh-port PORT     Our sshd port for inbound mesh SSH tunnels (default: auto 22/2222)"
             echo "  --skip-venv         Use system Python"
             echo "  --skip-certs        Skip TLS cert generation"
             echo "  --skip-service      Skip systemd/launchd service setup"
@@ -93,7 +95,7 @@ if [[ -z "$NODE_HOST" ]]; then
     if [[ -z "$AUTO_HOST" ]]; then
         AUTO_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || true)
     fi
-    read -rp "$(echo -e "${GREEN}Node host IP [${AUTO_HOST}]:${NC} ')" NODE_HOST
+    read -rp "$(echo -e "${GREEN}Node host IP [${AUTO_HOST}]:${NC} ")" NODE_HOST
     NODE_HOST="${NODE_HOST:-$AUTO_HOST}"
 fi
 if [[ -z "$PG_HOST" ]]; then
@@ -193,6 +195,77 @@ fi
 # ─── Step 4: Config Generation ──────────────────────────────────
 step "4/7 — Configuration"
 info "Generating config: ${CONFIG_FILE}"
+
+# ─── Step 4a: SSH Identity (auto-generate if missing) ───────────
+# Mesh nodes exchange SSH keys automatically (ssh_key_sync); this step
+# guarantees a usable identity keypair EXISTS before the node starts.
+SSH_PRIV="$HOME/.ssh/id_ed25519_openclaw"
+SSH_PUB="${SSH_PRIV}.pub"
+if [[ ! -f "$SSH_PUB" ]]; then
+    if ! command -v ssh-keygen &>/dev/null; then
+        warn "ssh-keygen not found — SSH tunnel identity NOT generated"
+        warn "Install openssh-client and re-run install.sh"
+    else
+        mkdir -p "$HOME/.ssh"
+        chmod 700 "$HOME/.ssh" 2>/dev/null || true
+        if [[ -f "$SSH_PRIV" ]]; then
+            # Private key exists but pub missing — derive it
+            ssh-keygen -y -f "$SSH_PRIV" > "$SSH_PUB" 2>/dev/null \
+                && info "SSH pubkey re-derived from existing key ✅" \
+                || warn "Could not derive pubkey from $SSH_PRIV"
+        else
+            ssh-keygen -t ed25519 -N "" -C "${NODE_NAME}@a2a-mesh" -f "$SSH_PRIV" -q \
+                && info "SSH identity generated: ${SSH_PUB} ✅" \
+                || warn "SSH key generation failed"
+        fi
+        chmod 600 "$SSH_PRIV" 2>/dev/null || true
+    fi
+else
+    info "SSH identity already exists: ${SSH_PUB} ✅"
+fi
+
+# Detect advertised SSH port (embedded sshd on HAOS uses 2222)
+ADVERTISED_SSH_PORT=22
+if [[ "${ADVERTISED_SSH_PORT_ARG:-}" != "" ]]; then
+    ADVERTISED_SSH_PORT="$ADVERTISED_SSH_PORT_ARG"
+elif ss -ltn 2>/dev/null | grep -q ":2222 " && ! ss -ltn 2>/dev/null | grep -q ":22 "; then
+    # Only 2222 listens → embedded sshd (HAOS-style container)
+    ADVERTISED_SSH_PORT=2222
+fi
+info "Advertised SSH port for mesh tunnels: ${ADVERTISED_SSH_PORT}"
+
+# ─── Step 4b: Inbound sshd (guarantee one exists — every node needs it) ───
+# Bare hosts: system sshd (22) usually already there. Containers (Docker/
+# HAOS): install openssh-server now so peers can dial IN for tunnels. The
+# node's embedded-sshd manager (core/ssh_server.py) keeps it alive.
+if ! (ss -ltn 2>/dev/null || netstat -an 2>/dev/null) | grep -qE ":22 .*LISTEN|:22\b.*LISTEN"; then
+    if command -v apt-get &>/dev/null; then
+        info "Installing openssh-server (container/host without sshd)..."
+        apt-get update -qq >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server >/dev/null 2>&1 \
+            && info "openssh-server installed ✅" \
+            || warn "apt-get openssh-server failed — node will try at start (ssh_server.py)"
+    elif command -v apk &>/dev/null; then
+        apk add --no-cache openssh >/dev/null 2>&1 \
+            && info "openssh installed ✅" \
+            || warn "apk openssh failed — node will try at start"
+    elif command -v brew &>/dev/null; then
+        brew install openssh >/dev/null 2>&1 \
+            && info "openssh installed (brew) ✅" \
+            || warn "brew openssh failed — node will try at start"
+    fi
+else
+    info "sshd already listening on :22 ✅"
+fi
+# In containers enable the embedded sshd manager in the generated config
+if [[ -f /.dockerenv || -f /run/.containerenv || -d /config/a2a_mesh ]]; then
+    EMBEDDED_SSHD="true"
+    SSHD_DIR="/config/.ssh"
+else
+    EMBEDDED_SSHD="false"
+    SSHD_DIR="${HOME}/.ssh"
+fi
+
 # Start from template
 cp "${SCRIPT_DIR}/mesh_config_template.yaml" "$CONFIG_FILE"
 # Replace placeholders
@@ -200,6 +273,10 @@ sed -i.bak "s/__NODE_NAME__/${NODE_NAME}/g" "$CONFIG_FILE"
 sed -i.bak "s/__NODE_HOST__/${NODE_HOST}/g" "$CONFIG_FILE"
 sed -i.bak "s/__PG_HOST__/${PG_HOST}/g" "$CONFIG_FILE"
 sed -i.bak "s/__PG_PASSWORD__/${PG_PASSWORD}/g" "$CONFIG_FILE"
+sed -i.bak "s/__SSH_PORT__/${ADVERTISED_SSH_PORT}/g" "$CONFIG_FILE"
+# Embedded sshd manager section (auto-filled per environment)
+sed -i.bak "s/__EMBEDDED_SSHD__/${EMBEDDED_SSHD}/g" "$CONFIG_FILE"
+sed -i.bak "s#__SSHD_CONFIG_DIR__#${SSHD_DIR}#g" "$CONFIG_FILE"
 rm -f "${CONFIG_FILE}.bak"
 info "Config generated ✅"
 

@@ -442,6 +442,7 @@ class MessageAuth:
         """
         self.config = config
         self._pg_pool = pg_pool
+        self._owns_pool = pg_pool is None  # True if we create/close our own pool
         self._security: SecurityConfig = config.security
         self._node_name: str = config.node_name
 
@@ -472,6 +473,7 @@ class MessageAuth:
             from .async_db import AsyncDBPool
             self._pg_pool = AsyncDBPool(self.config)
             await self._pg_pool.connect()
+            self._owns_pool = True
             log.info("MessageAuth: created PG pool for auth")
 
         if self._pg_pool:
@@ -520,7 +522,7 @@ class MessageAuth:
                 await self._rotation_task
             except asyncio.CancelledError:
                 pass
-        if self._pg_pool:
+        if self._pg_pool and self._owns_pool:
             try:
                 await self._pg_pool.close()
             except Exception:

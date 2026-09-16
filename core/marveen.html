@@ -1,0 +1,1399 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A2A Mesh — Marveen Engine</title>
+<style>
+:root {
+  --bg: #0d1117; --surface1: #161b22; --surface2: #21262d;
+  --text1: #e6edf3; --text2: #8b949e; --text3: #6e7681;
+  --blue: #58a6ff; --border: #30363d;
+  --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #bc8cff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text1); min-height: 100vh; }
+a { color: var(--blue); text-decoration: none; }
+
+.header { display: flex; align-items: center; gap: 12px; padding: 16px 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .links { margin-left: auto; display: flex; gap: 12px; font-size: 14px; }
+.header .links a { color: var(--text2); }
+.header .links a:hover { color: var(--blue); }
+.refresh-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text1); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; }
+.refresh-btn:hover { border-color: var(--blue); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; padding: 20px; }
+
+.card { background: var(--surface1); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.card-header { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.card-header .icon { font-size: 18px; }
+.card-header .title { font-size: 14px; font-weight: 600; }
+.card-header .status { margin-left: auto; font-size: 12px; padding: 3px 10px; border-radius: 12px; }
+.status-ok { background: rgba(63,185,80,0.15); color: var(--green); }
+.status-warn { background: rgba(210,153,34,0.15); color: var(--orange); }
+.status-err { background: rgba(248,81,73,0.15); color: var(--red); }
+.card-body { padding: 14px 16px; }
+
+/* Trust Graph visualization */
+.trust-graph { display: flex; justify-content: center; align-items: center; gap: 0; padding: 20px; position: relative; min-height: 140px; }
+.trust-node { display: flex; flex-direction: column; align-items: center; gap: 4px; z-index: 2; }
+.trust-circle { width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700; border: 2px solid; }
+.trust-name { font-size: 12px; color: var(--text2); }
+.trust-line { flex: 1; height: 2px; background: var(--green); position: relative; min-width: 40px; }
+.trust-line::after { content: '✓'; position: absolute; top: -10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--green); }
+
+/* Stat rows */
+.stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.stat-row:last-child { border-bottom: none; }
+.stat-row .label { font-size: 13px; color: var(--text2); }
+.stat-row .value { font-size: 14px; font-weight: 600; }
+.stat-row .value.green { color: var(--green); }
+.stat-row .value.orange { color: var(--orange); }
+.stat-row .value.red { color: var(--red); }
+.stat-row .value.blue { color: var(--blue); }
+.stat-row .value.purple { color: var(--purple); }
+
+/* Progress bar */
+.progress-bar { width: 100%; height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.progress-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.progress-fill.green { background: var(--green); }
+.progress-fill.orange { background: var(--orange); }
+.progress-fill.red { background: var(--red); }
+.progress-fill.blue { background: var(--blue); }
+
+/* Badge */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+.badge-orange { background: rgba(210,153,34,0.15); color: var(--orange); }
+.badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-blue { background: rgba(88,166,255,0.15); color: var(--blue); }
+
+/* Autonomy levels */
+.autonomy-level { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.autonomy-level:last-child { border-bottom: none; }
+.autonomy-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.al-1 { background: rgba(63,185,80,0.15); }
+.al-2 { background: rgba(210,153,34,0.15); }
+.al-3 { background: rgba(248,81,73,0.15); }
+.autonomy-text { flex: 1; }
+.autonomy-text .name { font-size: 13px; font-weight: 500; }
+.autonomy-text .desc { font-size: 11px; color: var(--text3); }
+
+/* Dream buckets */
+.dream-bucket { padding: 10px 0; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.dream-bucket:last-child { border-bottom: none; }
+.dream-bucket .btitle { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.dream-bucket .bcontent { font-size: 12px; color: var(--text2); }
+
+/* Skill list */
+.skill-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+.skill-item .sname { flex: 1; }
+.skill-item .scount { font-size: 12px; color: var(--text3); }
+
+/* Cost bar chart */
+.cost-bar { display: flex; align-items: flex-end; gap: 6px; height: 80px; padding: 8px 0; }
+.cost-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.cost-col .bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 2px; transition: height 0.5s; }
+.cost-col .lbl { font-size: 10px; color: var(--text3); }
+
+/* Kanban mini */
+.kanban-mini { display: flex; gap: 8px; }
+.kanban-mini-col { flex: 1; background: var(--surface2); border-radius: 8px; padding: 8px; text-align: center; }
+.kanban-mini-col .count { font-size: 18px; font-weight: 700; }
+.kanban-mini-col .lbl { font-size: 10px; color: var(--text3); text-transform: uppercase; }
+
+.empty { color: var(--text3); font-size: 13px; text-align: center; padding: 12px; }
+.loading { color: var(--text3); font-size: 13px; text-align: center; padding: 20px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🤖 Marveen Engine</h1>
+  <button class="refresh-btn" onclick="loadAll()">🔄 Frissítés</button>
+  <div class="links">
+    <a href="/">← Dashboard</a>
+    <a href="/lab">🧪 Lab</a>
+    <a href="/kanban">📋 Kanban</a>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- 1. Auto Skill-Factory -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🧠</span><span class="title">Auto Skill-Factory</span>
+      <a href="/skills" target="_blank" style="margin-left:auto;font-size:12px;padding:3px 10px;border-radius:12px;background:var(--primary);color:#fff;text-decoration:none;font-weight:600">🔗 Marketplace</a>
+      <span class="status status-ok" id="skillStatus">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="skillBody">
+      <div class="stat-row"><span class="label">Trigger: 5+ tool hívás</span><span class="value green">Auto</span></div>
+      <div class="stat-row"><span class="label">Összes skill a marketplace-en</span><span class="value blue" id="skillCount">—</span></div>
+      <div class="stat-row"><span class="label">Auto-generált skill-ek</span><span class="value" id="skillAuto" style="color:var(--purple)">—</span></div>
+      <div class="stat-row"><span class="label">Publikált fájlok</span><span class="value green" id="skillPublished">—</span></div>
+      <div class="stat-row"><span class="label">Recovery-ből tanult</span><span class="value" id="skillRecovery">—</span></div>
+      <div id="skillAgentBar" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+      <div id="skillRecent" style="margin-top:8px;font-size:12px;color:var(--text3)"></div>
+    </div>
+  </div>
+
+  <!-- 2. Salience Decay -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📉</span><span class="title">Salience Decay</span>
+      <span class="status status-ok" id="decayStatus">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="decayBody">
+      <div class="stat-row"><span class="label">Memóriák összesen</span><span class="value blue" id="decayTotal">—</span></div>
+      <div class="stat-row"><span class="label">Átlag fontosság</span><span class="value" id="decayAvg">—</span></div>
+      <div class="progress-bar"><div class="progress-fill blue" id="decayBar" style="width:0%"></div></div>
+      <div class="stat-row"><span class="label">Decyalt (>7 nap)</span><span class="value orange" id="decayStale">—</span></div>
+      <div class="stat-row"><span class="label">Gyakran hivatkozott</span><span class="value green" id="decayActive">—</span></div>
+    </div>
+  </div>
+
+  <!-- 3. Kanban Overview -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📋</span><span class="title">Kanban Áttekintés</span>
+      <span class="status status-ok" id="kanbanStatus">✓</span>
+    </div>
+    <div class="card-body" id="kanbanBody">
+      <div class="kanban-mini" id="kanbanMini"></div>
+      <div class="stat-row" style="margin-top:10px"><span class="label">Beragadt task-ok</span><span class="value orange" id="kanbanStuck">0</span></div>
+      <div class="stat-row"><span class="label">Card-aging audit</span><span class="value" id="kanbanAudit">—</span></div>
+    </div>
+  </div>
+
+  <!-- 4. PreCompact Hook -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">💾</span><span class="title">PreCompact Hook</span>
+      <span class="status status-ok" id="precompactStatus">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="precompactBody">
+      <div class="stat-row"><span class="label">Mentett döntések</span><span class="value blue" id="pcSaved">—</span></div>
+      <div class="stat-row"><span class="label">Kritikus események</span><span class="value" id="pcCritical">—</span></div>
+      <div class="stat-row"><span class="label">Utolsó mentés</span><span class="value" id="pcLast">—</span></div>
+    </div>
+  </div>
+
+  <!-- 5. Autonomy Levels -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🎚️</span><span class="title">Autonómia Szintek</span>
+      <span class="status status-ok">✓ 3 szint</span>
+    </div>
+    <div class="card-body">
+      <div class="autonomy-level">
+        <div class="autonomy-icon al-1">🟡</div>
+        <div class="autonomy-text"><div class="name">L1 — Notify</div><div class="desc">Csak jelzés a dashboard-on</div></div>
+      </div>
+      <div class="autonomy-level">
+        <div class="autonomy-icon al-2">🟠</div>
+        <div class="autonomy-text"><div class="name">L2 — Suggest</div><div class="desc">Javaslat a chat-be</div></div>
+      </div>
+      <div class="autonomy-level">
+        <div class="autonomy-icon al-3">🔴</div>
+        <div class="autonomy-text"><div class="name">L3 — Auto-Act</div><div class="desc">Önálló végrehajtás (P2P reconnect)</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6. Dream Engine -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🌙</span><span class="title">Dream Engine</span>
+      <span class="status status-ok" id="dreamStatus">✓</span>
+    </div>
+    <div class="card-body" id="dreamBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 7. Kanban Dispatch -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Kanban Dispatch</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body">
+      <div class="stat-row"><span class="label">in_progress → Agent</span><span class="value green">Auto</span></div>
+      <div class="stat-row"><span class="label">Dispatch-eltek</span><span class="value blue" id="dispatchCount">0</span></div>
+      <div class="stat-row"><span class="label">Logika</span><span class="value" style="font-size:12px">card→in_progress = notify agent</span></div>
+    </div>
+  </div>
+
+  <!-- 8. Context Guard -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🛡️</span><span class="title">Context Guard</span>
+      <span class="status status-ok" id="ctxStatus">✓ OK</span>
+    </div>
+    <div class="card-body" id="ctxBody">
+      <div class="stat-row"><span class="label">Aktív alert-ek</span><span class="value green" id="ctxAlerts">0</span></div>
+      <div class="stat-row"><span class="label">Threshold (act)</span><span class="value">80%</span></div>
+      <div class="stat-row"><span class="label">Threshold (hard)</span><span class="value orange">95%</span></div>
+      <div class="stat-row"><span class="label">Saturation net</span><span class="value red">100% → restart</span></div>
+    </div>
+  </div>
+
+  <!-- 9. Prompt Safety -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔒</span><span class="title">Prompt Safety</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body">
+      <div class="stat-row"><span class="label">Untrusted wrapping</span><span class="value green">✓</span></div>
+      <div class="stat-row"><span class="label">Trusted-peer wrapping</span><span class="value green">✓</span></div>
+      <div class="stat-row"><span class="label">Injection detection</span><span class="value green">✓</span></div>
+      <div class="stat-row"><span class="label">Tag scrubbing</span><span class="value green">✓</span></div>
+      <div style="margin-top:8px">
+        <input type="text" id="safetyInput" placeholder="Teszt szöveg..." style="width:65%;font-size:12px;padding:6px">
+        <button class="refresh-btn" style="padding:6px 10px" onclick="testSafety()">Teszt</button>
+      </div>
+      <div id="safetyResult" style="margin-top:6px;font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- 10. CostOps -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">💰</span><span class="title">CostOps</span>
+      <span class="status status-ok" id="costStatus">✓</span>
+    </div>
+    <div class="card-body" id="costBody">
+      <div class="stat-row"><span class="label">Havi költség</span><span class="value green" id="costTotal">$0.00</span></div>
+      <div class="stat-row"><span class="label">Token-ek (be/ki)</span><span class="value" id="costTokens">0 / 0</span></div>
+      <div class="stat-row"><span class="label">Kérések</span><span class="value blue" id="costReqs">0</span></div>
+      <div class="stat-row"><span class="label">Budget alert-ek</span><span class="value green" id="costAlerts">0</span></div>
+      <div class="cost-bar" id="costChart"></div>
+    </div>
+  </div>
+
+  <!-- 11. Team Trust Graph -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🤝</span><span class="title">Team Trust Graph</span>
+      <span class="status status-ok" id="trustStatus">✓ Full Mesh</span>
+    </div>
+    <div class="card-body">
+      <div class="trust-graph" id="trustGraph"></div>
+      <div id="trustDetails" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <!-- 12. Model Fallback -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔄</span><span class="title">Model Fallback</span>
+      <span class="status status-ok" id="fallbackStatus">✓ Primary</span>
+    </div>
+    <div class="card-body" id="fallbackBody">
+      <div class="stat-row"><span class="label">Jelenlegi model</span><span class="value blue" id="fbModel">—</span></div>
+      <div class="stat-row"><span class="label">Chain pozíció</span><span class="value" id="fbPos">0</span></div>
+      <div class="progress-bar"><div class="progress-fill green" id="fbBar" style="width:100%"></div></div>
+      <div class="stat-row"><span class="label">Recent errors</span><span class="value green" id="fbErrors">0</span></div>
+      <div class="stat-row"><span class="label">Chain</span><span class="value" style="font-size:11px" id="fbChain">—</span></div>
+    </div>
+  </div>
+
+  <!-- 13. Pending Retries -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔁</span><span class="title">Pending Retries</span>
+      <span class="status status-ok" id="retryStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="retryBody">
+      <div class="stat-row"><span class="label">Várakozó task-ok</span><span class="value blue" id="rTotal">0</span></div>
+      <div class="stat-row"><span class="label">Alert küldve</span><span class="value orange" id="rAlerts">0</span></div>
+      <div class="stat-row"><span class="label">Legrégebbi (perc)</span><span class="value" id="rOldest">—</span></div>
+    </div>
+  </div>
+
+  <!-- 14. Tool Timeouts -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">⏱️</span><span class="title">Tool Timeouts</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body" id="timeoutBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 15. Process Lock -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔐</span><span class="title">Process Lock</span>
+      <span class="status status-ok" id="lockStatus">✓</span>
+    </div>
+    <div class="card-body" id="lockBody">
+      <div class="stat-row"><span class="label">Port</span><span class="value" id="lockPort">8650</span></div>
+      <div class="stat-row"><span class="label">Aktív PID-ek</span><span class="value green" id="lockPids">—</span></div>
+      <div class="stat-row"><span class="label">Saját PID</span><span class="value" id="lockOurPid">—</span></div>
+    </div>
+  </div>
+
+  <!-- 16. Remote Enrollment -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Remote Enrollment</span>
+      <span class="status status-ok" id="enrollStatus">✓</span>
+    </div>
+    <div class="card-body" id="enrollBody">
+      <div class="stat-row"><span class="label">SSH kulcs</span><span class="value green" id="enrollKey">—</span></div>
+      <div class="stat-row"><span class="label">Kulcs típus</span><span class="value" id="enrollType">ssh-ed25519</span></div>
+      <div class="stat-row"><span class="label">Útvonal</span><span class="value" style="font-size:11px" id="enrollPath">—</span></div>
+    </div>
+  </div>
+
+  <!-- 17. Auto-Restart -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔄</span><span class="title">Auto-Restart</span>
+      <span class="status status-ok" id="arStatus">✓ OK</span>
+    </div>
+    <div class="card-body" id="arBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 18. Context Gate -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🚪</span><span class="title">Context Gate</span>
+      <span class="status status-ok" id="cgStatus">✓ OK</span>
+    </div>
+    <div class="card-body" id="cgBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 19. LLM Breakdown -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🧩</span><span class="title">LLM Task Breakdown</span>
+      <span class="status status-ok">✓ Aktív</span>
+    </div>
+    <div class="card-body">
+      <div style="margin-bottom:8px">
+        <input type="text" id="breakdownInput" placeholder="Feladat címe..." style="width:70%;padding:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text1);border-radius:4px">
+        <button onclick="doBreakdown()" style="padding:6px 12px;background:var(--blue);color:white;border:none;border-radius:4px;cursor:pointer">🔍 Felbontás</button>
+      </div>
+      <div id="breakdownResult" style="font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- 20. Worker Liveness -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">💓</span><span class="title">Worker Liveness</span>
+      <span class="status status-ok" id="wlStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="wlBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 21. Stuck Watcher -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🪤</span><span class="title">Stuck Watcher</span>
+      <span class="status status-ok" id="swStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="swBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 22. Token Usage -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🎯</span><span class="title">Token Usage</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="tuBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 23. Update Preflight -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">✈️</span><span class="title">Update Preflight</span>
+      <span class="status status-ok" id="upStatus">✓</span>
+    </div>
+    <div class="card-body" id="upBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 24. Store Watcher -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📦</span><span class="title">Store Watcher</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="stwBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 25. Delegation Engine (Marveen Optimized) -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Delegation Engine</span>
+      <span class="status status-ok" id="delegEngineStatus">✓</span>
+    </div>
+    <div class="card-body" id="delegEngineBody">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="stat-row"><span class="label">Completed</span><span class="value green" id="delegCompleted">—</span></div>
+        <div class="stat-row"><span class="label">Pending</span><span class="value orange" id="delegPending">—</span></div>
+        <div class="stat-row"><span class="label">Max retries</span><span class="value" id="delegRetries">3</span></div>
+        <div class="stat-row"><span class="label">Max/tick</span><span class="value" id="delegBudget">25</span></div>
+        <div class="stat-row"><span class="label">Stuck alerts</span><span class="value" id="delegStuck">0</span></div>
+        <div class="stat-row"><span class="label">Handoff fails</span><span class="value red" id="delegHandoff">0</span></div>
+      </div>
+      <div style="margin-top:8px;padding:6px;background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px">
+        <div style="color:#22d3ee;font-weight:600;margin-bottom:4px">🛡️ Marveen Optimization</div>
+        <div style="color:#94a3b8">Stuck Detection (10min) ✅ | Retry (3x+backoff) ✅ | Handoff Alert ✅ | Per-tick Budget ✅ | Backlog Batching ✅ | Trace ID ✅</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 25. Vault -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔐</span><span class="title">Vault</span>
+      <span class="status status-ok" id="vaultStatus">✓</span>
+    </div>
+    <div class="card-body" id="vaultBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 26. Fleet Transfer -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🚢</span><span class="title">Fleet Transfer</span>
+      <span class="status status-ok" id="fleetStatus">✓</span>
+    </div>
+    <div class="card-body" id="fleetBody">
+      <div class="stat-row"><span class="label">Exports</span><span class="value blue" id="fleetExports">0</span></div>
+      <div class="stat-row"><span class="label">Schema</span><span class="value" id="fleetSchema">v1</span></div>
+      <div id="fleetRecent" style="margin-top:6px;font-size:10px;color:var(--text3)">—</div>
+      <div style="margin-top:8px;display:flex;gap:6px">
+        <button onclick="fleetExport()" style="padding:4px 12px;background:var(--accent);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Export</button>
+        <button onclick="fleetExportEnc()" style="padding:4px 12px;background:var(--accent2);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">Encrypt + Export</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 26. Login Throttle -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🚫</span><span class="title">Login Throttle</span>
+      <span class="status status-ok" id="ltStatus">✓</span>
+    </div>
+    <div class="card-body" id="ltBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 27. CSRF Gate -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🛡️</span><span class="title">CSRF Gate</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="csrfBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 28. Channel Health -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📡</span><span class="title">Channel Health</span>
+      <span class="status status-ok" id="chStatus">✓</span>
+    </div>
+    <div class="card-body" id="chBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 29. Watchdog (Marveen Channel Monitor) -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🛡️</span><span class="title">Watchdog</span>
+      <span class="status status-ok" id="wdStatus">✓</span>
+    </div>
+    <div class="card-body" id="wdBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 30. Governance Gates -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔒</span><span class="title">Governance</span>
+      <span class="status status-ok" id="govStatus">✓</span>
+    </div>
+    <div class="card-body" id="govBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 31. Daily Summary -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📅</span><span class="title">Daily Summary</span>
+      <span class="status status-ok" id="dsStatus">✓</span>
+    </div>
+    <div class="card-body" id="dsBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 32. Desired State -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🎯</span><span class="title">Desired State</span>
+      <span class="status status-ok" id="dstateStatus">✓</span>
+    </div>
+    <div class="card-body" id="dstateBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 33. Process Lock -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🔐</span><span class="title">Process Lock</span>
+      <span class="status status-ok" id="plockStatus">✓</span>
+    </div>
+    <div class="card-body" id="plockBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 32. Federation -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🌐</span><span class="title">Federation</span>
+      <span class="status" id="fedStatus">—</span>
+    </div>
+    <div class="card-body" id="fedBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 30. Model Suggest -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">🧭</span><span class="title">Model Suggest</span>
+      <span class="status status-ok">✓</span>
+    </div>
+    <div class="card-body" id="msBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+  <!-- 31. Voice Directive -->
+  <div class="card" style="grid-column: span 2">
+    <div class="card-header">
+      <span class="icon">🎤</span><span class="title">Voice Directive</span>
+      <span class="status status-ok">✓ HU+EN</span>
+    </div>
+    <div class="card-body">
+      <div style="margin-bottom:8px">
+        <input type="text" id="voiceInput" placeholder="pl: mutasd a kanbant" style="width:70%;padding:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text1);border-radius:4px">
+        <button onclick="doVoiceParse()" style="padding:6px 12px;background:var(--blue);color:white;border:none;border-radius:4px;cursor:pointer">🎤 Értelmez</button>
+      </div>
+      <div id="voiceResult" style="font-size:12px"></div>
+    </div>
+  </div>
+
+  <!-- 32. Inbox Nudge -->
+  <div class="card">
+    <div class="card-header">
+      <span class="icon">📬</span><span class="title">Inbox Nudge</span>
+      <span class="status status-ok" id="inStatus">✓ 0</span>
+    </div>
+    <div class="card-body" id="inBody">
+      <div class="loading">Betöltés...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function api(path) {
+  var token = localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || '';
+  var headers = {};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return fetch(path, {headers: headers}).then(function(r) {
+    if (r.status === 401) {
+      return fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: 'zsolt', password: 'mesh2026'})
+      }).then(function(lr) { return lr.json(); }).then(function(ld) {
+        if (ld.token) {
+          localStorage.setItem('mesh_token', ld.token);
+          headers['Authorization'] = 'Bearer ' + ld.token;
+          return fetch(path, {headers: headers}).then(function(r2) { return r2.json(); });
+        }
+        return null;
+      });
+    }
+    return r.json();
+  }).catch(function(e) { return null; });
+}
+
+function loadAll() {
+  loadSkills();
+  loadDecay();
+  loadKanban();
+  loadPrecompact();
+  loadDream();
+  loadContextGuard();
+  loadCostOps();
+  loadTrust();
+  loadFallback();
+  loadRetries();
+  loadTimeouts();
+  loadLock();
+  loadEnroll();
+  loadAutoRestart();
+  loadContextGate();
+  loadWorkerLiveness();
+  loadStuckWatcher();
+  loadTokenUsage();
+  loadUpdatePreflight();
+  loadStoreWatcher();
+  loadDelegEngine();
+  loadFleet();
+  loadVault();
+  loadLoginThrottle();
+  loadCSRF();
+  loadChannelHealth();
+  loadWatchdog();
+  loadGovernance();
+  loadDailySummary();
+  loadDesiredState();
+  loadProcessLock();
+  loadFederation();
+  loadModelSuggest();
+  loadInboxNudge();
+}
+
+function loadSkills() {
+  // Load from skill marketplace stats API
+  api("/api/skills/stats").then(function(d) {
+    if (!d) return;
+    document.getElementById("skillCount").textContent = d.total_skills || 0;
+    document.getElementById("skillAuto").textContent = d.auto_generated || 0;
+    document.getElementById("skillPublished").textContent = d.published_files || 0;
+    // Recovery count: skills with "error-recovery" tag
+    document.getElementById("skillRecovery").textContent = "—";
+
+    // Agent badges
+    var bar = document.getElementById("skillAgentBar");
+    if (bar && d.by_agent) {
+      var colors = {nova:"#58a6ff", morzsa:"#bc8cff", runa:"#3fb950", tor:"#d29922", lifecycle_node:"#f85149"};
+      var html = "";
+      Object.keys(d.by_agent).forEach(function(name) {
+        var color = colors[name] || "#8b949e";
+        html += '<span style="background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px">';
+        html += '<span style="width:8px;height:8px;border-radius:50%;background:' + color + '"></span>';
+        html += name + ' <b style="color:var(--primary)">' + d.by_agent[name] + '</b></span>';
+      });
+      bar.innerHTML = html;
+    }
+
+    // Recent skills
+    var recent = document.getElementById("skillRecent");
+    if (recent && d.recent && d.recent.length > 0) {
+      var rhtml = "📦 Legutóbbi: ";
+      d.recent.forEach(function(s, i) {
+        if (i > 0) rhtml += " · ";
+        rhtml += s.agent + ": " + (s.display_name || s.skill_name);
+      });
+      recent.textContent = rhtml;
+    }
+  }).catch(function(e) {
+    // Fallback: try dream API
+    api("/api/dream").then(function(d) {
+      if (!d || !d.buckets) return;
+      var mp = d.buckets.memory_patterns || {};
+      var sug = mp.suggestions || [];
+      document.getElementById("skillCount").textContent = sug.length;
+      document.getElementById("skillRecovery").textContent = sug.filter(function(s){return s.access_count>=8;}).length;
+    });
+  });
+}
+
+function loadDecay() {
+  api("/api/dream").then(function(d) {
+    if (!d || !d.buckets) return;
+    var mh = d.buckets.memory_health || {};
+    var mp = d.buckets.memory_patterns || {};
+    var total = mp.total_memories || 0;
+    document.getElementById("decayTotal").textContent = total;
+    document.getElementById("decayStale").textContent = mh.stale_hot || 0;
+    document.getElementById("decayActive").textContent = (mp.suggestions||[]).length;
+    var pct = total > 0 ? Math.round((1 - (mh.stale_hot||0) / total) * 100) : 0;
+    document.getElementById("decayBar").style.width = pct + "%";
+    document.getElementById("decayAvg").textContent = pct + "%";
+  });
+}
+
+function loadKanban() {
+  api("/api/kanban").then(function(d) {
+    if (!d || !d.boards) return;
+    var allCards = [];
+    d.boards.forEach(function(b) { allCards = allCards.concat(b.cards||[]); });
+    var cols = ["todo","in_progress","review","done"];
+    var mini = document.getElementById("kanbanMini");
+    mini.innerHTML = cols.map(function(c) {
+      var n = allCards.filter(function(card) { return card.column === c; }).length;
+      var colors = {"todo":"var(--text3)","in_progress":"var(--orange)","review":"var(--purple)","done":"var(--green)"};
+      return '<div class="kanban-mini-col"><div class="count" style="color:'+colors[c]+'">'+n+'</div><div class="lbl">'+c.replace("_"," ")+'</div></div>';
+    }).join("");
+    document.getElementById("kanbanStuck").textContent = allCards.filter(function(c) { return c.column === "in_progress"; }).length;
+  });
+  api("/api/kanban/audit").then(function(d) {
+    if (!d) return;
+    document.getElementById("kanbanAudit").textContent = (d.stale_count||0) + " stale, " + (d.dead_count||0) + " dead";
+  });
+}
+
+function loadPrecompact() {
+  api("/api/precompact/audit").then(function(d) {
+    if (!d) { document.getElementById("pcSaved").textContent = "0"; return; }
+    document.getElementById("pcSaved").textContent = d.saved_count || d.total || 0;
+    document.getElementById("pcCritical").textContent = d.critical_count || 0;
+    document.getElementById("pcLast").textContent = d.last_save || "—";
+  });
+}
+
+function loadDream() {
+  api("/api/dream/latest").then(function(d) {
+    if (!d || !d.exists) { document.getElementById("dreamBody").innerHTML = '<div class="empty">Még nem futott a Dream Engine.</div>'; return; }
+    var lines = d.content.split("\n");
+    var html = "";
+    var inBucket = false;
+    lines.forEach(function(line) {
+      if (line.startsWith("## ")) {
+        if (inBucket) html += "</div>";
+        html += '<div class="dream-bucket"><div class="btitle">' + line.replace(/## /,"") + '</div><div class="bcontent">';
+        inBucket = true;
+      } else if (line.trim() && !line.startsWith("#") && !line.startsWith("---") && !line.startsWith("*")) {
+        html += line + "<br>";
+      }
+    });
+    if (inBucket) html += "</div>";
+    document.getElementById("dreamBody").innerHTML = html || '<div class="empty">Üres</div>';
+  });
+}
+
+function loadContextGuard() {
+  api("/api/context-guard").then(function(d) {
+    if (!d) return;
+    var checks = d.checks || [];
+    document.getElementById("ctxAlerts").textContent = checks.length;
+    if (checks.length > 0) {
+      document.getElementById("ctxStatus").className = "status status-warn";
+      document.getElementById("ctxStatus").textContent = "⚠️ " + checks.length + " alert";
+    }
+  });
+}
+
+function loadCostOps() {
+  api("/api/costops/summary").then(function(d) {
+    if (!d) return;
+    document.getElementById("costTotal").textContent = "$" + (d.total_cost_usd||0).toFixed(4);
+    document.getElementById("costTokens").textContent = (d.total_input_tokens||0) + " / " + (d.total_output_tokens||0);
+    document.getElementById("costReqs").textContent = d.total_requests || 0;
+    // Mini chart by model
+    var models = d.by_model || {};
+    var keys = Object.keys(models).slice(0, 5);
+    var maxVal = Math.max.apply(null, keys.map(function(k){return models[k];}).concat([0.01]));
+    var chart = document.getElementById("costChart");
+    chart.innerHTML = keys.map(function(k) {
+      var v = models[k] || 0;
+      var h = Math.round(v / maxVal * 60);
+      return '<div class="cost-col"><div class="bar" style="height:'+h+'px;background:var(--blue)"></div><div class="lbl">'+k.substring(0,8)+'</div></div>';
+    }).join("") || '<div class="empty" style="width:100%">Még nincs adat</div>';
+  });
+  api("/api/costops/alerts").then(function(d) {
+    if (!d) return;
+    var alerts = d.alerts || [];
+    document.getElementById("costAlerts").textContent = alerts.length;
+    if (alerts.length > 0) {
+      document.getElementById("costStatus").className = "status status-warn";
+      document.getElementById("costStatus").textContent = "⚠️ Budget!";
+    }
+  });
+}
+
+function loadTrust() {
+  api("/api/trust").then(function(d) {
+    if (!d || !d.graph) return;
+    var g = d.graph;
+    var nodes = Object.keys(g);
+    var colors = {"Nova":"var(--blue)","Morzsa":"var(--green)","Runa":"var(--purple)"};
+    var initials = {"Nova":"N","Morzsa":"M","Runa":"R"};
+    // Build trust visualization
+    var html = "";
+    for (var i = 0; i < nodes.length; i++) {
+      if (i > 0) {
+        var level = g[nodes[i-1]][nodes[i]] || "none";
+        var lineColor = level === "full" ? "var(--green)" : level === "limited" ? "var(--orange)" : "var(--red)";
+        var icon = level === "full" ? "✓" : level === "limited" ? "~" : "✗";
+        html += '<div class="trust-line" style="background:'+lineColor+'"><span style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:12px;color:'+lineColor+'">'+icon+'</span></div>';
+      }
+      html += '<div class="trust-node"><div class="trust-circle" style="border-color:'+(colors[nodes[i]]||"var(--text3)")+';color:'+(colors[nodes[i]]||"var(--text3)")+'">'+(initials[nodes[i]]||"?")+'</div><div class="trust-name">'+nodes[i]+'</div></div>';
+    }
+    document.getElementById("trustGraph").innerHTML = html;
+    // Details
+    var details = "";
+    nodes.forEach(function(n) {
+      var trusted = Object.keys(g[n]||{}).filter(function(k){return g[n][k]==="full";});
+      details += '<div class="stat-row"><span class="label">'+n+'</span><span class="value green">'+trusted.join(", ")+'</span></div>';
+    });
+    document.getElementById("trustDetails").innerHTML = details;
+  });
+}
+
+function testSafety() {
+  var text = document.getElementById("safetyInput").value;
+  if (!text) return;
+  fetch("/api/prompt-safety/check", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({content: text})
+  }).then(function(r){return r.json();}).then(function(d) {
+    var el = document.getElementById("safetyResult");
+    if (d.safe) {
+      el.innerHTML = '<span style="color:var(--green)">✅ Biztonságos</span>';
+    } else {
+      el.innerHTML = '<span style="color:var(--red)">🚫 ' + d.reason + '</span>';
+    }
+  });
+}
+
+document.addEventListener("DOMContentLoaded", loadAll);
+setInterval(loadAll, 60000);
+
+function loadFallback() {
+  api("/api/model-fallback/Nova").then(function(d) {
+    if (!d) return;
+    document.getElementById("fbModel").textContent = d.current_model;
+    document.getElementById("fbPos").textContent = d.chain_position + "/" + (d.chain.length-1);
+    document.getElementById("fbErrors").textContent = d.recent_errors;
+    document.getElementById("fbChain").textContent = d.chain.join(" → ");
+    var pct = 100 - (d.chain_position / (d.chain.length-1) * 100);
+    var bar = document.getElementById("fbBar");
+    bar.style.width = pct + "%";
+    bar.className = "progress-fill " + (pct > 75 ? "green" : pct > 50 ? "orange" : "red");
+    if (d.chain_position > 0) {
+      document.getElementById("fallbackStatus").className = "status status-warn";
+      document.getElementById("fallbackStatus").textContent = "⚠️ Downgraded";
+    }
+  });
+}
+
+function loadRetries() {
+  api("/api/pending-retries").then(function(d) {
+    if (!d || !d.stats) return;
+    var s = d.stats;
+    document.getElementById("rTotal").textContent = s.total;
+    document.getElementById("rAlerts").textContent = s.alerting;
+    document.getElementById("rOldest").textContent = Math.round(s.oldest_age_min) + "p";
+    if (s.total > 0) {
+      document.getElementById("retryStatus").className = "status status-warn";
+      document.getElementById("retryStatus").textContent = "⚠️ " + s.total;
+    }
+  });
+}
+
+function loadTimeouts() {
+  api("/api/tool-timeouts").then(function(d) {
+    if (!d || !d.timeouts) return;
+    var cats = d.categories || {};
+    var html = "";
+    Object.keys(cats).forEach(function(cat) {
+      var tools = cats[cat];
+      var items = Object.keys(tools).map(function(t) {
+        return '<span class="badge badge-blue" style="margin:2px">' + t + ': ' + tools[t] + 's</span>';
+      }).join(" ");
+      html += '<div class="stat-row"><span class="label">' + cat + '</span><span style="font-size:11px">' + items + '</span></div>';
+    });
+    document.getElementById("timeoutBody").innerHTML = html || '<div class="empty">Nincs adat</div>';
+  });
+}
+
+function loadLock() {
+  api("/api/process-lock").then(function(d) {
+    if (!d) return;
+    document.getElementById("lockPort").textContent = d.port;
+    document.getElementById("lockPids").textContent = (d.pids || []).length;
+    document.getElementById("lockOurPid").textContent = d.our_pid;
+  });
+}
+
+function loadEnroll() {
+  api("/api/remote-enroll").then(function(d) {
+    if (!d) return;
+    document.getElementById("enrollKey").textContent = d.key_exists ? "✓ Megvan" : "✗ Hiányzik";
+    document.getElementById("enrollPath").textContent = d.key_path;
+    if (!d.ready) {
+      document.getElementById("enrollStatus").className = "status status-err";
+      document.getElementById("enrollStatus").textContent = "✗ Not ready";
+    }
+  });
+}
+
+function loadVault() {
+  api("/api/vault").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("vaultBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Bejegyzések</span><span class="value blue">' + d.entry_count + '</span></div>' +
+      '<div class="stat-row"><span class="label">Titkosítás</span><span class="value ' + (d.encrypted ? "green" : "orange") + '">' + (d.encrypted ? "AES-256-GCM" : "Plaintext") + '</span></div>';
+    if (!d.encrypted) {
+      document.getElementById("vaultStatus").className = "status status-warn";
+      document.getElementById("vaultStatus").textContent = "⚠️ No crypto";
+    }
+  });
+}
+
+function loadLoginThrottle() {
+  api("/api/login-throttle").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("ltBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Zárolt userek</span><span class="value ' + (d.locked_users.length > 0 ? "red" : "green") + '">' + d.locked_users.length + '</span></div>' +
+      '<div class="stat-row"><span class="label">Globális hibák/óra</span><span class="value">' + d.global_failures_hour + '/' + d.global_threshold + '</span></div>';
+  });
+}
+
+function loadCSRF() {
+  api("/api/csrf").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("csrfBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Engedélyezve</span><span class="value green">' + (d.enabled ? "✓" : "✗") + '</span></div>' +
+      '<div class="stat-row"><span class="label">SameSite</span><span class="value">' + d.same_site_cookie + '</span></div>' +
+      '<div class="stat-row"><span class="label">Tailscale</span><span class="value green">' + (d.tailscale_allowed ? "✓" : "✗") + '</span></div>';
+  });
+}
+
+function loadChannelHealth() {
+  api("/api/channel-health").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("chBody");
+    var html = "";
+    var channels = d.channels || {};
+    Object.keys(channels).forEach(function(name) {
+      var st = channels[name].status;
+      var cls = st === "ok" ? "green" : st === "down" ? "red" : "";
+      html += '<div class="stat-row"><span class="label">' + name + '</span><span class="value ' + cls + '">' + st + '</span></div>';
+    });
+    body.innerHTML = html || '<div class="empty">Nincs adat</div>';
+  });
+}
+
+function loadWatchdog() {
+  api("/api/watchdog/status").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("wdBody");
+    var st = document.getElementById("wdStatus");
+    var nodes = d.monitored_nodes || [];
+    var th = d.thresholds || {};
+    var pol = d.policy || {};
+    if (nodes.length === 0) {
+      st.className = "status status-ok"; st.textContent = "✓";
+    } else {
+      st.className = "status status-warn"; st.textContent = "⚠ " + nodes.length;
+    }
+    var html = '<div class="stat-row"><span class="label">Stuck</span><span class="value">' + th.stuck_s + 's</span></div>' +
+               '<div class="stat-row"><span class="label">Frozen</span><span class="value">' + th.frozen_s + 's</span></div>' +
+               '<div class="stat-row"><span class="label">Dead</span><span class="value">' + th.dead_s + 's</span></div>' +
+               '<div class="stat-row"><span class="label">Max restart</span><span class="value">' + pol.max_restart_attempts + '</span></div>' +
+               '<div class="stat-row"><span class="label">Down confirm</span><span class="value">' + pol.down_confirm_s + 's</span></div>';
+    nodes.forEach(function(n) {
+      html += '<div class="stat-row"><span class="label">' + n.node + '</span><span class="value">' + n.last_action + '</span></div>';
+    });
+    body.innerHTML = html;
+  });
+}
+
+function loadGovernance() {
+  api("/api/governance/rules").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("govBody");
+    var st = document.getElementById("govStatus");
+    var rules = d.rules || [];
+    var blockCount = rules.filter(function(r) { return r.action === "block"; }).length;
+    var redactCount = rules.filter(function(r) { return r.action === "redact"; }).length;
+    st.className = "status status-ok"; st.textContent = "✓ " + rules.length;
+    var html = '<div class="stat-row"><span class="label">Redact rules</span><span class="value">' + redactCount + '</span></div>' +
+               '<div class="stat-row"><span class="label">Block rules</span><span class="value">' + blockCount + '</span></div>';
+    rules.forEach(function(r) {
+      if (r.enabled) {
+        var icon = r.action === "block" ? "🚫" : "🔒";
+        html += '<div class="stat-row"><span class="label">' + icon + ' ' + r.name + '</span><span class="value">' + r.action + '</span></div>';
+      }
+    });
+    body.innerHTML = html;
+  });
+}
+
+function loadDailySummary() {
+  api("/api/daily-logs?days=7").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("dsBody");
+    var st = document.getElementById("dsStatus");
+    var logs = d.logs || [];
+    if (logs.length === 0) {
+      st.className = "status"; st.textContent = "—";
+      body.innerHTML = '<div class="empty">Még nincs daily summary. Kattints a Generate gombra.</div>' +
+        '<button class="refresh-btn" onclick="generateDailySummary()" style="margin-top:8px">📊 Generate</button>';
+    } else {
+      st.className = "status status-ok"; st.textContent = "✓ " + logs.length;
+      var html = "";
+      logs.forEach(function(l) {
+        html += '<div class="stat-row"><span class="label">' + l.agent + '</span><span class="value" style="font-size:10px">' + (l.summary || "").substring(0, 60) + '</span></div>';
+      });
+      html += '<button class="refresh-btn" onclick="generateDailySummary()" style="margin-top:8px">📊 Generate Now</button>';
+      body.innerHTML = html;
+    }
+  });
+}
+
+function generateDailySummary() {
+  fetch("/api/daily-summary/generate", { method: "POST" })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      alert(d.summary || d.error || "Done");
+      loadDailySummary();
+    })
+    .catch(function(e) { alert("Error: " + e); });
+}
+
+function loadDesiredState() {
+  api("/api/desired-state").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("dstateBody");
+    var st = document.getElementById("dstateStatus");
+    var nodes = d.desired_nodes || {};
+    var enabled = d.enabled_count || 0;
+    var total = d.total_count || 0;
+    st.className = "status status-ok"; st.textContent = enabled + "/" + total;
+    var html = "";
+    Object.keys(nodes).forEach(function(name) {
+      var n = nodes[name];
+      var cls = n.enabled ? "green" : "red";
+      var icon = n.enabled ? "✅" : "⛔";
+      var restart = n.has_restart ? "🔄" : "—";
+      html += '<div class="stat-row"><span class="label">' + icon + ' ' + name + '</span><span class="value ' + cls + '">' + restart + '</span></div>';
+    });
+    body.innerHTML = html || '<div class="empty">Nincs node</div>';
+  });
+}
+
+function loadProcessLock() {
+  api("/api/process-lock").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("plockBody");
+    var st = document.getElementById("plockStatus");
+    if (d.acquired) {
+      st.className = "status status-ok"; st.textContent = "✓ " + d.port;
+    } else {
+      st.className = "status status-warn"; st.textContent = "⚠";
+    }
+    body.innerHTML = '<div class="stat-row"><span class="label">Port</span><span class="value">' + d.port + '</span></div>' +
+      '<div class="stat-row"><span class="label">PID</span><span class="value">' + d.pid + '</span></div>' +
+      '<div class="stat-row"><span class="label">Status</span><span class="value">' + (d.acquired ? 'Locked' : 'Unlocked') + '</span></div>';
+  });
+}
+
+function loadFederation() {
+  api("/api/federation").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("fedBody");
+    var st = document.getElementById("fedStatus");
+    if (d.enabled) {
+      st.className = "status status-ok"; st.textContent = "✓ " + d.peer_count;
+    } else {
+      st.className = "status"; st.textContent = "⚪ Off";
+    }
+    body.innerHTML = '<div class="stat-row"><span class="label">Peer-ek</span><span class="value">' + d.peer_count + '</span></div>';
+    (d.peers || []).forEach(function(p) {
+      body.innerHTML += '<div class="stat-row"><span class="label">' + p.name + '</span><span class="value" style="font-size:11px">' + p.address + ':' + p.port + '</span></div>';
+    });
+  });
+}
+
+function loadModelSuggest() {
+  api("/api/model-suggest/Nova").then(function(d) {
+    if (!d || d.error) return;
+    var body = document.getElementById("msBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Jelenlegi</span><span class="value blue">' + d.current_model + '</span></div>' +
+      '<div class="stat-row"><span class="label">Ajánlott</span><span class="value green">' + d.recommended_model + '</span></div>' +
+      '<div class="stat-row"><span class="label">Szint</span><span class="value">' + d.recommended_tier + '</span></div>' +
+      '<div class="stat-row"><span class="label">Változás</span><span class="value ' + (d.change_advised ? "orange" : "green") + '">' + (d.change_advised ? "⚠️ Igen" : "✓ Nem") + '</span></div>';
+  });
+}
+
+function doVoiceParse() {
+  var text = document.getElementById("voiceInput").value;
+  if (!text) return;
+  fetch("/api/voice/parse", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: text})})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById("voiceResult");
+      if (d.matched) {
+        el.innerHTML = '<span class="green">✓ ' + d.action + '</span> → <code>' + JSON.stringify(d.params) + '</code>';
+      } else {
+        el.innerHTML = '<span class="red">✗ Ismeretlen directive</span>';
+      }
+    });
+}
+
+function loadInboxNudge() {
+  api("/api/inbox-nudge").then(function(d) {
+    if (!d) return;
+    var body = document.getElementById("inBody");
+    body.innerHTML = '<div class="stat-row"><span class="label">Olvasatlan</span><span class="value blue">' + d.total_unread + '</span></div>' +
+      '<div class="stat-row"><span class="label">Nudge</span><span class="value orange">' + d.nudged + '</span></div>' +
+      '<div class="stat-row"><span class="label">Alert</span><span class="value red">' + d.alerted + '</span></div>';
+    if (d.total_unread > 0) {
+      document.getElementById("inStatus").className = "status status-warn";
+      document.getElementById("inStatus").textContent = "⚠️ " + d.total_unread;
+    }
+  });
+}
+
+function loadAutoRestart() {
+  api("/api/auto-restart").then(function(d) {
+    if (!d) return;
+    var html = "";
+    Object.keys(d).forEach(function(node) {
+      var s = d[node];
+      var color = s.needs_restart ? "orange" : "green";
+      html += '<div class="stat-row"><span class="label">' + node + '</span><span class="value ' + color + '">' + s.uptime_hours + 'h (mode: ' + s.mode + ')</span></div>';
+      if (s.needs_restart) {
+        html += '<div style="color:var(--orange);font-size:11px;padding:2px 0">⚠️ Restart javasolt!</div>';
+      }
+    });
+    document.getElementById("arBody").innerHTML = html || '<div class="empty">Nincs adat</div>';
+  });
+}
+
+function loadContextGate() {
+  api("/api/context-gate").then(function(d) {
+    if (!d) return;
+    var agents = d.agents || [];
+    var body = document.getElementById("cgBody");
+    if (!body) return;
+    if (agents.length === 0) {
+      body.innerHTML = '<div class="stat-row"><span class="label">Státusz</span><span class="value green">✓ Nincs node</span></div>';
+      return;
+    }
+    var html = agents.map(function(a) {
+      var color = a.severity === "critical" ? "red" : (a.severity === "warning" ? "orange" : "green");
+      var mdl = (a.model && a.model !== "unknown") ? a.model : "—";
+      var ctx = a.context_length ? (a.context_length / 1000).toFixed(0) + "k" : "—";
+      var mt = a.max_turns ? a.max_turns : "—";
+      var bar = '<div style="width:' + Math.min(100, a.pct) + '%;height:4px;background:' + color + ';border-radius:2px"></div>';
+      return '<div style="margin-bottom:10px;padding:6px 0;border-bottom:1px solid rgba(48,54,61,0.4)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+        '<span style="font-size:13px;color:var(--text2);font-weight:600">' + a.agent + '</span>' +
+        '<span class="' + color + '" style="font-weight:700;font-size:14px">' + a.pct + '%</span></div>' +
+        '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;word-break:break-word;line-height:1.4">' +
+        '🛠️ <span style="color:var(--text1)">' + mdl + '</span>&nbsp;·&nbsp;ctx ' + ctx + '&nbsp;·&nbsp;' + mt + ' turn</div>' +
+        '<div style="background:var(--surface2);border-radius:2px;height:4px">' + bar + '</div>' +
+        '</div>';
+    }).join("");
+    // Summary + thresholds block
+    var s = d.summary || {};
+    var t = d.thresholds || {};
+    var summaryHtml = '<div class="stat-row"><span class="label">Összesítés</span>' +
+      '<span class="value">' + (s.total || 0) + ' node&nbsp;·&nbsp;' +
+      '<span class="red">' + (s.critical || 0) + ' kritikus</span>&nbsp;·&nbsp;' +
+      '<span class="orange">' + (s.warning || 0) + ' figyelmeztetés</span>&nbsp;·&nbsp;' +
+      '<span class="green">' + (s.healthy || 0) + ' OK</span></span></div>';
+    if (t.soft || t.hard || t.critical) {
+      summaryHtml += '<div class="stat-row"><span class="label">Küszöbök</span>' +
+        '<span class="value" style="font-size:11px">soft ' + t.soft + '%&nbsp;·&nbsp;hard ' + t.hard + '%&nbsp;·&nbsp;kritikus ' + t.critical + '%</span></div>';
+    }
+    body.innerHTML = summaryHtml + '<div style="margin-top:6px;border-top:1px solid var(--border)"></div>' + html;
+  });
+}
+
+function loadWorkerLiveness() {
+  api("/api/worker-liveness").then(function(d) {
+    if (!d) return;
+    var workers = d.workers || [];
+    var issues = d.issues || [];
+    document.getElementById("wlStatus").textContent = "✓ " + workers.length;
+    var html = workers.map(function(w) {
+      var color = w.status === "alive" ? "green" : w.status === "stale" ? "orange" : "red";
+      return '<div class="stat-row"><span class="label">' + w.worker + '</span><span class="value ' + color + '">' + w.status + ' (' + w.last_heartbeat_ago_s + 's)</span></div>';
+    }).join("");
+    document.getElementById("wlBody").innerHTML = html || '<div class="empty">Nincs worker</div>';
+    if (issues.length > 0) {
+      document.getElementById("wlStatus").className = "status status-warn";
+      document.getElementById("wlStatus").textContent = "⚠️ " + issues.length;
+    }
+  });
+}
+
+function loadStuckWatcher() {
+  api("/api/stuck-watcher").then(function(d) {
+    if (!d) return;
+    var issues = d.issues || [];
+    document.getElementById("swStatus").textContent = "✓ " + issues.length;
+    if (issues.length > 0) {
+      document.getElementById("swStatus").className = "status status-warn";
+    }
+    var html = issues.map(function(i) {
+      var color = i.severity === "critical" ? "red" : "orange";
+      return '<div class="stat-row"><span class="label">' + i.delegation_id + '</span><span class="value ' + color + '">' + i.status + ' (' + i.elapsed_s + 's)</span></div>';
+    }).join("");
+    document.getElementById("swBody").innerHTML = html || '<div class="stat-row"><span class="label">Státusz</span><span class="value green">✓ Nincs beragadt</span></div>';
+  });
+}
+
+function loadTokenUsage() {
+  api("/api/token-usage").then(function(d) {
+    if (!d) return;
+    var html = '<div class="stat-row"><span class="label">Total tokens</span><span class="value blue">' + (d.total_tokens || 0).toLocaleString() + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Input</span><span class="value">' + (d.total_input || 0).toLocaleString() + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Output</span><span class="value">' + (d.total_output || 0).toLocaleString() + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Requests</span><span class="value">' + (d.total_requests || 0) + '</span></div>';
+    var agents = d.by_agent || {};
+    Object.keys(agents).forEach(function(a) {
+      html += '<div class="stat-row"><span class="label">' + a + '</span><span class="value" style="font-size:11px">' + (agents[a].input + agents[a].output).toLocaleString() + ' tokens</span></div>';
+    });
+    document.getElementById("tuBody").innerHTML = html;
+  });
+}
+
+function loadUpdatePreflight() {
+  api("/api/update-preflight").then(function(d) {
+    if (!d) return;
+    var color = d.can_update ? "green" : "red";
+    var html = '<div class="stat-row"><span class="label">Branch</span><span class="value">' + (d.branch || "?") + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Frissíthető</span><span class="value ' + color + '">' + (d.can_update ? "✓ Igen" : "✗ Nem") + '</span></div>';
+    if (d.issues && d.issues.length > 0) {
+      html += '<div style="color:var(--red);font-size:11px;padding:4px 0">' + d.issues.join("<br>") + '</div>';
+    }
+    if (d.warnings && d.warnings.length > 0) {
+      html += '<div style="color:var(--orange);font-size:11px;padding:4px 0">' + d.warnings.join("<br>") + '</div>';
+    }
+    document.getElementById("upBody").innerHTML = html;
+    if (!d.can_update) {
+      document.getElementById("upStatus").className = "status status-err";
+      document.getElementById("upStatus").textContent = "✗ Blocked";
+    }
+  });
+}
+
+function loadStoreWatcher() {
+  api("/api/store-watcher").then(function(d) {
+    if (!d || !d.inventory) return;
+    var inv = d.inventory;
+    var html = '<div class="stat-row"><span class="label">Fájlok</span><span class="value">' + inv.total_files + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Méret</span><span class="value">' + (inv.total_size_bytes > 1024 ? Math.round(inv.total_size_bytes/1024) + "KB" : inv.total_size_bytes + "B") + '</span></div>';
+    html += '<div class="stat-row"><span class="label">Agent fájlok</span><span class="value blue">' + inv.agent_files + '</span></div>';
+    var events = d.events || [];
+    if (events.length > 0) {
+      html += '<div style="margin-top:6px;font-size:10px;color:var(--text3)">Utoljára ' + events.length + ' esemény</div>';
+    }
+    document.getElementById("stwBody").innerHTML = html;
+  });
+}
+
+function loadDelegEngine() {
+  // Load delegation stats
+  var token = window._a2aToken || "";
+  fetch("/api/delegations/stats", {headers: {"Authorization": "Bearer " + token}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || d.error) return;
+      document.getElementById("delegCompleted").textContent = d.completed || 0;
+      document.getElementById("delegPending").textContent = d.pending || 0;
+    })
+    .catch(function() {});
+  // Load message router for traces + budget
+  api("/api/message-router").then(function(d) {
+    if (!d) return;
+    document.getElementById("delegBudget").textContent = d.max_per_tick || 25;
+  });
+}
+
+function loadFleet() {
+  api("/api/fleet/status").then(function(d) {
+    if (!d) return;
+    document.getElementById("fleetExports").textContent = d.exports || 0;
+    document.getElementById("fleetSchema").textContent = "v" + (d.schemaVersion || 1);
+    var recent = (d.recentExports || []).slice(0, 3);
+    if (recent.length > 0) {
+      var html = recent.map(function(e) {
+        return e.name + " (" + e.size + "b" + (e.encrypted ? " 🔒" : "") + ")";
+      }).join("<br>");
+      document.getElementById("fleetRecent").innerHTML = html;
+    }
+  });
+}
+
+function fleetExport() {
+  fetch("/api/fleet/export").then(function(r) { return r.json(); }).then(function(d) {
+    if (d.exported) { alert("Export kész: " + d.file + " (" + d.size + " bytes)"); loadFleet(); }
+  });
+}
+
+function fleetExportEnc() {
+  var pw = prompt("Jelszó az encryptáláshoz:");
+  if (!pw) return;
+  fetch("/api/fleet/export?password=" + encodeURIComponent(pw)).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.exported) { alert("Encryptelt export: " + d.file + " (" + d.size + " bytes)"); loadFleet(); }
+  });
+}
+
+function doBreakdown() {
+  var title = document.getElementById("breakdownInput").value;
+  if (!title) return;
+  document.getElementById("breakdownResult").innerHTML = '<div class="loading">Feldolgozás + delegálás...</div>';
+  var token = localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || '';
+  fetch("/api/llm-breakdown", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    body: JSON.stringify({title: title, description: "", auto_delegate: true})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    var subtasks = d.subtasks || [];
+    var cards = d.cards || [];
+    var delegations = d.delegations || [];
+    var html = '<div style="margin-bottom:8px;font-size:11px;color:var(--green)">✅ ' + subtasks.length + ' subtask | ' + cards.length + ' Kanban | ' + delegations.length + ' delegáció</div>';
+    html += subtasks.map(function(s, i) {
+      var pColor = s.priority === "high" ? "red" : s.priority === "normal" ? "blue" : "text3";
+      var card = cards[i] || {};
+      var del = delegations[i] || {};
+      var badge = card.id ? ' 📋' : '';
+      badge += del.task_id ? ' 🔗' : '';
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--' + pColor + ')">[' + (s.priority || "normal") + ']</span> ' + (i+1) + '. ' + s.title + badge + '</div>';
+    }).join("");
+    document.getElementById("breakdownResult").innerHTML = html || '<div class="empty">Nincs eredmény</div>';
+  }).catch(function() {
+    document.getElementById("breakdownResult").innerHTML = '<div class="empty">Hiba történt</div>';
+  });
+}
+</script>
+</body>
+</html>

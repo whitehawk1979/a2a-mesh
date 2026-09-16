@@ -423,6 +423,71 @@ def generate_tls_cert(node_name: str, certs_dir: str) -> Tuple[str, str]:
     return str(cert_path), str(key_path)
 
 
+# ─── SSH Key Generation (auto if missing) ───────────────────────────────────
+
+def ensure_ssh_key(node_name: str, ssh_dir: str = "~/.ssh") -> Tuple[str, str]:
+    """Ensure an ed25519 SSH keypair exists for mesh SSH tunnels.
+
+    Called by the installer and by the node at startup (idempotent):
+    - If no usable identity key exists, generates id_ed25519_openclaw.
+    - Never overwrites an existing key.
+    - Returns (private_key_path, public_key_path); ('', '') on failure.
+    """
+    import shutil as _shutil
+
+    d = Path(ssh_dir).expanduser()
+    d.mkdir(parents=True, exist_ok=True)
+
+    priv = d / "id_ed25519_openclaw"
+    pub = d / "id_ed25519_openclaw.pub"
+
+    # Already have a valid keypair? Done.
+    if priv.exists() and pub.exists():
+        try:
+            if pub.read_text().strip().startswith("ssh-ed25519"):
+                try:
+                    os.chmod(str(priv), 0o600)
+                except Exception:
+                    pass
+                return str(priv), str(pub)
+        except Exception:
+            pass
+
+    # ssh-keygen available?
+    if not _shutil.which("ssh-keygen"):
+        print("⚠️  ssh-keygen not found — cannot generate SSH identity")
+        return '', ''
+
+    # Generate a NEW key (only if private key is missing or unreadable)
+    if not priv.exists():
+        comment = f"{node_name}@a2a-mesh"
+        r = subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", comment,
+             "-f", str(priv)],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode != 0:
+            print(f"⚠️  ssh-keygen failed: {r.stderr.decode()[:200]}")
+            return '', ''
+    else:
+        # Private key exists but pub missing — regenerate pub from priv
+        r = subprocess.run(
+            ["ssh-keygen", "-y", "-f", str(priv)],
+            capture_output=True, timeout=30,
+        )
+        if r.returncode == 0:
+            pub.write_text(r.stdout.decode() + "\n")
+        else:
+            print("⚠️  could not derive .pub from existing private key")
+            return '', ''
+
+    try:
+        os.chmod(str(priv), 0o600)
+    except Exception:
+        pass
+    return str(priv), str(pub)
+
+
 def get_or_create_ca(certs_dir: str) -> str:
     """Get existing CA cert or create a new one. Returns CA cert path."""
     certs = Path(certs_dir).expanduser()
@@ -806,6 +871,279 @@ async def bootstrap(
     print()
     
     return summary
+
+
+# ─── Full Node Onboarding ───────────────────────────────────────────────────
+
+async def onboard_node(
+    node_name: str,
+    ssh_pubkey: str = '',
+    pg_host: str = '192.168.1.30',
+    pg_port: int = 5432,
+    pg_db: str = 'agent_memory',
+    pg_user: str = 'nova',
+    pg_password: str = 'nova_agent_2026',
+    use_tailscale: bool = True,
+    ssh_targets: list = None,
+    role: str = 'auto',
+    auto_approve: bool = False,
+) -> dict:
+    """
+    Full node onboarding: SSH key exchange, mesh user creation, auth token,
+    peer discovery, tunnel setup. Called by the dashboard API or CLI.
+    
+    ssh_pubkey: The new node's SSH public key (ssh-ed25519 AAAA... user@host)
+    ssh_targets: List of {'host': ip, 'port': 22, 'user': username} peer nodes
+                 to push the key to. If None, uses known mesh nodes from PG.
+    
+    Returns a summary dict with all steps and their status.
+    """
+    import asyncpg
+    import time
+    import logging
+    log = logging.getLogger("a2a_mesh.bootstrap")
+    
+    result = {
+        'node_name': node_name,
+        'steps': [],
+        'success': True,
+        'ssh_targets': [],
+        'mesh_user': None,
+        'auth_token': None,
+        'peer_info': [],
+    }
+    
+    def step(name, status, detail=''):
+        result['steps'].append({'step': name, 'status': status, 'detail': detail})
+        log.info(f"  {'✅' if status == 'ok' else '❌' if status == 'error' else '⚠️'} {name}: {detail}")
+    
+    # 1. Register node in PG mesh_nodes
+    try:
+        conn = await asyncpg.connect(
+            host=pg_host, port=pg_port, database=pg_db,
+            user=pg_user, password=pg_password
+        )
+        # Check if node already exists
+        existing = await conn.fetchval(
+            "SELECT node_name FROM mesh.mesh_nodes WHERE node_name = $1", node_name
+        )
+        if not existing:
+            # Determine role
+            node_role = role
+            if role == 'auto':
+                # Check if there's an active coordinator
+                coord = await conn.fetchval(
+                    "SELECT node_name FROM mesh.mesh_nodes WHERE role = 'coordinator' AND status = 'active'"
+                )
+                node_role = 'end_device' if coord else 'coordinator'
+            
+            node_status = 'active' if auto_approve else 'pending'
+            
+            await conn.execute(
+                """INSERT INTO mesh.mesh_nodes 
+                   (node_name, role, status, joined_at, last_heartbeat, 
+                    p2p_port, health_port, pg_available, p2p_available, http_available,
+                    capabilities, skills, version)
+                   VALUES ($1, $2, $3, now(), now(),
+                           8645, 8650, true, false, true,
+                           '[]'::jsonb, '[]'::jsonb, '0.29.0')""",
+                node_name, node_role, node_status
+            )
+            step('pg_register', 'ok', f'Node {node_name} registered as {node_role} ({node_status})')
+        else:
+            # Update role if specified
+            if role and role != 'auto':
+                await conn.execute("UPDATE mesh.mesh_nodes SET role = $1 WHERE node_name = $2", role, node_name)
+            if auto_approve:
+                await conn.execute("UPDATE mesh.mesh_nodes SET status = 'active' WHERE node_name = $1", node_name)
+            step('pg_register', 'ok', f'Node {node_name} already registered')
+        
+        # 1b. If pending, notify coordinator (send Telegram alert to Zsolt)
+        if not auto_approve:
+            try:
+                import subprocess as _sp
+                _msg = f"🚀 Új node onboarding kérelem: {node_name} (role: {role}). Jóváhagyás szükséges a dashboard Beállítások → Node Onboarding panelen."
+                _sp.run(
+                    f'hermes send --telegram 7796035659 "{_msg}" 2>/dev/null || true',
+                    shell=True, timeout=5
+                )
+                step('notify_coordinator', 'ok', 'Telegram notification sent')
+            except Exception:
+                pass  # Non-critical
+        
+        # 2. Create mesh user
+        user_password = f"{node_name}_mesh_2026"
+        user_salt = f"{node_name}_salt_2026"
+        # Simple SHA256 hash (dashboard auth supports both bcrypt and SHA256)
+        import hashlib
+        pw_hash = hashlib.sha256((user_password + user_salt).encode()).hexdigest()
+        
+        existing_user = await conn.fetchval(
+            "SELECT username FROM mesh.mesh_users WHERE username = $1", node_name
+        )
+        if not existing_user:
+            await conn.execute(
+                """INSERT INTO mesh.mesh_users 
+                   (username, display_name, password_hash, salt, role, is_active, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, 'user', 1, 
+                           extract(epoch from now())::float, extract(epoch from now())::float)""",
+                node_name, f"{node_name.title()} Agent", pw_hash, user_salt
+            )
+            step('mesh_user', 'ok', f'Created user: {node_name} / {user_password}')
+        else:
+            # Update password
+            await conn.execute(
+                """UPDATE mesh.mesh_users SET password_hash = $1, salt = $2, is_active = 1,
+                   updated_at = extract(epoch from now())::float WHERE username = $3""",
+                pw_hash, user_salt, node_name
+            )
+            step('mesh_user', 'ok', f'Updated user: {node_name} / {user_password}')
+        
+        result['mesh_user'] = {'username': node_name, 'password': user_password}
+        
+        # 3. Create auth token (valid 24h)
+        import uuid
+        token_id = str(uuid.uuid4())
+        token_secret = f"{node_name}_token_{int(time.time())}"
+        # Deactivate old tokens
+        await conn.execute(
+            "UPDATE mesh.auth_tokens SET is_active = false WHERE node_name = $1",
+            node_name
+        )
+        # Insert new token
+        await conn.execute(
+            """INSERT INTO mesh.auth_tokens (token_id, node_name, secret, created_at, expires_at, is_active)
+               VALUES ($1, $2, $3, extract(epoch from now())::float,
+                       extract(epoch from now() + interval '24 hours')::float, true)""",
+            token_id, node_name, token_secret
+        )
+        step('auth_token', 'ok', f'Token valid 24h')
+        result['auth_token'] = token_secret
+        
+        # 4. Get peer nodes info
+        peers = await conn.fetch(
+            """SELECT node_name, host, p2p_port, health_port, status
+               FROM mesh.mesh_nodes 
+               WHERE node_name != $1 AND status = 'active'
+               ORDER BY node_name""",
+            node_name
+        )
+        peer_info = []
+        for p in peers:
+            peer_info.append({
+                'name': p['node_name'],
+                'host': p['host'],
+                'p2p_port': p['p2p_port'],
+                'health_port': p['health_port'],
+            })
+        result['peer_info'] = peer_info
+        step('peer_discovery', 'ok', f'Found {len(peer_info)} active peers')
+        
+        await conn.close()
+    except Exception as e:
+        step('pg_setup', 'error', str(e))
+        result['success'] = False
+        return result
+    
+    # 5. SSH key exchange — push new node's key to all peers
+    if ssh_pubkey:
+        if not ssh_targets:
+            # Use discovered peers
+            ssh_targets = []
+            # Known SSH users per node
+            ssh_users = {'nova': 'zsolt', 'morzsa': 'openclaw', 'runa': 'zsolt'}
+            for p in peer_info:
+                user = ssh_users.get(p['name'], 'root')
+                # Use Tailscale IP if requested and available
+                host = p['host']
+                if use_tailscale:
+                    tailscale_map = {
+                        'nova': '100.75.253.52',
+                        'morzsa': '100.65.232.47',
+                        'runa': '100.125.223.24',
+                    }
+                    if p['name'] in tailscale_map:
+                        host = tailscale_map[p['name']]
+                ssh_targets.append({'host': host, 'port': 22, 'user': user, 'name': p['name']})
+        
+        for target in ssh_targets:
+            try:
+                tname = target.get('name', target['host'])
+                # Use SSH to add the key (short timeout, don't block)
+                ssh_cmd = (
+                    f"ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "
+                    f"-i ~/.ssh/id_ed25519_openclaw "
+                    f"{target['user']}@{target['host']} "
+                    f"\"echo '{ssh_pubkey}' >> ~/.ssh/authorized_keys 2>/dev/null; "
+                    f"grep -c '{ssh_pubkey.split()[-1]}' ~/.ssh/authorized_keys\""
+                )
+                r = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=8)
+                if r.returncode == 0 and r.stdout.strip():
+                    count = r.stdout.strip().split('\n')[-1]
+                    step(f'ssh_key_{tname}', 'ok', f'Key added ({count} entries)')
+                    result['ssh_targets'].append({'name': tname, 'host': target['host'], 'status': 'ok'})
+                else:
+                    step(f'ssh_key_{tname}', 'warn', f'SSH failed: {r.stderr.strip()[:100]}')
+                    result['ssh_targets'].append({'name': tname, 'host': target['host'], 'status': 'failed'})
+            except Exception as e:
+                step(f'ssh_key_{target.get("name", target["host"])}', 'error', str(e))
+                result['ssh_targets'].append({'name': target.get('name', ''), 'host': target['host'], 'status': 'error'})
+    else:
+        step('ssh_key_exchange', 'warn', 'No SSH public key provided — skipping key exchange')
+    
+    # 6. Get peer SSH keys for the new node (so new node can SSH to peers)
+    peer_keys = []
+    for p in peer_info:
+        try:
+            tname = p['name']
+            ssh_users = {'nova': 'zsolt', 'morzsa': 'openclaw', 'runa': 'zsolt'}
+            user = ssh_users.get(tname, 'root')
+            host = p['host']
+            if use_tailscale:
+                tailscale_map = {
+                    'nova': '100.75.253.52',
+                    'morzsa': '100.65.232.47',
+                    'runa': '100.125.223.24',
+                }
+                if tname in tailscale_map:
+                    host = tailscale_map[tname]
+            
+            ssh_cmd = (
+                f"ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no "
+                f"-i ~/.ssh/id_ed25519_openclaw "
+                f"{user}@{host} "
+                f"'cat ~/.ssh/id_ed25519_openclaw.pub 2>/dev/null || cat ~/.ssh/id_ed25519.pub 2>/dev/null || echo NO_KEY'"
+            )
+            r = subprocess.run(ssh_cmd, shell=True, capture_output=True, text=True, timeout=8)
+            if r.returncode == 0 and r.stdout.strip() and 'NO_KEY' not in r.stdout:
+                peer_keys.append({'name': tname, 'host': host, 'key': r.stdout.strip()})
+                step(f'peer_key_{tname}', 'ok', f'Got peer SSH key')
+            else:
+                step(f'peer_key_{tname}', 'warn', 'No peer SSH key found')
+        except Exception as e:
+            step(f'peer_key_{p["name"]}', 'error', str(e))
+    
+    result['peer_keys'] = peer_keys
+    
+    # 7. Tailscale IPs for the new node
+    tailscale_ips = {
+        'nova': '100.75.253.52',
+        'morzsa': '100.65.232.47',
+        'runa': '100.125.223.24',
+    }
+    result['tailscale_ips'] = tailscale_ips
+    step('tailscale_info', 'ok', f'Provided Tailscale IPs for {len(tailscale_ips)} peers')
+    
+    # 8. Summary
+    ok_count = sum(1 for s in result['steps'] if s['status'] == 'ok')
+    warn_count = sum(1 for s in result['steps'] if s['status'] == 'warn')
+    err_count = sum(1 for s in result['steps'] if s['status'] == 'error')
+    step('summary', 'ok', f'{ok_count} ok, {warn_count} warnings, {err_count} errors')
+    
+    if err_count > 0:
+        result['success'] = False
+    
+    return result
 
 
 if __name__ == '__main__':

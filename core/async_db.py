@@ -27,7 +27,7 @@ class AsyncDBPool:
     The pool manages connections, reconnection, and health checks automatically.
     """
 
-    def __init__(self, config=None, dsn: str = "", min_size: int = 2, max_size: int = 10):
+    def __init__(self, config=None, dsn: str = "", min_size: int = 1, max_size: int = 5):
         """Initialize with config or DSN string.
 
         Args:
@@ -73,28 +73,67 @@ class AsyncDBPool:
         await conn.execute("SET client_encoding TO 'UTF8'")
 
     async def connect(self) -> bool:
-        """Create the connection pool. Returns True on success."""
+        """Create the connection pool. Returns True on success.
+        
+        If pool exists but connections are stale (PG restarted), 
+        closes old pool and creates a fresh one.
+        """
         if self._pool and not self._pool._closed:
-            return True
+            # Pool object exists — verify connections are actually alive
+            try:
+                async with self._pool.acquire() as conn:
+                    await conn.fetchval("SELECT 1")
+                return True  # Pool is healthy
+            except Exception as e:
+                log.warning(f"AsyncDB: pool exists but connections stale ({e}) — recreating pool")
+                try:
+                    await self._pool.terminate()
+                except Exception:
+                    pass
+                self._pool = None
+                # Fall through to create new pool
 
         if not self._dsn:
             log.warning("AsyncDB: no DSN configured, cannot connect")
             return False
 
         try:
+            # idle_session_timeout (PG15+): if a client leaks/abandons a raw
+            # connection (no pool lifetime management), the server reaps it in 60s
+            # instead of holding a slot forever (300-slot exhaustion 2026-08-31).
+            server_settings = {}
+            try:
+                server_settings["idle_session_timeout"] = "300s"
+            except Exception:
+                pass
+            # RACE-FIX (2026-09-02): max_inactive_connection_lifetime (240s) < a szerver
+            # idle_session_timeout (300s) — így a POOL cseréli ki saját kapcsolatait,
+            # mielőtt a szerver kilőné azokat. A korábbi 300/300 race szerver-oldali
+            # kilövéseket okozott ("connection closed mid-operation") — a pool ezek után
+            # "not connected" állapotba került, és csak következő connect-próbán állt helyre.
             self._pool = await asyncpg.create_pool(
                 dsn=self._dsn,
                 min_size=self._min_size,
                 max_size=self._max_size,
                 command_timeout=30,
-                max_inactive_connection_lifetime=300,
+                max_inactive_connection_lifetime=240,
                 setup=self._setup_connection,
+                server_settings=server_settings or None,
             )
             log.info("AsyncDB connection pool established")
             return True
         except Exception as e:
             log.error(f"AsyncDB connection pool failed: {e}")
-            self._pool = None
+            # If create_pool partially succeeded (e.g. min_size conns opened, then
+            # TooManyConnections on a later conn), terminate before dropping the
+            # reference — otherwise those backends leak on the server until the
+            # process exits (300-slot exhaustion observed 2026-08-31).
+            if self._pool is not None:
+                try:
+                    await self._pool.terminate()
+                except Exception:
+                    pass
+                self._pool = None
             return False
 
     async def close(self):
@@ -106,55 +145,145 @@ class AsyncDBPool:
         self._pool = None
 
     def is_connected(self) -> bool:
-        """Check if pool is available."""
+        """Check if pool is available (sync check — for async health check use connect())."""
         return self._pool is not None and not self._pool._closed
+        
+    async def is_connected_async(self) -> bool:
+        """Async health check — verifies pool can actually execute a query."""
+        if not self._pool or self._pool._closed:
+            return False
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            return True
+        except Exception:
+            return False
+
+    async def _ensure_connected(self) -> bool:
+        """Ensure pool is connected. Try reconnect if stale. Returns True if usable."""
+        if self._pool and not self._pool._closed:
+            return True
+        # Pool is None or closed — try to reconnect
+        log.info("AsyncDB: pool not connected — attempting reconnect")
+        return await self.connect()
+
+    async def _reconnect_on_error(self, err: Exception) -> bool:
+        """Check if error is a connection error. If so, try to reconnect.
+        Returns True if reconnected successfully."""
+        err_str = str(err).lower()
+        conn_errors = ('connection', 'timeout', 'closed', 'reset', 'refused',
+                       'eof', 'broken pipe', 'operational error', 'server closed',
+                       'terminat', 'i/o error', 'shut down', 'postmaster')
+        if not any(k in err_str for k in conn_errors):
+            return False
+        log.warning(f"AsyncDB: connection error detected ({err}) — attempting reconnect")
+        # Close stale pool
+        if self._pool:
+            try:
+                await self._pool.terminate()
+            except Exception:
+                pass
+            self._pool = None
+        # Reconnect
+        reconnected = await self.connect()
+        if reconnected:
+            log.info("AsyncDB: reconnected successfully after connection error")
+        else:
+            log.error("AsyncDB: reconnect failed after connection error")
+        return reconnected
 
     async def execute(self, query: str, *args) -> str:
         """Execute a statement (INSERT, UPDATE, DELETE) with parameterized args.
 
         Uses $1, $2, ... parameter style (asyncpg native).
         Returns the status string (e.g., 'INSERT 1').
+        Auto-reconnects on connection errors with one retry.
         """
-        if not self.is_connected():
+        if not await self._ensure_connected():
             raise RuntimeError("AsyncDB pool not connected")
-        async with self._pool.acquire() as conn:
-            return await conn.execute(query, *args)
+        try:
+            async with self._pool.acquire() as conn:
+                return await conn.execute(query, *args)
+        except Exception as e:
+            if await self._reconnect_on_error(e):
+                async with self._pool.acquire() as conn:
+                    return await conn.execute(query, *args)
+            raise
 
     async def fetch(self, query: str, *args) -> List[asyncpg.Record]:
-        """Execute a SELECT query and return all rows."""
-        if not self.is_connected():
+        """Execute a SELECT query and return all rows.
+        Auto-reconnects on connection errors with one retry.
+        """
+        if not await self._ensure_connected():
             raise RuntimeError("AsyncDB pool not connected")
-        async with self._pool.acquire() as conn:
-            return await conn.fetch(query, *args)
+        try:
+            async with self._pool.acquire() as conn:
+                return await conn.fetch(query, *args)
+        except Exception as e:
+            if await self._reconnect_on_error(e):
+                async with self._pool.acquire() as conn:
+                    return await conn.fetch(query, *args)
+            raise
 
     async def fetchrow(self, query: str, *args) -> Optional[asyncpg.Record]:
-        """Execute a SELECT query and return one row."""
-        if not self.is_connected():
+        """Execute a SELECT query and return one row.
+        Auto-reconnects on connection errors with one retry.
+        """
+        if not await self._ensure_connected():
             raise RuntimeError("AsyncDB pool not connected")
-        async with self._pool.acquire() as conn:
-            return await conn.fetchrow(query, *args)
+        try:
+            async with self._pool.acquire() as conn:
+                return await conn.fetchrow(query, *args)
+        except Exception as e:
+            if await self._reconnect_on_error(e):
+                async with self._pool.acquire() as conn:
+                    return await conn.fetchrow(query, *args)
+            raise
 
     async def fetchval(self, query: str, *args) -> Any:
-        """Execute a SELECT query and return a single value."""
-        if not self.is_connected():
+        """Execute a SELECT query and return a single value.
+        Auto-reconnects on connection errors with one retry.
+        """
+        if not await self._ensure_connected():
             raise RuntimeError("AsyncDB pool not connected")
-        async with self._pool.acquire() as conn:
-            return await conn.fetchval(query, *args)
+        try:
+            async with self._pool.acquire() as conn:
+                return await conn.fetchval(query, *args)
+        except Exception as e:
+            if await self._reconnect_on_error(e):
+                async with self._pool.acquire() as conn:
+                    return await conn.fetchval(query, *args)
+            raise
 
     async def execute_many(self, query: str, args_list) -> str:
-        """Execute a statement with multiple parameter sets."""
-        if not self.is_connected():
+        """Execute a statement with multiple parameter sets.
+        Auto-reconnects on connection errors with one retry.
+        """
+        if not await self._ensure_connected():
             raise RuntimeError("AsyncDB pool not connected")
-        async with self._pool.acquire() as conn:
-            return await conn.executemany(query, args_list)
+        try:
+            async with self._pool.acquire() as conn:
+                return await conn.executemany(query, args_list)
+        except Exception as e:
+            if await self._reconnect_on_error(e):
+                async with self._pool.acquire() as conn:
+                    return await conn.executemany(query, args_list)
+            raise
 
     async def notify(self, channel: str, payload: str):
         """Send a PG NOTIFY on a channel."""
-        if not self.is_connected():
+        if not await self._ensure_connected():
             log.warning(f"AsyncDB: cannot NOTIFY {channel}, pool not connected")
             return
-        async with self._pool.acquire() as conn:
-            await conn.execute(f"SELECT pg_notify($1, $2)", channel, payload)
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(f"SELECT pg_notify($1, $2)", channel, payload)
+        except Exception as e:
+            if await self._reconnect_on_error(e):
+                async with self._pool.acquire() as conn:
+                    await conn.execute(f"SELECT pg_notify($1, $2)", channel, payload)
+            else:
+                log.warning(f"AsyncDB: NOTIFY {channel} failed: {e}")
 
     async def listen(self, channel: str, callback):
         """Listen on a PG NOTIFY channel. Callback receives (channel, payload).

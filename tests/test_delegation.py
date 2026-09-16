@@ -90,6 +90,15 @@ class InMemoryPool:
                     return "UPDATE 1"
                 return "UPDATE 0"
 
+            # Kanban card id update: SET kanban_card_id = $1 WHERE task_id = $2
+            # (auto-created kanban card link — must NOT touch status)
+            if "kanban_card_id" in query_lower:
+                task_id = args[-1]
+                if task_id in self.delegations:
+                    self.delegations[task_id]["kanban_card_id"] = args[0]
+                    return "UPDATE 1"
+                return "UPDATE 0"
+
             # Progress-only update: SET progress = $1 WHERE task_id = $2
             if query_lower.strip().startswith("update shared_delegations set progress"):
                 task_id = args[-1]

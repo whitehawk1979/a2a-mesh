@@ -221,11 +221,21 @@ class TestSmartRouter:
         assert result is not None
         assert "web_search" in result.capabilities
 
-    def test_route_capability_not_found(self):
+    def test_route_capability_not_found_strong_mode(self):
+        # v0.43.2: capability_routing_mode default = catalog_first, ami nem dob
+        # hibát ismeretlen capability-nél, hanem fallback-el all_healthy-re.
+        # A régi szigorú szematika a "strong" módban él tovább.
         registry = _make_registry_with_agents()
-        router = SmartRouter(registry)
+        router = SmartRouter(registry, capability_routing_mode="strong")
         result = router.route(required_capabilities=["nonexistent"])
         assert result is None
+
+    def test_route_capability_not_found_catalog_first_fallback(self):
+        # catalog_first: strict match üres → fallback all_healthy (dokumentált szematika)
+        registry = _make_registry_with_agents()
+        router = SmartRouter(registry, capability_routing_mode="catalog_first")
+        result = router.route(required_capabilities=["nonexistent"])
+        assert result is not None  # fallback: bármely egészséges agent
 
     def test_route_exclude_agents(self):
         registry = _make_registry_with_agents()

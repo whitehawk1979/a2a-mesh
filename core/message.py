@@ -46,6 +46,8 @@ MSG_TYPE_DELEGATION = "delegation"
 MSG_TYPE_CONTEXT = "context"
 MSG_TYPE_ERROR = "error"
 MSG_TYPE_MESH = "mesh"  # Mesh-level messages (join, leave, ping)
+MSG_TYPE_SSH_KEY_SYNC = "ssh_key_sync"  # Automatic SSH key exchange between approved peers
+MSG_TYPE_KEY_BUNDLE = "ssh_key_bundle"  # Coordinator-aggregated key bundle (v2 protocol)
 
 # Protocol version (AXL-inspired: version header for compatibility)
 A2A_PROTOCOL_VERSION = "0.8.0"
@@ -96,6 +98,10 @@ class A2AMessage:
     src_address: Optional[Dict] = None  # Source MeshAddress
     route_path: list = field(default_factory=list)  # Short addresses traversed
     routing_mode: str = "hybrid"  # "flood", "tree", "hybrid"
+    # Multi-hop relay (ZigBee concept): final destination when this message
+    # is forwarded through a parent/coordinator. The immediate recipient is
+    # the next hop; relay_to holds the TRUE destination.
+    relay_to: str = ""
 
     # Protocol version (AXL-inspired: version header for compatibility)
     protocol_version: str = A2A_PROTOCOL_VERSION

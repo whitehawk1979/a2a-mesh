@@ -10,6 +10,29 @@ mesh:
     - p2p                           # P2P over TLS (preferred)
     - pg_notify                      # PostgreSQL NOTIFY (fallback)
     - http                           # HTTP direct (last resort)
+  # ─── SSH Tunnel Transport (v0.42.0+) ─────────────────────────
+  # Bidirectional SSH tunnels between approved peers. Keys exchange
+  # automatically via ssh_key_sync — discovered peers get runtime tunnel
+  # entries; static entries optional. advertised_ssh_port = port OUR
+  # sshd accepts inbound mesh tunnels on (HAOS embedded sshd: 2222).
+  transports:
+    ssh_tunnel:
+      enabled: true
+      default_identity_file: ~/.ssh/id_ed25519_openclaw
+      advertised_ssh_port: __SSH_PORT__
+      # Embedded sshd manager (auto-enabled in containers/HAOS by node.py):
+      # installs openssh-server, listens on sshd_port, self-heals, and peer
+      # keys land in the persistent authorized_keys below.
+      embedded_sshd: __EMBEDDED_SSHD__
+      sshd_port: 2230
+      sshd_bind: 0.0.0.0
+      sshd_config_dir: __SSHD_CONFIG_DIR__
+      # peers:                          # optional static routes, e.g.:
+      #   morzsa:
+      #     ssh_host: 192.168.1.30
+      #     ssh_user: openclaw
+      #     ssh_port: 22
+      #     remote_port: 8645
   capabilities:
     - a2a_messaging
     - file_transfer

@@ -39,6 +39,10 @@ class AgentHealthRecord:
     # Provider status fields (from provider_health)
     provider_primary: str = ""
     provider_fallback: str = ""
+    # Agent state machine (Marveen pane-state inspired)
+    agent_state: str = "idle"       # idle/busy/typing/stuck/frozen/dead/unknown
+    last_progress: Optional[float] = None  # Timestamp of last progress update
+    active_delegations: int = 0     # Count of running delegations
 
 
 class HealthScorer:
@@ -69,12 +73,28 @@ class HealthScorer:
         self._pg_pool = pg_pool
         self._node_name = node_name
         self._persist_task: Optional[asyncio.Task] = None
+        # Names allowed to hold a health record. Populated by the node at
+        # startup with real mesh peers. Everything else ("unknown", transport
+        # names, human dashboard names) is filtered out on PG load.
+        self.valid_node_names: set = set()
 
     def set_pg_pool(self, pg_pool, node_name: str = ""):
         """Set PG pool for persistence. Call after mesh connects to PG."""
         self._pg_pool = pg_pool
         if node_name:
             self._node_name = node_name
+
+    def set_valid_node_names(self, names):
+        """Set the set of agent names allowed to hold a health record.
+
+        Populated by the node at startup with real mesh peers (self +
+        discovered peers). Everything else ("unknown", transport names like
+        "http"/"pg_notify", human names from dashboard chat) is phantom and
+        must never be loaded from PG or trigger topology actions.
+        """
+        if names:
+            self.valid_node_names = set(names)
+            log.info(f"📊 Health scorer valid node names: {sorted(self.valid_node_names)}")
 
     async def start_persistence(self):
         """Start background task to persist health scores to PG every 60s."""
@@ -150,6 +170,10 @@ class HealthScorer:
             )
             for row in rows:
                 name = row["node_name"]
+                # Skip phantom/non-peer entries (transport names, "unknown",
+                # human names from dashboard chat) — only real mesh agents.
+                if name not in self.valid_node_names:
+                    continue
                 rec = self.get_record(name)
                 rec.health_score = float(row["health_score"])
                 rec.avg_latency_ms = float(row["avg_latency_ms"] or 0)
@@ -265,6 +289,19 @@ class HealthScorer:
         """Check if an agent is healthy (score >= threshold)."""
         return self.get_score(agent_name) >= threshold
 
+    def update_agent_state(self, agent_name: str, state: str,
+                           active_delegations: int = 0,
+                           last_progress: Optional[float] = None):
+        """Update agent state machine (Marveen pane-state inspired).
+        
+        Called by the watchdog loop to sync agent state into health records.
+        """
+        record = self.get_record(agent_name)
+        record.agent_state = state
+        record.active_delegations = active_delegations
+        if last_progress is not None:
+            record.last_progress = last_progress
+
     @property
     def stats(self) -> dict:
         """Return health scorer statistics."""
@@ -280,6 +317,8 @@ class HealthScorer:
                     "consecutive_failures": rec.consecutive_failures,
                     "provider_primary": rec.provider_primary,
                     "provider_fallback": rec.provider_fallback,
+                    "agent_state": rec.agent_state,
+                    "active_delegations": rec.active_delegations,
                 }
                 for name, rec in self._records.items()
             },

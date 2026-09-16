@@ -42,6 +42,7 @@ class P2PConfig:
     enabled: bool = True
     listen_host: str = "0.0.0.0"
     listen_port: int = 8645
+    advertise_host: str = ""   # LAN IP to advertise for Docker/HAOS nodes (bridge IP is unreachable)
     max_connections: int = 50
     idle_timeout: int = 120  # seconds (was 300, reduced for faster peer detection)
     reconnect_interval: int = 5  # base retry interval in seconds (exponential backoff)
@@ -61,6 +62,51 @@ class HTTPConfig:
 
 
 @dataclass
+class SSHTunnelConfig:
+    """SSH tunnel transport config — P2P over SSH port forwarding.
+
+    Use case: when direct P2P TLS fails (e.g. Runa asyncio TLS quirk on Ubuntu),
+    SSH tunnel provides an encrypted TCP tunnel without TLS handshake issues.
+
+    Each peer can have an SSH tunnel entry:
+      peers:
+        runa:
+          ssh_host: "192.168.1.100"      # SSH reachable host
+          ssh_user: "zsolt"
+          ssh_port: 22                    # SSH port (default 22)
+          remote_port: 8645               # Peer's P2P listen port
+          identity_file: "~/.ssh/id_mesh" # SSH key (optional, default ssh-agent)
+    """
+    enabled: bool = False
+    # Default SSH settings (can be overridden per-peer in config)
+    default_ssh_user: str = ""
+    default_identity_file: str = ""
+    # Map of peer_name → {ssh_host, ssh_user, ssh_port, remote_port, identity_file}
+    peers: Dict[str, Dict] = field(default_factory=dict)
+    # Local port range for tunnel endpoints (auto-assigned)
+    local_port_start: int = 9200
+    connect_timeout: int = 15  # SSH connection timeout
+    keepalive_interval: int = 30  # SSH ServerAliveInterval
+    max_retries: int = 3  # Max consecutive SSH failures before giving up
+    reconnect_interval: int = 10  # Base retry interval (exponential backoff)
+    # Port OUR OWN sshd listens on for inbound mesh tunnels — advertised in
+    # ssh_key_sync offers so peers can dial us without config edits. Embedded
+    # sshd (HAOS container) uses 2222; normal hosts 22 (default 0 → 22).
+    advertised_ssh_port: int = 0
+    # Multi-agent HAOS hosts: the peer's P2P listener is not on the sshd's
+    # loopback — peers' forwards must target this host IP instead (announced
+    # in ssh_key_sync offers as forward_host).
+    advertised_forward_host: str = ""
+    # Embedded sshd manager (ssh_server.py): guarantees inbound-tunnel sshd
+    embedded_sshd: bool = False
+    sshd_port: int = 2230
+    sshd_bind: str = "0.0.0.0"
+    sshd_config_dir: str = ""
+    # Extra identity files whose .pub we announce to peers (auto key-sync)
+    identity_files: List[str] = field(default_factory=list)
+
+
+@dataclass
 class DiscoveryConfig:
     mdns_enabled: bool = True
     mdns_service: str = "_a2a._tcp"
@@ -71,6 +117,9 @@ class DiscoveryConfig:
     tailscale_interface: str = ""  # Tailscale IP for cross-subnet discovery
     static_nodes: List[Dict] = field(default_factory=list)
     min_target_peers: int = 2  # Minimum connected peers for mesh resilience
+    # VPN-beépítés (Tailscale): lan | vpn | auto — a P2P cím-választás determinisztikus preferenciája.
+    # auto: Tailscale fut → VPN IP-t preferál (titkosított, WAN-en is működő), különben LAN IP.
+    prefer: str = "auto"
 
 
 @dataclass
@@ -110,7 +159,8 @@ class HeartbeatConfig:
 class TopologyConfig:
     """Zigbee-inspired topology configuration."""
     node_role: str = "end_device"          # "coordinator", "router", "end_device"
-    routing_mode: str = "hybrid"           # "flood", "tree", "hybrid"
+    routing_mode: str = "hybrid"           # "flood", "tree", "hybrid" (topological)
+    capability_routing_mode: str = "catalog_first"  # "strong", "catalog_first", "advisory" (Marveen-inspired)
     max_children: int = 20                 # Cm: max children per router
     max_routers: int = 6                   # Rm: max router children per node
     max_depth: int = 5                     # Lm: max tree depth
@@ -198,6 +248,13 @@ class ResourceLimitsConfig:
 
 
 @dataclass
+class ContextGateConfig:
+    max_turns_default: int = 90
+    tokens_per_turn_default: int = 3500
+    node_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass
 class MeshConfig:
     """Full mesh configuration."""
     node_name: str = "nova"
@@ -206,29 +263,19 @@ class MeshConfig:
     version: str = ""
 
     def _resolve_version(self) -> str:
-        """Resolve version from pyproject.toml, fallback to git tag, then hardcoded.
-        
+        """Resolve version dynamically — git tag is single source of truth.
+
         Priority:
         1. Explicit version in config YAML (if set)
-        2. pyproject.toml version (most reliable — no git state dependency)
-        3. Git tag (fallback)
+        2. Git tag (SSOT — always reflects latest release)
+        3. pyproject.toml (fallback for non-git deployments)
         4. Hardcoded default
         """
         if self.version:
             return self.version
         import subprocess, os
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # Try pyproject.toml first (most reliable — no git state dependency)
-        try:
-            pyproject = os.path.join(repo_dir, "pyproject.toml")
-            if os.path.exists(pyproject):
-                with open(pyproject) as f:
-                    for line in f:
-                        if line.strip().startswith("version"):
-                            return line.split("=", 1)[1].strip().strip('"').strip("'")
-        except Exception:
-            pass
-        # Fallback: git tag
+        # Try git tag first (single source of truth)
         try:
             tag = subprocess.check_output(
                 ["git", "describe", "--tags", "--abbrev=0"],
@@ -237,7 +284,20 @@ class MeshConfig:
             return tag
         except Exception:
             pass
-        return "0.20.0"
+        # Fallback: pyproject.toml (for non-git deployments)
+        try:
+            pyproject = os.path.join(repo_dir, "pyproject.toml")
+            if os.path.exists(pyproject):
+                with open(pyproject) as f:
+                    for line in f:
+                        if line.strip().startswith("version"):
+                            val = line.split("=", 1)[1].strip()
+                            if "#" in val:
+                                val = val.split("#")[0].strip()
+                            return val.strip('"').strip("'")
+        except Exception:
+            pass
+        return "0.0.0"
 
     # Agent capabilities — declared here so each node advertises what it can do
     # These are registered in the Agent Registry on startup and shared via P2P discovery
@@ -304,6 +364,7 @@ class MeshConfig:
     pg: PGConfig = field(default_factory=PGConfig)
     p2p: P2PConfig = field(default_factory=P2PConfig)
     http: HTTPConfig = field(default_factory=HTTPConfig)
+    ssh_tunnel: SSHTunnelConfig = field(default_factory=SSHTunnelConfig)
     discovery: DiscoveryConfig = field(default_factory=DiscoveryConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
     loop_prevention: LoopPreventionConfig = field(default_factory=LoopPreventionConfig)
@@ -315,6 +376,7 @@ class MeshConfig:
     task: TaskConfig = field(default_factory=TaskConfig)
     gossipsub: GossipSubConfig = field(default_factory=GossipSubConfig)
     diagnostic: DiagnosticConfig = field(default_factory=DiagnosticConfig)
+    context_gate: ContextGateConfig = field(default_factory=ContextGateConfig)
 
     # Webhook config
     webhook_port: int = 8644
@@ -337,12 +399,21 @@ class MeshConfig:
     # Set to True only on nodes where an agent should be woken on incoming messages.
     wake_agent_on_message: bool = False
 
+    # Ollama endpoint for embeddings (nomic-embed-text) and deep reflection.
+    # Nodes without local Ollama (tor/mano containers) point this at the LAN Ollama
+    # (morzsa) so engramm vectors are never NULL.
+    ollama_url: str = "http://localhost:11434"
+
     # Plugin config — each key is a plugin name, value is its config dict
     # Example: {"gateway": {"enabled": True, "platforms": {...}}, "notification": {...}}
     plugins: Dict[str, Any] = field(default_factory=dict)
 
     # Log file
     log_file: str = os.path.expanduser("~/.hermes/logs/a2a_mesh.log")
+
+    # v0.42 log rotation (built-in, deterministic)
+    log_max_mb: int = 100          # rotate when log exceeds this size (MB)
+    log_archives_keep: int = 5     # number of .gz archives to keep per log
 
     @classmethod
     def from_yaml(cls, path: str) -> 'MeshConfig':
@@ -372,6 +443,20 @@ class MeshConfig:
         mesh = data.get('mesh', {})
         config.node_name = mesh.get('node_name', config.node_name)
 
+        # Transport priority (from YAML if specified)
+        tp = mesh.get('transport_priority')
+        if tp and isinstance(tp, list):
+            config.transport_priority = tp
+
+        # Vault resolution — 'vault:NAME' references resolve from the OS keyring
+        # (or file/env fallback). Plaintext values still work (incremental migration).
+        try:
+            from .vault import resolve_config_value
+            def _vault(obj):
+                return resolve_config_value(obj)
+        except Exception:
+            _vault = lambda x: x
+
         # PG config — support A2A_MESH_PG_DSN env var for easy setup
         pg_dsn = os.environ.get("A2A_MESH_PG_DSN", "")
         pg_data = mesh.get('transports', {}).get('pg_notify', {})
@@ -384,7 +469,7 @@ class MeshConfig:
                 config.pg.port = pg_data.get('port', config.pg.port)
                 config.pg.dbname = pg_data.get('dbname', config.pg.dbname)
                 config.pg.user = pg_data.get('user', config.pg.user)
-                config.pg.password = pg_data.get('password', config.pg.password)
+                config.pg.password = _vault(pg_data.get('password', config.pg.password))
                 config.pg.channels = pg_data.get('channels', config.pg.channels)
         elif pg_data:
             config.pg = PGConfig(
@@ -392,7 +477,7 @@ class MeshConfig:
                 port=pg_data.get('port', config.pg.port),
                 dbname=pg_data.get('dbname', config.pg.dbname),
                 user=pg_data.get('user', config.pg.user),
-                password=pg_data.get('password', config.pg.password),
+                password=_vault(pg_data.get('password', config.pg.password)),
                 channels=pg_data.get('channels', config.pg.channels),
             )
 
@@ -403,6 +488,7 @@ class MeshConfig:
                 enabled=p2p_data.get('enabled', config.p2p.enabled),
                 listen_host=p2p_data.get('listen_host', config.p2p.listen_host),
                 listen_port=p2p_data.get('listen_port', config.p2p.listen_port),
+                advertise_host=p2p_data.get('advertise_host', config.p2p.advertise_host),
                 max_connections=p2p_data.get('max_connections', config.p2p.max_connections),
                 idle_timeout=p2p_data.get('idle_timeout', config.p2p.idle_timeout),
                 reconnect_interval=p2p_data.get('reconnect_interval', config.p2p.reconnect_interval),
@@ -423,6 +509,28 @@ class MeshConfig:
                 retries=http_data.get('retries', config.http.retries),
             )
 
+        # SSH tunnel config
+        ssh_data = mesh.get('transports', {}).get('ssh_tunnel', {})
+        if ssh_data:
+            config.ssh_tunnel = SSHTunnelConfig(
+                enabled=ssh_data.get('enabled', False),
+                default_ssh_user=ssh_data.get('default_ssh_user', ''),
+                default_identity_file=ssh_data.get('default_identity_file', ''),
+                peers=ssh_data.get('peers', {}),
+                local_port_start=ssh_data.get('local_port_start', 9200),
+                connect_timeout=ssh_data.get('connect_timeout', 15),
+                keepalive_interval=ssh_data.get('keepalive_interval', 30),
+                max_retries=ssh_data.get('max_retries', 3),
+                reconnect_interval=ssh_data.get('reconnect_interval', 10),
+                advertised_ssh_port=ssh_data.get('advertised_ssh_port', 0),
+                advertised_forward_host=ssh_data.get('advertised_forward_host', '') or '',
+                embedded_sshd=bool(ssh_data.get('embedded_sshd', False)),
+                sshd_port=int(ssh_data.get('sshd_port', 2230) or 2230),
+                sshd_bind=str(ssh_data.get('sshd_bind', '0.0.0.0') or '0.0.0.0'),
+                sshd_config_dir=str(ssh_data.get('sshd_config_dir', '') or ''),
+                identity_files=ssh_data.get('identity_files', []),
+            )
+
         # Discovery config
         disc_data = mesh.get('discovery', {})
         if disc_data:
@@ -437,6 +545,7 @@ class MeshConfig:
                 tailscale_interface=disc_data.get('tailscale_interface', ''),
                 static_nodes=static_nodes,
                 min_target_peers=disc_data.get('min_target_peers', 2),
+                prefer=str(disc_data.get('prefer', 'auto')).lower(),
             )
 
         # Security config
@@ -470,6 +579,8 @@ class MeshConfig:
         config.auth_mode = mesh.get('auth_mode', 'open')
         config.health_port = int(mesh.get('health_port', 8650))
         config.wake_agent_on_message = bool(mesh.get('wake_agent_on_message', False))
+        # Ollama endpoint for embeddings/deep-reflection — env override A2A_OLLAMA_URL
+        config.ollama_url = os.environ.get('A2A_OLLAMA_URL', mesh.get('ollama_url', 'http://localhost:11434'))
 
         # Skills and capabilities from YAML (override defaults)
         if 'capabilities' in mesh:
@@ -507,6 +618,7 @@ class MeshConfig:
             config.topology = TopologyConfig(
                 node_role=topo_data.get('node_role', 'end_device'),
                 routing_mode=topo_data.get('routing_mode', 'hybrid'),
+                capability_routing_mode=topo_data.get('capability_routing_mode', 'catalog_first'),
                 max_children=topo_data.get('max_children', 20),
                 max_routers=topo_data.get('max_routers', 6),
                 max_depth=topo_data.get('max_depth', 5),

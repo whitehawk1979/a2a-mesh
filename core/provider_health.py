@@ -64,12 +64,28 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
 
     # If provider is ollama-launch or similar, try to find the Ollama URL
     if not primary_url or "launch" in primary_provider:
-        # Look in custom_providers for an Ollama entry
+        # Look in custom_providers list for an Ollama entry
         for cp in config.get("custom_providers", []):
             if cp.get("name", "").lower() in ("ollama", "cloudollama"):
                 if not primary_url:
                     primary_url = cp.get("base_url", "")
                 break
+
+    # If still no URL, look in providers dict using the provider name
+    if not primary_url:
+        providers_dict = config.get("providers", {})
+        # Try exact match on provider name
+        if primary_provider in providers_dict:
+            primary_url = providers_dict[primary_provider].get("api", "") or providers_dict[primary_provider].get("base_url", "")
+        # Try common Ollama provider names
+        if not primary_url:
+            for pname in ("custom", "ollama", "local-ollama", "ollama-cloud"):
+                if pname in providers_dict:
+                    p = providers_dict[pname]
+                    url = p.get("api", "") or p.get("base_url", "")
+                    if url and (":11434" in url or "ollama" in pname.lower()):
+                        primary_url = url
+                        break
 
     # Determine fallback provider (mesh-llm)
     fallback_url = ""
@@ -77,12 +93,19 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
     for fp in model_config.get("fallback_providers", []):
         if isinstance(fp, dict) and fp.get("provider") == "mesh-llm":
             fallback_model = fp.get("model", "mesh")
-            # Look in custom_providers for mesh-llm
+            # Look in custom_providers list for mesh-llm
             for cp in config.get("custom_providers", []):
                 if cp.get("name", "") == "mesh-llm":
-                    fallback_url = cp.get("base_url", "")
+                    fallback_url = cp.get("base_url", "") or cp.get("api", "")
                     break
+            # Also check providers dict
+            if not fallback_url and "mesh-llm" in config.get("providers", {}):
+                fallback_url = config["providers"]["mesh-llm"].get("api", "") or config["providers"]["mesh-llm"].get("base_url", "")
             break
+    # If no fallback_providers list, try providers dict directly
+    if not fallback_url and "mesh-llm" in config.get("providers", {}):
+        fallback_url = config["providers"]["mesh-llm"].get("api", "") or config["providers"]["mesh-llm"].get("base_url", "")
+        fallback_model = "mesh"
 
     # Check primary
     primary_status = {"status": "unknown", "model": primary_model, "latency_ms": 0}
@@ -95,11 +118,13 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
         ok, latency = _check_http(check_url)
         primary_status = {"status": "ok" if ok else "fail", "model": primary_model, "latency_ms": latency}
 
-    # Check fallback (mesh-llm)
+    # Check fallback (mesh-llm) — longer timeout: the mesh-llm MoA router can
+    # block /models for several seconds while an inference is in flight;
+    # the old 3.0s default caused frequent false "fail" during MoA load.
     fallback_status = {"status": "unknown", "model": fallback_model, "latency_ms": 0}
     if fallback_url:
         check_url = fallback_url.rstrip("/") + "/models"
-        ok, latency = _check_http(check_url)
+        ok, latency = _check_http(check_url, timeout=8.0)
         fallback_status = {"status": "ok" if ok else "fail", "model": fallback_model, "latency_ms": latency}
 
     result = {

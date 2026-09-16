@@ -86,6 +86,12 @@ class TaskDispatchPlugin(MeshPlugin):
         allowed = self._config.get("allowed_actions",
                                    ["shell", "scan", "status", "ping", "custom"])
         if action not in allowed and "*" not in allowed:
+            if "action" not in payload:
+                # Delegation/broadcast messages carry no explicit action — they
+                # belong to the delegation system, not this plugin. Ignore
+                # silently instead of sending a false "rejected" result.
+                self.log.debug(f"Message without action field, ignoring: {task_id}")
+                return None
             self.log.warning(f"Action not allowed: {action}")
             return await self._send_result(
                 recipient=reply_to, task_id=task_id, original_id=original_msg_id,
@@ -172,12 +178,13 @@ class TaskDispatchPlugin(MeshPlugin):
         cwd = params.get("cwd", None)
         if not command:
             return {"error": "No command specified", "hint": "Use params.command"}
-        # Safety: block destructive commands using split pattern to avoid false positives
-        cmd_lower = command.lower()
-        blocked = ["rm -rf /", "m" + "kfs", "dd " + "if="]
-        for b in blocked:
-            if b in cmd_lower:
-                return {"error": "Command blocked for safety", "command": command[:100]}
+        # Safety: deterministic hard locks (safety_locks.py) — irreversible
+        # operations are code-embedded, no config/LLM can lift them.
+        from ..safety_locks import check_command
+        lock_reason = check_command(command)
+        if lock_reason:
+            self.log.warning(f"🔒 {lock_reason} — blocked: {command[:80]}")
+            return {"error": lock_reason, "command": command[:100], "blocked": True}
         try:
             proc = await asyncio.create_subprocess_exec("bash", "-c", command,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd)
@@ -227,7 +234,7 @@ class TaskDispatchPlugin(MeshPlugin):
                 "history_size": len(self._task_history),
                 "last_5_tasks": self._task_history[-5:] if self._task_history else []}
 
-    async def on_start(self):
+    async def on_start(self, node=None):
         await super().on_start()
         self.log.info(f"TaskDispatch plugin started with handlers: {list(self._handlers.keys())}")
 

@@ -107,13 +107,21 @@ class MeshPlugin(ABC):
 
     # ── Lifecycle hooks ────────────────────────────────────────
 
-    async def on_start(self):
-        """Called when the node starts. Initialize resources here."""
+    async def on_start(self, node=None):
+        """Called when the node starts. Initialize resources here.
+
+        Args:
+            node: The mesh node instance (optional for backward compat).
+        """
         self._running = True
         self.log.info(f"Plugin '{self.name}' started")
 
-    async def on_stop(self):
-        """Called when the node stops. Clean up resources here."""
+    async def on_stop(self, node=None):
+        """Called when the node stops. Clean up resources here.
+
+        Args:
+            node: The mesh node instance (optional for backward compat).
+        """
         self._running = False
         # Cancel any background tasks
         for task in self._tasks:

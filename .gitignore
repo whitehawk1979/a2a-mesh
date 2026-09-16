@@ -28,6 +28,12 @@ Thumbs.db
 *.pem
 .env
 
+# Runtime data (MCP client registry, local stores)
+core/data/
+data/
+*.db-wal
+*.db-shm
+
 # Logs
 *.log
 
@@ -59,3 +65,7 @@ mesh.mesh_nodes
 *.bak.*
 backups/
 core/diagnostics.py.orig
+
+# Dynamic refactor backups
+*.bak_dynamic_refactor
+data/dashboard_auth.json

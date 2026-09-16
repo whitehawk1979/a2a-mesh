@@ -39,16 +39,19 @@ class PGTransport(TransportAdapter):
 
     name = "pg_notify"
 
-    def __init__(self, config):
+    def __init__(self, config, shared_pool: Optional[AsyncDBPool] = None):
         self.config = config
         self._available = False
         self._pool: Optional[AsyncDBPool] = None
+        self._shared_pool = shared_pool  # If provided, use instead of creating own
+        self._owns_pool = shared_pool is None  # True if we create/close our own pool
         self._listener_conn: Optional[asyncpg.Connection] = None
         self._listener_task = None
+        self._backlog_task = None
         self._running = False
         self._incoming_queue: asyncio.Queue = asyncio.Queue(maxsize=5000)
         self._channels = config.pg.channels if config else [
-            "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel", "diagnostic_channel"
+            "a2a_channel", "a2a_steer_channel", "delegation_channel", "mesh_channel", "diagnostic_channel", "mesh_message_arrived"
         ]
         self._reconnect_count = 0
 
@@ -56,38 +59,65 @@ class PGTransport(TransportAdapter):
         """Start PG LISTEN connection using asyncpg.
 
         PG is optional — if no password or DB unreachable, gracefully degrade to P2P-only mode.
+        Retries 3 times with 2s delay on connection failure.
         """
         if not self.config.pg.password and not os.environ.get("A2A_MESH_PG_DSN"):
             log.info("PG transport disabled — no password configured (P2P-only mode)")
             self._available = False
             return False
 
-        try:
-            # Create asyncpg connection pool for all DB operations
-            self._pool = AsyncDBPool(self.config)
-            if not await self._pool.connect():
-                log.error("Failed to create asyncpg connection pool")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Use shared pool if provided, otherwise create our own
+                if self._shared_pool and self._shared_pool.is_connected():
+                    self._pool = self._shared_pool
+                    log.info("PG transport using shared connection pool")
+                else:
+                    self._pool = AsyncDBPool(self.config)
+                    if not await self._pool.connect():
+                        log.error(f"Failed to create asyncpg connection pool (attempt {attempt + 1}/{max_retries})")
+                        self._pool = None
+                        if attempt < max_retries - 1:
+                            await asyncio.sleep(2)
+                        continue
+
+                # Acquire a dedicated listener connection for NOTIFY/LISTEN
+                self._listener_conn = await self._pool._pool.acquire()
+                # Exempt listener from idle_session_timeout (PG15+): LISTEN conns
+                # are idle by definition (server pushes); without exemption the
+                # server reaps them every idle_session_timeout interval.
+                try:
+                    await self._listener_conn.execute("SET idle_session_timeout = 0")
+                    log.debug("PG listener exempted from idle_session_timeout")
+                except Exception as e:
+                    log.debug(f"idle_session_timeout exemption skipped: {e}")
+                for channel in self._channels:
+                    await self._listener_conn.execute(f"LISTEN {channel}")
+                    log.info(f"PG LISTEN on {channel}")
+
+                self._running = True
+                self._available = True
+
+                # Start async listener task
+                self._listener_task = asyncio.create_task(self._listen_loop())
+
+                # ── Backlog poller: catch-up for messages missed while this node was
+                # disconnected (LISTEN/NOTIFY is fire-and-forget; undelivered 'sent'
+                # messages would otherwise stay lost forever after any restart/churn...[truncated]
+
+                self._backlog_task = asyncio.create_task(self._backlog_poll_loop())
+                log.info("PG transport started (asyncpg + NOTIFY/LISTEN + backlog poller)")
+                return True
+
+            except Exception as e:
+                log.error(f"PG transport start failed (attempt {attempt + 1}/{max_retries}): {e}")
                 self._available = False
-                return False
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2)
 
-            # Acquire a dedicated listener connection for NOTIFY/LISTEN
-            self._listener_conn = await self._pool._pool.acquire()
-            for channel in self._channels:
-                await self._listener_conn.execute(f"LISTEN {channel}")
-                log.info(f"PG LISTEN on {channel}")
-
-            self._running = True
-            self._available = True
-
-            # Start async listener task
-            self._listener_task = asyncio.create_task(self._listen_loop())
-            log.info("PG transport started (asyncpg + NOTIFY/LISTEN)")
-            return True
-
-        except Exception as e:
-            log.error(f"PG transport start failed: {e}")
-            self._available = False
-            return False
+        log.warning(f"PG transport unavailable after {max_retries} retries — P2P-only mode")
+        return False
 
     async def stop(self) -> bool:
         """Stop PG connections."""
@@ -96,6 +126,12 @@ class PGTransport(TransportAdapter):
             self._listener_task.cancel()
             try:
                 await self._listener_task
+            except asyncio.CancelledError:
+                pass
+        if self._backlog_task:
+            self._backlog_task.cancel()
+            try:
+                await self._backlog_task
             except asyncio.CancelledError:
                 pass
         if self._listener_conn:
@@ -109,11 +145,62 @@ class PGTransport(TransportAdapter):
             except Exception:
                 pass
             self._listener_conn = None
-        if self._pool:
+        if self._pool and self._owns_pool:
             await self._pool.close()
+        self._pool = None
         self._available = False
         log.info("PG transport stopped")
         return True
+
+    async def _backlog_poll_loop(self, interval: float = 30.0, max_age_hours: int = 24):
+        """Catch-up delivery for messages this node missed while disconnected.
+
+        LISTEN/NOTIFY is fire-and-forget: if this node was booting/reconnecting
+        when the NOTIFY fired, the message stays status='sent' forever — silently
+        lost. This loop periodically scans mesh_messages addressed to THIS node
+        (or broadcast) still in 'sent' state within max_age_hours, and delivers
+        them through the same incoming queue as live messages.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(interval)
+                if not self._pool or not self._pool.is_connected():
+                    continue
+                me = self._node_name if hasattr(self, "_node_name") else getattr(self.config, "node_name", None) if self.config else None
+                if not me:
+                    continue
+                rows = await self._pool.fetch(
+                    """SELECT id, sender, msg_type FROM mesh.mesh_messages
+                       WHERE status = 'sent'
+                         AND (recipient = $1 OR recipient = 'broadcast' OR recipient = '')
+                         AND msg_type NOT IN ('heartbeat', 'skills_announcement', 'agent_card', 'capability_list', 'registry_update', 'peer_discovery', 'metric')
+                         AND created_at > now() - interval '%s hours'
+                       ORDER BY created_at ASC
+                       LIMIT 20""" % max_age_hours,
+                    me,
+                )
+                if rows:
+                    log.info(f"PG backlog poller: delivering {len(rows)} missed message(s) to {me}")
+                for row in rows:
+                    try:
+                        message = await self._fetch_message(row["id"])
+                        if message:
+                            await self._incoming_queue.put((message, "pg_backlog"))
+                            log.info(f"Backlog delivered message {row['id'][:8]} from {row['sender']} (missed during disconnect)")
+                        # Mark as delivered so the poller doesn't redeliver forever
+                        try:
+                            await self._pool.execute(
+                                "UPDATE mesh.mesh_messages SET status = 'delivered', delivered_at = now() WHERE id = $1 AND status = 'sent'",
+                                row["id"]
+                            )
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        log.warning(f"Backlog fetch failed for {row['id'][:8]}: {e}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.debug(f"Backlog poll error: {e}")
 
     async def _listen_loop(self):
         """Async loop for PG NOTIFY processing using asyncpg native LISTEN.
@@ -234,6 +321,28 @@ class PGTransport(TransportAdapter):
                     message = A2AMessage.from_dict(msg_data)
                     await self._incoming_queue.put((message, "pg_notify"))
                     log.info(f"Received mesh message (fallback) from {sender}")
+            elif channel == "mesh_message_arrived":
+                # New message trigger — fetch the full message from mesh_messages
+                msg_id = data.get("id")
+                sender = data.get("sender", "unknown")
+                recipient = data.get("recipient")
+                msg_type = data.get("msg_type", "unknown")
+                log.info(f"PG NOTIFY: mesh_message_arrived id={msg_id[:8] if msg_id else '?'} from={sender} type={msg_type}")
+                if msg_id:
+                    message = await self._fetch_message(msg_id)
+                    if message:
+                        await self._incoming_queue.put((message, "pg_notify"))
+                        log.info(f"Delivered message {msg_id[:8]} from {sender} via mesh_message_arrived trigger")
+                        # Mark as delivered
+                        try:
+                            await self._pool.execute(
+                                "UPDATE mesh.mesh_messages SET status = 'delivered', delivered_at = now() WHERE id = $1 AND status = 'sent'",
+                                msg_id
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        log.warning(f"mesh_message_arrived: could not fetch message {msg_id[:8]}")
             else:
                 # Other channels (a2a_channel, a2a_steer_channel, etc.)
                 # Diagnostic channel uses its own payload format — wrap as A2AMessage
@@ -339,8 +448,8 @@ class PGTransport(TransportAdapter):
             await self._pool.execute("""
                 INSERT INTO mesh.mesh_messages
                     (id, sender, recipient, msg_type, priority, payload,
-                     routing_mode, src_addr, dst_addr, status)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent')
+                     routing_mode, src_addr, dst_addr, status, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'sent', NOW())
                 ON CONFLICT (id) DO NOTHING
             """,
                 message.id,

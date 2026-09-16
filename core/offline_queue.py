@@ -134,7 +134,7 @@ class OfflineQueue:
             return False
 
     # Sync wrapper for backward compatibility
-    def enqueue(self, message: A2AMessage, ttl_days: int = DEFAULT_TTL_DAYS) -> bool:
+    def enqueue_sync(self, message: A2AMessage, ttl_days: int = DEFAULT_TTL_DAYS) -> bool:
         """Synchronous enqueue — for use from non-async contexts.
 
         WARNING: This will block the event loop if no pool is available.

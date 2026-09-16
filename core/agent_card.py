@@ -53,8 +53,8 @@ class AgentCard:
     
     # Transport
     protocols: List[str] = field(default_factory=lambda: ["a2a-mesh/v0.8"])
-    preferred_transport: str = "pg_notify"  # pg_notify, p2p, http
-    transport_priority: List[str] = field(default_factory=lambda: ["pg_notify", "p2p", "http"])
+    preferred_transport: str = "p2p"  # p2p, pg_notify, http
+    transport_priority: List[str] = field(default_factory=lambda: ["p2p", "pg_notify", "http"])
     
     # Authentication
     authentication: Dict[str, Any] = field(default_factory=dict)

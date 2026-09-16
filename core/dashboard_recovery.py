@@ -95,7 +95,29 @@ class RecoveryNotesMixin:
 
             pg_pool = getattr(self.node, "_pg_pool", None)
             if not pg_pool:
-                return web.json_response({"error": "PG pool not available"}, status=503)
+                # JSON file fallback when PG unavailable
+                import os as _os, json as _json, time as _time
+                notes_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "data", "recovery_notes.json")
+                notes = []
+                if _os.path.exists(notes_path):
+                    with open(notes_path, "r") as _f:
+                        try:
+                            notes = _json.loads(_f.read())
+                        except:
+                            notes = []
+                note_entry = {
+                    "id": len(notes) + 1,
+                    "target_node": target_node,
+                    "author": author,
+                    "note": note_text,
+                    "actions": actions,
+                    "created_at": _time.time(),
+                    "read_at": None,
+                }
+                notes.append(note_entry)
+                with open(notes_path, "w") as _f:
+                    _f.write(_json.dumps(notes, indent=2))
+                return web.json_response({"status": "created", "id": note_entry["id"], "fallback": "json"})
 
             try:
                 row = await pg_pool.fetchrow(

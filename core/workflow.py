@@ -177,6 +177,15 @@ class WorkflowCoordinator:
         self.smart_router = smart_router
         self.node = node
         self._active_workflows: Dict[str, Workflow] = {}
+        self._completed_workflows: Dict[str, Workflow] = {}  # finished workflows (max 50)
+        self._max_completed = 50
+        self._history_file = None
+        if node:
+            import os
+            hist_dir = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data")
+            os.makedirs(hist_dir, exist_ok=True)
+            self._history_file = os.path.join(hist_dir, "workflow_history.json")
+            self._load_history()
 
     def create_workflow(self, name: str, consensus_mode: ConsensusMode = ConsensusMode.ALL,
                         max_cost: Optional[float] = None, timeout: Optional[float] = None) -> Workflow:
@@ -287,7 +296,15 @@ class WorkflowCoordinator:
             log.error(f"Workflow '{workflow.name}' error: {e}")
             workflow.status = TaskStatus.FAILED
         finally:
-            del self._active_workflows[workflow.id]
+            # Move to completed history instead of deleting
+            self._completed_workflows[workflow.id] = workflow
+            self._active_workflows.pop(workflow.id, None)
+            # Trim history to max size (remove oldest)
+            if len(self._completed_workflows) > self._max_completed:
+                oldest = next(iter(self._completed_workflows))
+                del self._completed_workflows[oldest]
+            # Persist to file
+            self._save_history()
 
         return self._build_result(workflow)
 
@@ -470,14 +487,15 @@ class WorkflowCoordinator:
 
                     # Use delegation to create a task and wait for result
                     import json as _json
+                    is_self = (task.assigned_agent == self.node.node_name)
                     task_id = await self.node.delegation.delegate_task(
-                        to_agent=task.assigned_agent,
+                        to_agent="any" if is_self else task.assigned_agent,
                         subject=f"[WF:{workflow.id}] {task.name}",
                         description=_json.dumps(desc),
                         task_type=task_type,
                         priority=5,
                         timeout_minutes=max(2, int(task.timeout / 30)),  # 2x buffer over task timeout
-                        available=False,
+                        available=is_self,  # self-delegation must be available=True
                         max_retries=0,  # workflow handles retries, not delegation
                     )
 
@@ -501,7 +519,7 @@ class WorkflowCoordinator:
 
                 elif self.node and task.assigned_agent:
                     # Fallback: A2A message (no delegation system available)
-                    from ..core.message import A2AMessage
+                    from .message import A2AMessage
                     msg = A2AMessage(
                         sender=self.node.node_name,
                         recipient=task.assigned_agent,
@@ -631,15 +649,120 @@ class WorkflowCoordinator:
         }
 
     def get_workflow_status(self, workflow_id: str) -> Optional[Dict]:
-        """Get the current status of an active workflow."""
-        wf = self._active_workflows.get(workflow_id)
+        """Get the current status of a workflow (active or completed)."""
+        wf = self._active_workflows.get(workflow_id) or self._completed_workflows.get(workflow_id)
         if not wf:
             return None
         return self._build_result(wf)
 
     def list_active_workflows(self) -> List[Dict]:
-        """List all active workflows."""
-        return [
-            {"id": wf.id, "name": wf.name, "status": wf.status.value, "tasks": len(wf.tasks)}
-            for wf in self._active_workflows.values()
-        ]
+        """List all workflows (active + completed history)."""
+        # Lazy-load history if not yet loaded
+        if self._history_file is None and self.node:
+            import os
+            hist_dir = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data")
+            os.makedirs(hist_dir, exist_ok=True)
+            self._history_file = os.path.join(hist_dir, "workflow_history.json")
+            self._load_history()
+        result = []
+        for wf in self._active_workflows.values():
+            result.append({
+                "id": wf.id, "name": wf.name, "status": wf.status.value,
+                "tasks": len(wf.tasks), "consensus": wf.consensus_mode.value,
+                "created_at": wf.created_at, "active": True,
+            })
+        for wf in self._completed_workflows.values():
+            result.append({
+                "id": wf.id, "name": wf.name, "status": wf.status.value,
+                "tasks": len(wf.tasks), "consensus": wf.consensus_mode.value,
+                "created_at": wf.created_at, "active": False,
+                "results": {tid: {"status": t.status.value, "agent": t.assigned_agent, "result": str(t.result)[:200] if t.result else None, "error": t.error, "duration_ms": t.duration_ms} for tid, t in wf.tasks.items()},
+            })
+        # Sort: active first, then by created_at desc
+        result.sort(key=lambda w: (not w.get("active", False), -w.get("created_at", 0)))
+        return result
+
+    def delete_workflow(self, workflow_id: str) -> bool:
+        """Delete a completed workflow from history."""
+        deleted = False
+        if workflow_id in self._completed_workflows:
+            del self._completed_workflows[workflow_id]
+            deleted = True
+        if workflow_id in self._active_workflows:
+            del self._active_workflows[workflow_id]
+            deleted = True
+        if deleted:
+            self._save_history()
+        return deleted
+
+    def _save_history(self):
+        """Persist completed workflows to JSON file."""
+        if not self._history_file:
+            return
+        import json
+        try:
+            data = []
+            for wf in self._completed_workflows.values():
+                data.append({
+                    "id": wf.id,
+                    "name": wf.name,
+                    "status": wf.status.value,
+                    "consensus": wf.consensus_mode.value,
+                    "created_at": wf.created_at,
+                    "tasks": {
+                        tid: {
+                            "name": t.name,
+                            "status": t.status.value,
+                            "agent": t.assigned_agent,
+                            "result": str(t.result)[:500] if t.result else None,
+                            "error": t.error,
+                            "duration_ms": t.duration_ms,
+                            "dependencies": t.dependencies,
+                        }
+                        for tid, t in wf.tasks.items()
+                    },
+                    "total_cost": wf.total_cost,
+                })
+            with open(self._history_file, "w") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            log.warning(f"Failed to save workflow history: {e}")
+
+    def _load_history(self):
+        """Load completed workflows from JSON file on startup."""
+        if not self._history_file:
+            return
+        import json
+        try:
+            with open(self._history_file, "r") as f:
+                data = json.load(f)
+            for entry in data[-self._max_completed:]:
+                # Reconstruct a minimal Workflow object
+                wf = Workflow(
+                    id=entry["id"],
+                    name=entry["name"],
+                    consensus_mode=ConsensusMode(entry.get("consensus", "all")),
+                )
+                wf.status = TaskStatus(entry["status"])
+                wf.created_at = entry.get("created_at", 0)
+                wf.total_cost = entry.get("total_cost", 0)
+                for tid, td in entry.get("tasks", {}).items():
+                    t = WorkflowTask(
+                        id=tid,
+                        name=td.get("name", tid),
+                        status=TaskStatus(td["status"]),
+                        assigned_agent=td.get("agent"),
+                        result=td.get("result"),
+                        error=td.get("error"),
+                        dependencies=td.get("dependencies", []),
+                    )
+                    # Set timing fields (duration_ms is a computed property)
+                    if td.get("duration_ms") is not None:
+                        t.started_at = 0
+                        t.completed_at = td["duration_ms"] / 1000.0
+                    wf.tasks[tid] = t
+                self._completed_workflows[wf.id] = wf
+            if data:
+                log.info(f"Loaded {len(self._completed_workflows)} workflows from history file")
+        except Exception as e:
+            log.warning(f"Failed to load workflow history: {e}")

@@ -178,7 +178,8 @@ class AuthManager:
                 role TEXT NOT NULL DEFAULT 'user',
                 created_at REAL NOT NULL,
                 last_login REAL DEFAULT 0,
-                is_active INTEGER DEFAULT 1
+                is_active INTEGER DEFAULT 1,
+                session_timeout REAL DEFAULT 24
             )
         """)
         conn.execute("""
@@ -192,6 +193,11 @@ class AuthManager:
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)")
+        # Migration: add session_timeout column if not exists
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN session_timeout REAL DEFAULT 24")
+        except Exception:
+            pass  # Column already exists
         conn.commit()
 
         # Create default owner if no users exist
@@ -412,8 +418,9 @@ class AuthManager:
         if not self._verify_password(password, row["password_hash"], row["salt"]):
             return None
 
-        # Generate token
-        token = self._generate_token(row["user_id"])
+        # Generate token (check for per-user or global session timeout)
+        session_timeout = self.get_session_timeout(row["user_id"])
+        token = self._generate_token(row["user_id"], session_timeout)
 
         # Update last login
         conn = sqlite3.connect(self.db_path)
@@ -436,9 +443,54 @@ class AuthManager:
             "token": token,
         }
 
-    def _generate_token(self, user_id: str, expiry_hours: int = 24) -> str:
-        """Generate a JWT-like token (base64-encoded for URL safety)."""
-        expires = time.time() + (expiry_hours * 3600)
+    def get_session_timeout(self, user_id: str) -> float:
+        """Get session timeout in hours. 0 = never expires. Default 24."""
+        conn = sqlite3.connect(self.db_path)
+        cur = conn.execute("SELECT session_timeout FROM users WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row and row[0] is not None:
+            return float(row[0])
+        return 24.0
+
+    def set_session_timeout(self, user_id: str, timeout_hours: float) -> bool:
+        """Set session timeout in hours. 0 = never expires. Returns True on success."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("UPDATE users SET session_timeout = ? WHERE user_id = ?", (timeout_hours, user_id))
+        conn.commit()
+        conn.close()
+        return True
+
+    def list_active_sessions(self) -> list:
+        """List all active sessions for owner management."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("""
+            SELECT s.token, s.user_id, s.created_at, s.expires_at, u.username, u.display_name
+            FROM sessions s
+            JOIN users u ON s.user_id = u.user_id
+            WHERE s.expires_at = 0 OR s.expires_at > ?
+            ORDER BY s.created_at DESC
+        """, (time.time(),))
+        rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def revoke_session(self, token_signature: str) -> bool:
+        """Revoke a specific session by its signature."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM sessions WHERE token = ?", (token_signature,))
+        conn.commit()
+        conn.close()
+        return True
+
+    def _generate_token(self, user_id: str, expiry_hours: float = 24) -> str:
+        """Generate a JWT-like token (base64-encoded for URL safety).
+        expiry_hours=0 or negative = never expires."""
+        if expiry_hours and expiry_hours > 0:
+            expires = time.time() + (expiry_hours * 3600)
+        else:
+            expires = 0  # 0 = never expires
         payload = {
             "user_id": user_id,
             "exp": expires,
@@ -485,8 +537,9 @@ class AuthManager:
         except json.JSONDecodeError:
             return None
 
-        # Check expiry
-        if payload.get("exp", 0) < time.time():
+        # Check expiry (0 = never expires)
+        exp = payload.get("exp", 0)
+        if exp and exp < time.time():
             return None
 
         # Verify signature
@@ -497,7 +550,7 @@ class AuthManager:
         # Check session exists
         conn = sqlite3.connect(self.db_path)
         cur = conn.execute(
-            "SELECT user_id FROM sessions WHERE token = ? AND expires_at > ?",
+            "SELECT user_id FROM sessions WHERE token = ? AND (expires_at = 0 OR expires_at > ?)",
             (signature, time.time())
         )
         session = cur.fetchone()
@@ -638,7 +691,7 @@ class AuthManager:
     def cleanup_sessions(self):
         """Remove expired sessions."""
         conn = sqlite3.connect(self.db_path)
-        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+        conn.execute("DELETE FROM sessions WHERE expires_at > 0 AND expires_at < ?", (time.time(),))
         conn.commit()
         conn.close()
 

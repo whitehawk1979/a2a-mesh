@@ -138,10 +138,10 @@ class DashboardDiagnosticsMixin:
         pg_pool = getattr(self.node, '_pg_pool', None)
         if pg_pool:
             try:
-                query = "SELECT * FROM mesh_suggestions ORDER BY created_at DESC LIMIT $1"
+                query = "SELECT * FROM mesh.mesh_suggestions ORDER BY created_at DESC LIMIT $1"
                 params = [limit]
                 if category:
-                    query = "SELECT * FROM mesh_suggestions WHERE category = $1 ORDER BY created_at DESC LIMIT $2"
+                    query = "SELECT * FROM mesh.mesh_suggestions WHERE category = $1 ORDER BY created_at DESC LIMIT $2"
                     params = [category, limit]
                 rows = await pg_pool.fetch(query, *params)
                 for row in rows:
@@ -246,7 +246,7 @@ class DashboardDiagnosticsMixin:
                         task_type="code",
                         priority=7 if suggestion.priority == "critical" else 5,
                         available=True,
-                        eligible_agents=["morzsa", "runa"],
+                        eligible_agents=[a.name for a, _ in self.registry.list_agents() if a.name != self.node.node_name],
                     )
                     log.info(f"📋 Auto-delegated manual suggestion: {suggestion.title}")
             except Exception as e:
