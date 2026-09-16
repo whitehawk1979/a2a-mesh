@@ -2602,7 +2602,7 @@ class DashboardAdminMixin:
         from aiohttp import web
         from .context_gate import get_context_status
         pg_pool = getattr(self.node, '_pg_pool', None) or getattr(self, '_pg_pool', None)
-        status = await get_context_status(pg_pool) if pg_pool else {"agents": [], "error": "PG unavailable"}
+        status = await get_context_status(pg_pool, node=self.node) if pg_pool else {"agents": [], "error": "PG unavailable"}
         return web.json_response(status)
 
     async def _api_llm_breakdown(self, request):
@@ -4195,7 +4195,7 @@ class DashboardAdminMixin:
         try:
             from .context_gate import get_context_status
             pg_pool = getattr(self.node, '_pg_pool', None)
-            status = await get_context_status(pg_pool) if pg_pool else {"agents": [], "error": "PG unavailable"}
+            status = await get_context_status(pg_pool, node=self.node) if pg_pool else {"agents": [], "error": "PG unavailable"}
             return web.json_response(status)
         except Exception as e:
             return web.json_response({"error": str(e), "agents": []}, status=500)

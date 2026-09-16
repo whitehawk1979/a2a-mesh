@@ -248,6 +248,13 @@ class ResourceLimitsConfig:
 
 
 @dataclass
+class ContextGateConfig:
+    max_turns_default: int = 90
+    tokens_per_turn_default: int = 3500
+    node_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+
+@dataclass
 class MeshConfig:
     """Full mesh configuration."""
     node_name: str = "nova"
@@ -369,6 +376,7 @@ class MeshConfig:
     task: TaskConfig = field(default_factory=TaskConfig)
     gossipsub: GossipSubConfig = field(default_factory=GossipSubConfig)
     diagnostic: DiagnosticConfig = field(default_factory=DiagnosticConfig)
+    context_gate: ContextGateConfig = field(default_factory=ContextGateConfig)
 
     # Webhook config
     webhook_port: int = 8644
