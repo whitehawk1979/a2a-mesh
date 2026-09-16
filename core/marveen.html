@@ -1210,11 +1210,27 @@ function loadContextGate() {
       var mdl = (a.model && a.model !== "unknown") ? a.model : "—";
       var ctx = a.context_length ? (a.context_length / 1000).toFixed(0) + "k" : "—";
       var mt = a.max_turns ? a.max_turns : "—";
-      return '<div class="stat-row"><span class="label">' + a.agent +
+      var bar = '<div style="width:' + Math.min(100, a.pct) + '%;height:4px;background:' + color + ';border-radius:2px"></div>';
+      return '<div style="margin-bottom:8px">' +
+        '<div class="stat-row"><span class="label">' + a.agent +
         '</span><span class="value ' + color + '" style="font-size:11px">' +
-        a.pct + '%&nbsp;·&nbsp;' + mdl + '&nbsp;·&nbsp;ctx ' + ctx + '&nbsp;·&nbsp;' + mt + ' turn</span></div>';
+        a.pct + '%&nbsp;·&nbsp;' + mdl + '&nbsp;·&nbsp;ctx ' + ctx + '&nbsp;·&nbsp;' + mt + ' turn</span></div>' +
+        '<div style="background:var(--surface2);border-radius:2px;height:4px">' + bar + '</div>' +
+        '</div>';
     }).join("");
-    body.innerHTML = html;
+    // Summary + thresholds block
+    var s = d.summary || {};
+    var t = d.thresholds || {};
+    var summaryHtml = '<div class="stat-row"><span class="label">Összesítés</span>' +
+      '<span class="value">' + (s.total || 0) + ' node&nbsp;·&nbsp;' +
+      '<span class="red">' + (s.critical || 0) + ' kritikus</span>&nbsp;·&nbsp;' +
+      '<span class="orange">' + (s.warning || 0) + ' figyelmeztetés</span>&nbsp;·&nbsp;' +
+      '<span class="green">' + (s.healthy || 0) + ' OK</span></span></div>';
+    if (t.soft || t.hard || t.critical) {
+      summaryHtml += '<div class="stat-row"><span class="label">Küszöbök</span>' +
+        '<span class="value" style="font-size:11px">soft ' + t.soft + '%&nbsp;·&nbsp;hard ' + t.hard + '%&nbsp;·&nbsp;kritikus ' + t.critical + '%</span></div>';
+    }
+    body.innerHTML = summaryHtml + '<div style="margin-top:6px;border-top:1px solid var(--border)"></div>' + html;
   });
 }
 
