@@ -1211,10 +1211,12 @@ function loadContextGate() {
       var ctx = a.context_length ? (a.context_length / 1000).toFixed(0) + "k" : "—";
       var mt = a.max_turns ? a.max_turns : "—";
       var bar = '<div style="width:' + Math.min(100, a.pct) + '%;height:4px;background:' + color + ';border-radius:2px"></div>';
-      return '<div style="margin-bottom:8px">' +
-        '<div class="stat-row"><span class="label">' + a.agent +
-        '</span><span class="value ' + color + '" style="font-size:11px">' +
-        a.pct + '%&nbsp;·&nbsp;' + mdl + '&nbsp;·&nbsp;ctx ' + ctx + '&nbsp;·&nbsp;' + mt + ' turn</span></div>' +
+      return '<div style="margin-bottom:10px;padding:6px 0;border-bottom:1px solid rgba(48,54,61,0.4)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">' +
+        '<span style="font-size:13px;color:var(--text2);font-weight:600">' + a.agent + '</span>' +
+        '<span class="' + color + '" style="font-weight:700;font-size:14px">' + a.pct + '%</span></div>' +
+        '<div style="font-size:11px;color:var(--text2);margin-bottom:4px;word-break:break-word;line-height:1.4">' +
+        '🛠️ <span style="color:var(--text1)">' + mdl + '</span>&nbsp;·&nbsp;ctx ' + ctx + '&nbsp;·&nbsp;' + mt + ' turn</div>' +
         '<div style="background:var(--surface2);border-radius:2px;height:4px">' + bar + '</div>' +
         '</div>';
     }).join("");
