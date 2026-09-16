@@ -334,6 +334,7 @@ async def generate_deep_reflection(
     Uses the agent's own model (auto-detected) rather than a hardcoded model.
     Falls back gracefully if no model is available.
     """
+    global _deep_reflection_cooldown_until
     # Rate-limit cooldown (set on HTTP 429/503): skip LLM call entirely
     if time.time() < _deep_reflection_cooldown_until:
         log.debug("🔍 Deep reflection skipped — rate-limit cooldown active")
@@ -409,7 +410,6 @@ Válaszolj röviden, magyarul, objektíven. Ne ismételd amit mások mondtak."""
                     if resp.status in (429, 503):
                         # Rate-limit/unavailable cooldown: skip deep reflection for 10 min
                         # (was: retry every cycle → 141x HTTP 429 warnings in one log)
-                        global _deep_reflection_cooldown_until
                         _deep_reflection_cooldown_until = time.time() + 600
                         log.info(f"🔍 Deep reflection cooldown 600s (HTTP {resp.status})")
                 return None
