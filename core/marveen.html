@@ -1198,16 +1198,23 @@ function loadAutoRestart() {
 function loadContextGate() {
   api("/api/context-gate").then(function(d) {
     if (!d) return;
-    var checks = d.checks || [];
-    if (checks.length === 0) {
-      document.getElementById("cgBody").innerHTML = '<div class="stat-row"><span class="label">Státusz</span><span class="value green">✓ Minden OK</span></div>';
+    var agents = d.agents || [];
+    var body = document.getElementById("cgBody");
+    if (!body) return;
+    if (agents.length === 0) {
+      body.innerHTML = '<div class="stat-row"><span class="label">Státusz</span><span class="value green">✓ Nincs node</span></div>';
       return;
     }
-    var html = checks.map(function(c) {
-      var color = c.severity === "critical" ? "red" : "orange";
-      return '<div class="stat-row"><span class="label">' + c.node + '</span><span class="value ' + color + '">' + c.pct + '%</span></div>';
+    var html = agents.map(function(a) {
+      var color = a.severity === "critical" ? "red" : (a.severity === "warning" ? "orange" : "green");
+      var mdl = (a.model && a.model !== "unknown") ? a.model : "—";
+      var ctx = a.context_length ? (a.context_length / 1000).toFixed(0) + "k" : "—";
+      var mt = a.max_turns ? a.max_turns : "—";
+      return '<div class="stat-row"><span class="label">' + a.agent +
+        '</span><span class="value ' + color + '" style="font-size:11px">' +
+        a.pct + '%&nbsp;·&nbsp;' + mdl + '&nbsp;·&nbsp;ctx ' + ctx + '&nbsp;·&nbsp;' + mt + ' turn</span></div>';
     }).join("");
-    document.getElementById("cgBody").innerHTML = html;
+    body.innerHTML = html;
   });
 }
 
