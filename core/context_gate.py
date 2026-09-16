@@ -48,7 +48,9 @@ def resolve_local_model_info():
     home = os.path.expanduser("~")
     # HAOS/container nodes keep Hermes config under /config/.hermes instead of ~/.hermes
     hermes_home = os.environ.get("HERMES_HOME") or os.path.join(home, ".hermes")
-    if not os.path.isdir(hermes_home) and os.path.isdir("/config/.hermes"):
+    # HAOS/container nodes keep the actual state.db under /config/.hermes
+    if (not os.path.exists(os.path.join(hermes_home, "state.db"))
+            and os.path.exists("/config/.hermes/state.db")):
         hermes_home = "/config/.hermes"
     db_path = os.path.join(hermes_home, "state.db")
     cfg_path = os.path.join(hermes_home, "config.yaml")
