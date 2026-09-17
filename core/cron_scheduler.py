@@ -17,6 +17,8 @@ import json
 import time
 import logging
 import re
+import subprocess
+import datetime
 
 log = logging.getLogger("cron_scheduler")
 
@@ -93,6 +95,10 @@ def add_task(name, cron_expr, action, description=""):
         "enabled": True,
         "last_run": 0,
         "run_count": 0,
+        "last_result": None,   # None | "success" | "fail"
+        "last_output": None,   # captured stdio on last run
+        "last_duration": None, # last run duration in ms
+        "last_exit": None,     # last run exit code
         "created_at": time.time(),
     }
     tasks["tasks"] = [t for t in tasks["tasks"] if t["name"] != name]
@@ -110,25 +116,131 @@ def remove_task(task_id):
     return len(tasks["tasks"]) < before
 
 
+def next_run(cron_expr, from_ts=None):
+    """Compute the next fire time (epoch secs) for a cron expression.
+
+    Scans forward minute-by-minute. Returns None if invalid or no match
+    found in the ~31 day horizon.
+    """
+    fields = parse_cron(cron_expr)
+    if not fields or from_ts is None:
+        return None
+    base = datetime.datetime.fromtimestamp(from_ts) + datetime.timedelta(minutes=1)
+    base = base.replace(second=0, microsecond=0)
+    for i in range(60 * 24 * 31):
+        t = base + datetime.timedelta(minutes=i)
+        if should_run(fields, t):
+            return t.timestamp()
+    return None
+
+
+def run_task(task_id, timeout=None):
+    """Execute a task's action (shell command) and record the outcome.
+
+    Returns a dict {task, ok, result, output, exit_code, duration_ms} or an
+    error dict if the task is missing or has no action.
+    """
+    task = _find_task(task_id)
+    if not task:
+        return {"error": f"Task not found: {task_id}"}
+    if not task.get("action"):
+        return {"error": "Task has no action to run", "task": task}
+
+    timeout = timeout or 300
+    start = time.time()
+    try:
+        proc = subprocess.run(
+            task["action"], shell=True, capture_output=True, text=True,
+            timeout=timeout,
+            cwd=os.path.expanduser("~/.hermes/scripts/a2a_mesh"),
+        )
+        ok = proc.returncode == 0
+        output = (proc.stdout or "") + (("\n--- stderr ---\n" + proc.stderr) if proc.stderr else "")
+        exit_code = proc.returncode
+    except subprocess.TimeoutExpired:
+        ok = False
+        output = f"TIMEOUT after {timeout}s"
+        exit_code = -1
+    except Exception as e:
+        ok = False
+        output = f"Run error: {e}"
+        exit_code = -2
+
+    duration_ms = int((time.time() - start) * 1000)
+    updated = _record_run(task_id, "success" if ok else "fail", output, exit_code, duration_ms)
+    return {
+        "task": updated,
+        "ok": ok,
+        "result": "success" if ok else "fail",
+        "output": output,
+        "exit_code": exit_code,
+        "duration_ms": duration_ms,
+    }
+
+
+def toggle_task(task_id):
+    """Enable/disable a task. Returns updated task or None."""
+    tasks = load_tasks()
+    for t in tasks["tasks"]:
+        if t["id"] == task_id:
+            t["enabled"] = not t.get("enabled", True)
+            _save(tasks)
+            return t
+    return None
+
+
+def _find_task(task_id):
+    tasks = load_tasks()
+    for t in tasks["tasks"]:
+        if t["id"] == task_id:
+            return t
+    return None
+
+
+def _record_run(task_id, result, output, exit_code, duration_ms):
+    """Persist the outcome of a run onto the task."""
+    tasks = load_tasks()
+    for t in tasks["tasks"]:
+        if t["id"] == task_id:
+            t["last_run"] = time.time()
+            t["run_count"] = int(t.get("run_count", 0)) + 1
+            t["last_result"] = result
+            t["last_output"] = (output or "")[-4000:] if output else ""
+            t["last_exit"] = exit_code
+            t["last_duration"] = duration_ms
+            _save(tasks)
+            return t
+    return None
+
+
 def get_cron_status():
     """Get cron scheduler status for dashboard."""
     tasks = load_tasks()
+    out_tasks = []
+    for t in tasks.get("tasks", []):
+        nr = next_run(t.get("cron", ""), t.get("last_run") or time.time())
+        out_tasks.append({
+            "id": t.get("id"),
+            "name": t.get("name"),
+            "cron": t.get("cron"),
+            "action": t.get("action"),
+            "description": t.get("description", ""),
+            "enabled": t.get("enabled", True),
+            "last_run": t.get("last_run", 0),
+            "run_count": t.get("run_count", 0),
+            "last_result": t.get("last_result"),
+            "last_output": t.get("last_output"),
+            "last_duration": t.get("last_duration"),
+            "last_exit": t.get("last_exit"),
+            "next_run": nr,
+        })
     return {
         "tz": tasks.get("tz", DEFAULT_TZ),
-        "task_count": len(tasks.get("tasks", [])),
-        "enabled_count": sum(1 for t in tasks["tasks"] if t.get("enabled")),
-        "tasks": [
-            {
-                "id": t["id"],
-                "name": t["name"],
-                "cron": t["cron"],
-                "action": t["action"],
-                "enabled": t.get("enabled", True),
-                "last_run": t.get("last_run", 0),
-                "run_count": t.get("run_count", 0),
-            }
-            for t in tasks.get("tasks", [])
-        ],
+        "task_count": len(out_tasks),
+        "enabled_count": sum(1 for t in out_tasks if t.get("enabled")),
+        "success_count": sum(1 for t in out_tasks if t.get("last_result") == "success"),
+        "fail_count": sum(1 for t in out_tasks if t.get("last_result") == "fail"),
+        "tasks": out_tasks,
     }
 
 

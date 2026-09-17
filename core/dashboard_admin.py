@@ -3026,12 +3026,55 @@ class DashboardAdminMixin:
         return web.json_response(get_cron_status())
 
     async def _api_cron_add(self, request):
-        """POST /api/cron/add — Add a scheduled task."""
+        """POST /api/cron/add — Add a scheduled task.
+
+        Accepts both {name, cron, action} and the older {name, schedule,
+        prompt} field names for backward compatibility.
+        """
         from aiohttp import web
         from .cron_scheduler import add_task
         data = await request.json()
-        result = add_task(data.get("name", ""), data.get("cron", ""), data.get("action", ""), data.get("description", ""))
+        name = data.get("name", "")
+        cron = data.get("cron") or data.get("schedule", "")
+        action = data.get("action") or data.get("prompt", "")
+        description = data.get("description", "")
+        result = add_task(name, cron, action, description)
         return web.json_response(result)
+
+    async def _api_cron_run(self, request):
+        """POST /api/cron/run — Run a scheduled task now.
+
+        Body: {"id": "<task_id>"}
+        """
+        from aiohttp import web
+        from .cron_scheduler import run_task
+        data = await request.json()
+        result = run_task(data.get("id", ""))
+        return web.json_response(result)
+
+    async def _api_cron_toggle(self, request):
+        """POST /api/cron/toggle — Enable/disable a scheduled task.
+
+        Body: {"id": "<task_id>"}
+        """
+        from aiohttp import web
+        from .cron_scheduler import toggle_task
+        data = await request.json()
+        task = toggle_task(data.get("id", ""))
+        if task is None:
+            return web.json_response({"error": f"Task not found: {data.get('id')}"}, status=404)
+        return web.json_response({"task": task})
+
+    async def _api_cron_remove(self, request):
+        """POST /api/cron/remove — Delete a scheduled task.
+
+        Body: {"id": "<task_id>"}
+        """
+        from aiohttp import web
+        from .cron_scheduler import remove_task
+        data = await request.json()
+        removed = remove_task(data.get("id", ""))
+        return web.json_response({"removed": removed})
 
     async def _api_update_checker(self, request):
         """GET /api/update-checker — Git update status."""
