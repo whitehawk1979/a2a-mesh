@@ -1198,6 +1198,14 @@ class P2PTransport(TransportAdapter):
         if peer is None:
             return  # Peer disconnected
         _, writer = peer
+        # FIX (v0.43.4): reconnect race — the writer may be closed between the
+        # _peers lookup and this flush (same race as _send_ack). Writing to a
+        # closed StreamWriter raises AttributeError ('NoneType' has no
+        # '_write_appdata') as WARNING. Re-enqueue frames to the retry path
+        # instead of dropping them silently.
+        if writer is None or writer.is_closing() or writer.transport is None:
+            log.debug(f"Flush skipped for {peer_name} — connection closed, {len(batch)} frames dropped")
+            return
         
         import time as _time
         try:
@@ -1213,18 +1221,28 @@ class P2PTransport(TransportAdapter):
             rtt_sec = rtt_ms / 1000.0 if rtt_ms > 0 else 0
             current_batch = self._peer_batch_size.get(peer_name, self.WRITE_BATCH_SIZE)
 
+            # FIX (v0.43.4): measured RTT includes the peer's event-loop
+            # scheduling latency (Proxmox CPU steal: morzsa measures 150-200ms
+            # on a <1ms LAN link). Drain time is the reliable congestion signal
+            # (OS-internal, same clock). So: drain governs congestion, RTT only
+            # caps growth — it must NOT shrink the batch below the default on
+            # otherwise fast-draining links. This mirrors the v0.28.6 fix that
+            # raised psutil CPU thresholds for Proxmox nodes.
             if drain_sec > self.ADAPTIVE_DRAIN_THRESHOLD:
                 # Slow drain — reduce batch size (congestion)
                 new_batch = max(self.ADAPTIVE_BATCH_MIN, current_batch // 2)
                 if new_batch != current_batch:
                     log.debug(f"Adaptive: {peer_name} drain={drain_sec:.3f}s → batch {current_batch}→{new_batch}")
                 self._peer_batch_size[peer_name] = new_batch
-            elif rtt_sec > 0 and rtt_sec > self.ADAPTIVE_RTT_HIGH:
-                # High RTT — reduce batch size
+            elif drain_sec > self.ADAPTIVE_DRAIN_THRESHOLD / 2:
+                # Moderately slow drain — hold current size, don't grow
+                pass
+            elif rtt_sec > 0 and rtt_sec > self.ADAPTIVE_RTT_HIGH * 10:
+                # Very high RTT (>1s) — genuinely distant/stalled peer: shrink
                 new_batch = max(self.ADAPTIVE_BATCH_MIN, int(current_batch * 0.75))
                 self._peer_batch_size[peer_name] = new_batch
-            elif rtt_sec > 0 and rtt_sec < self.ADAPTIVE_RTT_LOW and drain_sec < self.ADAPTIVE_DRAIN_THRESHOLD:
-                # Fast link — increase batch size
+            else:
+                # Fast drain — increase batch size toward MAX
                 new_batch = min(self.ADAPTIVE_BATCH_MAX, current_batch + 2)
                 if new_batch != current_batch:
                     log.debug(f"Adaptive: {peer_name} drain={drain_sec:.3f}s rtt={rtt_ms:.1f}ms → batch {current_batch}→{new_batch}")
