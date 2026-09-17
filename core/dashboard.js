@@ -2239,6 +2239,13 @@ function loadMarveenPage(page, params = '') {
   function card(inner) {
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">' + inner + '</div>';
   }
+  function summaryCard(title, value, color) {
+    var c = color || 'var(--text)';
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:110px;">' +
+      '<div style="font-size:11px;color:var(--text3);font-weight:600;">' + esc(title) + '</div>' +
+      '<div style="font-size:18px;font-weight:700;color:' + c + ';margin-top:2px;">' + (value != null ? esc(String(value)) : '—') + '</div>' +
+      '</div>';
+  }
   function table(headers, rows) {
     var h = '<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>';
     headers.forEach(function(hd) { h += '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--border);color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">' + esc(hd) + '</th>'; });
@@ -2953,13 +2960,55 @@ function loadMarveenPage(page, params = '') {
     },
 
     bgTasks: function(d) {
-      var jobs = d.jobs || d.tasks || d.cron_jobs || [];
+      var jobs = d.tasks || d.jobs || d.cron_jobs || [];
       if (d.error) return errorBox(d.error);
-      var html = '<div style="margin-bottom:12px;"><button onclick="showCronAddModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új cron task</button></div>';
+      var html = '<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
+      html += '<button onclick="showCronAddModal()" style="background:var(--primary);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">➕ Új cron task</button>';
+      html += '<button onclick="loadMarveenPage(\'bgTasks\')" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:11px;">🔄 Frissítés</button>';
+      html += '</div>';
+      // Summary cards
+      var tc = d.task_count || jobs.length;
+      var en = d.enabled_count;
+      var sc = d.success_count;
+      var fc = d.fail_count;
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">';
+      html += summaryCard('📋 Összesen', tc, 'var(--text2)');
+      html += summaryCard('✅ Aktív', en, 'var(--success)');
+      if (typeof sc === 'number') html += summaryCard('🟢 Sikeres', sc, 'var(--success)');
+      if (typeof fc === 'number') html += summaryCard('🔴 Hibás', fc, 'var(--danger)');
+      html += '</div>';
       if (!jobs.length) return html + empty('Nincs háttér feladat');
-      return html + table(['Név', 'Ütemezés', 'Státusz', 'Utolsó futás'], jobs.map(function(j) {
-        return [esc(j.name || j.id), esc(j.schedule || j.cron || '—'), badge(j.status || 'active'), fmtTime(j.last_run || j.last_execution)];
-      }));
+      var rows = jobs.map(function(j) {
+        var nameCell = '<div style="font-weight:600;color:var(--text);">' + esc(j.name || j.id) + '</div>';
+        if (j.action) nameCell += '<div style="font-size:11px;color:var(--text3);margin-top:2px;">' + esc(String(j.action).slice(0, 40)) + (String(j.action).length > 40 ? '…' : '') + '</div>';
+        var statusCell = j.enabled === false ? badge('kikapcsolva', 'var(--text3)') : badge('aktív', 'var(--success)');
+        var nextCell = j.next_run ? fmtTime(j.next_run * 1000) : '<span style="color:var(--text3)">—</span>';
+        var runCountCell = '<span style="color:var(--text2)">' + (j.run_count || 0) + '×</span>';
+        var lastResultCell = '<span style="color:var(--text3)">—</span>';
+        if (j.last_result === 'success') lastResultCell = '<span style="color:var(--success);font-weight:600;">✓ sikeres</span>';
+        else if (j.last_result === 'fail') lastResultCell = '<span style="color:var(--danger);font-weight:600;">✗ hiba</span>';
+        if (j.last_run) {
+          lastResultCell += '<div style="font-size:11px;color:var(--text3);">' + fmtTime(j.last_run * 1000) + '</div>';
+          if (j.last_duration != null) lastResultCell += '<div style="font-size:11px;color:var(--text3);">' + j.last_duration + ' ms</div>';
+        }
+        var actionsCell =
+          '<div style="display:flex;gap:4px;flex-wrap:wrap;">' +
+          '<button onclick="runCronNow(\'' + esc(String(j.id)) + '\')" title="Futtatás most" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;">▶️ Futtatás</button>' +
+          (j.last_output ? '<button onclick="viewCronOutput(\'' + esc(String(j.id)) + '\')" title="Kimenet" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;">📄</button>' : '') +
+          '<button onclick="toggleCronTask(\'' + esc(String(j.id)) + '\')" title="Engedélyezés / kikapcsolás" style="background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;">' + (j.enabled === false ? '▶️ Enged' : '⏸️ Tilt') + '</button>' +
+          '<button onclick="removeCronTask(\'' + esc(String(j.id)) + '\')" title="Törlés" style="background:var(--surface2);border:1px solid var(--danger);color:var(--danger);padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;">🗑️</button>' +
+          '</div>';
+        return [
+          nameCell,
+          esc(j.cron || j.schedule || '—'),
+          nextCell,
+          lastResultCell,
+          runCountCell,
+          statusCell,
+          actionsCell
+        ];
+      });
+      return html + table(['Feladat', 'Ütemezés', 'Következő', 'Utolsó futás', 'Futások', 'Státusz', 'Műveletek'], rows);
     },
 
     memories: function(d) {
@@ -6342,6 +6391,49 @@ window.showCronAddModal = function() {
   fetch('/api/cron/add', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, schedule: schedule, prompt: prompt_text }) })
     .then(function(r) { return r.json(); })
     .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Cron task hozzáadva'); loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+function cronToken() { return localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || ''; }
+
+window.runCronNow = function(id) {
+  fetch('/api/cron/run', { method: 'POST', headers: { 'Authorization': 'Bearer ' + cronToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { var m = '✅ Sikeres futás' + (d.duration_ms != null ? ' (' + d.duration_ms + ' ms)' : ''); if (!d.ok) m = '❌ Futás hibával (exit ' + d.exit_code + ')'; alert(m + '\n\n' + (d.output || '(nincs kimenet)').slice(0, 1500)); loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.toggleCronTask = function(id) {
+  fetch('/api/cron/toggle', { method: 'POST', headers: { 'Authorization': 'Bearer ' + cronToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.removeCronTask = function(id) {
+  if (!confirm('Biztosan törlöd ezt a háttér feladatot?')) return;
+  fetch('/api/cron/remove', { method: 'POST', headers: { 'Authorization': 'Bearer ' + cronToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.viewCronOutput = function(id) {
+  fetch('/api/cron', { method: 'GET', headers: { 'Authorization': 'Bearer ' + cronToken() } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var tasks = d.tasks || [];
+      var t = tasks.filter(function(x) { return String(x.id) === String(id); })[0];
+      var modal = document.getElementById('marveenModal');
+      var body = document.getElementById('marveenModalBody');
+      var title = document.getElementById('marveenModalTitle');
+      if (!modal || !body) { alert(t && t.last_output ? t.last_output : '(nincs kimenet)'); return; }
+      title.textContent = '📄 Kimenet — ' + (t ? t.name : id);
+      body.innerHTML = t
+        ? '<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;max-height:60vh;overflow:auto;background:var(--surface2);padding:12px;border-radius:6px;color:var(--text2);">' + esc(t.last_output || '(nincs kimenet)') + '</pre>'
+        : errorBox('Feladat nem található');
+      modal.style.display = 'block';
+    })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 

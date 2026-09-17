@@ -370,6 +370,9 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Cron Scheduler
         app.router.add_get("/api/cron", self._api_cron_status)
         app.router.add_post("/api/cron/add", self._api_cron_add)
+        app.router.add_post("/api/cron/run", self._api_cron_run)
+        app.router.add_post("/api/cron/toggle", self._api_cron_toggle)
+        app.router.add_post("/api/cron/remove", self._api_cron_remove)
         # Update Checker
         app.router.add_get("/api/update-checker", self._api_update_checker)
         app.router.add_post("/api/update-pull", self._api_update_pull)
