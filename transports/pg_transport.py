@@ -504,7 +504,7 @@ class PGTransport(TransportAdapter):
         messages = []
         qsize = self._incoming_queue.qsize()
         if qsize > 0:
-            log.info(f"PG receive: {qsize} messages in incoming queue")
+            log.debug(f"PG receive: {qsize} messages in incoming queue")
         while not self._incoming_queue.empty():
             msg, transport = await self._incoming_queue.get()
             messages.append((msg, transport))

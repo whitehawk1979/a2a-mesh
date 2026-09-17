@@ -4333,7 +4333,7 @@ echo "Status: ok"
             try:
                 from core.provider_health import check_provider_health
                 provider_status = await asyncio.to_thread(check_provider_health, self.node_name)
-                log.info(f"Provider health (PG) via import: {provider_status}")
+                log.debug(f"Provider health (PG) via import: {provider_status}")
             except ImportError:
                 import importlib.util as _ilu
                 # Try relative to this file
@@ -4347,7 +4347,7 @@ echo "Status: ok"
                     _mod = _ilu.module_from_spec(_spec)
                     _spec.loader.exec_module(_mod)
                     provider_status = await asyncio.to_thread(_mod.check_provider_health, self.node_name)
-                    log.info(f"Provider health (PG) via importlib: {provider_status}")
+                    log.debug(f"Provider health (PG) via importlib: {provider_status}")
             else:
                 if not isinstance(provider_status, dict) or "primary" not in provider_status:
                     log.warning(f"Provider health returned unexpected: {provider_status}")
@@ -4824,7 +4824,7 @@ echo "Status: ok"
                     try:
                         from core.provider_health import check_provider_health
                         provider_status = await asyncio.to_thread(check_provider_health, self.node_name)
-                        log.info(f"Provider health (heartbeat) via import: {provider_status}")
+                        log.debug(f"Provider health (heartbeat) via import: {provider_status}")
                     except ImportError:
                         import importlib.util as _ilu
                         _this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -5255,7 +5255,7 @@ echo "Status: ok"
                 if not self._running:
                     break
 
-                log.info("[self-heal] Loop tick — checking node health")
+                log.debug("[self-heal] Loop tick — checking node health")
 
                 # 1. PG connection check + auto-reconnect
                 pg_ok = False
