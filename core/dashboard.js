@@ -2239,6 +2239,13 @@ function loadMarveenPage(page, params = '') {
   function card(inner) {
     return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:10px;">' + inner + '</div>';
   }
+  function summaryCard(title, value, color) {
+    var c = color || 'var(--text)';
+    return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;min-width:110px;">' +
+      '<div style="font-size:11px;color:var(--text3);font-weight:600;">' + esc(title) + '</div>' +
+      '<div style="font-size:18px;font-weight:700;color:' + c + ';margin-top:2px;">' + (value != null ? esc(String(value)) : '—') + '</div>' +
+      '</div>';
+  }
   function table(headers, rows) {
     var h = '<table style="width:100%;border-collapse:collapse;font-size:13px;"><thead><tr>';
     headers.forEach(function(hd) { h += '<th style="text-align:left;padding:8px 10px;border-bottom:2px solid var(--border);color:var(--text3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">' + esc(hd) + '</th>'; });
@@ -6384,6 +6391,49 @@ window.showCronAddModal = function() {
   fetch('/api/cron/add', { method: 'POST', headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, schedule: schedule, prompt: prompt_text }) })
     .then(function(r) { return r.json(); })
     .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { alert('Cron task hozzáadva'); loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+function cronToken() { return localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || ''; }
+
+window.runCronNow = function(id) {
+  fetch('/api/cron/run', { method: 'POST', headers: { 'Authorization': 'Bearer ' + cronToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { var m = '✅ Sikeres futás' + (d.duration_ms != null ? ' (' + d.duration_ms + ' ms)' : ''); if (!d.ok) m = '❌ Futás hibával (exit ' + d.exit_code + ')'; alert(m + '\n\n' + (d.output || '(nincs kimenet)').slice(0, 1500)); loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.toggleCronTask = function(id) {
+  fetch('/api/cron/toggle', { method: 'POST', headers: { 'Authorization': 'Bearer ' + cronToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.removeCronTask = function(id) {
+  if (!confirm('Biztosan törlöd ezt a háttér feladatot?')) return;
+  fetch('/api/cron/remove', { method: 'POST', headers: { 'Authorization': 'Bearer ' + cronToken(), 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { alert('Hiba: ' + d.error); } else { loadMarveenPage('bgTasks'); } })
+    .catch(function(e) { alert('Hiba: ' + e.message); });
+};
+
+window.viewCronOutput = function(id) {
+  fetch('/api/cron', { method: 'GET', headers: { 'Authorization': 'Bearer ' + cronToken() } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var tasks = d.tasks || [];
+      var t = tasks.filter(function(x) { return String(x.id) === String(id); })[0];
+      var modal = document.getElementById('marveenModal');
+      var body = document.getElementById('marveenModalBody');
+      var title = document.getElementById('marveenModalTitle');
+      if (!modal || !body) { alert(t && t.last_output ? t.last_output : '(nincs kimenet)'); return; }
+      title.textContent = '📄 Kimenet — ' + (t ? t.name : id);
+      body.innerHTML = t
+        ? '<pre style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;max-height:60vh;overflow:auto;background:var(--surface2);padding:12px;border-radius:6px;color:var(--text2);">' + esc(t.last_output || '(nincs kimenet)') + '</pre>'
+        : errorBox('Feladat nem található');
+      modal.style.display = 'block';
+    })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
