@@ -1704,8 +1704,13 @@ class MeshNode:
                 pass
 
             fetch_ok = False
-            # Try full prune fetch first; fallback to branch-only fetch (immune to ref-lock)
-            for fetch_args in ([remote], [remote, branch]):
+            # FIX (v0.43.4): 'git fetch origin main' fetches only the branch ref —
+            # TAGS are not included, so version-resolve (git describe --tags) still
+            # reports the previous tag after a deploy. Fetch tags alongside the
+            # branch in the fallback path; the full fetch ([remote]) already gets
+            # tags. This makes post-deploy version verification meaningful.
+            # Try full prune fetch first; fallback to branch+tags fetch (immune to ref-lock)
+            for fetch_args in ([remote], [remote, branch, "--tags"]):
                 try:
                     r = subprocess.run(
                         ["git", "fetch"] + fetch_args,
