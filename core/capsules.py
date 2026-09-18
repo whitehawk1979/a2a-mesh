@@ -131,17 +131,22 @@ CAPSULE_RELEVANCE_THRESHOLD = 0.6
 
 
 async def create_embedding(text: str, ollama_url: str = "http://localhost:11434") -> Optional[List[float]]:
-    """Create embedding vector using Ollama nomic-embed-text.
+    """Create embedding vector using Ollama qwen3-embedding:0.6b.
 
-    Timeout is 60s: nomic-embed-text cold-start (model load) takes ~17s after
-    Ollama evicts it from memory — a short timeout silently produces NULL vectors.
+    Switched from nomic-embed-text (768-dim) to qwen3-embedding:0.6b (1024-dim)
+    on Zsolt's request: better multilingual (Hungarian) quality, and it keeps
+    the Honcho embedding model resident in VRAM (no more eviction thrash).
+    NOTE: vectors in mesh.mesh_memory are 1024-dim after the 2026-09-18
+    re-embedding — old 768-dim vectors were re-embedded by backfill script.
+    Timeout is 60s: model cold-start after Ollama evicts it from memory can
+    take a few seconds — a short timeout silently produces NULL vectors.
     One retry covers transient LAN hiccups.
     """
     import aiohttp
     payload = {
-        "model": "nomic-embed-text",
-        # nomic-embed-text context ~2048 tokens (~1500-2000 chars for HU text).
-        # Longer prompts → Ollama 500 "input length exceeds context length" → NULL vector.
+        "model": "qwen3-embedding:0.6b",
+        # qwen3-embedding:0.6b context 32k — 1800-char cap kept for consistency
+        # (short prompt = faster embedding; capsule texts are short anyway).
         "prompt": text[:1800],
     }
     for attempt in range(2):
