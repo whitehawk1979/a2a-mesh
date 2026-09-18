@@ -1097,7 +1097,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                     rows = await pool.fetch(
                         f"SELECT id, sender, recipient, msg_type, priority, payload, created_at, status "
                         f"FROM mesh.mesh_messages WHERE {where_sql} ORDER BY created_at DESC LIMIT {limit_ph}",
-                        params + [limit]
+                        *(params + [limit])
                     )
                     import json as _json
                     for row in rows:
