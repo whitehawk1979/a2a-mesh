@@ -207,6 +207,18 @@ class CoordinatorElection:
         claimer_addr = claim.get("short_addr", 0xFFFF)
         claimer_name = claim.get("node_name", "unknown")
 
+        # Split-brain guard (v0.44.1): ha MI vagyunk a regisztrált koordinátor
+        # és a claimer kevésbé szenior (nagyobb short_addr), elutasítjuk —
+        # élő koordinátort junior node nem válthat le.
+        if (self.coordinator is not None
+                and self.coordinator.node_name == self.self_name
+                and claimer_addr > self.self_addr):
+            logger.info(
+                f"Election: rejecting claim from {claimer_name} (0x{claimer_addr:04X}) "
+                f"— we are the live coordinator and more senior"
+            )
+            return False
+
         # If we're also trying to be acting coordinator, compare seniority
         if self.is_acting_coordinator and self.self_addr < claimer_addr:
             logger.info(f"Election: rejecting claim from {claimer_name} (0x{claimer_addr:04X}) — we are more senior")

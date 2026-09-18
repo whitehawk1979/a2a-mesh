@@ -166,6 +166,14 @@ class MeshNode:
             ),
         )
 
+        # v0.44.1: COORDINATOR role-ban induló node magát regisztrálja original
+        # koordinátorként — így a cold-start self-claim (DOWN→claim loop) nem
+        # indul el feleslegesen az élő koordinátoron.
+        if self.role == NodeRole.COORDINATOR and self.mesh_address:
+            self.election.register_coordinator(
+                self.node_name, self.mesh_address.short, is_original=True)
+            log.info("🏛️ Registered SELF as original coordinator at startup")
+
         # Initialize ACK manager
         self.ack_manager = AckManager(node_name=self.node_name)
 
@@ -3463,6 +3471,21 @@ echo "Status: ok"
 
     async def _on_p2p_heartbeat(self, peer_name: str, version: str, provider_status: dict = None):
         """Callback when a P2P heartbeat is received — update peer version + provider health."""
+        # v0.44.1: a bejövő P2P heartbeat frissíti az election nézetet is —
+        # ha a küldő a regisztrált koordinátor, él. Enélkül a peerek 420s
+        # után DOWN-nak látták az élő koordinátort (v0.44.0 loop fix, peer side).
+        try:
+            el = getattr(self, "election", None)
+            if (el is not None and el.coordinator is not None
+                    and el.coordinator.node_name == peer_name
+                    and peer_name != self.node_name):
+                el.coordinator.last_heartbeat = time.time()
+                if el.coordinator.state != CoordinatorState.ACTIVE:
+                    log.info(f"🏛️ Coordinator {peer_name} liveness refresh from P2P heartbeat")
+                    el.coordinator.state = CoordinatorState.ACTIVE
+        except Exception as _el_err:
+            log.debug(f"Coordinator liveness refresh from heartbeat failed: {_el_err}")
+
         if not self.peer_discovery:
             return
         # Late-discovered peers must be allowed into the health scorer
@@ -4919,6 +4942,17 @@ echo "Status: ok"
 
                 if not self._running:
                     break
+
+                # Self-liveness refresh (v0.44.1): ha MI vagyunk a regisztrált
+                # koordinátor, a monitor loop futása maga az életjel — nem
+                # járunk körbi 420s után saját magunkra DOWN-nal (7 perces
+                # self-claim loop regresszió fix, v0.44.0 cold-start self-register).
+                if (self.election.coordinator is not None
+                        and self.election.coordinator.node_name == self.node_name):
+                    self.election.coordinator.last_heartbeat = time.time()
+                    if self.election.coordinator.state != CoordinatorState.ACTIVE:
+                        log.info("🏛️ Self coordinator liveness refresh: coordinator is US")
+                        self.election.coordinator.state = CoordinatorState.ACTIVE
 
                 # Get known routers from PG for election
                 routers = await self._get_known_routers()
