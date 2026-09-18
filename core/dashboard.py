@@ -1089,12 +1089,14 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
                         where_clauses.append("(recipient = 'broadcast' OR msg_type IN ('agent_reply', 'directive'))")
                     elif channel and channel.startswith("dm:"):
                         dm_agent = channel[3:]
-                        where_clauses.append("(recipient = %s OR sender = %s)")
+                        where_clauses.append("(recipient = $1 OR sender = $2)")
                         params.extend([dm_agent, dm_agent])
                     where_sql = " AND ".join(where_clauses)
+                    # Dynamic asyncpg placeholder numbering ($N must be sequential from $1)
+                    limit_ph = f"${len(params) + 1}"
                     rows = await pool.fetch(
                         f"SELECT id, sender, recipient, msg_type, priority, payload, created_at, status "
-                        f"FROM mesh.mesh_messages WHERE {where_sql} ORDER BY created_at DESC LIMIT %s",
+                        f"FROM mesh.mesh_messages WHERE {where_sql} ORDER BY created_at DESC LIMIT {limit_ph}",
                         params + [limit]
                     )
                     import json as _json

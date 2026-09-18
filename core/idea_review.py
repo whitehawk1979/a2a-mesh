@@ -322,7 +322,7 @@ async def review_ideas_with_llm(node, pg_pool) -> list:
             """SELECT idea_id, title, description, category, priority, submitted_by, upvotes, downvotes, voters
                FROM mesh.mesh_ideas
                WHERE status = 'idea'
-                 AND NOT (%s = ANY(voters))
+                 AND NOT ($1 = ANY(voters))
                ORDER BY upvotes DESC, created_at ASC LIMIT 10""",
             f"coordinator:{getattr(node, 'node_name', 'coordinator')}",
         )
