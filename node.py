@@ -1810,6 +1810,17 @@ class MeshNode:
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
                 steps.append(f"[{node}] launchctl restart: scheduled (3s delay)")
+            elif os.path.exists("/usr/sbin/sshd") and not os.path.exists("/run/systemd/system"):
+                # HAOS-style container (no systemd, embedded sshd present) — 
+                # self-kill pattern: keepalive loop (tor_keepalive.sh / 
+                # mesh_node_keepalive.sh) restarts the node process within 5-10s.
+                # systemctl does not exist here, so the delayed systemctl call
+                # would silently fail and leave the old code running.
+                subprocess.Popen(
+                    ["bash", "-c", f"sleep 3 && pkill -f 'cli.py start --name {node}'"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                steps.append(f"[{node}] container self-kill: scheduled (3s, keepalive restarts)")
             else:
                 # Linux — systemctl (delayed in background)
                 subprocess.Popen(
