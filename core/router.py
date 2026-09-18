@@ -656,7 +656,20 @@ class MeshRouter:
                 self._stats["re_chain_filtered"] += 1
                 return ProcessResult(status="re_chain_filtered", message=message)
 
-        # 5. Message is for me — process it
+        # 5. Idempotency check (v0.42): same logical message → process exactly once,
+        # even across node restarts (persistent LocalStore) and retries with new
+        # message IDs (offline-queue flush reconstructs messages but preserves key).
+        if self.local_store is not None and message.idempotency_key:
+            try:
+                if self.local_store.check_and_add_idempotency(
+                    message.idempotency_key, message.id, message.sender, message.type,
+                ):
+                    self._stats["idempotent_duplicates"] = self._stats.get("idempotent_duplicates", 0) + 1
+                    return ProcessResult(status="duplicate", message=message)
+            except Exception as e:
+                log.warning(f"Idempotency check failed (fail-open): {e}")
+
+        # 6. Message is for me — process it
         for handler in self._handlers:
             try:
                 await handler(message)

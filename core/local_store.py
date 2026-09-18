@@ -111,6 +111,16 @@ class LocalStore:
                 minio_available INTEGER DEFAULT 0,
                 p2p_available INTEGER DEFAULT 0
             );
+
+            CREATE TABLE IF NOT EXISTS processed_keys (
+                idempotency_key TEXT PRIMARY KEY,
+                msg_id TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                msg_type TEXT,
+                processed_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_processed_keys_expiry ON processed_keys(expires_at);
         """)
         self._conn.commit()
         log.info(f"Local store initialized: {self.db_path}")
@@ -399,6 +409,56 @@ class LocalStore:
         ).fetchone()[0]
         return {"unsynced_outbound": outbound, "unprocessed_inbound": inbound, "pending_files": files}
 
+    # ─── Idempotency Keys ──────────────────────────────────────────
+
+    def check_and_add_idempotency(self, idempotency_key: str, msg_id: str,
+                                   sender: str, msg_type: str = "",
+                                   ttl_seconds: int = 86400) -> bool:
+        """Atomically check + record an idempotency key.
+
+        Returns True if the key was ALREADY processed (duplicate).
+        Persistent — survives node restart, unlike the in-memory DedupCache.
+        Expired keys are treated as new (reprocessing after TTL is allowed).
+        """
+        now = time.time()
+        try:
+            cur = self._conn.execute(
+                "SELECT 1 FROM processed_keys WHERE idempotency_key = ? AND expires_at > ?",
+                (idempotency_key, now),
+            ).fetchone()
+            if cur:
+                return True  # duplicate
+            self._conn.execute(
+                """INSERT INTO processed_keys
+                   (idempotency_key, msg_id, sender, msg_type, processed_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(idempotency_key) DO UPDATE SET
+                       msg_id=excluded.msg_id,
+                       msg_type=excluded.msg_type,
+                       processed_at=excluded.processed_at,
+                       expires_at=excluded.expires_at""",
+                (idempotency_key, msg_id, sender, msg_type, now, now + ttl_seconds),
+            )
+            self._conn.commit()
+            return False
+        except Exception as e:
+            log.error(f"Idempotency check failed for {idempotency_key[:32]}: {e}")
+            return False  # fail-open: processing continues on store errors
+
+    def cleanup_processed_keys(self) -> int:
+        """Remove expired idempotency keys. Returns rows deleted."""
+        try:
+            deleted = self._conn.execute(
+                "DELETE FROM processed_keys WHERE expires_at < ?",
+                (time.time(),),
+            ).rowcount
+            if deleted:
+                self._conn.commit()
+            return deleted or 0
+        except Exception as e:
+            log.error(f"processed_keys cleanup failed: {e}")
+            return 0
+
     def get_stats(self) -> Dict[str, Any]:
         """Get local store statistics."""
         return {
@@ -407,6 +467,9 @@ class LocalStore:
             ).fetchone()[0],
             "outbound_synced": self._conn.execute(
                 "SELECT COUNT(*) FROM outbound_queue WHERE pg_synced = 1"
+            ).fetchone()[0],
+            "idempotency_keys": self._conn.execute(
+                "SELECT COUNT(*) FROM processed_keys"
             ).fetchone()[0],
             "inbound_unprocessed": self._conn.execute(
                 "SELECT COUNT(*) FROM inbound_messages WHERE processed = 0"

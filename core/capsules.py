@@ -420,6 +420,7 @@ ENGRAHM_MIN_AGE_SECONDS = 3600       # 1 hour — capsule must age before promot
 ENGRAHM_MIN_RETRIEVALS = 0           # v0.40: age-only promotion (retrieval optional)
 ENGRAHM_RELEVANCE_THRESHOLD = 0.55   # slightly lower than capsule threshold
 ENGRAHM_RECENCY_DECAY_DAYS = 30      # after 30 days, engramm weight halves
+ENGRAHM_DEDUP_THRESHOLD = 0.90       # v0.41: conclusions ≥90% similar merge into one engramm
 MAX_RETRIEVED_ENGRAMMS = 4
 
 
@@ -470,14 +471,64 @@ async def promote_capsule_to_engramm(pg_pool, capsule_id: int, ollama_url: str =
         else:
             embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
 
+        # ── v0.41 Dedup: near-identical conclusions merge into one engramm ──
+        if embedding_str:
+            existing = await pg_pool.fetchrow(
+                """SELECT id, metadata,
+                          1 - (embedding <=> $1::vector) AS similarity
+                   FROM mesh.mesh_memory
+                   WHERE memory_type = 'engramm' AND embedding IS NOT NULL
+                   ORDER BY embedding <=> $1::vector
+                   LIMIT 1""",
+                embedding_str,
+            )
+            if existing and existing['similarity'] >= ENGRAHM_DEDUP_THRESHOLD:
+                ex_meta = json.loads(existing['metadata']) if existing['metadata'] else {}
+                merged_ids = ex_meta.get('merged_capsule_ids', [])
+                if capsule_id not in merged_ids:
+                    merged_ids.append(capsule_id)
+                agents_set = sorted(set(ex_meta.get('agents', [])) | set(meta.get('agents', [])))
+                ex_meta['agents'] = agents_set
+                ex_meta['merged_capsule_ids'] = merged_ids
+                ex_meta['reference_count'] = ex_meta.get('reference_count', 1) + 1
+                ex_meta['last_referenced'] = time.time()
+                consensus = 'high' if len(agents_set) >= 3 else 'medium' if len(agents_set) >= 2 else 'low'
+                ex_meta['consensus'] = consensus
+                await pg_pool.execute(
+                    """UPDATE mesh.mesh_memory
+                       SET metadata = $1, priority = GREATEST(priority, $2)
+                       WHERE id = $3""",
+                    json.dumps(ex_meta), 5 if consensus == 'high' else 3, existing['id'],
+                )
+                # Mark capsule as merged (no new engramm row)
+                meta['promoted_to_engramm'] = existing['id']
+                meta['merged_into_existing'] = True
+                await pg_pool.execute(
+                    "UPDATE mesh.mesh_memory SET metadata = $1 WHERE id = $2",
+                    json.dumps(meta), capsule_id,
+                )
+                log.info(f"🧠 Engramm dedup: capsule {capsule_id} merged into engramm "
+                         f"{existing['id']} (sim={existing['similarity']:.2f})")
+                return existing['id']
+
         # Determine consensus level from agents count
         agents = meta.get('agents', [])
         consensus = 'high' if len(agents) >= 3 else 'medium' if len(agents) >= 2 else 'low'
+
+        # ── v0.44 Provenance schema (ötletláda): trust_score for published conclusions ──
+        # trust = consensus (0.5) + agent diversity (0.3) + reference history (0.2)
+        consensus_factor = {'high': 1.0, 'medium': 0.6, 'low': 0.3}[consensus]
+        ref_factor = min(meta.get('reference_count', 1), 5) / 5.0
+        agent_factor = min(len(agents), 3) / 3.0 if agents else 0.0
+        trust_score = round(min(1.0, 0.5 * consensus_factor + 0.3 * agent_factor + 0.2 * ref_factor), 2)
 
         engramm_meta = json.dumps({
             'topic': meta.get('topic', ''),
             'agents': agents,
             'source_capsule_id': capsule_id,
+            'source_node': agents[0] if agents else 'mesh',
+            'derived_at': meta.get('created', time.time()),
+            'trust_score': trust_score,
             'consensus': consensus,
             'tags': extract_tags(conclusion),
             'created': time.time(),

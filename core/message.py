@@ -106,6 +106,11 @@ class A2AMessage:
     # Protocol version (AXL-inspired: version header for compatibility)
     protocol_version: str = A2A_PROTOCOL_VERSION
 
+    # Idempotency (v0.42): sender-scoped key that survives retries.
+    # Same key = same logical message → receiver processes it exactly once.
+    # Empty = legacy message, only message.id dedup applies.
+    idempotency_key: str = ""
+
     def __post_init__(self):
         if not self.id:
             self.id = uuid_v7()
@@ -113,6 +118,10 @@ class A2AMessage:
             self.timestamp = datetime.now(timezone.utc).isoformat()
         if not self.created_at:
             self.created_at = self.timestamp
+        if not self.idempotency_key:
+            # Deterministic default: same id → same key, keeps retries on
+            # the same logical message identical across reconstructs.
+            self.idempotency_key = f"{self.sender}:{self.id}"
 
     @classmethod
     def create(cls, sender: str, recipient: str, msg_type: str,
