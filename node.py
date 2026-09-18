@@ -381,6 +381,28 @@ class MeshNode:
             self.ack_manager.process_ack(message)
             return
 
+        # Handle coordinator election claims — acting coordinator regisztráció
+        if message.type == "coordinator_claim":
+            payload = message.payload if isinstance(message.payload, dict) else {}
+            if isinstance(message.payload, str):
+                try:
+                    import json as _json
+                    payload = _json.loads(message.payload)
+                except Exception:
+                    payload = {}
+            try:
+                accepted = self.election.handle_election_claim(payload)
+                if accepted:
+                    log.info(
+                        f"🏛️ Accepted acting coordinator: {payload.get('node_name')} "
+                        f"(0x{payload.get('short_addr', 0):04X})"
+                    )
+                else:
+                    log.info(f"🏛️ Rejected coordinator claim from {payload.get('node_name')} — we are more senior")
+            except Exception as e:
+                log.warning(f"coordinator_claim handler error: {e}")
+            return
+
         log.debug(f"_dispatch_to_handlers: msg id={message.id[:8]} type={message.type} sender={message.sender}")
 
         # Handle file transfer messages
@@ -635,7 +657,10 @@ class MeshNode:
                 vote = (payload or {}).get("vote", "up")
                 pg_pool = getattr(self, "_pg_pool", None)
                 if idea_id and pg_pool:
-                    voter = f"agent:{message.sender}"
+                    # A payload 'voter' mezője az EREDETI szavazó (a P2P relay
+                    # senderje mindig nova, ami a továbbító). Enélkül minden
+                    # átvitt szavazat "agent:nova"-ként duplikációba ütközne.
+                    voter = f"agent:{(payload or {}).get('voter') or message.sender}"
                     implement_fn = make_implement_fn(self, pg_pool)
                     result = await apply_vote_with_rules(pg_pool, idea_id, voter, vote, implement_fn=implement_fn)
                     resp = A2AMessage.create(
@@ -964,6 +989,16 @@ class MeshNode:
                 self._tasks.append(review_task)
         except Exception as e:
             log.debug(f"idea-review loop not started: {e}")
+
+        # v0.44: Coordinator vote-nudge loop — periodikus szavazás-emlékeztető
+        # a nyitott ötletekre (determinisztikus, signature-alapú spam-védelem)
+        try:
+            from .core.idea_review import start_vote_nudge_loop
+            nudge_task = await start_vote_nudge_loop(self)
+            if nudge_task:
+                self._tasks.append(nudge_task)
+        except Exception as e:
+            log.debug(f"vote-nudge loop not started: {e}")
 
         # Start alert manager evaluation loop
         if hasattr(self, 'dashboard') and self.dashboard and hasattr(self.dashboard, 'alert_manager'):

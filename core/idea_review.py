@@ -457,9 +457,13 @@ def _notify_owner(idea_row, verdict: dict) -> None:
 # ── Review loop indítása a coordinatoron ───────────────────────────────────
 
 async def start_review_loop(node) -> Optional[asyncio.Task]:
-    """Háttér-loop: REVIEW_INTERVAL-enként review-kör, CSAK a coordinatoron."""
-    if not _is_coordinator(node):
-        log.debug("idea_review: nem coordinator — loop nem indul")
+    """Háttér-loop: REVIEW_INTERVAL-enként review-kör, CSAK a coordinatoron.
+
+    Az entry-guard szándékosan laza (nem blokkol): induláskor az election még
+    nem dönthetett — a loop minden körben újraellenőrzi a koordinátor-státuszt.
+    """
+    if not hasattr(node, "election"):
+        log.debug("idea_review: nincs election objektum — loop nem indul")
         return None
 
     async def _loop():
@@ -485,4 +489,153 @@ async def start_review_loop(node) -> Optional[asyncio.Task]:
 
     task = asyncio.create_task(_loop())
     log.info("🛡️ Coordinator idea-review loop elindult (interval: 6h)")
+    return task
+
+
+# ── Periodikus vote-nudge: nyitott ötletek szavazásra ösztönzése ──────────────
+VOTE_NUDGE_INTERVAL = 24 * 3600      # 24h-onként nudge-kör
+VOTE_NUDGE_MIN_AGE_H = 1            # min. 1h-nál idősebb ötletet nudge-olunk
+VOTE_NUDGE_MAX_IDEAS = 6            # körönként max 6 ötlet (spam-védelem)
+
+_FALLBACK_PEERS_FOR_NUDGE = {
+    # host/port a mesh standard topológiából (dashboard wake-agent mintájára)
+    "morzsa": {"host": "192.168.1.30", "health_port": 8650},
+    "runa": {"host": "192.168.1.100", "health_port": 8650},
+    "nova": {"host": "192.168.1.8", "health_port": 8650},
+    "tor": {"host": "100.74.221.46", "health_port": 8650},
+    "mano": {"host": "192.168.1.43", "health_port": 8650},
+}
+
+
+async def collect_vote_nudge_ideas(pg_pool) -> list:
+    """Determinisztikus: a nyitott (status='idea') ötletekből a legfrissebbeket
+    gyűjti nudge-ra, szavazatszám szerint rendezve (0 szavazat élvez elsőbbséget).
+
+    Spam-védelem: csak VOTE_NUDGE_MIN_AGE_H-nál idősebb, max VOTE_NUDGE_MAX_IDEAS
+    ötlet; kizart a 'rejected'/'done' státusz.
+    """
+    if not pg_pool:
+        return []
+    try:
+        rows = await pg_pool.fetch(
+            """SELECT idea_id, title, upvotes, downvotes, created_at
+               FROM mesh.mesh_ideas
+               WHERE status = 'idea'
+                 AND created_at < NOW() - INTERVAL '1 hour'
+               ORDER BY (upvotes + downvotes) ASC, created_at DESC
+               LIMIT $1""",
+            VOTE_NUDGE_MAX_IDEAS,
+        )
+        return [dict(r) for r in rows]
+    except Exception as e:
+        log.warning(f"vote-nudge collect failed: {e}")
+        return []
+
+
+def _nudge_signature(ideas: list) -> str:
+    """Az ötlethalmaz determinisztikus ujjlenyomata (idea_id sorrend érzékeny)."""
+    import hashlib as _h
+    raw = "|".join(sorted(i["idea_id"] for i in ideas))
+    return _h.md5(raw.encode()).hexdigest()
+
+
+async def start_vote_nudge_loop(node) -> Optional[asyncio.Task]:
+    """Háttér-loop: VOTE_NUDGE_INTERVAL-enként a koordinátor wake-eli az
+    agenteket a nyitott, szavazatlan ötletekre.
+
+    Determinisztikus spam-védelem: azonos ötlethalmazt (signature) nem nudge-olunk
+    kétszer egymás után — csak ha új ötlet jött vagy változott a halmaz.
+    Az agentek válasza a meglévő [SZAVAZAT]-voting csatornán árad vissza.
+
+    Az entry-guard szándékosan laza (nem blokkol): induláskor az election még
+    nem dönthetett — a loop minden körben újraellenőrzi a koordinátor-státuszt.
+    """
+    if not hasattr(node, "election"):
+        log.debug("vote_nudge: nincs election objektum — loop nem indul")
+        return None
+
+    _last_sig = {"sig": None}
+
+    async def _loop():
+        # induláskor 10 perc várakozás — ne ütközzön a review-loop indításával
+        await asyncio.sleep(600)
+        while True:
+            try:
+                if not _is_coordinator(node):
+                    await asyncio.sleep(VOTE_NUDGE_INTERVAL)
+                    continue
+                pg_pool = getattr(node, "_pg_pool", None)
+                ideas = await collect_vote_nudge_ideas(pg_pool)
+                if not ideas:
+                    await asyncio.sleep(VOTE_NUDGE_INTERVAL)
+                    continue
+                sig = _nudge_signature(ideas)
+                if sig == _last_sig["sig"]:
+                    # Azonos halmazt már nudge-oltuk — nem zavarjuk újra az agenteket
+                    await asyncio.sleep(VOTE_NUDGE_INTERVAL)
+                    continue
+                _last_sig["sig"] = sig
+
+                _idea_list = "\n".join(
+                    f"  • {i['idea_id']} — {i['title'][:70]} (+{i['upvotes']}/-{i['downvotes']})"
+                    for i in ideas
+                ) or "  (nincs nyitott ötlet)"
+                prompt = (
+                    f"🗳️ SZAVAZÁS EMLÉKEZTETŐ — az ötletládában várakozó, nyitott ötletek:\n"
+                    f"{_idea_list}\n"
+                    "SZEREP: Minden agent EGY SZAVAZATOT ad le ötletenként, HA még nem szavazott rá. "
+                    "A szavazat formátuma KÖTELEZŐ:\n"
+                    "[SZAVAZAT] idea_<id> up   (támogatás) vagy\n"
+                    "[SZAVAZAT] idea_<id> down (elutasítás)\n"
+                    "Rövid indoklás kötelező. Score ≥ +2 → approved, ≤ -2 → rejected.\n"
+                )
+
+                # 1) P2P broadcast: minden peer megkapja mesh-en (a2a_message csatorna)
+                try:
+                    payload = {
+                        "text": prompt,
+                        "subject": "Szavazás-emlékeztető: nyitott ötletek",
+                        "sender_display": "coordinator",
+                        "chat_username": "coordinator",
+                        "chat_msg_uuid": f"vote-nudge-{int(datetime.now().timestamp())}",
+                        "chat_type": "broadcast",
+                        "command": "vote",
+                    }
+                    await node.broadcast("a2a_message", payload, priority=5)
+                    log.info(f"🗳️ Vote-nudge: P2P broadcast kiment ({len(ideas)} ötlet)")
+                except Exception as e:
+                    log.warning(f"Vote-nudge P2P broadcast failed: {e}")
+
+                # 2) Wake-agent a peer-ekre (HTTP fallback, mint a chat-broadcast ág)
+                import aiohttp as _aiohttp
+                my_name = getattr(node, "node_name", "")
+                for peer_name, peer_info in _FALLBACK_PEERS_FOR_NUDGE.items():
+                    if peer_name == my_name:
+                        continue
+                    wake_url = f"http://{peer_info['host']}:{peer_info['health_port']}/api/wake-agent"
+
+                    async def _wake_nudge(pn=peer_name, url=wake_url):
+                        try:
+                            async with _aiohttp.ClientSession() as sess:
+                                async with sess.post(url, json={
+                                    "prompt": prompt[:1800],
+                                    "agent_name": pn,
+                                    "sender": "coordinator",
+                                    "sender_display": "Coordinator",
+                                    "chat_username": "coordinator",
+                                    "chat_msg_uuid": f"vote-nudge-{int(datetime.now().timestamp())}",
+                                    "chat_type": "broadcast",
+                                    "mesh_secret": "mesh-wake-secret-2026",
+                                }, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
+                                    log.info(f"🗳️ Vote-nudge wake → {pn}: {resp.status}")
+                        except Exception as e:
+                            log.warning(f"🗳️ Vote-nudge wake {pn} failed: {e}")
+
+                    asyncio.create_task(_wake_nudge())
+            except Exception as e:
+                log.warning(f"vote-nudge loop error: {e}")
+            await asyncio.sleep(VOTE_NUDGE_INTERVAL)
+
+    task = asyncio.create_task(_loop())
+    log.info("🗳️ Coordinator vote-nudge loop elindult (interval: 24h)")
     return task

@@ -110,6 +110,14 @@ class CoordinatorElection:
         """
         if not self.coordinator:
             # No coordinator registered yet
+            # Cold-start: ha nincs ismert koordinátor, a senior router magát
+            # claimelheti acting coordinatornek (különben holtpont lenne)
+            if known_routers:
+                senior = min(known_routers, key=lambda r: r[1])
+                if senior[0] == self.self_name:
+                    return CoordinatorState.DOWN
+                # Van nálunk szeniorabb router — várjuk, ő claimeljen
+                return CoordinatorState.SUSPECTED
             return CoordinatorState.DOWN
 
         now = time.time()
@@ -142,9 +150,12 @@ class CoordinatorElection:
         Determine if this node should initiate or participate in election.
 
         Returns True if this node is the senior-most router (lowest addr)
-        and the coordinator is down.
+        and the coordinator is down (vagy nincs még regisztrálva — cold-start).
         """
-        if not self.coordinator or self.coordinator.state != CoordinatorState.DOWN:
+        # Cold-start: ha nincs koordinátor, a check_coordinator_health DOWN-t
+        # ad a senior routernél — a claimelés jogos (holtpont elkerülése)
+        no_coordinator = self.coordinator is None
+        if not no_coordinator and self.coordinator.state != CoordinatorState.DOWN:
             return False
 
         if self.self_role not in ("router", "coordinator"):
@@ -178,6 +189,10 @@ class CoordinatorElection:
             "timestamp": time.time(),
             "claim_reason": "coordinator_down",
         }
+
+        # Self-register: a claimer azonnal acting coordinator lesz a saját
+        # election objektumában is (különben a guardolt loopok nem indulnának el)
+        self.register_coordinator(self.self_name, self.self_addr, is_original=False)
 
         logger.info(f"🏛️ Election: {self.self_name} (0x{self.self_addr:04X}) claiming acting coordinator")
         return claim

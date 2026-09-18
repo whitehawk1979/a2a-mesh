@@ -281,7 +281,7 @@ async def handle_chat_send(node, request, pool, user):
                 except Exception as _e:
                     _idea_list = f"  (lista-lekérés sikertelen: {_e})"
                 _cmd_prefix = (
-                    f"🗳️ SZAVAZÁS INDUL — ötletláda szavazat! {('Célpont: ' + args) if args else 'Az alábbi nyitott ötletekre'}\n"
+                    f"🗳️ SZAVAZÁS INDUL — ötletláda szavazat! {('Célpont: ' + cmd_args) if cmd_args else 'Az alábbi nyitott ötletekre'}\n"
                     "NYITOTT ÖTLETEK:\n"
                     f"{_idea_list}\n"
                     "SZEREP: Minden agent EGY SZAVAZATOT ad le. A szavazat formátuma KÖTELEZŐ:\n"
