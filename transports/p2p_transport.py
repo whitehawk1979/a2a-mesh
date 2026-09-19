@@ -19,7 +19,8 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 from core.exceptions import ConfigurationError
 
 from .base import TransportAdapter, TransportStatus
-from ..core.message import A2AMessage, SendResult, MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT
+from ..core.message import (A2AMessage, SendResult, MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT,
+                            MSG_TYPE_SSH_KEY_SYNC, MSG_TYPE_KEY_BUNDLE)
 from ..core.framing import (encode_frame, read_frame, FRAME_VERSION,
                               V1_MARKER, V2_MARKER, compute_hmac)
 from ..core.message_auth import MessageAuth
@@ -1352,6 +1353,13 @@ class P2PTransport(TransportAdapter):
         """
         # Don't queue heartbeats or ACKs
         if message.type in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK):
+            return
+        # Ephemeral/periodic types: own cycle resends them anyway — retrying
+        # an offline peer just floods the queue (observed 4570 drops on 2026-09-18
+        # when mano was offline 100min: 8192 ssh_key_sync msgs piled up).
+        if message.type in (MSG_TYPE_SSH_KEY_SYNC, MSG_TYPE_KEY_BUNDLE,
+                            "skills_announcement", "diagnostic_report", "config_suggestion",
+                            "peer_online", "peer_offline", "node_join", "node_leave"):
             return
         # P2 cap: drop oldest if queue is full
         if len(self._retry_queue) >= self._max_retry_queue_size:
