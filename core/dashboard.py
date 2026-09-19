@@ -1358,7 +1358,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         msg_type = message.type if hasattr(message, "type") else message.message_type
 
         # Skip non-chat messages — they flood the chat
-        if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online", "node_join", "node_leave"):
+        # v0.44.1: protocol confirmations (key sync, vault, votes) excluded — keep chat for real content
+        if msg_type in ("heartbeat", "memory_sync", "ack", "skills_announcement", "diagnostic_report", "config_suggestion", "peer_offline", "peer_online", "node_join", "node_leave",
+                        "ssh_key_sync", "ssh_key_bundle", "key_bundle", "vault_request", "vault_share", "vault_response",
+                        "idea_submit", "idea_submit_ack", "idea_vote", "idea_vote_ack"):
             return
 
         # Extract display text from payload — handle both dict and JSON string payloads

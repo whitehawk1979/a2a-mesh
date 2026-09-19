@@ -4647,7 +4647,11 @@ echo "Status: ok"
                             # Skip internal mesh protocol messages for dashboard notification
                             # (ACK, heartbeat, skills_announcement are not user-facing)
 
-                            if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync"):
+                            if result.status in ("processed", "forwarded") and msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync",
+                                                                                                "ssh_key_sync", "ssh_key_bundle", "key_bundle",
+                                                                                                "vault_request", "vault_share", "vault_response",
+                                                                                                "idea_submit", "idea_submit_ack", "idea_vote", "idea_vote_ack",
+                                                                                                "peer_online", "peer_offline", "node_join", "node_leave"):
                                 # Notify dashboard for processed AND forwarded messages (chat visibility)
                                 # Forwarded messages are replies to dashboard users that need to be displayed
                                 try:
@@ -4662,7 +4666,8 @@ echo "Status: ok"
                                 # mesh protocol messages that don't need agent processing
                                 if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "agent_dm", "peer_offline", "peer_online",
                                                     "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack",
-                                                    "idea_vote", "idea_vote_ack", "ssh_key_sync", "ssh_key_bundle"):
+                                                    "idea_vote", "idea_vote_ack", "ssh_key_sync", "ssh_key_bundle",
+                                                    "key_bundle", "peer_connect", "node_join", "node_leave", "peer_discovery"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
