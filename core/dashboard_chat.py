@@ -553,12 +553,15 @@ async def handle_chat_messages(node, request, pool, user):
     try:
         if peer:
             # DM conversation between user and specific agent/user
+            # v0.44.1: broadcast agent replies (username='broadcast') must also appear
+            # in DM view with that agent, otherwise replies vanish on reload.
             if before_id:
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
                        FROM mesh.mesh_chat_messages
-                       WHERE username = $1 AND (sender = $2 OR recipient = $2)
+                       WHERE (username = $1 OR username = 'broadcast')
+                         AND (sender = $2 OR recipient = $2)
                          AND id < $3
                        ORDER BY created_at DESC LIMIT $4""",
                     username, peer, before_id, limit
@@ -568,24 +571,30 @@ async def handle_chat_messages(node, request, pool, user):
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
                        FROM mesh.mesh_chat_messages
-                       WHERE username = $1 AND (sender = $2 OR recipient = $2)
+                       WHERE (username = $1 OR username = 'broadcast')
+                         AND (sender = $2 OR recipient = $2)
                        ORDER BY created_at DESC LIMIT $3""",
                     username, peer, limit
                 )
             # Total count for this conversation
             total_row = await pool.fetchrow(
                 """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                   WHERE username = $1 AND (sender = $2 OR recipient = $2)""",
+                   WHERE (username = $1 OR username = 'broadcast')
+                     AND (sender = $2 OR recipient = $2)""",
                 username, peer
             )
         else:
             # All messages for this user (general/broadcast channel)
+            # v0.44.1: broadcast agent replies are stored with username='broadcast'
+            # (see dashboard.py on_mesh_message persist) — include them so the shared
+            # conversation survives a page reload, not just via live WS.
             if before_id:
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
                        FROM mesh.mesh_chat_messages
-                       WHERE username = $1 AND id < $2
+                       WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
+                         AND id < $2
                        ORDER BY created_at DESC LIMIT $3""",
                     username, before_id, limit
                 )
@@ -594,13 +603,13 @@ async def handle_chat_messages(node, request, pool, user):
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
                        FROM mesh.mesh_chat_messages
-                       WHERE username = $1
+                       WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
                        ORDER BY created_at DESC LIMIT $2""",
                     username, limit
                 )
             total_row = await pool.fetchrow(
                 """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                   WHERE username = $1""",
+                   WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))""",
                 username
             )
 
