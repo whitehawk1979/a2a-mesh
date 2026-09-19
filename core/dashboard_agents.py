@@ -428,7 +428,8 @@ class DashboardAgentsMixin:
 
                 if not _cli_ok2:
                     # ── Fallback: bare ollama (no tools) ──
-                    ollama_url = "http://localhost:11434/api/chat"
+                    _ollama_chat_url = (getattr(self.node.config, "ollama_url", "") or "http://localhost:11434").rstrip("/")
+                    ollama_url = _ollama_chat_url + "/api/chat"
                     ollama_body = {
                         "model": "glm-5.3:cloud",
                         "messages": [
@@ -436,7 +437,7 @@ class DashboardAgentsMixin:
                             {"role": "user", "content": prompt[:4000]}
                         ],
                         "stream": False,
-                        "options": {"temperature": 0.8, "num_predict": 1000}
+                        "options": {"temperature": 0.8, "num_predict": 1000, "think": False}
                     }
                     
                     async with _aiohttp_ollama.ClientSession() as sess:
@@ -1230,7 +1231,8 @@ class DashboardAgentsMixin:
 
             if not _cli_ok:
                 # ── Fallback: bare ollama chat (no tools) ──
-                ollama_url = "http://localhost:11434/api/chat"
+                _ollama_chat_url = (getattr(self.node.config, "ollama_url", "") or "http://localhost:11434").rstrip("/")
+                ollama_url = _ollama_chat_url + "/api/chat"
                 ollama_body = {
                     "model": "glm-5.3:cloud",
                     "messages": [
@@ -1238,7 +1240,7 @@ class DashboardAgentsMixin:
                         {"role": "user", "content": prompt[:4000]}
                     ],
                     "stream": False,
-                    "options": {"temperature": 0.8, "num_predict": 1000}
+                    "options": {"temperature": 0.8, "num_predict": 1000, "think": False}
                 }
                 async with _aiohttp.ClientSession() as sess:
                     async with sess.post(ollama_url, json=ollama_body, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
