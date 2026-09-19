@@ -37,7 +37,11 @@ ensure_sshd() {
   if ! ss -ltn 2>/dev/null | grep -q ':2222 '; then
     log "ACTION: sshd :2222 down -> starting"
     mkdir -p /run/sshd
-    /usr/sbin/sshd -p 2222 2>>"$LOG" && log "sshd :2222 started" || log "ERROR: sshd start failed"
+    # v3 2026-09-19: use the mesh sshd_config (AuthorizedKeysFile=/config/.ssh/authorized_keys).
+    # The default config reads /root/.ssh/authorized_keys which does not exist in
+    # this container, so pubkey auth was refused for every peer (found via
+    # morzsa->tor 18222 reverse-tunnel test: "Permission denied (publickey)").
+    /usr/sbin/sshd -p 2222 -f /config/.ssh/sshd_config 2>>"$LOG" && log "sshd :2222 started (config: /config/.ssh/sshd_config)" || log "ERROR: sshd start failed"
   fi
 }
 
