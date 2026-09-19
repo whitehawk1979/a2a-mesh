@@ -1,3 +1,40 @@
+## 2026-09-19 A2A Mesh Status — v0.44.1
+
+Generated: 2026-09-19 07:15 (automated reggeli check)
+
+### Nova (192.168.1.8 — MacBook, localhost)
+- **Status:** running, router, addr 0x1E54, uptime ~1.2h (06:06 koordinált restart — auto-update)
+- **Version:** v0.44.1 (git main@558369d) ✅ sync, updater: up to date
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=✅ SSH tunnel=✅ (priority: p2p → pg_notify → http)
+- **Peers:** 4/4 connected (morzsa, runa, tor, mano), health scorer mind 1.0
+- **mDNS:** aktív, logban "mDNS discovered peer: mano"
+
+### Morzsa (192.168.1.30 — PG primary)
+- **Status:** running, router, uptime ~1.2h, mem 1.4G/2.5G, load 12.6 (figyelendő)
+- **Version:** v0.44.1 ✅ sync
+- **PG:** accepting connections, wal_level=replica, mesh_node_health 5/5 fresh
+- ⚠️ **Replication slots: 0 (runa_replica+nova_replica NINCS — PG redundancia jelenleg inaktív)**
+
+### Runa (192.168.1.100)
+- **Status:** running, router, uptime ~1.2h
+- **Version:** v0.44.1 ✅ sync (main@558369d)
+- **Transports:** PG=✅ P2P=✅ HTTP=✅ BLE=❌ SSH tunnel=✅
+- **Gitea nginx fix (2026-09-19):** gitea-ssl vhost (443/3443/3222) NEM volt enabled → symlink + reload; most 200 OK mindhárom porton, X-Forwarded-Proto $scheme mindkét vhoston; API v1.27.0 OK
+- ⚠️ PG 15 main cluster (port 5434) down; disk 82.1%
+
+### Tor + Mano (192.168.1.43 — HAOS)
+- **Tor:** running, addr 0x77A9, PG=✅ P2P=✅ (Tailscale health check időnként fail, SSH tunnel stabil)
+- **Mano:** running, addr 0x1EAD, PG=✅ P2P=✅
+- Transient SSH tunnel read error-ok (0 bytes) — retry logika kezeli, retries=0
+
+### Mesh-wide
+- **Cron job-ok:** 17/17 enabled; nova-heartbeat OK (*/5), mesh_alert OK, silent watchdog OK
+- ⚠️ Hermes Auto-Update job 06:15 error (gateway shutdown post-interrupt kill) — self-heal 18:00-nál
+- **mDNS:** discovery/mdns.py aktív minden node-on (_a2a._tcp, mDNS+static)
+- **TLS P2P:** mTLS + TLSv1.3, tls_verify_peer=true
+- **Topology tuner:** enabled, 11 evaluations, 0 promo/demo (score-ok 1.0 → nincs szükség)
+- **DLQ:** 0 pending, dedup hit_rate 0.85%
+
 ## 2026-09-11 A2A Mesh Status — v0.42.3
 
 Generated: 2026-09-11 07:25 (automated reggeli check)
