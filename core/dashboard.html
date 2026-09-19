@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>A2A Mesh Dashboard</title>
+<link rel="icon" type="image/png" href="/branding/favicon_32.png">
+<link rel="apple-touch-icon" href="/branding/apple_touch_icon_180.png">
 <style>
 :root{--bg:#0a0e17;--surface:#131a2b;--surface2:#1a2238;--border:#2a3555;--primary:#4f8cff;--primary-dim:#2d5bb9;--success:#22c55e;--warning:#f59e0b;--danger:#ef4444;--text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;--dm-bg:#1a1e2e;--room-active:#1e3a5f}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -256,7 +258,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <!-- Main Dashboard -->
 <div class="header">
   <button class="mobile-sidebar-toggle" onclick="toggleSidebar()">☰</button>
-  <h1><span class="mesh-icon">⚡</span> A2A Mesh</h1>
+  <h1><span class="mesh-icon"><img src="/branding/emblem_transparent_1024.png" alt="A2A Mesh" style="width:28px;height:28px;object-fit:contain;border-radius:6px"></span> A2A Mesh</h1>
   <input type="text" id="globalSearchInput" placeholder="🔍 Keresés..." onkeyup="if(event.key==='Enter'){globalSearch(this.value)}" style="width:180px;padding:6px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px;margin-left:12px;">
   <button onclick="exportCurrentPage()" title="Export aktuális oldal" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:12px;margin-left:4px;">📥</button>
   <button onclick="toggleTheme()" title="Téma váltás" style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 10px;cursor:pointer;color:var(--text);font-size:14px;margin-left:4px;">🎨</button>

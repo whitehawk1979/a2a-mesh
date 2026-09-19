@@ -248,6 +248,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/settings", self._api_settings_update)
         app.router.add_get("/api/mesh/topology", self._api_mesh_topology)
         app.router.add_get("/topology", self._api_topology_page)
+        # Branding assets (logo, favicon, icons)
+        app.router.add_get("/branding/{filename}", self._serve_branding_file)
         # Lab — project showcase
         app.router.add_get("/lab", self._lab_page)
         # Skills marketplace
@@ -647,6 +649,22 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         if user.role != "owner":
             return user, web.json_response({"error": "Owner access required"}, status=403)
         return user, None
+
+    async def _serve_branding_file(self, request):
+        """Serve branding assets from docs/branding/ (favicon, logo, icons)."""
+        from aiohttp import web
+        filename = request.match_info.get("filename", "")
+        base_dir = os.path.join(os.path.dirname(__file__), "..", "docs", "branding")
+        base_dir = os.path.abspath(base_dir)
+        file_path = os.path.abspath(os.path.join(base_dir, filename))
+        # Security: prevent directory traversal
+        if not file_path.startswith(base_dir + os.sep):
+            return web.json_response({"error": "Access denied"}, status=403)
+        if not os.path.isfile(file_path):
+            return web.json_response({"error": "Not found"}, status=404)
+        import mimetypes as _mimetypes
+        _mime, _ = _mimetypes.guess_type(file_path)
+        return web.FileResponse(file_path, headers={"Content-Type": _mime or "application/octet-stream"})
 
     def _load_html(self) -> str:
         """Load the dashboard HTML page from external file (cached)."""

@@ -193,6 +193,18 @@ peers:
     host: 192.168.1.100
 ```
 
+## Branding
+
+A hivatalos A2A Mesh brand assetek a `docs/branding/` mappában:
+
+- `logo_primary_dark_1024.png` — sötét (navy-teal) primary logó
+- `logo_light_1024.png` — világos háttérhez
+- `emblem_transparent_1024.png` — transzparens emblem (header/ikon)
+- `banner_1664x928.png` — dashboard banner
+- `favicon_256.png`, `favicon_32.png`, `apple_touch_icon_180.png` — favicons
+
+A dashboard oldalak a `/branding/{fájlnév}` route-on keresztül szolgálják ki őket. A logó a DashScope qwen-image-3.0-pro modellel készült (hexagon mesh node topológia).
+
 ## Dashboard
 
 A dashboard elérhető: `http://<node-ip>:8650/dashboard`
