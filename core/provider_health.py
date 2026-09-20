@@ -25,11 +25,11 @@ from typing import Dict, Any, Optional
 log = logging.getLogger("a2a_mesh.provider_health")
 
 
-def _check_http(url: str, timeout: float = 3.0) -> tuple[bool, float]:
+def _check_http(url: str, timeout: float = 3.0, headers: dict = None) -> tuple[bool, float]:
     """Check an HTTP endpoint. Returns (ok, latency_ms)."""
     start = time.monotonic()
     try:
-        req = urllib.request.Request(url, method="GET")
+        req = urllib.request.Request(url, method="GET", headers=headers or {})
         resp = urllib.request.urlopen(req, timeout=timeout)
         latency = (time.monotonic() - start) * 1000
         return resp.status == 200, round(latency, 1)
@@ -47,6 +47,45 @@ def _read_hermes_config() -> Dict[str, Any]:
             return yaml.safe_load(f)
     except Exception:
         return {}
+
+
+def _resolve_api_key(config: Dict[str, Any], provider_name: str, base_url: str) -> Optional[str]:
+    """Resolve the API key for a provider — needed for /models checks that
+    return 401 for unauthenticated requests (e.g. DashScope).
+    Order: providers[name].api_key (literal) -> key_env env var -> .env file."""
+    providers = config.get("providers", {})
+    p = providers.get(provider_name, {})
+    key = p.get("api_key")
+    if key and not key.startswith("env:"):
+        return key
+    key_env = p.get("key_env")
+    if not key_env:
+        # match by base_url
+        for pv in providers.values():
+            api = (pv.get("api") or pv.get("base_url") or "")
+            if base_url and api and api.rstrip("/") == base_url.rstrip("/"):
+                key_env = pv.get("key_env")
+                key = pv.get("api_key")
+                if key and not key.startswith("env:"):
+                    return key
+                break
+    if not key_env:
+        return None
+    val = os.environ.get(key_env)
+    if val:
+        return val
+    # try .env file (~/.hermes/.env)
+    env_path = os.path.expanduser("~/.hermes/.env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith(key_env + "="):
+                        return line.split("=", 1)[1].strip().strip('"').strip("'")
+        except Exception:
+            pass
+    return None
 
 
 def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
@@ -115,7 +154,11 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
             check_url = primary_url.rstrip("/").replace("/v1", "") + "/api/tags"
         else:
             check_url = primary_url.rstrip("/") + "/models"
-        ok, latency = _check_http(check_url)
+        headers = None
+        api_key = _resolve_api_key(config, primary_provider, primary_url)
+        if api_key:
+            headers = {"Authorization": "Bearer " + api_key}
+        ok, latency = _check_http(check_url, headers=headers)
         primary_status = {"status": "ok" if ok else "fail", "model": primary_model, "latency_ms": latency}
 
     # Check fallback (mesh-llm) — longer timeout: the mesh-llm MoA router can
@@ -124,7 +167,11 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
     fallback_status = {"status": "unknown", "model": fallback_model, "latency_ms": 0}
     if fallback_url:
         check_url = fallback_url.rstrip("/") + "/models"
-        ok, latency = _check_http(check_url, timeout=8.0)
+        headers = None
+        fb_key = _resolve_api_key(config, "mesh-llm", fallback_url)
+        if fb_key:
+            headers = {"Authorization": "Bearer " + fb_key}
+        ok, latency = _check_http(check_url, timeout=8.0, headers=headers)
         fallback_status = {"status": "ok" if ok else "fail", "model": fallback_model, "latency_ms": latency}
 
     result = {
