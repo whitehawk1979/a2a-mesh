@@ -85,7 +85,9 @@ class SSHTunnelConfig:
     peers: Dict[str, Dict] = field(default_factory=dict)
     # Local port range for tunnel endpoints (auto-assigned)
     local_port_start: int = 9200
-    connect_timeout: int = 15  # SSH connection timeout
+    connect_timeout: int = 60  # SSH connection timeout — 60s: Tailscale/VPN handshake
+    # can exceed 15s (DERP relay), short timeout breaks tunnels with
+    # "Could not connect to SSH tunnel local endpoint" while ssh is fine
     keepalive_interval: int = 30  # SSH ServerAliveInterval
     max_retries: int = 3  # Max consecutive SSH failures before giving up
     reconnect_interval: int = 10  # Base retry interval (exponential backoff)
