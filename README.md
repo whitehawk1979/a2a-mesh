@@ -1,4 +1,4 @@
-# A2A Mesh v0.41.0
+# A2A Mesh v0.45.0
 
 Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kommunikáció, delegáció, chat és health monitoring. Zigbee-inspirált topology, mTLS + HMAC titkosítás, PostgreSQL shared state, WebSocket dashboard.
 
@@ -12,6 +12,7 @@ Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kom
 - **mTLS + HMAC** — mutual TLS + HMAC-SHA256 aláírás minden üzeneten
 - **Dedup + replay védelem** — nonce-based anti-replay
 - **MCP End-Device (v0.43.0)** — külső agentek (OpenCode, Claude, custom MCP kliensek) csatlakozhatnak MCP bridge-en (`:8100`) mesh-dæmon nélkül; end-device-ként jelennek meg a topológiában a parent node alatt (`mcp` transzport-él). Külön repo: `zsolt/a2a-mcp-bridge`.
+- **Élő cím-registry (v0.45.0)** — minden node a PG `mesh_nodes.transport_info` mezőben publikálja az élő dial-in címét (`ssh_host`, `ssh_port`, `ssh_user`, `forward_host`, `p2p_port`) regisztrációkor és minden heartbeatban. Az SSH tunnel-ek minden connect előtt a peer ÉLŐ címét olvassák ki (60s cache, 10 perces heartbeat-frissesség gate), nem a statikus configot — konténer-újraépítésnél (IP-változás) a tunnel automatikusan követi az új címet. Determinisztikus fallback: élő registry > statikus config. A `forward_host` auto-detektálás: config `advertised_forward_host` > saját élő bridge IP (konténer) > loopback (azonos gép).
 
 ### 💬 Chat & közös szoba (v0.38.0 újdonság)
 - **DM (direct message)** — közvetlen üzenet egy agentnek
@@ -89,11 +90,12 @@ pytest-asyncio>=0.21    # Async teszt support
 ┌──────────────────────────────────────────────────────┐
 │                    A2A Mesh                          │
 ├──────────┬──────────┬──────────┬──────────────────────┤
-│  Nova    │  Morzsa  │  Runa    │  Tor (HAOS Docker)   │
-│ (macOS)  │ (Linux)  │ (Linux)  │                      │
+│  Nova    │  Morzsa  │  Runa    │  Tor + Mano (HAOS)   │
+│ (macOS)  │ (Linux)  │ (Linux)  │  Docker konténerek  │
 ├──────────┼──────────┼──────────┼──────────────────────┤
-│  Hermes  │  Hermes  │  Hermes  │  Owner-only          │
-│  Agent   │  Agent   │  Agent   │                      │
+│  Hermes  │  Hermes  │  Hermes  │  Tor: owner-only    │
+│  Agent   │  Agent   │  Agent   │  Mano: OpenClaw     │
+│          │          │          │  (host network)     │
 ├──────────┼──────────┼──────────┼──────────────────────┤
 │  A2A     │  A2A     │  A2A     │  A2A Mesh            │
 │  Mesh    │  Mesh    │  Mesh    │  (Docker)            │
@@ -116,7 +118,7 @@ pytest-asyncio>=0.21    # Async teszt support
 ```bash
 git clone http://192.168.1.100:3001/nova/a2a-mesh.git ~/a2a_mesh
 cd ~/a2a_mesh
-git checkout v0.38.6
+git checkout v0.45.0
 ```
 
 ### 2. Virtuális környezet
@@ -244,6 +246,23 @@ curl -H "Authorization: Bearer $TOKEN" \
 ```
 
 ## Verzió történet
+
+### v0.45.0 (2026-09-21)
+- **Élő cím-registry (live address registry)** — SSH tunnel-ek mindig élő címre csatlakoznak: minden node publikálja a `transport_info`-t (ssh_host/ssh_port/ssh_user/forward_host/p2p_port) a PG-be regisztrációkor + minden heartbeatban; a tunnel-connect feloldja a peer élő címét (60s cache, <10 perc heartbeat gate). Konténer-újraépítésnél (bridge IP változás) a tunnel automatikusan követi — vége a statikus config elavulásának.
+- **Gyökérok javítva:** HAOS multi-agent host (tor+mano konténerek) — Tor konténer újraépítése IP-t váltott (172.30.33.13→.14), a statikus `forward_host` configok elavultak → runa→tor, morzsa→tor, mano→tor tunnel szakadások. A registry + auto-detektált forward_host véglegesen megoldja.
+- **Mano node self-heal** — konténer-restart után a mesh node nem állt fel magától; keepalive loop újraindítva.
+- **Topológia: 24/24 él connected** — teljes 2irányú SSH tunnel matrix minden node között.
+
+### v0.44.x (2026-09-19)
+- **Election cold-start fix** — koordinátor-választás hideg indításnál
+- **Vote-nudge 24h + review 6h** koordinátoron
+- Provider health: built-in cloud provider URL feloldás (Nova gpt-6-astra `/models` health check)
+- Runa mesh-llm 0.76.2 SIGILL rollback tanulság (AVX2 vs i7-3770S)
+
+### v0.43.0 (2026-09-17)
+- **MCP End-Device** — külső agentek MCP bridge-en (`:8100`) mesh-dæmon nélkül
+- **Embedded sshd** minden node-nak (`core/ssh_server.py`, port 2230, self-heal, auto-install)
+- **Dream Engine** — determinisztikus (SQL, no LLM), 6h interval, kimenet `DREAM.md`
 
 ### v0.38.6 (2026-08-26)
 - **Minden DM + Broadcast működik** — Nova, Morzsa, Runa között teljes chat
