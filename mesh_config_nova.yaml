@@ -222,7 +222,7 @@ mesh:
       port: 5432
       user: nova
     ssh_tunnel:
-      connect_timeout: 15
+      connect_timeout: 60
       default_identity_file: ~/.ssh/id_ed25519_openclaw
       default_ssh_user: ''
       embedded_sshd: true

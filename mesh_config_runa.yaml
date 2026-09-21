@@ -101,7 +101,7 @@ mesh:
       default_ssh_user: ''
       default_identity_file: ~/.ssh/id_ed25519_openclaw
       local_port_start: 9200
-      connect_timeout: 15
+      connect_timeout: 60
       keepalive_interval: 30
       max_retries: 3
       reconnect_interval: 10
