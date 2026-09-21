@@ -5092,6 +5092,7 @@ echo "Status: ok"
 
         - ssh_host: IP peers should SSH to (advertise_ip — the address that
           actually works: LAN host IP for bridge containers, VPN IP if preferred)
+-         - ssh_hosts: ordered address LIST for multi-address fallback
         - ssh_port: OUR OWN inbound sshd port (embedded sshd 2230, or 22)
         - ssh_user: user peers should use (from ssh_key_sync announcement)
         - forward_host: the IP OUR P2P listener is reachable at FROM the sshd
@@ -5105,6 +5106,40 @@ echo "Status: ok"
         except Exception:
             info["ssh_host"] = ""
         info["p2p_port"] = self.config.p2p.listen_port
+        # Multi-address dial list (v0.45.1): peers try these in order.
+        # Deterministic precedence: explicit static_nodes own-IP (operator
+        # truth) > LAN IP > Tailscale/VPN IP. A single preferred address can
+        # hang (e.g. Tailscale MTU/handshake issues on some links) — the list
+        # lets the tunnel fall back to the next address without config edits.
+        try:
+            dial_list: list = []
+            disc = getattr(self.config, "discovery", None)
+            for _sn in (getattr(disc, "static_nodes", None) or []):
+                try:
+                    if (str(_sn.get("name", "")).lower() == str(self.node_name).lower()
+                            and _sn.get("ip")):
+                        _ip = str(_sn.get("ip"))
+                        if _ip not in dial_list:
+                            dial_list.append(_ip)
+                except Exception:
+                    continue
+            try:
+                lan_ip = self._get_local_ip()
+                if lan_ip and lan_ip != "127.0.0.1" and lan_ip not in dial_list:
+                    dial_list.append(lan_ip)
+            except Exception:
+                pass
+            try:
+                from .core.vpn import _tailscale_ip
+                ts_ip = _tailscale_ip()
+                if ts_ip and ts_ip not in dial_list:
+                    dial_list.append(ts_ip)
+            except Exception:
+                pass
+            if dial_list:
+                info["ssh_hosts"] = dial_list
+        except Exception:
+            pass
         ssh_cfg = getattr(self.config, "ssh_tunnel", None)
         # 1) Multi-agent HAOS: config explicitly declares the forward target
         #    (bridge IP) — use it, it's operator-verified.

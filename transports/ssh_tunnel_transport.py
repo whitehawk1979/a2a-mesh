@@ -267,6 +267,23 @@ class SSHTunnelTransport(TransportAdapter):
             except Exception as _reg_err:
                 log.debug(f"Registry refresh failed for {peer_name}: {_reg_err}")
 
+            # Multi-address dial (v0.45.1): the registry may publish an ordered
+            # ssh_hosts list (static_nodes IP > LAN > VPN). If the current
+            # ssh_host didn't work on the previous attempt, rotate to the next
+            # address in the list — a hung VPN link no longer blocks the tunnel.
+            try:
+                hosts = self._peer_dial_list(peer)
+                if len(hosts) > 1 and peer.last_connect_attempt > 0:
+                    cur = peer.ssh_host
+                    if cur in hosts:
+                        idx = hosts.index(cur)
+                        nxt = hosts[(idx + 1) % len(hosts)]
+                        if nxt and nxt != cur:
+                            peer.ssh_host = nxt
+                            log.info(f"SSH tunnel {peer_name}: rotating dial address {cur} → {nxt} (multi-address fallback)")
+            except Exception:
+                pass
+
             try:
                 success = await self._establish_tunnel(peer)
                 if success:
@@ -433,6 +450,25 @@ class SSHTunnelTransport(TransportAdapter):
         """Inject the shared asyncpg pool for live address-registry lookups."""
         self._pg_pool = pg_pool
 
+    def _peer_dial_list(self, peer: TunnelPeer) -> List[str]:
+        """Ordered dial addresses for a peer (multi-address fallback, v0.45.1).
+
+        Sources: the peer's live registry entry ssh_hosts (published by its
+        heartbeat; precedence: static_nodes own-IP > LAN > VPN) plus the
+        statically configured ssh_host. The current peer.ssh_host stays in
+        the list (first), so rotation never loses a working address.
+        """
+        hosts: List[str] = []
+        cached = self._registry_cache.get(peer.name)
+        if cached:
+            for h in (cached[0].get("ssh_hosts") or []):
+                h = str(h)
+                if h and h not in hosts:
+                    hosts.append(h)
+        if peer.ssh_host and peer.ssh_host not in hosts:
+            hosts.insert(0, peer.ssh_host)
+        return hosts
+
     async def _refresh_peer_from_registry(self, peer: TunnelPeer) -> None:
         """Refresh a TunnelPeer's addresses from the LIVE PG registry.
 
@@ -474,7 +510,13 @@ class SSHTunnelTransport(TransportAdapter):
         except Exception:
             pass
         changed = []
-        if info.get("ssh_host") and info["ssh_host"] != peer.ssh_host:
+        # ssh_host: do NOT override if the current address is already part of
+        # the peer's published dial list — multi-address rotation may have
+        # selected a different entry from the SAME list (e.g. LAN instead of
+        # the hung VPN address); overriding would undo the rotation each time.
+        dial_hosts = [str(h) for h in (info.get("ssh_hosts") or [])]
+        if info.get("ssh_host") and info["ssh_host"] != peer.ssh_host \
+                and peer.ssh_host not in dial_hosts:
             peer.ssh_host = str(info["ssh_host"]); changed.append(f"ssh_host→{peer.ssh_host}")
         if info.get("ssh_port") and int(info["ssh_port"]) != peer.ssh_port:
             peer.ssh_port = int(info["ssh_port"]); changed.append(f"ssh_port→{peer.ssh_port}")
