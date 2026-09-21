@@ -39,6 +39,7 @@ _CHAT_COMMANDS = {
     "all": "Közös elemzés: /all <kérdés> — minden agent válaszol ugyanarra",
     "ideas": "Ötletgyűjtés: /ideas <téma> — minden agent javaslatot ad, [ÖTLET]-jelölve → Ötletláda",
     "vote": "Agent-szavazás: /vote [idea_id] — minden agent leadja szavazatát az ötletládában nyitott ötletekre",
+    "delegate": "Feladat-delegálás: /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc leírás] — determinisztikus delegation task létrehozása (Kanban kártya automatikusan)",
     "clear": "Chat üzenetek törlése ebben a szobában (csak saját üzenetek)",
 }
 
@@ -90,6 +91,73 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
             out_content = "🧹 Chat törölve ebben a szobában."
         except Exception as e:
             out_content = f"⚠️ Törlés hiba: {e}"
+
+    elif cmd == "delegate":
+        # /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc ...]
+        # Deterministic delegation: creates a task via the node's DelegationManager
+        # (PG INSERT + Kanban card) — no LLM involved, immediate ack in chat.
+        import re as _re_dl, shlex as _shlex_dl
+        args = (args or "").strip()
+        if not args:
+            out_content = ("⚠️ Használat: `/delegate <agent|any> <tárgy> [opciók]`\n"
+                           "• `/delegate morzsa Elemzés a hőmérséklet-logokról`\n"
+                           "• `/delegate any Riport a mesh topológiáról --prio 8`\n"
+                           "Opciók: `--prio 1-9` (default 5), `--type <típus>` (default generic), "
+                           "`--timeout <perc>` (default 30), `--desc <leírás>`")
+        else:
+            try:
+                tokens = _shlex_dl.split(args)
+            except ValueError:
+                tokens = args.split()
+            to_agent = tokens[0].strip().lstrip("@").lower() if tokens else ""
+            subject_parts: list = []
+            prio, task_type, timeout_m, desc = 5, "generic", 30, ""
+            i = 1
+            while i < len(tokens):
+                t = tokens[i]
+                if t == "--prio" and i + 1 < len(tokens):
+                    try: prio = max(1, min(9, int(tokens[i+1])))
+                    except ValueError: pass
+                    i += 2
+                elif t == "--type" and i + 1 < len(tokens):
+                    task_type = tokens[i+1][:40]; i += 2
+                elif t == "--timeout" and i + 1 < len(tokens):
+                    try: timeout_m = max(1, min(1440, int(tokens[i+1])))
+                    except ValueError: pass
+                    i += 2
+                elif t == "--desc" and i + 1 < len(tokens):
+                    desc = tokens[i+1][:2000]; i += 2
+                else:
+                    subject_parts.append(t); i += 1
+            subject = " ".join(subject_parts).strip()
+            if not to_agent or not subject:
+                out_content = "⚠️ Használat: `/delegate <agent|any> <tárgy>` — pl. `/delegate morzsa Logok elemzése`"
+            else:
+                try:
+                    _dl = getattr(node, "delegation", None)
+                    if _dl is None and getattr(node, "pg_pool", None) is None and getattr(node, "_pg_pool", None) is None:
+                        raise RuntimeError("PG pool nem elérhető")
+                    if _dl is None:
+                        from core.delegation import DelegationManager
+                        _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
+                        node.delegation = _dl
+                    available = (to_agent == "any")
+                    task_id = await _dl.delegate_task(
+                        to_agent=(to_agent if not available else "any"),
+                        subject=subject,
+                        description=desc or subject,
+                        task_type=task_type,
+                        priority=prio,
+                        timeout_minutes=timeout_m,
+                        available=available,
+                    )
+                    _ids = task_id if isinstance(task_id, list) else [task_id]
+                    out_content = (f"✅ **Delegálva** → `{to_agent}`\n"
+                                   f"• Tárgy: {subject[:120]}\n"
+                                   f"• task_id: `{_ids[0][:18]}…`\n"
+                                   f"• Prioritás: P{prio} | Típus: {task_type} | Timeout: {timeout_m} perc")
+                except Exception as _dl_e:
+                    out_content = f"❌ Delegálás sikertelen: {_dl_e}"
 
     elif cmd in ("debate", "ask", "all", "ideas", "vote"):
         # These are ROUTED to agents with special framing — handled by returning
