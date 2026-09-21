@@ -49,6 +49,16 @@ def _read_hermes_config() -> Dict[str, Any]:
         return {}
 
 
+# Canonical URLs for Hermes built-in cloud providers (no providers-dict entry).
+# These endpoints answer /models without an API key (401 still means "reachable").
+_BUILTIN_PROVIDER_URLS = {
+    "openai-api": "https://api.openai.com/v1",
+    "anthropic-api": "https://api.anthropic.com/v1",
+    "nous-api": "https://api.nousresearch.com/v1",
+    "openrouter-api": "https://openrouter.ai/api/v1",
+}
+
+
 def _resolve_api_key(config: Dict[str, Any], provider_name: str, base_url: str) -> Optional[str]:
     """Resolve the API key for a provider — needed for /models checks that
     return 401 for unauthenticated requests (e.g. DashScope).
@@ -118,13 +128,17 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
             primary_url = providers_dict[primary_provider].get("api", "") or providers_dict[primary_provider].get("base_url", "")
         # Try common Ollama provider names
         if not primary_url:
-            for pname in ("custom", "ollama", "local-ollama", "ollama-cloud"):
+            for pname in ("custom", "ollama", "local-ollama", "ollama-cloud", "ollama-launch"):
                 if pname in providers_dict:
                     p = providers_dict[pname]
                     url = p.get("api", "") or p.get("base_url", "")
                     if url and (":11434" in url or "ollama" in pname.lower()):
                         primary_url = url
                         break
+        # Built-in cloud providers with no providers-dict entry (e.g. openai-api):
+        # use the canonical public API URL so the /models health check works.
+        if not primary_url and primary_provider in _BUILTIN_PROVIDER_URLS:
+            primary_url = _BUILTIN_PROVIDER_URLS[primary_provider]
 
     # Determine fallback provider (mesh-llm)
     fallback_url = ""
