@@ -1,4 +1,4 @@
-# A2A Mesh v0.45.0
+# A2A Mesh v0.45.2
 
 Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kommunikáció, delegáció, chat és health monitoring. Zigbee-inspirált topology, mTLS + HMAC titkosítás, PostgreSQL shared state, WebSocket dashboard.
 
@@ -118,7 +118,7 @@ pytest-asyncio>=0.21    # Async teszt support
 ```bash
 git clone http://192.168.1.100:3001/nova/a2a-mesh.git ~/a2a_mesh
 cd ~/a2a_mesh
-git checkout v0.45.0
+git checkout v0.45.2
 ```
 
 ### 2. Virtuális környezet
@@ -246,6 +246,13 @@ curl -H "Authorization: Bearer $TOKEN" \
 ```
 
 ## Verzió történet
+
+### v0.45.2 (2026-09-21)
+- **Multi-address dial finomítás** — (1) a `ssh_hosts` dial-lista soha nem tartalmaz konténer-bridge IP-t: ha az észlelt LAN IP egyezik az `advertised_forward_host`-tal (konténer-scenario), az kizárásra kerül — a belső cím helyes szerepe a `forward_host`; ugyanez a guard a publikált `ssh_host`-ra is. (2) `TunnelPeer.config_ssh_host`: a statikus config cím megőrzésre kerül és mindig az első jelölt a dial-listában — a registry és a rotáció soha nem veszti el. (3) A registry `ssh_host`-ja csak ÜRES dial-címet tölt fel, soha nem ír felül konfigurált/rotált címet — a címváltozás determinisztikusan, hibavezérelt rotációval követi a tunnel (a működő LAN-t nem rántja VPN-re).
+- Eredmény: a peer-ek a működő címükön maradnak; a rotáció csak valódi connect-hibánál lép, és a tor/mano konténer-bridge IP többé nem kerülhet dial-címek közé.
+
+### v0.45.1 (2026-09-21)
+- **SSH connect_timeout 15→60s** — Tailscale/VPN (DERP relay) handshake meghaladhatja a 15s-t; rövid timeout alatt a local forward nem épült fel időben ("Could not connect to SSH tunnel local endpoint") akkor is, amikor maga az ssh process rendben volt.
 
 ### v0.45.0 (2026-09-21)
 - **Élő cím-registry (live address registry)** — SSH tunnel-ek mindig élő címre csatlakoznak: minden node publikálja a `transport_info`-t (ssh_host/ssh_port/ssh_user/forward_host/p2p_port) a PG-be regisztrációkor + minden heartbeatban; a tunnel-connect feloldja a peer élő címét (60s cache, <10 perc heartbeat gate). Konténer-újraépítésnél (bridge IP változás) a tunnel automatikusan követi — vége a statikus config elavulásának.

@@ -5101,31 +5101,31 @@ echo "Status: ok"
         - p2p_port: the mesh P2P listener port
         """
         info: dict = {}
-        try:
-            info["ssh_host"] = self._get_advertise_ip()
-        except Exception:
-            info["ssh_host"] = ""
         info["p2p_port"] = self.config.p2p.listen_port
-        # Multi-address dial list (v0.45.1): peers try these in order.
-        # Deterministic precedence: explicit static_nodes own-IP (operator
-        # truth) > LAN IP > Tailscale/VPN IP. A single preferred address can
-        # hang (e.g. Tailscale MTU/handshake issues on some links) — the list
-        # lets the tunnel fall back to the next address without config edits.
+        # Multi-address dial list (v0.45.2): peers try these in order.
+        # Deterministic precedence: static_nodes own-entry (operator truth)
+        # > LAN IP > Tailscale/VPN IP > explicit p2p.advertise_host.
+        # EXCLUSION: in bridge containers (multi-agent HAOS hosts) the
+        # detected local IP is an INTERNAL bridge address peers cannot dial —
+        # the operator marks that scenario with ssh_tunnel.advertised_forward_host
+        # (the internal address's correct role is forward_host, published above).
         try:
             dial_list: list = []
             disc = getattr(self.config, "discovery", None)
             for _sn in (getattr(disc, "static_nodes", None) or []):
                 try:
-                    if (str(_sn.get("name", "")).lower() == str(self.node_name).lower()
-                            and _sn.get("ip")):
-                        _ip = str(_sn.get("ip"))
-                        if _ip not in dial_list:
+                    if str(_sn.get("name", "")).lower() == str(self.node_name).lower():
+                        _ip = str(_sn.get("ip") or _sn.get("host") or "")
+                        if _ip and _ip not in dial_list:
                             dial_list.append(_ip)
                 except Exception:
                     continue
+            _internal_fwd = str(getattr(getattr(self.config, "ssh_tunnel", None),
+                                        "advertised_forward_host", "") or "").strip()
             try:
                 lan_ip = self._get_local_ip()
-                if lan_ip and lan_ip != "127.0.0.1" and lan_ip not in dial_list:
+                if lan_ip and lan_ip != "127.0.0.1" and lan_ip not in dial_list \
+                        and lan_ip != _internal_fwd:
                     dial_list.append(lan_ip)
             except Exception:
                 pass
@@ -5136,10 +5136,33 @@ echo "Status: ok"
                     dial_list.append(ts_ip)
             except Exception:
                 pass
+            try:
+                _adv = str(getattr(getattr(self.config, "p2p", None),
+                                   "advertise_host", "") or "").strip()
+                if _adv and _adv not in dial_list:
+                    dial_list.append(_adv)
+            except Exception:
+                pass
             if dial_list:
                 info["ssh_hosts"] = dial_list
         except Exception:
             pass
+        # v0.45.2 guard: the single ssh_host must be a DIALABLE address —
+        # never the internal bridge/forward address (advertised_forward_host).
+        # If the advertise IP IS the internal one (bridge container), fall
+        # back to the first dial-list entry (static_nodes > LAN > VPN order).
+        try:
+            _adv_ip = self._get_advertise_ip()
+        except Exception:
+            _adv_ip = ""
+        _int_fwd_guard = str(getattr(getattr(self.config, "ssh_tunnel", None),
+                                      "advertised_forward_host", "") or "").strip()
+        if _adv_ip and _adv_ip != _int_fwd_guard:
+            info["ssh_host"] = _adv_ip
+        elif info.get("ssh_hosts"):
+            info["ssh_host"] = str(info["ssh_hosts"][0])
+        else:
+            info["ssh_host"] = _adv_ip or ""
         ssh_cfg = getattr(self.config, "ssh_tunnel", None)
         # 1) Multi-agent HAOS: config explicitly declares the forward target
         #    (bridge IP) — use it, it's operator-verified.

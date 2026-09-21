@@ -62,6 +62,10 @@ class TunnelPeer:
     # peer's P2P listener is NOT on the sshd's loopback — the forward must
     # target the host IP instead (sshd runs in the tor container, node in mano).
     forward_host: str = ""
+    # Statically configured dial-in address (operator truth from config) —
+    # kept separately so registry refreshes and multi-address rotation can
+    # never lose the last known-good address (v0.45.2).
+    config_ssh_host: str = ""
 
 
 class SSHTunnelTransport(TransportAdapter):
@@ -153,6 +157,7 @@ class SSHTunnelTransport(TransportAdapter):
                 local_port=0,  # assigned on connect
                 connect_timeout=int(peer_cfg.get("connect_timeout", 0) or 0),
                 forward_host=str(peer_cfg.get("forward_host", "") or ""),
+                config_ssh_host=str(peer_cfg.get("ssh_host", "") or ""),
             )
 
     @property
@@ -465,6 +470,11 @@ class SSHTunnelTransport(TransportAdapter):
                 h = str(h)
                 if h and h not in hosts:
                     hosts.append(h)
+        # v0.45.2: the statically configured address is operator truth —
+        # always keep it in the list (first candidate) so rotation can always
+        # come back to it.
+        if peer.config_ssh_host and peer.config_ssh_host not in hosts:
+            hosts.insert(0, peer.config_ssh_host)
         if peer.ssh_host and peer.ssh_host not in hosts:
             hosts.insert(0, peer.ssh_host)
         return hosts
@@ -510,13 +520,12 @@ class SSHTunnelTransport(TransportAdapter):
         except Exception:
             pass
         changed = []
-        # ssh_host: do NOT override if the current address is already part of
-        # the peer's published dial list — multi-address rotation may have
-        # selected a different entry from the SAME list (e.g. LAN instead of
-        # the hung VPN address); overriding would undo the rotation each time.
-        dial_hosts = [str(h) for h in (info.get("ssh_hosts") or [])]
-        if info.get("ssh_host") and info["ssh_host"] != peer.ssh_host \
-                and peer.ssh_host not in dial_hosts:
+        # v0.45.2: the registry's ssh_host only SEEDS an empty dial address —
+        # it never overrides a configured or rotation-selected one. Address
+        # changes flow through the published ssh_hosts dial list + failure-
+        # driven rotation (deterministic), so a live refresh can never yank
+        # a working tunnel onto a worse path (e.g. LAN → hung VPN).
+        if info.get("ssh_host") and not peer.ssh_host:
             peer.ssh_host = str(info["ssh_host"]); changed.append(f"ssh_host→{peer.ssh_host}")
         if info.get("ssh_port") and int(info["ssh_port"]) != peer.ssh_port:
             peer.ssh_port = int(info["ssh_port"]); changed.append(f"ssh_port→{peer.ssh_port}")
