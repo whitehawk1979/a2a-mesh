@@ -4164,6 +4164,12 @@ echo "Status: ok"
                 # router._offline_queue = None — flush was a silent no-op.
                 if getattr(self, "router", None) is not None:
                     self.router.set_offline_queue(self.offline_queue)
+                # Live address-registry: SSH tunnel transport queries the PG
+                # mesh_nodes.transport_info published by peers' heartbeats to
+                # dial tunnels with LIVE addresses (container rebuilds change
+                # bridge IPs — static config goes stale and breaks tunnels).
+                if getattr(self, "_ssh_tunnel_transport", None) is not None:
+                    self._ssh_tunnel_transport.set_pg_pool(self._pg_pool)
                 return True
             except Exception as e:
                 log.error(f"AsyncPG connection pool failed (attempt {attempt + 1}/{max_retries}): {e}")
@@ -4264,6 +4270,12 @@ echo "Status: ok"
         except Exception:
             host_ip = "0.0.0.0"
 
+        # Élő cím-registry: a node saját tunnel-paramétereinek hirdetése
+        # (ssh_host/ssh_port/ssh_user/forward_host/p2p_port) a PG transport_info
+        # mezőben — a peer-ek a connect előtt ebből oldják fel az ÉLŐ címet,
+        # nem a statikus (konténer-újraépítésnél elavuló) configból.
+        transport_info_live = self._build_transport_info()
+
         # Get port config — P2P port from transport config, health port from node config
         p2p_port = self.config.p2p.listen_port
         health_port = getattr(self.config, 'health_port', 8650)
@@ -4277,8 +4289,9 @@ echo "Status: ok"
                 INSERT INTO mesh.mesh_nodes 
                     (node_name, role, short_addr, extended_uuid, parent_addr, depth, 
                      status, last_heartbeat, host, p2p_port, health_port,
-                     pg_available, p2p_available, http_available, capabilities, skills, version)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                     pg_available, p2p_available, http_available, capabilities, skills, version,
+                     transport_info)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 ON CONFLICT (node_name) DO UPDATE SET
                     role = EXCLUDED.role,
                     short_addr = EXCLUDED.short_addr,
@@ -4292,7 +4305,8 @@ echo "Status: ok"
                     http_available = EXCLUDED.http_available,
                     capabilities = EXCLUDED.capabilities,
                     skills = EXCLUDED.skills,
-                    version = EXCLUDED.version
+                    version = EXCLUDED.version,
+                    transport_info = EXCLUDED.transport_info
             """,
                 self.node_name,
                 self.role.value,
@@ -4310,6 +4324,7 @@ echo "Status: ok"
                 json.dumps(capabilities, ensure_ascii=True),
                 json.dumps(db_skills, ensure_ascii=True),
                 self._resolved_version,
+                json.dumps(transport_info_live, ensure_ascii=True),
             )
             log.info(f"Registered node {self.node_name} at {host_ip}:{p2p_port} in mesh with {len(db_skills)} skills")
             await self.debug_log("INFO", "startup", f"Node {self.node_name} registered at {host_ip}:{p2p_port}")
@@ -4450,7 +4465,8 @@ echo "Status: ok"
                     pg_available = $3,
                     p2p_available = $4,
                     http_available = $5,
-                    capabilities = $7
+                    capabilities = $7,
+                    transport_info = $9
                 WHERE node_name = $6
             """,
                 self._get_advertise_ip(),
@@ -4461,6 +4477,7 @@ echo "Status: ok"
                 self.node_name,
                 json.dumps(list(getattr(self.config, 'capabilities', []) or [])),
                 self.config.p2p.listen_port,
+                json.dumps(self._build_transport_info(), ensure_ascii=True),
             )
             # Separate update for provider_status (backward compatible)
             if provider_status:
@@ -5065,6 +5082,62 @@ echo "Status: ok"
             if isinstance(docker_cfg, dict) and docker_cfg.get('host_ip'):
                 return docker_cfg['host_ip']
         return self._get_local_ip()
+
+    def _build_transport_info(self) -> dict:
+        """Build the live transport address registry entry for THIS node.
+
+        Published to PG mesh_nodes.transport_info (JSONB) at registration and
+        in every heartbeat. Peers read it to dial us over SSH tunnels WITHOUT
+        stale static config — the key fields:
+
+        - ssh_host: IP peers should SSH to (advertise_ip — the address that
+          actually works: LAN host IP for bridge containers, VPN IP if preferred)
+        - ssh_port: OUR OWN inbound sshd port (embedded sshd 2230, or 22)
+        - ssh_user: user peers should use (from ssh_key_sync announcement)
+        - forward_host: the IP OUR P2P listener is reachable at FROM the sshd
+          (multi-agent HAOS bridge containers: our own bridge IP; same-host
+          sshd+P2P: loopback). This is what -L forwards must target.
+        - p2p_port: the mesh P2P listener port
+        """
+        info: dict = {}
+        try:
+            info["ssh_host"] = self._get_advertise_ip()
+        except Exception:
+            info["ssh_host"] = ""
+        info["p2p_port"] = self.config.p2p.listen_port
+        ssh_cfg = getattr(self.config, "ssh_tunnel", None)
+        # 1) Multi-agent HAOS: config explicitly declares the forward target
+        #    (bridge IP) — use it, it's operator-verified.
+        fwd = getattr(ssh_cfg, "advertised_forward_host", "") or ""
+        if fwd:
+            info["forward_host"] = str(fwd)
+        else:
+            # 2) Deterministic auto-detection: if OUR P2P listener and the sshd
+            #    peers dial are on the same network namespace, the forward must
+            #    target the address the P2P listener binds to. For bridge
+            #    containers that's our own live bridge IP; for normal hosts,
+            #    loopback (sshd and P2P share the namespace).
+            try:
+                own_ip = self._get_local_ip()
+                info["forward_host"] = own_ip if own_ip and own_ip != "127.0.0.1" else "127.0.0.1"
+            except Exception:
+                info["forward_host"] = "127.0.0.1"
+        # ssh_port: embedded sshd (get_embedded_sshd) is the real dial-in target
+        try:
+            from .core.ssh_server import get_embedded_sshd
+            inst = get_embedded_sshd()
+            if inst is not None and inst.running:
+                info["ssh_port"] = int(inst.port)
+        except Exception:
+            pass
+        if "ssh_port" not in info:
+            adv_port = getattr(ssh_cfg, "advertised_ssh_port", 0) or 0
+            info["ssh_port"] = int(adv_port) if adv_port else 22
+        # ssh_user: the user peers should use to SSH to us
+        user = getattr(ssh_cfg, "default_ssh_user", "") if ssh_cfg else ""
+        if user:
+            info["ssh_user"] = str(user)
+        return info
 
     @property
     def pg_pool(self):

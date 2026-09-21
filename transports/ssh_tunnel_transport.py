@@ -13,6 +13,7 @@ transport layer differs (SSH tunnel vs direct TCP+TLS).
 """
 
 import asyncio
+import json
 import logging
 import os
 import socket
@@ -104,6 +105,13 @@ class SSHTunnelTransport(TransportAdapter):
         self._connection_tasks: Dict[str, asyncio.Task] = {}
         self._local_port_counter = config.local_port_start
         self._lock = asyncio.Lock()
+        # Élő cím-registry cache: peer_name → (transport_info dict, fetched_at)
+        # A connect előtt a peer PG-beli transport_info-jából frissítjük a
+        # TunnelPeer címeit (forward_host!) — konténer-újraépítésnél az IP
+        # változik, a statikus config elavul. TTL: 60s, sikertelen PG lekérésnél
+        # marad a config-beli cím (fallback).
+        self._registry_cache: Dict[str, tuple] = {}
+        self._pg_pool = None  # injected via set_pg_pool()
 
         # TLS client context (reuse P2P TLS settings if available)
         self._ssl_client_context = None
@@ -249,6 +257,15 @@ class SSHTunnelTransport(TransportAdapter):
 
             peer.last_connect_attempt = now
             peer.retry_count += 1
+
+            # LIVE address refresh: update this peer's ssh_host/ssh_port/
+            # forward_host from the PG registry (published by the peer's
+            # heartbeat) before building the ssh command — the static config
+            # may be stale (container rebuild = new bridge IP).
+            try:
+                await self._refresh_peer_from_registry(peer)
+            except Exception as _reg_err:
+                log.debug(f"Registry refresh failed for {peer_name}: {_reg_err}")
 
             try:
                 success = await self._establish_tunnel(peer)
@@ -411,6 +428,67 @@ class SSHTunnelTransport(TransportAdapter):
             return False
 
         return True
+
+    def set_pg_pool(self, pg_pool) -> None:
+        """Inject the shared asyncpg pool for live address-registry lookups."""
+        self._pg_pool = pg_pool
+
+    async def _refresh_peer_from_registry(self, peer: TunnelPeer) -> None:
+        """Refresh a TunnelPeer's addresses from the LIVE PG registry.
+
+        Reads mesh_nodes.transport_info (published by the peer's heartbeat)
+        and updates ssh_host/ssh_port/ssh_user/forward_host on the TunnelPeer.
+        Deterministic precedence: live registry > static config. If PG is
+        unavailable or the peer hasn't published yet, the static config
+        remains (graceful fallback — no crash, no guessing).
+        """
+        if self._pg_pool is None:
+            return
+        now = time.time()
+        cached = self._registry_cache.get(peer.name)
+        if cached and (now - cached[1]) < 60:
+            info, hb = cached[0], cached[2]
+        else:
+            try:
+                row = await self._pg_pool.fetchrow(
+                    "SELECT transport_info, last_heartbeat FROM mesh.mesh_nodes "
+                    "WHERE node_name = $1", peer.name)
+                if not row or not row.get("transport_info"):
+                    return
+                info = row["transport_info"]
+                if isinstance(info, str):
+                    info = json.loads(info)
+                hb = row.get("last_heartbeat")
+                self._registry_cache[peer.name] = (info, now, hb)
+            except Exception as e:
+                log.debug(f"Registry refresh for {peer.name} skipped: {e}")
+                return
+        # Freshness gate: only trust the registry entry if the peer's heartbeat
+        # is recent (<10 min) — a dead node's stale address must not override
+        # a working static config.
+        try:
+            if hb is not None:
+                # asyncpg returns tz-aware datetime
+                if (now - hb.timestamp()) > 600:
+                    return
+        except Exception:
+            pass
+        changed = []
+        if info.get("ssh_host") and info["ssh_host"] != peer.ssh_host:
+            peer.ssh_host = str(info["ssh_host"]); changed.append(f"ssh_host→{peer.ssh_host}")
+        if info.get("ssh_port") and int(info["ssh_port"]) != peer.ssh_port:
+            peer.ssh_port = int(info["ssh_port"]); changed.append(f"ssh_port→{peer.ssh_port}")
+        if info.get("ssh_user") and info["ssh_user"] != peer.ssh_user:
+            peer.ssh_user = str(info["ssh_user"]); changed.append(f"ssh_user→{peer.ssh_user}")
+        # forward_host: the LIVE address OUR forward must target (e.g. the
+        # Tor container's current bridge IP after rebuild) — this is the fix
+        # for the stale 172.30.33.13 config that broke runa→tor / morzsa→tor.
+        if info.get("forward_host") and info["forward_host"] != (peer.forward_host or ""):
+            peer.forward_host = str(info["forward_host"]); changed.append(f"forward_host→{peer.forward_host}")
+        if info.get("p2p_port") and int(info["p2p_port"]) != peer.remote_port:
+            peer.remote_port = int(info["p2p_port"]); changed.append(f"remote_port→{peer.remote_port}")
+        if changed:
+            log.info(f"SSH tunnel {peer.name}: live registry update: {', '.join(changed)}")
 
     def _find_free_port(self) -> int:
         """Find a free TCP port in the configured range."""
