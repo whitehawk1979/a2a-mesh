@@ -4787,17 +4787,33 @@ class DashboardAdminMixin:
                     continue
                 idea_id = "idea_" + _uuid.uuid4().hex[:12]
                 priority_map = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+                # v0.46.5: a javaslat konkrét megoldási terve is bekerül az ötletbe
+                sol = getattr(s, "solution", "") or ""
+                desc = (s.description or "")
+                if sol:
+                    desc += (
+                        "\n\n🛠️ MEGOLDÁSI TERV:\n" + sol
+                        + "\n\nJelenlegi: " + str(s.current_value)
+                        + "\nJavasolt: " + str(s.suggested_value)
+                        + "\nIndoklás: " + str(s.rationale)
+                    )
+                else:
+                    desc += (
+                        "\n\nJelenlegi: " + str(s.current_value)
+                        + "\nJavasolt: " + str(s.suggested_value)
+                        + "\nIndoklás: " + str(s.rationale)
+                    )
                 await pool.execute(
                     "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
                     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])",
                     idea_id,
                     s.title,
-                    (s.description or "") + "\n\nJelenlegi: " + str(s.current_value) + "\nJavasolt: " + str(s.suggested_value) + "\nIndoklás: " + str(s.rationale),
+                    desc,
                     "diagnostic_" + (s.category or "general"),
                     priority_map.get(s.priority, "medium"),
                     "diagnostic",
                     s.node or "diagnostics",
-                    ["diagnostic", s.category or "general"],
+                    ["diagnostic", s.category or "general", "has_solution"],
                 )
                 imported.append({"idea_id": idea_id, "title": s.title})
             return web.json_response({"ok": True, "imported": len(imported), "ideas": imported})

@@ -9981,7 +9981,8 @@ function showSuggestionDetail(idx) {
     html += '<div style="background:#1a1a2e;border:1px solid #ef4444;border-radius:8px;padding:12px;margin-bottom:10px">';
     html += '<div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:6px">⚠️ Észlelt hiba</div>';
     html += '<div style="font-size:13px;color:var(--text);line-height:1.5">'+s.description+'</div>';
-    html += '<div style="font-size:11px;color:var(--text3);margin-top:6px">💡 Javasolt megoldás: '+(s.suggested_value||s.rationale||'—')+'</div>';
+    if (s.suggested_value) html += '<div style="font-size:11px;color:var(--text3);margin-top:6px">💡 Javasolt megoldás: '+s.suggested_value+'</div>';
+    if (s.solution) html += '<div style="font-size:12px;color:var(--text);margin-top:8px;padding:8px;background:rgba(59,130,246,.08);border-radius:8px;border:1px solid rgba(59,130,246,.25);line-height:1.6">🛠️ <b>Megoldási terv:</b><br>'+s.solution.replace(/\n/g,'<br>')+'</div>';
     html += '</div>';
   }
   // Action buttons card
