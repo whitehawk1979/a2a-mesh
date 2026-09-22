@@ -272,13 +272,23 @@ async def handle_chat_send(node, request, pool, user):
             async def _self_wake():
                 await _aio.sleep(1)
                 try:
+                    # v0.46.0 R0: Honcho context injection (same as mesh path in node.py)
+                    _sw_prompt = f"Új üzenet érkezett {username}-tól: {content[:500]}"
+                    try:
+                        from core.honcho_bridge import get_honcho_context
+                        _hb_ctx = await get_honcho_context(getattr(node, '_pg_pool', None), username.lower(), chat_username=username)
+                        if _hb_ctx:
+                            _sw_prompt = f"{_hb_ctx}\n\n{_sw_prompt}"
+                            log.info(f"🪪 Honcho context injected into self-wake prompt (peer: {username.lower()})")
+                    except Exception as _hb_e:
+                        log.debug(f"Honcho context injection (self-wake) skipped: {_hb_e}")
                     wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
                     async with _aiohttp_sw.ClientSession() as sess:
                         # Retry on 429 (busy/cooldown) — DM replies must not be dropped
                         _dm_attempts = 4
                         for _att in range(1, _dm_attempts + 1):
                             async with sess.post(wake_url, json={
-                                "prompt": f"Új üzenet érkezett {username}-tól: {content[:500]}",
+                                "prompt": _sw_prompt,
                                 "agent_name": node_name,
                                 "sender": username,
                                 "sender_display": display_name,
