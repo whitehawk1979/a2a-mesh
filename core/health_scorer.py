@@ -131,7 +131,8 @@ class HealthScorer:
         if not self._pg_pool or not self._pg_pool.is_connected():
             return
         try:
-            for name, rec in self._records.items():
+            # snapshot: peer connect/disconnect can mutate _records during iteration
+            for name, rec in list(self._records.items()):
                 await self._pg_pool.execute(
                     """INSERT INTO mesh.mesh_health_history
                        (node_name, health_score, avg_latency_ms, total_requests,
