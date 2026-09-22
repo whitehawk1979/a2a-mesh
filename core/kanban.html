@@ -126,19 +126,9 @@ function api(path, method, body) {
   if (body) opts.body = JSON.stringify(body);
   return fetch(path, opts).then(function(r) {
     if (r.status === 401) {
-      // Try to login
-      return fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'zsolt', password: 'mesh2026' })
-      }).then(function(lr) { return lr.json(); }).then(function(ld) {
-        if (ld.token) {
-          localStorage.setItem('mesh_token', ld.token);
-          opts.headers["Authorization"] = "Bearer " + ld.token;
-          return fetch(path, opts).then(function(r2) { return r2.json(); });
-        }
-        throw new Error('Auth failed');
-      });
+      // v0.46.3 fix: hardkódott zsolt/mesh2026 relogin helyett a szülő login modal
+      try { if (window.parent && window.parent.showAuth) window.parent.showAuth(); } catch (e) {}
+      throw new Error('Bejelentkezés szükséges');
     }
     return r.json();
   });

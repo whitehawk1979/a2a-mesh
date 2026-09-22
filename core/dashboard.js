@@ -5756,11 +5756,10 @@ window.generateDiagnosticReport = function() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
     body: JSON.stringify({ report_type: 'on_demand' })
-  }).then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.error) { alert('Hiba: ' + d.error); }
-      else { alert('Jelentés generálva: ' + (d.report_id || 'ok')); loadMarveenPage('diagnostics'); }
-    })
+  }).then(_diagResp).then(function(d) {
+    if (d.error) { alert('Hiba: ' + d.error); }
+    else { alert('Jelentés generálva: ' + (d.report_id || 'ok')); loadMarveenPage('diagnostics'); }
+  })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
@@ -9689,9 +9688,26 @@ function switchDiagTab(tab) {
 
 var _diagToken = null;
 function _diagAuth() {
-  if (_diagToken) return Promise.resolve(_diagToken);
-  return fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:'zsolt',password:'mesh2026'})})
-    .then(function(r){return r.json()}).then(function(d){_diagToken=d.token; return _diagToken;});
+  // v0.46.3 fix: a korábbi hardkódott zsolt/mesh2026 login mindig 401-et adott
+  // (a jelszó régóta érvénytelen) → üres lista + "Invalid or expired token".
+  // Most a fő session tokenjét használjuk (ugyanaz, amivel a header-badge is működik).
+  var token = _diagToken || localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || (typeof authToken !== 'undefined' ? authToken : '') || '';
+  if (token) return Promise.resolve(token);
+  if (typeof showAuth === 'function') showAuth();
+  return Promise.reject(new Error('Bejelentkezés szükséges'));
+}
+
+// v0.46.3: közös 401-kezelés a diag API hívásokhoz — lejárt token esetén
+// takarít + login modal, nem pedig csöndben üres lista
+function _diagResp(r) {
+  if (r.status === 401) {
+    localStorage.removeItem('mesh_token');
+    localStorage.removeItem('a2a_token');
+    _diagToken = null;
+    if (typeof showAuth === 'function') showAuth();
+    return r.json().then(function(e) { throw new Error(e && e.error ? e.error : 'A munkamenet lejárt — jelentkezz be újra'); });
+  }
+  return r.json();
 }
 
 // ─── Report list ─────────────────────────────────────────
@@ -9700,7 +9716,7 @@ function loadDiagReports() {
   el.innerHTML = '<div style="text-align:center;padding:20px">⏳ Betöltés...</div>';
   _diagAuth().then(function(token) {
     return fetch('/api/diagnostics/reports', {headers:{'Authorization':'Bearer '+token}});
-  }).then(function(r){return r.json()}).then(function(data) {
+  }).then(_diagResp).then(function(data) {
     _diagReports = data.reports || [];
     if (_diagReports.length === 0) {
       el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">Nincs diagnostic report</div>';
@@ -9824,7 +9840,7 @@ function loadDiagSuggestions(filter) {
   if (filter && filter !== 'all') url += '&status=' + filter;
   _diagAuth().then(function(token) {
     return fetch(url, {headers:{'Authorization':'Bearer '+token}});
-  }).then(function(r){return r.json()}).then(function(data) {
+  }).then(_diagResp).then(function(data) {
     _diagSuggestions = data.suggestions || [];
     if (_diagSuggestions.length === 0) {
       el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">Nincs javaslat</div>';
@@ -10001,7 +10017,7 @@ function autoImplementSuggestion(id, idx) {
       headers:{'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
       body:JSON.stringify({})
     });
-  }).then(function(r){return r.json()}).then(function(data) {
+  }).then(_diagResp).then(function(data) {
     if (data.implemented !== undefined) {
       alert('Auto-implement: '+data.implemented+' javaslat megvalósítva');
       loadDiagSuggestions();
@@ -10018,7 +10034,7 @@ function updateSuggestionStatus(id, status, idx) {
       headers:{'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
       body:JSON.stringify({status:status})
     });
-  }).then(function(r){return r.json()}).then(function(data) {
+  }).then(_diagResp).then(function(data) {
     if (data.suggestion_id) {
       loadDiagSuggestions();
     } else {
@@ -10032,7 +10048,7 @@ function generateDiagReport() {
   btn.disabled = true; btn.textContent = '⏳ Generálás...';
   _diagAuth().then(function(token) {
     return fetch('/api/diagnostics/report', {method:'POST', headers:{'Authorization':'Bearer '+token}});
-  }).then(function(r){return r.json()}).then(function(data) {
+  }).then(_diagResp).then(function(data) {
     btn.disabled = false; btn.textContent = '🔄 Új report';
     if (data.report_id) {
       loadDiagReports();
