@@ -789,13 +789,19 @@ window.toggleSidebarSection = function(key) {
 // Format: cmd = command, args = argument format shown in palette AND inserted as
 // a selected placeholder after the command (Telegram BotFather pattern).
 window.CHAT_COMMANDS = [
-  { cmd: '/help',    args: '',                desc: 'Elérhető parancsok listája' },
-  { cmd: '/status',  args: '',                desc: 'Mesh és agent állapot riport' },
-  { cmd: '/debate',  args: '<téma>',          desc: 'Vita indítása minden agent részvételével' },
-  { cmd: '/ideas',   args: '<téma>',          desc: 'Ötletgyűjtés — agent-javaslatok [ÖTLET] jelölve → Ötletláda' },
-  { cmd: '/all',     args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
-  { cmd: '/ask',     args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek (nova/morzsa/runa/tor)' },
-  { cmd: '/clear',   args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
+  { cmd: '/help',     args: '',                desc: 'Elérhető parancsok listája' },
+  { cmd: '/status',   args: '',                desc: 'Mesh és agent állapot riport' },
+  { cmd: '/debate',   args: '<téma>',          desc: 'Vita indítása minden agent részvételével' },
+  { cmd: '/ideas',    args: '<téma>',          desc: 'Ötletgyűjtés — agent-javaslatok [ÖTLET] jelölve → Ötletláda' },
+  { cmd: '/all',      args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
+  { cmd: '/ask',      args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek' },
+  { cmd: '/vote',     args: '[idea_id]',       desc: 'Agent-szavazás az ötletláda nyitott ötleteire' },
+  { cmd: '/delegate', args: '<agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L] [--fanout N] [--dist] [--eligible a,b] [--depends ID]', desc: 'Feladat delegálása — task + Kanban kártya, eredmény visszajön a chatbe' },
+  { cmd: '/tasks',    args: '[nyitott|completed|failed|all] [agent]', desc: 'Delegált taskok listája státusz szerint' },
+  { cmd: '/task',     args: '<task_id>',       desc: 'Task részletei: státusz, eredmény, időpontok' },
+  { cmd: '/reassign', args: '<task_id> <agent>', desc: 'Meglévő task átirányítása másik agentnek' },
+  { cmd: '/cancel',   args: '<task_id>',       desc: 'Delegált task érvénytelenítése' },
+  { cmd: '/clear',    args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
 ];
 
 window.showCommandPalette = function(inputEl) {
@@ -808,7 +814,18 @@ window.showCommandPalette = function(inputEl) {
   // ── /ask agent-name second-level autocomplete ──
   if (val.startsWith('/ask ') && val.indexOf(' ') >= 0) {
     var askArg = val.slice(5).split(' ')[0].toLowerCase();
-    var agents = ['nova', 'morzsa', 'runa', 'tor'].filter(function(a) { return a.startsWith(askArg); });
+    // v0.46.11: dinamikus agent-lista a status-ból (nem hardkódolt — a mesh tagság flexibilis)
+    if (!window._meshAgents) {
+      fetch('/api/status').then(function(r) { return r.json(); }).then(function(d) {
+        try {
+          var _pd = (d.peer_discovery && d.peer_discovery.peers) || {};
+          var _names = Object.keys(_pd).map(function(k) { return k.toLowerCase(); });
+          if (d.node_name) _names.push(String(d.node_name).toLowerCase());
+          window._meshAgents = _names.filter(function(a, i, arr) { return a && arr.indexOf(a) === i; });
+        } catch (e) { window._meshAgents = []; }
+      }).catch(function() { window._meshAgents = []; });
+    }
+    var agents = (window._meshAgents || []).filter(function(a) { return a.startsWith(askArg); });
     if (agents.length) {
       window._renderPalette(inputEl, agents.map(function(a) {
         return { cmd: '/ask ' + a, args: '<kérdés>', desc: 'Kérdés a(z) ' + a + ' agentnek', _plain: true };
