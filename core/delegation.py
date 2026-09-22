@@ -123,6 +123,53 @@ class DelegationManager:
 
     # ── Send side: delegate a task ──
 
+    # ── v0.46.13: Dinamikus load-balancing (approved idea) ──
+    # A 'auto' célú delegálásnál a legkevésbé terhelt élő node-t választja:
+    # score = CPU% * 0.5 + MEM% * 0.3 + aktív taskok * 8 (friss health-adat alapján).
+    async def pick_agent(self, task_type: str = "generic",
+                         eligible_agents: Optional[List[str]] = None) -> Optional[str]:
+        """Pick the least-loaded live node for a task. Deterministic, no LLM.
+
+        Sources: public.mesh_node_health (fresh < 120s) + active task counts
+        from shared_delegations. Returns None if no eligible node is healthy.
+        """
+        try:
+            rows = await self.pg_pool.fetch(
+                """SELECT node_name, cpu_pct, memory_pct, disk_pct
+                   FROM mesh_node_health
+                   WHERE last_seen > NOW() - INTERVAL '120 seconds'""",
+            )
+        except Exception:
+            rows = []
+        if not rows:
+            return None
+        # Aktív taskok súlyozás (pending/accepted/running)
+        try:
+            act = await self.pg_pool.fetch(
+                """SELECT assigned_agent, COUNT(*) AS n FROM shared_delegations
+                   WHERE status IN ('pending','accepted','running')
+                     AND assigned_agent IS NOT NULL
+                   GROUP BY assigned_agent""",
+            )
+            active = {r["assigned_agent"]: int(r["n"]) for r in act}
+        except Exception:
+            active = {}
+        best, best_score = None, None
+        for r in rows:
+            name = r["node_name"]
+            if name == self.node_name:
+                continue  # self-delegation nem (delegate_task úgyis blokkolja)
+            if eligible_agents and name not in eligible_agents:
+                continue
+            score = (float(r["cpu_pct"] or 0) * 0.5
+                     + float(r["memory_pct"] or 0) * 0.3
+                     + active.get(name, 0) * 8)
+            if best_score is None or score < best_score:
+                best, best_score = name, score
+        if best:
+            log.info(f"⚖️ load-balancing: '{task_type}' → {best} (score={best_score:.1f})")
+        return best
+
     async def delegate_task(
         self,
         to_agent: str,
@@ -182,6 +229,19 @@ class DelegationManager:
         if to_agent == self.node_name and not available:
             log.warning(f"Skipping self-delegation: {self.node_name} → {to_agent} (use available=True instead)")
             return ""
+        # ── v0.46.13: 'auto' cél — load-balancing a legkevésbé terhelt élő node-ra.
+        # Determinisztikus: mesh_node_health + aktív taskszám súlyozás.
+        if to_agent == "auto":
+            _picked = await self.pick_agent(task_type, eligible_agents)
+            if _picked:
+                to_agent = _picked
+                log.info(f"⚖️ auto-delegation → {to_agent} (least-loaded live node)")
+            else:
+                # Nincs friss health-adat — available-ként fut tovább (bárki claimelheti)
+                log.info("⚖️ auto: nincs élő node health-adat → 'any' available mód")
+                available = True
+                to_agent = "any"
+
         # Check circuit breaker for target agent
         if not available and to_agent != "any":
             cb = self._circuit_breakers.get(to_agent)
@@ -451,11 +511,19 @@ class DelegationManager:
             return False
 
     async def reassign_task(self, task_id: str, new_agent: str) -> bool:
-        """Reassign a task to a different agent."""
+        """Reassign a task to a different agent. Accepts full or partial id."""
+        if len(str(task_id)) < 36:
+            row = await self.pg_pool.fetchrow(
+                "SELECT task_id::text AS tid FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
+                f"%{task_id}%",
+            )
+            if not row:
+                return False
+            task_id = row["tid"]
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations 
                SET to_agent = $1, assigned_agent = $1
-               WHERE task_id = $2 AND status IN ($3, $4)""",
+               WHERE task_id::text = $2 AND status IN ($3, $4)""",
             new_agent, task_id, STATUS_ACCEPTED, STATUS_PENDING,
         )
         return "UPDATE 1" in result
@@ -468,7 +536,7 @@ class DelegationManager:
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations 
                SET notes = COALESCE(notes, '[]'::jsonb) || $1::jsonb
-               WHERE task_id = $2""",
+               WHERE task_id::text = $2""",
             note_entry, task_id,
         )
         return "UPDATE 1" in result
@@ -484,19 +552,33 @@ class DelegationManager:
         return "UPDATE 1" in result
 
     async def get_task_status(self, task_id: str) -> Optional[Dict]:
-        """Check the status of a delegated task."""
+        """Check the status of a delegated task. Accepts full or partial (via /task) id."""
+        if len(str(task_id)) < 36:
+            rows = await self.pg_pool.fetch(
+                "SELECT * FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
+                f"%{task_id}%",
+            )
+            return dict(rows[0]) if rows else None
         row = await self.pg_pool.fetchrow(
-            "SELECT * FROM shared_delegations WHERE task_id = $1", task_id
+            "SELECT * FROM shared_delegations WHERE task_id::text = $1", task_id
         )
         if row:
             return dict(row)
         return None
 
     async def cancel_task(self, task_id: str) -> bool:
-        """Cancel a pending delegation."""
+        """Cancel a pending delegation. Accepts full or partial id."""
+        if len(str(task_id)) < 36:
+            row = await self.pg_pool.fetchrow(
+                "SELECT task_id::text AS tid FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
+                f"%{task_id}%",
+            )
+            if not row:
+                return False
+            task_id = row["tid"]
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations SET status = $1 
-               WHERE task_id = $2 AND status IN ($3, $4, $5)""",
+               WHERE task_id::text = $2 AND status IN ($3, $4, $5)""",
             STATUS_CANCELLED, task_id, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED,
         )
         return "UPDATE 1" in result

@@ -796,7 +796,7 @@ window.CHAT_COMMANDS = [
   { cmd: '/all',      args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
   { cmd: '/ask',      args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek' },
   { cmd: '/vote',     args: '[idea_id]',       desc: 'Agent-szavazás az ötletláda nyitott ötleteire' },
-  { cmd: '/delegate', args: '<agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L] [--fanout N] [--dist] [--eligible a,b] [--depends ID]', desc: 'Feladat delegálása — task + Kanban kártya, eredmény visszajön a chatbe' },
+  { cmd: '/delegate', args: '<agent|any|auto> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L] [--fanout N] [--dist] [--eligible a,b] [--depends ID]', desc: 'Feladat delegálása — auto: legkevésbé terhelt node' },
   { cmd: '/tasks',    args: '[nyitott|completed|failed|all] [agent]', desc: 'Delegált taskok listája státusz szerint' },
   { cmd: '/task',     args: '<task_id>',       desc: 'Task részletei: státusz, eredmény, időpontok' },
   { cmd: '/reassign', args: '<task_id> <agent>', desc: 'Meglévő task átirányítása másik agentnek' },
@@ -896,10 +896,16 @@ window.showCommandPalette = function(inputEl) {
     return;
   }
 
-  // --- /delegate <agent|any> — első argumentum agent vagy 'any' ---
+  // --- /delegate <agent|any|auto> — első argumentum agent, 'any' vagy 'auto' (load-balancing) ---
   if (cmdWord === '/delegate' && typedWords.length === 0) {
     window._agentPaletteRows(lastTok, true, afterCmd).then(function(rows) {
-      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+      var extra = [];
+      if (!lastTok || 'auto'.startsWith(lastTok.toLowerCase()))
+        extra.push({ cmd: afterCmd + 'auto', desc: '⚖️ Automatikus node-választás (legkevésbé terhelt)', _plain: true });
+      if (!lastTok || 'any'.startsWith(lastTok.toLowerCase()))
+        extra.push({ cmd: afterCmd + 'any', desc: '🟢 Bárki claimelheti (available)', _plain: true });
+      var all = extra.concat(rows);
+      if (all.length) { window._renderPalette(inputEl, all, val); } else { window.hideCommandPalette(); }
     });
     return;
   }

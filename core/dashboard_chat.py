@@ -104,9 +104,10 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
         import re as _re_dl, shlex as _shlex_dl
         args = (args or "").strip()
         if not args:
-            out_content = ("⚠️ Használat: `/delegate <agent|any> <tárgy> [opciók]`\n"
+            out_content = ("⚠️ Használat: `/delegate <agent|any|auto> <tárgy> [opciók]`\n"
                            "• `/delegate morzsa Elemzés a hőmérséklet-logokról`\n"
                            "• `/delegate any Riport a mesh topológiáról --prio 8`\n"
+                           "• `/delegate auto Gyors összegzés --timeout 20` — ⚖️ legkevésbé terhelt node kapja\n"
                            "• `/delegate any Adat-gyűjtés --fanout 3 --dist` (párhuzamos, 3 agent)\n"
                            "• `/delegate any Audit --eligible nova,runa --timeout 240`\n"
                            "• `/delegate tor Utóellenőrzés --depends <task_id>` (függőségi lánc)\n"
@@ -152,7 +153,7 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                     subject_parts.append(t); i += 1
             subject = " ".join(subject_parts).strip()
             if not to_agent or not subject:
-                out_content = "⚠️ Használat: `/delegate <agent|any> <tárgy>` — pl. `/delegate morzsa Logok elemzése`"
+                out_content = "⚠️ Használat: `/delegate <agent|any|auto> <tárgy>` — pl. `/delegate morzsa Logok elemzése`"
             elif depends_on and len(depends_on) < 8:
                 out_content = "⚠️ `--depends` hibás task_id — teljes (36 karakteres) task_id-t adj meg"
             else:
@@ -244,9 +245,9 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
         else:
             try:
                 if len(_tid) < 36:
-                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id LIKE $1 ORDER BY created_at DESC LIMIT 3", f"%{_tid}%")
+                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 3", f"%{_tid}%")
                 else:
-                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id = $1", _tid)
+                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id::text = $1", _tid)
                 if not _rows:
                     out_content = f"❌ Task nem található: `{_tid[:20]}`"
                 else:
