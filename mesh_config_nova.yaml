@@ -287,3 +287,9 @@ resource_limits:
   memory_soft_mb: 192
   nice: 5
   open_files: null
+
+# v0.46.0 R0 Honcho-Mesh bridge — snapshot writer (only nova hosts the Honcho DB)
+honcho:
+  dsn: "postgresql://zsolt@localhost:5432/honcho"
+  snapshot_interval_s: 3600
+  peer_allowlist: ["zsolt", "nova"]

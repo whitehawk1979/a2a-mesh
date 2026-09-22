@@ -980,6 +980,10 @@ class MeshNode:
         self._tasks.append(asyncio.create_task(self._log_rotation_loop()))
         self._prune_node_log_archives()
 
+        # v0.46.0 R0 Honcho-Mesh bridge: snapshot writer (only nodes with honcho.dsn)
+        self._honcho_pool = None
+        self._tasks.append(asyncio.create_task(self._honcho_snapshot_loop()))
+
         # v0.43: VPN (Tailscale) health loop — figyeli a VPN-állapotot, state-váltásnál logol
         try:
             from .core.vpn import vpn_health_loop
@@ -5929,6 +5933,44 @@ echo "Status: ok"
             except Exception as e:
                 log.error(f"Log rotation loop error: {e}")
 
+    async def _honcho_snapshot_loop(self):
+        """v0.46.0 R0 Honcho-Mesh bridge writer: hourly snapshot from the local
+        Honcho PG (only meaningful on nodes that run a Honcho DB — enabled via
+        honcho_dsn in config). Deterministic SQL + regex redaction, zero LLM.
+        Errors are non-fatal: a failed snapshot keeps the previous one.
+        """
+        dsn = (getattr(getattr(self.config, "honcho", None), "dsn", "") or "").strip()
+        if not dsn:
+            return  # not a Honcho host — reader-only node
+        interval_s = max(300, int(getattr(getattr(self.config, "honcho", None), "snapshot_interval_s", 3600) or 3600))
+        # First run shortly after start so a fresh node publishes quickly.
+        delay = 30
+        while True:
+            await asyncio.sleep(delay)
+            delay = interval_s
+            try:
+                import asyncpg
+                import json as _json_hb
+                from core.honcho_bridge import write_honcho_snapshot, DEFAULT_PEER_ALLOWLIST, DEFAULT_REDACT_PATTERNS
+                hcfg = getattr(self.config, "honcho", None)
+                allowlist = getattr(hcfg, "peer_allowlist", None) or DEFAULT_PEER_ALLOWLIST
+                patterns = getattr(hcfg, "redact_patterns", None) or DEFAULT_REDACT_PATTERNS
+                honcho_pool = self._honcho_pool
+                if honcho_pool is None or getattr(honcho_pool, "_closed", False):
+                    honcho_pool = await asyncpg.create_pool(dsn, min_size=1, max_size=2)
+                    self._honcho_pool = honcho_pool
+                await write_honcho_snapshot(honcho_pool, self._pg_pool, allowlist, patterns)
+            except asyncio.CancelledError:
+                # Close the Honcho pool on shutdown
+                try:
+                    if self._honcho_pool is not None:
+                        await self._honcho_pool.close()
+                except Exception:
+                    pass
+                raise
+            except Exception as e:
+                log.debug(f"Honcho snapshot loop iteration failed (non-fatal): {e}")
+
     def _prune_node_log_archives(self, keep: int = 3):
         """One-shot prune of old a2a_mesh_node.log.*.gz archives (startup housekeeping)."""
         try:
@@ -6357,6 +6399,19 @@ echo "Status: ok"
                             log.info(f"🧠 Engramm context injected into wake-agent prompt ({len(_engramms)} relevant)")
                 except Exception as _eng_e:
                     log.debug(f"Engramm injection skipped: {_eng_e}")
+
+                # ── v0.46.0 R0 Honcho context injection: deterministic peer-card snapshot ──
+                # Read from the SHARED PG snapshot table (never the Honcho DB):
+                # 10-min TTL cache, PG-down → empty block (wake never blocks).
+                try:
+                    from core.honcho_bridge import get_honcho_context
+                    _hb_peer = (_chat_user or "zsolt").lower()
+                    _hb_ctx = await get_honcho_context(self._pg_pool, _hb_peer, chat_username=_chat_user)
+                    if _hb_ctx:
+                        prompt_text = f"{_hb_ctx}\n\n{prompt_text}"
+                        log.info(f"🪪 Honcho context injected into wake prompt (peer: {_hb_peer})")
+                except Exception as _hb_e:
+                    log.debug(f"Honcho context injection skipped: {_hb_e}")
 
                 payload["prompt"] = prompt_text
                 payload["agent_name"] = self.node_name

@@ -257,6 +257,22 @@ class ContextGateConfig:
 
 
 @dataclass
+class HonchoBridgeConfig:
+    """v0.46.0 R0 Honcho-Mesh bridge config.
+
+    dsn: local Honcho PG DSN — ONLY set on nodes that host a Honcho DB
+    (the snapshot writer runs there). Reader nodes leave it empty.
+    peer_allowlist: observed peers whose cards may enter the snapshot.
+    redact_patterns: regex deny-list applied at WRITE time (defaults in
+    core/honcho_bridge.py are used when empty).
+    """
+    dsn: str = ""
+    snapshot_interval_s: int = 3600
+    peer_allowlist: List[str] = field(default_factory=lambda: ["zsolt", "nova"])
+    redact_patterns: List[str] = field(default_factory=list)
+
+
+@dataclass
 class MeshConfig:
     """Full mesh configuration."""
     node_name: str = "nova"
@@ -379,6 +395,7 @@ class MeshConfig:
     gossipsub: GossipSubConfig = field(default_factory=GossipSubConfig)
     diagnostic: DiagnosticConfig = field(default_factory=DiagnosticConfig)
     context_gate: ContextGateConfig = field(default_factory=ContextGateConfig)
+    honcho: HonchoBridgeConfig = field(default_factory=HonchoBridgeConfig)
 
     # Webhook config
     webhook_port: int = 8644
@@ -679,6 +696,16 @@ class MeshConfig:
                 channels=diag_data.get('channels', config.diagnostic.channels),
                 include_memory_stats=diag_data.get('include_memory_stats', config.diagnostic.include_memory_stats),
                 include_error_patterns=diag_data.get('include_error_patterns', config.diagnostic.include_error_patterns),
+            )
+
+        # Honcho R0 bridge config — top-level 'honcho' section (v0.46.0)
+        honcho_data = data.get('honcho', {})
+        if honcho_data:
+            config.honcho = HonchoBridgeConfig(
+                dsn=honcho_data.get('dsn', config.honcho.dsn),
+                snapshot_interval_s=int(honcho_data.get('snapshot_interval_s', config.honcho.snapshot_interval_s) or 3600),
+                peer_allowlist=honcho_data.get('peer_allowlist', config.honcho.peer_allowlist),
+                redact_patterns=honcho_data.get('redact_patterns', config.honcho.redact_patterns),
             )
 
         return config
