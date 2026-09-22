@@ -4563,6 +4563,12 @@ echo "Status: ok"
                             # So we extract chat_username from the original dict payload first.
                             _chat_user = None
                             _chat_reply_text = ""
+                            # v0.46.9: dinamikus agent-lista (nem hardkódolt) — a mesh tagság flexibilis
+                            _agent_senders = {self.node_name.lower()}
+                            try:
+                                _agent_senders.update(str(n).lower() for n in self.peer_discovery.get_all_peers().keys())
+                            except Exception:
+                                _agent_senders.update(("nova", "morzsa", "runa", "tor", "mano"))  # degraded fallback
                             if msg.type in ("a2a_message", "agent_reply"):
                                 # Try dict payload first, then parse string
                                 _p = payload
@@ -4632,7 +4638,6 @@ echo "Status: ok"
                                                  "skills_announcement", "memory_sync")
                             if msg.type == "a2a_message" and _chat_user and msg.type not in _skip_wake_types:
                                 # Check if sender is another mesh agent (not a human user)
-                                _agent_senders = ("nova", "morzsa", "runa", "tor")
                                 if msg.sender.lower() in _agent_senders:
                                     log.info(f"🔇 Skip wake-agent for agent→agent msg from {msg.sender} (anti-ping-pong)")
                                 else:
@@ -4685,10 +4690,15 @@ echo "Status: ok"
                                 # Wake the local agent for incoming messages, but NOT for
                                 # ACK, heartbeat, or skills_announcement — these are internal
                                 # mesh protocol messages that don't need agent processing
+                                # v0.46.9: 'a2a_message' KIKAPCSOLVA itt — a chat-wake út
+                                # (fenti, mention+anti-ping-pong szűréssel) az egyetlen wake
+                                # forrás chat üzenetekre. Korábban EZ az út kerülte meg a
+                                # @mention-szűrést (Runa/Morzsa/Mano is felébredt @tor-nál).
                                 if msg.type not in (MSG_TYPE_ACK, MSG_TYPE_HEARTBEAT, "skills_announcement", "memory_sync", "diagnostic_report", "config_suggestion", "agent_reply", "agent_dm", "peer_offline", "peer_online",
                                                     "vault_request", "vault_share", "vault_response", "idea_submit", "idea_submit_ack",
                                                     "idea_vote", "idea_vote_ack", "ssh_key_sync", "ssh_key_bundle",
-                                                    "key_bundle", "peer_connect", "node_join", "node_leave", "peer_discovery"):
+                                                    "key_bundle", "peer_connect", "node_join", "node_leave", "peer_discovery",
+                                                    "a2a_message"):
                                     asyncio.create_task(self._trigger_webhook(msg))
 
                                 # Critical mesh protocol messages must always go to handlers
@@ -6372,6 +6382,12 @@ echo "Status: ok"
                     _content_text = payload['content']
                     if isinstance(_p, dict):
                         _content_text = _p.get('text', _p.get('subject', str(_p)[:500]))
+                    elif isinstance(message.payload, str) and message.payload.strip():
+                        # v0.46.9 fix: framolt/nem-JSON string payload — a NYERS
+                        # szöveget használjuk tartalomként, NE str({})-t. Ez volt az
+                        # "üres {} payload" tünet gyökeréa (az agentek '{}' üres
+                        # üzenetet láttak a promptban).
+                        _content_text = message.payload[:1500]
                     # ── @mention directive: if this node is @mentioned in a broadcast, emphasize ──
                     import re as _re_ment_p
                     _mentions_in_msg = [m.lower() for m in _re_ment_p.findall(r"@(\w+)", _content_text or "")]

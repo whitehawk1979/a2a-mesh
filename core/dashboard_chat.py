@@ -522,30 +522,39 @@ async def handle_chat_send(node, request, pool, user):
                 _aio.create_task(_wake_broadcast())
 
             # Self-wake: Nova also responds to broadcast (not just peers)
-            try:
-                self_wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
-                async def _wake_self_broadcast():
-                    import aiohttp as _aiohttp_sw
-                    await _aio.sleep(1)
-                    try:
-                        async with _aiohttp_sw.ClientSession() as sess:
-                            async with sess.post(self_wake_url, json={
-                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000],
-                                "agent_name": node_name,
-                                "sender": username,
-                                "sender_display": display_name,
-                                "chat_username": username,
-                                "chat_msg_uuid": msg_uuid,
-                                "chat_type": "broadcast",
-                                "reply_endpoint": reply_endpoint,
-                                "mesh_secret": "mesh-wake-secret-2026"
-                            }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
-                                log.info(f"🔔 Self-wake broadcast: {resp.status}")
-                    except Exception as e:
-                        log.warning(f"🔔 Self-wake broadcast failed: {e}")
-                _aio.create_task(_wake_self_broadcast())
-            except Exception as e:
-                log.warning(f"Self-wake setup failed: {e}")
+            # v0.46.9: mention-szűrés itt is — ha @valaki mást említettek, Nova NEM kel fel
+            _self_mentioned = node_name.lower() in _mentioned
+            if _mentioned and not _self_mentioned:
+                log.info(f"💬 Skip self-wake: @{', @'.join(_mentioned)} mentioned, not me ({node_name})")
+            else:
+                try:
+                    self_wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
+                    async def _wake_self_broadcast():
+                        import aiohttp as _aiohttp_sw
+                        await _aio.sleep(1)
+                        try:
+                            if _self_mentioned:
+                                _sw_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"[:2000] + " — VÁLASZOLNOD KELL. Több agentnak nem kell válaszolnia."
+                            else:
+                                _sw_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000]
+                            async with _aiohttp_sw.ClientSession() as sess:
+                                async with sess.post(self_wake_url, json={
+                                    "prompt": _sw_prompt,
+                                    "agent_name": node_name,
+                                    "sender": username,
+                                    "sender_display": display_name,
+                                    "chat_username": username,
+                                    "chat_msg_uuid": msg_uuid,
+                                    "chat_type": "broadcast",
+                                    "reply_endpoint": reply_endpoint,
+                                    "mesh_secret": "mesh-wake-secret-2026"
+                                }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
+                                    log.info(f"🔔 Self-wake broadcast: {resp.status}")
+                        except Exception as e:
+                            log.warning(f"🔔 Self-wake broadcast failed: {e}")
+                    _aio.create_task(_wake_self_broadcast())
+                except Exception as e:
+                    log.warning(f"Self-wake setup failed: {e}")
         except Exception as e:
             log.warning(f"💬 Chat broadcast {username}→all: mesh send failed: {e}")
     elif recipient not in ("broadcast", ""):
