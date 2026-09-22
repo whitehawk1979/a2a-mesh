@@ -62,10 +62,11 @@ class TunnelPeer:
     # peer's P2P listener is NOT on the sshd's loopback — the forward must
     # target the host IP instead (sshd runs in the tor container, node in mano).
     forward_host: str = ""
-    # Statically configured dial-in address (operator truth from config) —
+    # Statically configured dial-in address/port (operator truth from config) —
     # kept separately so registry refreshes and multi-address rotation can
-    # never lose the last known-good address (v0.45.2).
+    # never lose the last known-good address (v0.45.2) or port (v0.46.14).
     config_ssh_host: str = ""
+    config_ssh_port: int = 0
 
 
 class SSHTunnelTransport(TransportAdapter):
@@ -158,6 +159,7 @@ class SSHTunnelTransport(TransportAdapter):
                 connect_timeout=int(peer_cfg.get("connect_timeout", 0) or 0),
                 forward_host=str(peer_cfg.get("forward_host", "") or ""),
                 config_ssh_host=str(peer_cfg.get("ssh_host", "") or ""),
+                config_ssh_port=int(peer_cfg.get("ssh_port", 0) or 0),
             )
 
     @property
@@ -527,7 +529,13 @@ class SSHTunnelTransport(TransportAdapter):
         # a working tunnel onto a worse path (e.g. LAN → hung VPN).
         if info.get("ssh_host") and not peer.ssh_host:
             peer.ssh_host = str(info["ssh_host"]); changed.append(f"ssh_host→{peer.ssh_host}")
-        if info.get("ssh_port") and int(info["ssh_port"]) != peer.ssh_port:
+        # v0.46.14: the statically configured port is operator truth — the
+        # registry's ssh_port can only SEED an empty peer (never override a
+        # configured or rotation-selected one). Root cause: tor published
+        # ssh_port=22 (no embedded sshd running) which overrode Nova's correct
+        # static 2230 on every refresh, breaking all tor tunnels.
+        if info.get("ssh_port") and not peer.config_ssh_port \
+                and int(info["ssh_port"]) != peer.ssh_port:
             peer.ssh_port = int(info["ssh_port"]); changed.append(f"ssh_port→{peer.ssh_port}")
         if info.get("ssh_user") and info["ssh_user"] != peer.ssh_user:
             peer.ssh_user = str(info["ssh_user"]); changed.append(f"ssh_user→{peer.ssh_user}")
