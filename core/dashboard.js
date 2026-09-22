@@ -9888,6 +9888,11 @@ function loadDiagSuggestions(filter) {
       if (s.rationale) {
         html += '<div style="font-size:12px;color:var(--text3);font-style:italic;margin-bottom:8px">💭 '+s.rationale+'</div>';
       }
+      // v0.46.6: solution preview in the LIST + detail link
+      if (s.solution) {
+        var solPrev = s.solution.length > 90 ? s.solution.substring(0, 90) + '…' : s.solution;
+        html += '<div style="font-size:12px;color:var(--text);margin-bottom:8px;padding:8px;background:rgba(59,130,246,.08);border-radius:8px;border:1px solid rgba(59,130,246,.25);line-height:1.5">🛠️ <b>Megoldási terv:</b> '+solPrev+' <a href="#" onclick="showSuggestionDetail('+idx+');return false" style="color:#3b82f6;font-size:11px;font-weight:600">Részletek →</a></div>';
+      }
       // Action buttons
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
       if (stLabel === 'pending') {
@@ -9974,6 +9979,13 @@ function showSuggestionDetail(idx) {
     html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:10px">';
     html += '<div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">💭 Indoklás</div>';
     html += '<div style="font-size:13px;color:var(--text);line-height:1.5;font-style:italic">'+s.rationale+'</div>';
+    html += '</div>';
+  }
+  // v0.46.6: standalone solution card — mindig, ne csak hiba-leírásnál
+  if (s.solution) {
+    html += '<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:12px;margin-bottom:10px">';
+    html += '<div style="font-size:12px;font-weight:600;color:#3b82f6;margin-bottom:6px">🛠️ Megoldási terv</div>';
+    html += '<div style="font-size:13px;color:var(--text);line-height:1.7">'+s.solution.replace(/\n/g,'<br>')+'</div>';
     html += '</div>';
   }
   // Error context card (if available in description)
