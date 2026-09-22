@@ -178,6 +178,33 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
     return {"content": out_content}, True
 
 
+def _get_mesh_agent_names(node):
+    """Dinamikus agent-név lista a mesh-ből (v0.46.7) — NINCS hardkódolva.
+
+    Forrás sorrend: peer_discovery ismereplők + saját node név.
+    A mesh tagság flexibilis — bármely node fel/le léphet, ez a függvény
+    mindig az aktuális állapotot adja vissza.
+    """
+    names = set()
+    node_name = getattr(node, "node_name", "") or ""
+    if node_name:
+        names.add(node_name.lower())
+    pd = getattr(node, "peer_discovery", None)
+    if pd is not None:
+        try:
+            for name in pd.get_all_peers().keys():
+                if name:
+                    names.add(str(name).lower())
+        except Exception:
+            try:
+                kp = getattr(pd, "known_peers", None)
+                if kp:
+                    names.update(str(n).lower() for n in kp.keys())
+            except Exception:
+                pass
+    return names
+
+
 async def handle_chat_send(node, request, pool, user):
     """POST /api/chat/send — Send a DM from dashboard user to an agent.
 
@@ -437,10 +464,9 @@ async def handle_chat_send(node, request, pool, user):
             # "NEKED ÍRTÁK" directive; unmentioned agents stay silent.
             import re as _re_mention
             _mentioned = [m.lower() for m in _re_mention.findall(r"@(\w+)", content)]
-            # v0.46.7 fix: a 'mano' hiányzott a valid listából → @mano említéskor
-            # a szűrés kidobta, _mentioned üres lett → broadcast wake MINDEN agentre
-            # (a direkt megszólításból "mindenki észlelte és reagált" hiba).
-            _valid_agents = {"nova", "morzsa", "runa", "tor", "mano"}
+            # v0.46.7: dinamikus agent-lista a mesh-ből (nem hardkódolt —
+            # a mano hiánya miatt korábban @mano → broadcast minden agentre)
+            _valid_agents = _get_mesh_agent_names(node)
             _mentioned = [a for a in _mentioned if a in _valid_agents]
             if _mentioned:
                 log.info(f"💬 Mention detected in broadcast: {', '.join(_mentioned)} — targeted wake only")
@@ -528,7 +554,7 @@ async def handle_chat_send(node, request, pool, user):
         _dm_text = content
         if cmd_route == "ask" and cmd_args:
             _ask_parts = cmd_args.split(maxsplit=1)
-            if len(_ask_parts) == 2 and _ask_parts[0].lower() in ("nova", "morzsa", "runa", "tor", "mano"):  # v0.46.7: mano
+            if len(_ask_parts) == 2 and _ask_parts[0].lower() in _get_mesh_agent_names(node):  # v0.46.7: dinamikus
                 _dm_target = _ask_parts[0].lower()
                 _dm_text = f"🔔 CÉLZOTT KÉRDÉS (zsolt): {_ask_parts[1]}"
         try:

@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import uuid
+from .dashboard_chat import _get_mesh_agent_names  # v0.46.7: dinamikus agent-lista
 
 from .capsules import (
     strip_echo_prefix, retrieve_capsules, format_capsules_for_prompt,
@@ -835,7 +836,7 @@ class DashboardAgentsMixin:
             # route it as agent_reply type (not generic directive) and send to the
             # original sender only, NOT broadcast. This prevents peer nodes from
             # re-triggering wake-agent on receiving this reply.
-            _agent_names = ("nova", "morzsa", "runa", "tor", "mano")  # v0.46.7: mano hozzáadva
+            _agent_names = _get_mesh_agent_names(self.node)  # v0.46.7: dinamikus agent-lista (nem hardkódolt)
             _is_agent_reply = sender.lower() in _agent_names
             # chat_username: the human user this reply belongs to (for per-user history persistence
             # in on_mesh_message — without it the reply shows live via WS but vanishes on reload)
