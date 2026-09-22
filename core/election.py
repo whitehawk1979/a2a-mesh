@@ -181,13 +181,24 @@ class CoordinatorElection:
         self.election_start_time = time.time()
         self.is_acting_coordinator = True
 
+        # Cold-start: nincs regisztrált koordinátor → más indok és üzenet
+        if self.coordinator is None:
+            _reason = "no_coordinator"
+            _orig = "none"
+        elif self.coordinator.state == CoordinatorState.DOWN:
+            _reason = "coordinator_down"
+            _orig = self.coordinator.node_name
+        else:
+            _reason = "coordinator_down"
+            _orig = self.coordinator.node_name
+
         claim = {
             "type": "coordinator_claim",
             "node_name": self.self_name,
             "short_addr": self.self_addr,
-            "original_coordinator": self.coordinator.node_name if self.coordinator else "unknown",
+            "original_coordinator": _orig,
             "timestamp": time.time(),
-            "claim_reason": "coordinator_down",
+            "claim_reason": _reason,
         }
 
         # Self-register: a claimer azonnal acting coordinator lesz a saját
