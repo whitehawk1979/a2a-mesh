@@ -437,7 +437,10 @@ async def handle_chat_send(node, request, pool, user):
             # "NEKED ÍRTÁK" directive; unmentioned agents stay silent.
             import re as _re_mention
             _mentioned = [m.lower() for m in _re_mention.findall(r"@(\w+)", content)]
-            _valid_agents = {"nova", "morzsa", "runa", "tor"}
+            # v0.46.7 fix: a 'mano' hiányzott a valid listából → @mano említéskor
+            # a szűrés kidobta, _mentioned üres lett → broadcast wake MINDEN agentre
+            # (a direkt megszólításból "mindenki észlelte és reagált" hiba).
+            _valid_agents = {"nova", "morzsa", "runa", "tor", "mano"}
             _mentioned = [a for a in _mentioned if a in _valid_agents]
             if _mentioned:
                 log.info(f"💬 Mention detected in broadcast: {', '.join(_mentioned)} — targeted wake only")
@@ -525,7 +528,7 @@ async def handle_chat_send(node, request, pool, user):
         _dm_text = content
         if cmd_route == "ask" and cmd_args:
             _ask_parts = cmd_args.split(maxsplit=1)
-            if len(_ask_parts) == 2 and _ask_parts[0].lower() in ("nova", "morzsa", "runa", "tor"):
+            if len(_ask_parts) == 2 and _ask_parts[0].lower() in ("nova", "morzsa", "runa", "tor", "mano"):  # v0.46.7: mano
                 _dm_target = _ask_parts[0].lower()
                 _dm_text = f"🔔 CÉLZOTT KÉRDÉS (zsolt): {_ask_parts[1]}"
         try:

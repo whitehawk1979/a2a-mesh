@@ -835,7 +835,7 @@ class DashboardAgentsMixin:
             # route it as agent_reply type (not generic directive) and send to the
             # original sender only, NOT broadcast. This prevents peer nodes from
             # re-triggering wake-agent on receiving this reply.
-            _agent_names = ("nova", "morzsa", "runa", "tor")
+            _agent_names = ("nova", "morzsa", "runa", "tor", "mano")  # v0.46.7: mano hozzáadva
             _is_agent_reply = sender.lower() in _agent_names
             # chat_username: the human user this reply belongs to (for per-user history persistence
             # in on_mesh_message — without it the reply shows live via WS but vanishes on reload)
