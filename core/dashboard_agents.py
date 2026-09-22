@@ -1190,7 +1190,26 @@ class DashboardAgentsMixin:
             import asyncio as _aio_exec
             import shutil as _shutil
 
-            _hermes_bin = os.environ.get("HERMES_BIN") or _shutil.which("hermes") or os.path.expanduser("~/.local/bin/hermes")
+            # v0.46.9: hermes binary keresés bővítve — HAOS konténerben a
+            # PATH-ból hiányzik, de a standard telepítési úton elérhető:
+            # /config/.hermes/hermes-agent/venv/bin/hermes (és ~-alapú változatok)
+            def _find_hermes_bin():
+                _cands = []
+                _env = os.environ.get("HERMES_BIN")
+                if _env:
+                    _cands.append(_env)
+                _cands.append(_shutil.which("hermes"))
+                for _p in ("~/.local/bin/hermes",
+                           "~/.hermes/hermes-agent/venv/bin/hermes",
+                           "/config/.hermes/hermes-agent/venv/bin/hermes",
+                           "/usr/local/bin/hermes"):
+                    _cands.append(os.path.expanduser(_p))
+                for _c in _cands:
+                    if _c and os.path.isfile(_c):
+                        return _c
+                return None
+
+            _hermes_bin = _find_hermes_bin()
             output = ""
             _cli_ok = False
             if _hermes_bin and os.path.isfile(_hermes_bin) or (_hermes_bin and _shutil.which(_hermes_bin)):
