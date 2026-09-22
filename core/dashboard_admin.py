@@ -4385,8 +4385,14 @@ class DashboardAdminMixin:
             if not title:
                 return web.json_response({"error": "Title required"}, status=400)
             description = (data.get("description") or "").strip()
-            category = (data.get("category") or "general").strip()
-            priority = (data.get("priority") or "medium").strip()
+            category = (data.get("category") or "general")
+            category = str(category).strip() if not isinstance(category, (int, float)) else "general"
+            priority = (data.get("priority") or "medium")
+            # v0.46.2 fix: UI numerikus prioritást is küldhet (1-9) — str-ként kezeljük és normalizáljuk
+            priority = str(priority).strip()
+            if priority.isdigit():
+                _pn = int(priority)
+                priority = "high" if _pn >= 7 else ("medium" if _pn >= 4 else "low")
             tags = data.get("tags", [])
             if not isinstance(tags, list):
                 tags = []

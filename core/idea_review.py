@@ -180,8 +180,8 @@ def parse_idea_submit(payload: dict) -> Optional[dict]:
     return {
         "title": title[:300],
         "description": (payload.get("description") or "").strip()[:4000],
-        "category": (payload.get("category") or "agent").strip()[:50],
-        "priority": (payload.get("priority") or "medium").strip()[:20],
+        "category": str(payload.get("category") or "agent").strip()[:50],
+        "priority": str(payload.get("priority") or "medium").strip()[:20],
         "submitted_by": (payload.get("submitted_by") or "agent").strip()[:100],
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [],
     }
