@@ -804,38 +804,171 @@ window.CHAT_COMMANDS = [
   { cmd: '/clear',    args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
 ];
 
+// ── v0.46.12: Argumentum-tudatos többszintű autocomplete ──
+// Minden /parancs szintaxisa szerint a kurzor pozíciójában felajánlja a
+// következő értékes részt: agent-nevek, task_id-k, státusz-szűrők, opciók.
+window._ensureMeshAgents = function() {
+  if (window._meshAgents) return Promise.resolve(window._meshAgents);
+  return fetch('/api/status').then(function(r) { return r.json(); }).then(function(d) {
+    try {
+      var _pd = (d.peer_discovery && d.peer_discovery.peers) || {};
+      var _names = Object.keys(_pd).map(function(k) { return k.toLowerCase(); });
+      if (d.node_name) _names.push(String(d.node_name).toLowerCase());
+      window._meshAgents = _names.filter(function(a, i, arr) { return a && arr.indexOf(a) === i; });
+    } catch (e) { window._meshAgents = []; }
+    return window._meshAgents;
+  }).catch(function() { window._meshAgents = []; return window._meshAgents; });
+};
+
+window._ensureRecentTasks = function() {
+  if (window._recentTasks && (Date.now() - (window._recentTasksAt || 0)) < 15000) {
+    return Promise.resolve(window._recentTasks);
+  }
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  return fetch('/api/delegations?limit=25', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); }).then(function(d) {
+      window._recentTasks = (d.delegations || []).map(function(t) {
+        return { id: String(t.task_id || ''), subject: String(t.subject || ''), status: String(t.status || '') };
+      });
+      window._recentTasksAt = Date.now();
+      return window._recentTasks;
+    }).catch(function() { window._recentTasks = []; return window._recentTasks; });
+};
+
+// Agent-paletta sorok generálása (agent + 'any' ahol értelmes)
+window._agentPaletteRows = function(prefix, includeAny, cmdPrefix) {
+  return window._ensureMeshAgents().then(function(agents) {
+    var names = includeAny ? agents.concat(['any']) : agents;
+    return names.filter(function(a) { return a.startsWith(prefix.toLowerCase()); }).map(function(a) {
+      return { cmd: (cmdPrefix || '') + a, desc: a === 'any' ? 'Bármely szabad agent claimelheti' : 'Mesh agent', _plain: true };
+    });
+  });
+};
+
+// Task-paletta sorok generálása (id + rövid tárgy)
+window._taskPaletteRows = function(prefix, cmdPrefix) {
+  return window._ensureRecentTasks().then(function(tasks) {
+    return tasks.filter(function(t) { return t.id.toLowerCase().startsWith(prefix.toLowerCase()); }).map(function(t) {
+      return { cmd: (cmdPrefix || '') + t.id, desc: '📋 ' + t.subject.slice(0, 44) + ' — ' + t.status, _plain: true };
+    });
+  });
+};
+
+// Ötletláda-paletta sorok (nyitott ötletek /vote-hez)
+window._ideaPaletteRows = function(prefix, cmdPrefix) {
+  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
+  return fetch('/api/ideas?status=open&limit=15', { headers: { 'Authorization': 'Bearer ' + token } })
+    .then(function(r) { return r.json(); }).then(function(d) {
+      return (d.ideas || []).filter(function(i) { return String(i.id).startsWith(prefix); }).map(function(i) {
+        return { cmd: (cmdPrefix || '') + i.id, desc: '💡 ' + String(i.title || '').slice(0, 50), _plain: true };
+      });
+    }).catch(function() { return []; });
+};
+
 window.showCommandPalette = function(inputEl) {
   if (!inputEl) return;
   var val = inputEl.value;
   if (!val.startsWith('/')) { window.hideCommandPalette(); return; }
-  var matches = window.CHAT_COMMANDS.filter(function(c) { return c.cmd.startsWith(val); });
-  if (!matches.length || (val.indexOf(' ') >= 0 && !val.startsWith('/ask '))) { window.hideCommandPalette(); return; }
 
-  // ── /ask agent-name second-level autocomplete ──
-  if (val.startsWith('/ask ') && val.indexOf(' ') >= 0) {
-    var askArg = val.slice(5).split(' ')[0].toLowerCase();
-    // v0.46.11: dinamikus agent-lista a status-ból (nem hardkódolt — a mesh tagság flexibilis)
-    if (!window._meshAgents) {
-      fetch('/api/status').then(function(r) { return r.json(); }).then(function(d) {
-        try {
-          var _pd = (d.peer_discovery && d.peer_discovery.peers) || {};
-          var _names = Object.keys(_pd).map(function(k) { return k.toLowerCase(); });
-          if (d.node_name) _names.push(String(d.node_name).toLowerCase());
-          window._meshAgents = _names.filter(function(a, i, arr) { return a && arr.indexOf(a) === i; });
-        } catch (e) { window._meshAgents = []; }
-      }).catch(function() { window._meshAgents = []; });
-    }
-    var agents = (window._meshAgents || []).filter(function(a) { return a.startsWith(askArg); });
-    if (agents.length) {
-      window._renderPalette(inputEl, agents.map(function(a) {
-        return { cmd: '/ask ' + a, args: '<kérdés>', desc: 'Kérdés a(z) ' + a + ' agentnek', _plain: true };
-      }), val);
-    } else {
-      window.hideCommandPalette();
-    }
+  var firstSpace = val.indexOf(' ');
+  var cmdWord = firstSpace === -1 ? val : val.slice(0, firstSpace);
+
+  // ── 1. szint: parancs-nevek ──
+  if (firstSpace === -1) {
+    var matches = window.CHAT_COMMANDS.filter(function(c) { return c.cmd.startsWith(val); });
+    if (matches.length) { window._renderPalette(inputEl, matches, val); }
+    else { window.hideCommandPalette(); }
     return;
   }
-  window._renderPalette(inputEl, matches, val);
+
+  // ── 2. szint: argumentum-tudatos kiegészítés ──
+  var argStr = val.slice(firstSpace + 1);
+  var argTokens = argStr.split(' ');
+  var lastTok = argTokens[argTokens.length - 1] || '';
+  var typedWords = argTokens.slice(0, -1).filter(Boolean);
+  var afterCmd = val.slice(0, val.length - lastTok.length); // "/delegate " vagy "/reassign 6430 "
+
+  // --- /ask <agent> — első argumentum agent-név ---
+  if (cmdWord === '/ask' && typedWords.length === 0) {
+    window._agentPaletteRows(lastTok, false, afterCmd).then(function(rows) {
+      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+    });
+    return;
+  }
+
+  // --- /delegate <agent|any> — első argumentum agent vagy 'any' ---
+  if (cmdWord === '/delegate' && typedWords.length === 0) {
+    window._agentPaletteRows(lastTok, true, afterCmd).then(function(rows) {
+      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+    });
+    return;
+  }
+
+  // --- /delegate ... --opciók — bármely pozícióban opcionális kapcsolók ---
+  if (cmdWord === '/delegate' && lastTok.startsWith('--')) {
+    var optDefs = [
+      { cmd: '--prio 5', desc: 'Prioritás 1-9 (default 5)' },
+      { cmd: '--type generic', desc: 'Típus: generic/monitoring/code/research/analysis' },
+      { cmd: '--timeout 30', desc: 'Timeout percben (default 30)' },
+      { cmd: '--desc leírás', desc: 'Részletes leírás idézőjelben' },
+      { cmd: '--fanout 2', desc: 'N azonos task versenyben — első készít nyer' },
+      { cmd: '--dist', desc: 'Distribute: minden child másik agentnek' },
+      { cmd: '--eligible nova,runa', desc: 'Csak ezek claimelhetik (available-nál)' },
+      { cmd: '--depends task_id', desc: 'Előző task befejezése után indul' }
+    ];
+    var optRows = optDefs.filter(function(o) { return o.cmd.startsWith(lastTok); })
+      .map(function(o) { return { cmd: afterCmd + o.cmd, desc: o.desc, _plain: true }; });
+    if (optRows.length) { window._renderPalette(inputEl, optRows, val); } else { window.hideCommandPalette(); }
+    return;
+  }
+
+  // --- /reassign <task_id> <agent> — 1. arg task, 2. arg agent ---
+  if (cmdWord === '/reassign') {
+    if (typedWords.length === 0) {
+      window._taskPaletteRows(lastTok, afterCmd).then(function(rows) {
+        if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+      });
+      return;
+    }
+    if (typedWords.length === 1) {
+      window._agentPaletteRows(lastTok, false, afterCmd).then(function(rows) {
+        if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+      });
+      return;
+    }
+  }
+
+  // --- /task <task_id> és /cancel <task_id> — task_id autocomplete ---
+  if ((cmdWord === '/task' || cmdWord === '/cancel') && typedWords.length === 0) {
+    window._taskPaletteRows(lastTok, afterCmd).then(function(rows) {
+      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+    });
+    return;
+  }
+
+  // --- /tasks [státusz] — szűrő-kulcsszavak ---
+  if (cmdWord === '/tasks' && typedWords.length === 0) {
+    var taskFilters = [
+      { cmd: 'nyitott', desc: 'Pending + available + accepted + running' },
+      { cmd: 'completed', desc: 'Befejezett taskok' },
+      { cmd: 'failed', desc: 'Sikertelen taskok' },
+      { cmd: 'all', desc: 'Összes (default)' }
+    ];
+    var filterRows = taskFilters.filter(function(f) { return f.cmd.startsWith(lastTok); })
+      .map(function(f) { return { cmd: afterCmd + f.cmd, desc: f.desc, _plain: true }; });
+    if (filterRows.length) { window._renderPalette(inputEl, filterRows, val); } else { window.hideCommandPalette(); }
+    return;
+  }
+
+  // --- /vote [idea_id] — ötletláda ötletek (ha van /api/ideas) ---
+  if (cmdWord === '/vote' && typedWords.length === 0) {
+    window._ideaPaletteRows(lastTok, afterCmd).then(function(rows) {
+      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
+    });
+    return;
+  }
+
+  window.hideCommandPalette();
 };
 
 window._renderPalette = function(inputEl, matches, currentVal) {
