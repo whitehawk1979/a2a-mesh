@@ -1395,9 +1395,64 @@ class MeshNode:
         except Exception as e:
             log.debug(f"Auto-skill generation skipped: {e}")
 
+        # ── v0.46.11: Chat-értesítés — task eredmény visszajut a feladónak ──
+        # Ha a task context-jében van chat_username, az eredmény bekerül a
+        # közös szobába / DM-be, ahonnan a /delegate indult. A dashboard
+        # per-user history így rögtön mutatja, csak a WS broadcast kell hozzá.
+        try:
+            _desc_raw = task_row.get("description", "")
+            _ctx_chat_user, _ctx_origin_node, _ctx_origin_rcpt = None, None, "broadcast"
+            try:
+                import json as _j_ctx
+                _d = _j_ctx.loads(_desc_raw) if isinstance(_desc_raw, str) and _desc_raw.strip().startswith("{") else {}
+                if isinstance(_d, dict):
+                    _c = _d.get("context") or {}
+                    if isinstance(_c, dict):
+                        _ctx_chat_user = _c.get("chat_username")
+                        _ctx_origin_node = _c.get("origin_node")
+                        _ctx_origin_rcpt = _c.get("origin_recipient") or "broadcast"
+            except Exception:
+                pass
+            if _ctx_chat_user:
+                _icon = {"completed": "✅", "failed": "❌", "cancelled": "🚫"}.get(status, "📋")
+                _res = (result or "— nincs eredmény —")[:1500]
+                _chat_msg = (f"{_icon} **Delegált task {status}** — {subject[:100]}\n"
+                             f"• Executor: {assigned}\n"
+                             f"• task_id: `{str(task_row.get('task_id', ''))[:18]}…`\n"
+                             f"• Eredmény:\n{_res}")
+                if self._pg_pool:
+                    await self._pg_pool.execute(
+                        """INSERT INTO mesh.mesh_chat_messages
+                           (message_uuid, username, sender, recipient, content, msg_type, status)
+                           VALUES ($1, $2, $3, $4, $5, 'agent_reply', 'sent')""",
+                        f"delres-{task_row.get('task_id', '')[:18]}-{int(time.time())}",
+                        _ctx_chat_user, self.node_name, _ctx_origin_rcpt, _chat_msg,
+                    )
+                    log.info(f"📨 Delegation result → chat (user={_ctx_chat_user}, task={str(task_row.get('task_id', ''))[:8]}…, status={status})")
+                    # WS broadcast, hogy a nyitott dashboardok azonnal lássák
+                    try:
+                        _dash = getattr(self, "dashboard", None)
+                        if _dash is not None and hasattr(_dash, "_broadcast_ws"):
+                            import json as _j_ws
+                            await _dash._broadcast_ws(_j_ws.dumps({
+                                "type": "new_message",
+                                "message": {
+                                    "id": f"delres-{task_row.get('task_id', '')[:18]}",
+                                    "sender": self.node_name,
+                                    "recipient": _ctx_origin_rcpt,
+                                    "content": _chat_msg,
+                                    "type": "agent_reply",
+                                    "username": _ctx_chat_user,
+                                    "timestamp": time.time(),
+                                },
+                            }))
+                    except Exception as _ws_e:
+                        log.debug(f"Delegation result WS broadcast skipped: {_ws_e}")
+        except Exception as _chat_e:
+            log.warning(f"Delegation result → chat failed: {_chat_e}")
+
 
     # ── Delegation task handlers ──
-
     async def _handle_monitoring_task(self, task: dict, context: dict) -> str:
         """Handle monitoring-type delegated tasks. Returns dict with result, files, context_updates."""
         import platform

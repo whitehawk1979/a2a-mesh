@@ -39,7 +39,11 @@ _CHAT_COMMANDS = {
     "all": "Közös elemzés: /all <kérdés> — minden agent válaszol ugyanarra",
     "ideas": "Ötletgyűjtés: /ideas <téma> — minden agent javaslatot ad, [ÖTLET]-jelölve → Ötletláda",
     "vote": "Agent-szavazás: /vote [idea_id] — minden agent leadja szavazatát az ötletládában nyitott ötletekre",
-    "delegate": "Feladat-delegálás: /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc leírás] — determinisztikus delegation task létrehozása (Kanban kártya automatikusan)",
+    "delegate": "Delegálás: /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L] [--fanout N] [--dist] [--eligible a,b] [--depends ID] — task + Kanban kártya, eredmény visszajön a chatbe",
+    "tasks": "Task lista: /tasks [nyitott|completed|failed|all] [agent] — delegációk állapota",
+    "task": "Task részletek: /task <task_id> — státusz, eredmény, időpontok",
+    "reassign": "Task átirányítás: /reassign <task_id> <agent> — meglévő feladat másik agentnek",
+    "cancel": "Task törlés: /cancel <task_id> — meglévő delegáció érvénytelenítése",
     "clear": "Chat üzenetek törlése ebben a szobában (csak saját üzenetek)",
 }
 
@@ -93,17 +97,22 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
             out_content = f"⚠️ Törlés hiba: {e}"
 
     elif cmd == "delegate":
-        # /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc ...]
-        # Deterministic delegation: creates a task via the node's DelegationManager
-        # (PG INSERT + Kanban card) — no LLM involved, immediate ack in chat.
+        # /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L]
+        #          [--fanout N] [--dist] [--eligible a,b] [--depends <task_id>]
+        # Deterministic delegation via DelegationManager (PG INSERT + Kanban card).
+        # v0.46.11: user-kötés (context.chat_username) + fanout/dist/eligible/depends.
         import re as _re_dl, shlex as _shlex_dl
         args = (args or "").strip()
         if not args:
             out_content = ("⚠️ Használat: `/delegate <agent|any> <tárgy> [opciók]`\n"
                            "• `/delegate morzsa Elemzés a hőmérséklet-logokról`\n"
                            "• `/delegate any Riport a mesh topológiáról --prio 8`\n"
-                           "Opciók: `--prio 1-9` (default 5), `--type <típus>` (default generic), "
-                           "`--timeout <perc>` (default 30), `--desc <leírás>`")
+                           "• `/delegate any Adat-gyűjtés --fanout 3 --dist` (párhuzamos, 3 agent)\n"
+                           "• `/delegate any Audit --eligible nova,runa --timeout 240`\n"
+                           "• `/delegate tor Utóellenőrzés --depends <task_id>` (függőségi lánc)\n"
+                           "Opciók: `--prio 1-9` (default 5) • `--type <típus>` • `--timeout <perc>` • "
+                           "`--desc <leírás>` • `--fanout N` (verseny/párhuzamos) • `--dist` (mindenkinek más) • "
+                           "`--eligible a,b` (csak ők claimelhetik) • `--depends <task_id>`")
         else:
             try:
                 tokens = _shlex_dl.split(args)
@@ -112,6 +121,7 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
             to_agent = tokens[0].strip().lstrip("@").lower() if tokens else ""
             subject_parts: list = []
             prio, task_type, timeout_m, desc = 5, "generic", 30, ""
+            fanout, dist_mode, eligible, depends_on = 0, False, None, None
             i = 1
             while i < len(tokens):
                 t = tokens[i]
@@ -127,11 +137,24 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                     i += 2
                 elif t == "--desc" and i + 1 < len(tokens):
                     desc = tokens[i+1][:2000]; i += 2
+                elif t == "--fanout" and i + 1 < len(tokens):
+                    try: fanout = max(0, min(10, int(tokens[i+1])))
+                    except ValueError: pass
+                    i += 2
+                elif t == "--dist" :
+                    dist_mode = True; i += 1
+                elif t == "--eligible" and i + 1 < len(tokens):
+                    eligible = [a.strip().lstrip("@").lower() for a in tokens[i+1].split(",") if a.strip()][:8]
+                    i += 2
+                elif t == "--depends" and i + 1 < len(tokens):
+                    depends_on = tokens[i+1].strip(); i += 2
                 else:
                     subject_parts.append(t); i += 1
             subject = " ".join(subject_parts).strip()
             if not to_agent or not subject:
                 out_content = "⚠️ Használat: `/delegate <agent|any> <tárgy>` — pl. `/delegate morzsa Logok elemzése`"
+            elif depends_on and len(depends_on) < 8:
+                out_content = "⚠️ `--depends` hibás task_id — teljes (36 karakteres) task_id-t adj meg"
             else:
                 try:
                     _dl = getattr(node, "delegation", None)
@@ -142,6 +165,10 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                         _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
                         node.delegation = _dl
                     available = (to_agent == "any")
+                    # v0.46.11: user-kötés — a task a chat-felhasználóhoz kötődik,
+                    # így az eredmény visszajut a közös szobába (lásd _on_delegation_result).
+                    _ctx = {"chat_username": username, "origin_node": node.node_name,
+                            "origin_recipient": recipient or "broadcast"}
                     task_id = await _dl.delegate_task(
                         to_agent=(to_agent if not available else "any"),
                         subject=subject,
@@ -150,14 +177,138 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                         priority=prio,
                         timeout_minutes=timeout_m,
                         available=available,
+                        fan_out=fanout,
+                        distribute_mode=dist_mode,
+                        eligible_agents=eligible if available else None,
+                        depends_on=depends_on,
+                        context=_ctx,
                     )
                     _ids = task_id if isinstance(task_id, list) else [task_id]
+                    _mode = ""
+                    if fanout > 0:
+                        _mode = f" | Fan-out: {fanout}×" + (" (distribute)" if dist_mode else " (verseny)")
+                    if eligible:
+                        _mode += f" | Eligible: {','.join(eligible)}"
+                    if depends_on:
+                        _mode += f" | Depends: {depends_on[:12]}…"
                     out_content = (f"✅ **Delegálva** → `{to_agent}`\n"
                                    f"• Tárgy: {subject[:120]}\n"
                                    f"• task_id: `{_ids[0][:18]}…`\n"
-                                   f"• Prioritás: P{prio} | Típus: {task_type} | Timeout: {timeout_m} perc")
+                                   f"• Prioritás: P{prio} | Típus: {task_type} | Timeout: {timeout_m} perc{_mode}\n"
+                                   f"• Az eredmény automatikusan megérkezik ide: {username} felhasználónak")
                 except Exception as _dl_e:
                     out_content = f"❌ Delegálás sikertelen: {_dl_e}"
+
+    elif cmd == "tasks":
+        # /tasks [nyitott|completed|failed|all] [agent] — delegációk listája
+        _parts = (args or "").strip().split()
+        _filter = (_parts[0].lower() if _parts else "nyitott")
+        _agent = (_parts[1].strip().lstrip("@").lower() if len(_parts) > 1 else None)
+        _status_map = {"nyitott": ("pending", "available", "accepted", "running"),
+                       "completed": ("completed",), "failed": ("failed", "expired", "cancelled"), "all": None}
+        _statuses = _status_map.get(_filter, None)
+        if _statuses is None and _filter != "all":
+            out_content = "⚠️ Használat: `/tasks [nyitott|completed|failed|all] [agent]`"
+        else:
+            try:
+                if _statuses is None:
+                    if _agent:
+                        rows = await pool.fetch(
+                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations WHERE (to_agent=$1 OR assigned_agent=$1) ORDER BY created_at DESC LIMIT 20", _agent)
+                    else:
+                        rows = await pool.fetch(
+                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations ORDER BY created_at DESC LIMIT 20")
+                else:
+                    if _agent:
+                        rows = await pool.fetch(
+                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations WHERE status = ANY($1) AND (to_agent=$2 OR assigned_agent=$2) ORDER BY created_at DESC LIMIT 20", list(_statuses), _agent)
+                    else:
+                        rows = await pool.fetch(
+                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations WHERE status = ANY($1) ORDER BY priority DESC, created_at DESC LIMIT 20", list(_statuses))
+                if not rows:
+                    out_content = f"📭 Nincs task a szűrésben ({_filter}{', ' + _agent if _agent else ''})."
+                else:
+                    _icon = {"pending": "🕒", "available": "🟢", "accepted": "🤝", "running": "🔄", "completed": "✅", "failed": "❌", "expired": "⏰", "cancelled": "🚫"}
+                    out_content = f"📋 **Taskok ({_filter}{', ' + _agent if _agent else ''})** — {len(rows)} db:\n"
+                    for r in rows:
+                        _who = r['assigned_agent'] or r['to_agent']
+                        out_content += f"{_icon.get(r['status'], '•')} `{str(r['task_id'])[:8]}…` P{r['priority']} {_who}: {(r['subject'] or '')[:60]}\n"
+            except Exception as _t_e:
+                out_content = f"❌ Task lista hiba: {_t_e}"
+
+    elif cmd == "task":
+        # /task <task_id> — részletek
+        _tid = (args or "").strip()
+        if not _tid:
+            out_content = "⚠️ Használat: `/task <task_id>` — task_id-t a `/tasks` listából"
+        else:
+            try:
+                if len(_tid) < 36:
+                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id LIKE $1 ORDER BY created_at DESC LIMIT 3", f"%{_tid}%")
+                else:
+                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id = $1", _tid)
+                if not _rows:
+                    out_content = f"❌ Task nem található: `{_tid[:20]}`"
+                else:
+                    r = _rows[0]
+                    _icon = {"pending": "🕒", "available": "🟢", "accepted": "🤝", "running": "🔄", "completed": "✅", "failed": "❌", "expired": "⏰", "cancelled": "🚫"}
+                    out_content = (f"{_icon.get(r['status'], '•')} **Task** `{str(r['task_id'])[:12]}…`\n"
+                                   f"• Tárgy: {(r['subject'] or '')[:150]}\n"
+                                   f"• Állapot: {r['status']} | P{r['priority']} | {r['task_type'] or 'generic'}\n"
+                                   f"• {r['from_agent']} → {r['assigned_agent'] or r['to_agent']}\n"
+                                   f"• Létrehozva: {str(r['created_at'])[:19]}")
+                    if r.get('progress'):
+                        out_content += f"\n• Progress: {r['progress']}%"
+                    if r.get('notes'):
+                        _notes = (r['notes'] or '')[-400:]
+                        out_content += f"\n• Megjegyzések: {_notes}"
+                    if r.get('result'):
+                        out_content += f"\n• **Eredmény:** {(r['result'] or '')[:600]}"
+            except Exception as _tk_e:
+                out_content = f"❌ Task részletek hiba: {_tk_e}"
+
+    elif cmd == "reassign":
+        # /reassign <task_id> <agent> — meglévő task átirányítása
+        _parts = (args or "").strip().split()
+        if len(_parts) < 2:
+            out_content = "⚠️ Használat: `/reassign <task_id> <agent>` — pl. `/reassign b0f5393d-c04c-4a8a-a3e2-5681625fed1f runa`"
+        else:
+            _tid, _new = _parts[0].strip(), _parts[1].strip().lstrip("@").lower()
+            try:
+                _dl = getattr(node, "delegation", None)
+                if _dl is None:
+                    from core.delegation import DelegationManager
+                    _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
+                    node.delegation = _dl
+                _ok = await _dl.reassign_task(_tid, _new)
+                if _ok:
+                    await _dl.add_note(_tid, f"[REASSIGN] Chat parancs: {username} átirányította → {_new}", "system")
+                    out_content = f"✅ **Task átirányítva** → `{_new}`\n• task_id: `{_tid[:18]}…`"
+                else:
+                    out_content = f"❌ Átirányítás sikertelen — a task nem található vagy nem pending/accepted állapotban van: `{_tid[:18]}…`"
+            except Exception as _ra_e:
+                out_content = f"❌ Reassign hiba: {_ra_e}"
+
+    elif cmd == "cancel":
+        # /cancel <task_id> — delegáció érvénytelenítése
+        _tid = (args or "").strip()
+        if not _tid:
+            out_content = "⚠️ Használat: `/cancel <task_id>` — task_id-t a `/tasks` listából"
+        else:
+            try:
+                _dl = getattr(node, "delegation", None)
+                if _dl is None:
+                    from core.delegation import DelegationManager
+                    _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
+                    node.delegation = _dl
+                _ok = await _dl.cancel_task(_tid)
+                if _ok:
+                    await _dl.add_note(_tid, f"[CANCEL] Chat parancs: {username} érvénytelenítette", "system")
+                    out_content = f"🚫 **Task érvénytelenítve**: `{_tid[:18]}…`"
+                else:
+                    out_content = f"❌ Törlés sikertelen — a task nem található vagy már lefutott: `{_tid[:18]}…`"
+            except Exception as _cx_e:
+                out_content = f"❌ Cancel hiba: {_cx_e}"
 
     elif cmd in ("debate", "ask", "all", "ideas", "vote"):
         # These are ROUTED to agents with special framing — handled by returning
