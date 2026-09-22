@@ -1416,19 +1416,20 @@ class MeshNode:
             if _ctx_chat_user:
                 _icon = {"completed": "✅", "failed": "❌", "cancelled": "🚫"}.get(status, "📋")
                 _res = (result or "— nincs eredmény —")[:1500]
+                _tid_s = str(task_row.get('task_id', '') or '')
                 _chat_msg = (f"{_icon} **Delegált task {status}** — {subject[:100]}\n"
                              f"• Executor: {assigned}\n"
-                             f"• task_id: `{str(task_row.get('task_id', ''))[:18]}…`\n"
+                             f"• task_id: `{_tid_s[:18]}…`\n"
                              f"• Eredmény:\n{_res}")
                 if self._pg_pool:
                     await self._pg_pool.execute(
                         """INSERT INTO mesh.mesh_chat_messages
                            (message_uuid, username, sender, recipient, content, msg_type, status)
                            VALUES ($1, $2, $3, $4, $5, 'agent_reply', 'sent')""",
-                        f"delres-{task_row.get('task_id', '')[:18]}-{int(time.time())}",
+                        f"delres-{_tid_s[:18]}-{int(time.time())}",
                         _ctx_chat_user, self.node_name, _ctx_origin_rcpt, _chat_msg,
                     )
-                    log.info(f"📨 Delegation result → chat (user={_ctx_chat_user}, task={str(task_row.get('task_id', ''))[:8]}…, status={status})")
+                    log.info(f"📨 Delegation result → chat (user={_ctx_chat_user}, task={_tid_s[:8]}…, status={status})")
                     # WS broadcast, hogy a nyitott dashboardok azonnal lássák
                     try:
                         _dash = getattr(self, "dashboard", None)
@@ -1437,7 +1438,7 @@ class MeshNode:
                             await _dash._broadcast_ws(_j_ws.dumps({
                                 "type": "new_message",
                                 "message": {
-                                    "id": f"delres-{task_row.get('task_id', '')[:18]}",
+                                    "id": f"delres-{_tid_s[:18]}",
                                     "sender": self.node_name,
                                     "recipient": _ctx_origin_rcpt,
                                     "content": _chat_msg,
