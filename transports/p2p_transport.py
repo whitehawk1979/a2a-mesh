@@ -617,9 +617,14 @@ class P2PTransport(TransportAdapter):
         except ConnectionResetError:
             log.debug(f"Connection reset by peer {peer_addr}")
         except Exception as e:
+            err = str(e)
             # Log HTTP probes at DEBUG (they're just port scanners)
-            if 'HTTP probe rejected' in str(e):
+            if 'HTTP probe rejected' in err:
                 log.debug(f"HTTP probe from {peer_addr}: {e}")
+            # Benign TLS shutdown race: peer sent close_notify, then trailing data.
+            # Happens on every peer restart — NOT a real transport failure.
+            elif 'APPLICATION_DATA_AFTER_CLOSE_NOTIFY' in err:
+                log.debug(f"TLS close race with peer {peer_addr} (benign, peer restarted): {e}")
             else:
                 log.error(f"Connection error from {peer_addr}: {e}")
         finally:
