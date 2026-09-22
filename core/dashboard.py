@@ -575,9 +575,21 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         return user, None
 
     async def _dashboard_page(self, request):
-        """Serve the dashboard HTML page."""
+        """Serve the dashboard HTML page.
+
+        v0.46.3: a /dashboard.js?v= paramétert minden kérésnél a fájl
+        aktuális mtime-jára cseréljük → a böngésző cache-busting azonnal
+        észreveszi a JS-frissítést a mobil klienseken is."""
         from aiohttp import web
         html = self._load_html()
+        import os as _os
+        js_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dashboard.js")
+        try:
+            mtime = int(_os.path.getmtime(js_path))
+            import re as _re
+            html = _re.sub(r"dashboard\.js\?v=\d+", f"dashboard.js?v={mtime}", html)
+        except FileNotFoundError:
+            pass
         return web.Response(
             text=html,
             content_type="text/html",
@@ -589,18 +601,26 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         )
 
     async def _serve_dashboard_js(self, request):
-        """Serve the dashboard JS file (cacheable)."""
+        """Serve the dashboard JS file (cacheable).
+
+        v0.46.3: ETag a fájl mtime-jából + max-age 300 (5 perc, nem 1 óra).
+        A mobil kliensek így gyorsan észreveszik a JS-frissítést."""
         from aiohttp import web
         import os as _os
         js_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "dashboard.js")
         try:
+            mtime = int(_os.path.getmtime(js_path))
+            etag = '"js-' + str(mtime) + '"'
+            if request.headers.get("If-None-Match") == etag:
+                return web.Response(status=304, headers={"ETag": etag})
             with open(js_path, "r", encoding="utf-8") as f:
                 js = f.read()
             return web.Response(
                 text=js,
                 content_type="application/javascript",
                 headers={
-                    "Cache-Control": "public, max-age=3600",
+                    "Cache-Control": "public, max-age=300",
+                    "ETag": etag,
                     "X-Content-Type-Options": "nosniff",
                 },
             )
