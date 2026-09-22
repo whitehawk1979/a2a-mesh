@@ -101,6 +101,23 @@ CREATE TABLE IF NOT EXISTS mesh.honcho_context_snapshot (
 """
 
 
+def _pool_ctx(pool: Any):
+    """Normalize a raw asyncpg.Pool or the node's AsyncDBPool wrapper into an
+    async context manager yielding a query-capable object (fetch/execute).
+    The wrapper has no .acquire() — its own fetch/execute delegate internally.
+    """
+    if hasattr(pool, "acquire"):
+        return pool.acquire()
+    class _WrapperCtx:
+        def __init__(self, w):
+            self._w = w
+        async def __aenter__(self):
+            return self._w
+        async def __aexit__(self, *exc):
+            return False
+    return _WrapperCtx(pool)
+
+
 async def write_honcho_snapshot(
     honcho_pool: Any,
     mesh_pool: Any,
@@ -118,7 +135,7 @@ async def write_honcho_snapshot(
     written = 0
     try:
         # 1. Ensure the snapshot table exists in the shared PG.
-        async with mesh_pool.acquire() as mconn:
+        async with _pool_ctx(mesh_pool) as mconn:
             await mconn.execute(HONCHO_SNAPSHOT_DDL)
             # Prune: only keep the allowlisted peers' snapshots — a peer
             # removed from the allowlist disappears from the next snapshot.
@@ -183,7 +200,7 @@ async def write_honcho_snapshot(
                     reprs[key].append(entry)
 
         # 4. Upsert into the shared mesh PG.
-        async with mesh_pool.acquire() as mconn:
+        async with _pool_ctx(mesh_pool) as mconn:
             for peer, card in cards.items():
                 contexts = reprs.get(peer, [])
                 await mconn.execute(
@@ -237,8 +254,8 @@ async def get_honcho_context(
     else:
         payload = None
         try:
-            if mesh_pool is not None and hasattr(mesh_pool, "acquire"):
-                async with mesh_pool.acquire() as conn:
+            if mesh_pool is not None:
+                async with _pool_ctx(mesh_pool) as conn:
                     row = await conn.fetchrow(
                         """
                         SELECT card_json, contexts_json, updated_at
