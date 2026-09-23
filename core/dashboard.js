@@ -1474,8 +1474,8 @@ function loadAgents() {
 }
 
 function renderAgents(agents) {
-  // Update DM channels with status indicators
-  agents.forEach(function(a) { addDMChannel(a.name, a.status); });
+  // Update DM channels with status indicators (+ MCP end-device flag)
+  agents.forEach(function(a) { addDMChannel(a.name, a.status, a.is_mcp_end_device); });
   // Also render agent status cards in the agent list area
   var agentList = document.getElementById("agentListCards");
   if (!agentList) {
