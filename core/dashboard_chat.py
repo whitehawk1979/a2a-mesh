@@ -437,6 +437,34 @@ async def handle_chat_send(node, request, pool, user):
                     recipient, username, display_name, content, msg_uuid
                 )
                 log.info(f"📥 MCP inbox: DM {username}→{recipient} queued for end-device delivery")
+                # v0.46.16: DM-wake — a tétlen MCP kliens (opencode) headless futtatással
+                # ébreszthető: `opencode run "prompt"` SSH-n a kliens hostján.
+                # A prompt ráirányítja a mesh_inbox toolra → feldolgozza a DM-eket.
+                try:
+                    from core import mcp_registry as _mreg
+                    _client = _mreg._load().get(recipient, {})
+                    _host = _client.get("host", "") or ("192.168.1.30" if _client.get("parent_node") == "morzsa" else "")
+                    if _host:
+                        _wake_prompt = (
+                            f"🔔 Új DM érkezett {username}-tól: {content[:300]}\n"
+                            f"Hívd meg a mesh_inbox MCP eszközt, olvasd el a DM-eket, "
+                            f"majd válaszolj a mesh_dm_send eszközzel (recipient: {username})."
+                        )
+                        import subprocess as _sp
+                        _cmd = (
+                            f"timeout 240 ~/.opencode/bin/opencode run "
+                            f"{_wake_prompt!r}"
+                        )
+                        _sp.Popen(
+                            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                             f"openclaw@{_host}", _cmd],
+                            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                        )
+                        log.info(f"🔔 MCP DM-wake: opencode run → {_host} (session a2a-dm-{msg_uuid[:8]})")
+                    else:
+                        log.debug(f"MCP DM-wake: {recipient} host ismeretlen — pull kézbesítés marad")
+                except Exception as _we:
+                    log.warning(f"MCP DM-wake failed: {_we}")
         except Exception as _qe:
             log.debug(f"MCP inbox queue failed: {_qe}")
 
