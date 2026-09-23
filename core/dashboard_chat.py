@@ -374,6 +374,23 @@ async def handle_chat_send(node, request, pool, user):
     if not content.strip():
         return web.json_response({"error": "content is required"}, status=400)
 
+    # ── MCP bridge end-device identity ──
+    # A trusted bridge user (mcp-bridge) nevében érkező üzenetek a VALÓDI MCP
+    # kliens neve alatt jelennek meg (pl. 'opencode') — sidebar + shared room.
+    sender_name = username
+    if username == "mcp-bridge":
+        client = (data.get("sender") or "").strip()
+        if client and client.replace("-", "").replace("_", "").isalnum():
+            sender_name = client
+            await _ensure_chat_user(pool, sender_name, client, node_name)
+            # end-device jelzés a chat users táblában
+            try:
+                await pool.execute(
+                    """UPDATE mesh.mesh_chat_users SET is_mcp_end_device = true WHERE username = $1""",
+                    sender_name)
+            except Exception:
+                pass  # oszlop még nem létezik — nem blokkol
+
     await _ensure_chat_user(pool, username, display_name, node_name)
 
     msg_uuid = str(uuid.uuid4())
@@ -385,7 +402,7 @@ async def handle_chat_send(node, request, pool, user):
                (message_uuid, username, sender, recipient, content, msg_type, status)
                VALUES ($1, $2, $3, $4, $5, $6, 'sent')
                RETURNING id, created_at""",
-            msg_uuid, username, username, recipient, content, msg_type
+            msg_uuid, username, sender_name, recipient, content, msg_type
         )
         msg_id = row["id"] if row else None
         created_at = str(row["created_at"]) if row else None
@@ -1010,6 +1027,24 @@ async def handle_chat_contacts(node, request, pool, user):
                 if name not in existing:
                     contacts.append({"agent": name, "total": 0, "unread": 0, "last_msg": None})
                     existing.add(name)
+        except Exception:
+            pass
+
+        # MCP end devices (agents connected via the MCP bridge) — sidebar visibility
+        try:
+            mcp_rows = await pool.fetch(
+                """SELECT username, display_name FROM mesh.mesh_chat_users
+                   WHERE is_mcp_end_device = true AND username != $1 ORDER BY username""",
+                username
+            )
+            for mr in mcp_rows:
+                mname = mr["username"]
+                contacts.append({
+                    "agent": mname,
+                    "display_name": mr.get("display_name") or mname,
+                    "total": 0, "unread": 0, "last_msg": None,
+                    "is_mcp_end_device": True,
+                })
         except Exception:
             pass
 

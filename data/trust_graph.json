@@ -2,24 +2,31 @@
   "Nova": {
     "Morzsa": "full",
     "Runa": "full",
-    "Tor": "full"
+    "Tor": "full",
+    "Mano": "full"
   },
   "Morzsa": {
     "Nova": "full",
     "Runa": "full",
-    "Tor": "full"
+    "Tor": "full",
+    "Mano": "full"
   },
   "Runa": {
     "Nova": "full",
     "Morzsa": "full",
-    "Tor": "full"
+    "Tor": "full",
+    "Mano": "full"
   },
   "Tor": {
     "Nova": "full",
     "Morzsa": "full",
-    "Runa": "full"
+    "Runa": "full",
+    "Mano": "full"
   },
-  "": {
-    "": "trusted"
+  "Mano": {
+    "Nova": "full",
+    "Morzsa": "full",
+    "Runa": "full",
+    "Tor": "full"
   }
 }
