@@ -160,6 +160,7 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_post("/api/agent-dm", self._api_agent_dm)
         app.router.add_get("/api/chat/messages", self._api_chat_messages)
         app.router.add_get("/api/chat/inbox", self._api_chat_inbox)
+        app.router.add_get("/api/chat/mcp-inbox", self._api_chat_mcp_inbox)
         app.router.add_post("/api/chat/read", self._api_chat_mark_read)
         app.router.add_get("/api/chat/contacts", self._api_chat_contacts)
         app.router.add_get("/api/files", self._api_list_files)

@@ -94,6 +94,17 @@ def list_clients(parent_node: str = "") -> list:
     return out
 
 
+def is_end_device(name: str, parent_node: str = "") -> bool:
+    """True, ha a név egy regisztrált MCP end-device (transport='mcp')."""
+    if not name:
+        return False
+    data = _load()
+    entry = data.get(name)
+    if not isinstance(entry, dict):
+        return False
+    return entry.get("transport") == "mcp"
+
+
 def is_empty() -> bool:
     with _lock:
         return not _load()

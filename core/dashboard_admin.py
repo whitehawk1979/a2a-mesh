@@ -4917,6 +4917,17 @@ class DashboardAdminMixin:
             return web.json_response({"error": "DB not available"}, status=503)
         return await handle_chat_messages(self.node, request, pool, user)
 
+    async def _api_chat_mcp_inbox(self, request):
+        """GET /api/chat/mcp-inbox — MCP end-device DM queue (mcp-bridge only)."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_mcp_inbox
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_mcp_inbox(self.node, request, pool, user)
+
     async def _api_chat_inbox(self, request):
         """GET /api/chat/inbox — Unread DMs for this user."""
         from aiohttp import web
