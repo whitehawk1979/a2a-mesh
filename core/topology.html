@@ -167,12 +167,15 @@ async function fetchDelegations(nodeName) {
 // ── Update header stats ──
 function updateStats() {
   const local = topologyData?.local_node || '?';
-  const online = nodes.filter(n => n.status === 'online' || n.status === 'connected').length;
+  const endDevices = nodes.filter(n => n.is_mcp_end_device);
+  const meshNodes = nodes.filter(n => !n.is_mcp_end_device);
+  const online = meshNodes.filter(n => n.status === 'online' || n.status === 'connected').length;
   const p2pLinks = connections.filter(c => c.transport === 'p2p' && c.status === 'connected').length;
   const sshLinks = connections.filter(c => c.transport === 'ssh_tunnel' && c.status === 'connected').length;
   const totalLinks = connections.length;
 
-  let html = `<span class="badge green">${online}/${nodes.length} node</span>`;
+  let html = `<span class="badge green">${online}/${meshNodes.length} node</span>`;
+  if (endDevices.length > 0) html += `<span class="badge" style="background:#bc8cff33;color:#bc8cff">${endDevices.length} MCP ED</span>`;
   html += `<span class="badge ${p2pLinks > 0 ? 'green' : 'red'}">${p2pLinks} P2P</span>`;
   if (sshLinks > 0) html += `<span class="badge" style="background:#00d0ff33;color:#00d0ff">${sshLinks} SSH</span>`;
   html += `<span class="badge">${totalLinks} link</span>`;
@@ -198,24 +201,13 @@ function calcPositions() {
       y: cy + radius * Math.sin(angle)
     };
   });
-  // MCP end devices orbit their parent node
+  // MCP end devices: dedicated bottom dock — NEM a node-gyűrűn.
+  // Nem tolják el a node-ok pozícióit, külön sávban jelennek meg.
   const endDevices = nodes.filter(n => n.is_mcp_end_device);
-  const byParent = {};
-  endDevices.forEach(ed => {
-    const p = ed.transport_parent || localName;
-    (byParent[p] = byParent[p] || []).push(ed);
-  });
-  Object.keys(byParent).forEach(parent => {
-    const pp = positions[parent];
-    if (!pp) return;
-    const kids = byParent[parent];
-    kids.forEach((ed, i) => {
-      const a = (2 * Math.PI * i / (kids.length || 1)) - Math.PI / 2;
-      positions[ed.name] = {
-        x: pp.x + 70 * Math.cos(a),
-        y: pp.y + 70 * Math.sin(a)
-      };
-    });
+  const dockY = h - 60;
+  const dockStartX = cx - (endDevices.length - 1) * 55;
+  endDevices.forEach((ed, i) => {
+    positions[ed.name] = { x: dockStartX + i * 110, y: dockY };
   });
 }
 
@@ -420,6 +412,15 @@ function draw() {
 
   // ── Restore zoom & pan transform ──
   ctx.restore();
+
+  // ── MCP end-device dock label (outside transform) ──
+  const edCount = nodes.filter(n => n.is_mcp_end_device).length;
+  if (edCount > 0) {
+    ctx.fillStyle = '#bc8cff88';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('🔌 MCP end devices: ' + edCount + ' — külső agentek (a node-gyűrűn kívül)', 8, h - 26);
+  }
 
   // ── Draw zoom indicator (outside transform) ──
   ctx.fillStyle = '#8b949e';

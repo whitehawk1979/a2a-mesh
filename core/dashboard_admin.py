@@ -134,6 +134,34 @@ class DashboardAdminMixin:
                     "http": peer.http_available,
                 },
             })
+
+        # ── MCP end devices (external agents on this node's bridge) — DM partners ──
+        # Sidebarban közvetlen üzenet partnerként jelennek meg, nem node-ként.
+        try:
+            from core.mcp_registry import list_clients as _mcp_list
+            parent = self.node.node_name
+            mesh_names = {a.get("name") for a in agents}  # node/agent nevek — duplikátum-szűrés
+            for c in _mcp_list(parent_node=parent):
+                if c.get("name") == parent or c.get("name") in mesh_names:
+                    continue
+                agents.append({
+                    "name": c["name"],
+                    "role": "mcp_end_device",
+                    "status": "online" if c.get("online") else "offline",
+                    "host": "",
+                    "version": "",
+                    "p2p_port": 0,
+                    "health_port": 0,
+                    "last_seen": c.get("last_seen", 0),
+                    "skills": ["mcp"],
+                    "capabilities": ["mcp_bridge"],
+                    "transports": {"mcp": True},
+                    "is_mcp_end_device": True,
+                    "transport_parent": parent,
+                })
+        except Exception as e:
+            log.debug(f"MCP end-device agents append failed (non-blocking): {e}")
+
         return web.json_response({"agents": agents, "total": len(agents)})
 
     # ─── Admin: Node Approval ──────────────────────────────────

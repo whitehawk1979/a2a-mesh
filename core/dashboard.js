@@ -176,7 +176,7 @@ function switchChannel(channel) {
     var ind = document.getElementById("dmAgentIndicator");
     if (ind) ind.style.display = "none";
   } else {
-    header.innerHTML = "👤 " + channel;
+    header.innerHTML = (knownAgents[channel + ":mcp"] ? "🔌 " : "👤 ") + channel;
     info.innerHTML = "Közvetlen üzenet — csak te és " + channel;
     // Set recipient to this agent — use .value (more reliable than selectedIndex)
     var selEl = document.getElementById("recipientSelect");
@@ -512,14 +512,15 @@ function addMessage(msg, scroll) {
 
 var knownAgents = {};  // agent name -> status info for DM channel status dots
 
-function addDMChannel(agentName, status) {
-  // Track agent status
+function addDMChannel(agentName, status, isMcpEndDevice) {
+  // Track agent status + MCP end-device flag
   if (status) knownAgents[agentName] = status;
+  if (isMcpEndDevice) knownAgents[agentName + ":mcp"] = true;
   var list = document.getElementById("dmList");
   if (!list) return;
   var existing = document.getElementById("ch-" + agentName);
   var statusInfo = knownAgents[agentName] || "offline";
-  var statusIcon = (statusInfo === "online") ? "🟢" : (statusInfo === "available" || statusInfo === "connected") ? "🟡" : "🔴";
+  var statusIcon = (statusInfo === "online") ? (isMcpEndDevice ? "🔌" : "🟢") : (statusInfo === "available" || statusInfo === "connected") ? "🟡" : "🔴";
   if (existing) {
     // Update status dot in existing channel item
     var iconSpan = existing.querySelector(".dm-status-dot");
@@ -539,7 +540,7 @@ function addDMChannel(agentName, status) {
   div.className = "channel-item";
   div.id = "ch-" + agentName;
   div.onclick = function() { switchChannel(agentName); };
-  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">👤</span> ' + escapeHtml(agentName);
+  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">' + (isMcpEndDevice ? '🔌' : '👤') + '</span> ' + escapeHtml(agentName) + (isMcpEndDevice ? ' <span style="font-size:10px;color:#bc8cff;">MCP</span>' : '');
   list.appendChild(div);
 }
 
@@ -1461,11 +1462,11 @@ function loadAgents() {
       // Include self node (nova) so user can DM their own agent
       var opt = document.createElement("option");
       opt.value = a.name;
-      var label = a.name === nodeId ? "👤 " + a.name + " (saját)" : "👤 " + a.name + " (" + a.role + ")";
+      var label = a.name === nodeId ? "👤 " + a.name + " (saját)" : (a.is_mcp_end_device ? "🔌 " + a.name + " (MCP agent)" : "👤 " + a.name + " (" + a.role + ")");
       opt.textContent = label;
       sel.appendChild(opt);
-      // Also add DM channel with status
-      addDMChannel(a.name, a.status);
+      // Also add DM channel with status (MCP end-device: own icon, still DM-able)
+      addDMChannel(a.name, a.status, a.is_mcp_end_device);
     });
     // Restore selection
     sel.value = currentVal;
