@@ -409,6 +409,7 @@ def cmd_daemon(dry_run: bool):
 
 
 def main():
+    global DAEMON_INTERVAL
     parser = argparse.ArgumentParser(
         description="Runa disk-watchdog: monitor disk usage and auto-purge old logs/WAL archives"
     )
@@ -422,7 +423,6 @@ def main():
                         help=f"Daemon poll interval in seconds (default: {DAEMON_INTERVAL})")
     args = parser.parse_args()
 
-    global DAEMON_INTERVAL
     DAEMON_INTERVAL = args.interval
 
     if args.status:
