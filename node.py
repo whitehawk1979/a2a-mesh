@@ -40,6 +40,10 @@ from .transports.pg_transport import PGTransport
 from .transports.p2p_transport import P2PTransport
 from .transports.http_transport import HTTPTransport
 from .transports.ble_transport import BLETransport
+try:
+    from .transports.mqtt_transport import MQTTTransport
+except ImportError:
+    MQTTTransport = None
 from .transports.ssh_tunnel_transport import SSHTunnelTransport
 from .discovery.mdns import MeshDiscovery
 from .discovery.udp_broadcast import UDPBroadcastDiscovery
@@ -311,6 +315,10 @@ class MeshNode:
         self._p2p_transport = P2PTransport(self.config, node_version=self._resolved_version)
         self._http_transport = HTTPTransport(self.config)
         self._ble_transport = BLETransport(self.config)
+        # MQTT transport (additive, v0.47+): disabled unless config.mqtt.enabled
+        self._mqtt_transport = None
+        if MQTTTransport is not None and getattr(self.config, 'mqtt', None) and getattr(self.config.mqtt, 'enabled', False):
+            self._mqtt_transport = MQTTTransport(self.config)
         self._ssh_tunnel_transport = SSHTunnelTransport(
             self.config.ssh_tunnel,
             node_name=self.node_name,
@@ -329,6 +337,8 @@ class MeshNode:
         self.router.register_transport("p2p", self._p2p_transport)
         self.router.register_transport("http", self._http_transport)
         self.router.register_transport("ble", self._ble_transport)
+        if self._mqtt_transport is not None:
+            self.router.register_transport("mqtt", self._mqtt_transport)
         if self.config.ssh_tunnel.enabled:
             self.router.register_transport("ssh_tunnel", self._ssh_tunnel_transport)
 
@@ -908,6 +918,12 @@ class MeshNode:
 
         # Start BLE transport
         results["ble"] = await self._ble_transport.start()
+        if self._mqtt_transport is not None:
+            try:
+                results["mqtt"] = await self._mqtt_transport.start()
+            except Exception as e:
+                log.warning(f"MQTT transport start failed (non-fatal): {e}")
+                results["mqtt"] = False
         if results["ble"]:
             log.info("✅ BLE transport started")
         else:
@@ -3333,6 +3349,11 @@ echo "Status: ok"
         await self._p2p_transport.stop()
         await self._http_transport.stop()
         await self._ble_transport.stop()
+        if self._mqtt_transport is not None:
+            try:
+                await self._mqtt_transport.stop()
+            except Exception as e:
+                log.debug(f"MQTT transport stop: {e}")
         if self.config.ssh_tunnel.enabled:
             await self._ssh_tunnel_transport.stop()
         await self._discovery.stop()

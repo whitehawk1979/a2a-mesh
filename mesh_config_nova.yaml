@@ -180,6 +180,12 @@ mesh:
   - pg_notify
   - http
   transports:
+    mqtt:
+      enabled: false          # v0.47+: MQTT transport — flip to true after E2E pass
+      host: 127.0.0.1
+      port: 8683
+      client_prefix: mesh
+      keepalive: 30
     http:
       health_url: http://192.168.1.30:8650/api/health
       retries: 3

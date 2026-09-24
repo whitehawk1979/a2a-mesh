@@ -3,10 +3,32 @@
 import logging
 import os
 import yaml
+import re
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 log = logging.getLogger("a2a_mesh.config")
+
+
+@dataclass
+class MQTTConfig:
+    """MQTT transport config — additive, disabled by default (A2A Mesh v0.47+)."""
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8683
+    client_prefix: str = "mesh"
+    keepalive: int = 30
+
+    @classmethod
+    def from_dsn(cls, dsn: str) -> "MQTTConfig":
+        """Parse mqtt://host:port DSN (optional convenience)."""
+        m = re.match(r"mqtt://([^:]+):(\d+)", dsn)
+        if m:
+            return cls(host=m.group(1), port=int(m.group(2)))
+        m = re.match(r"mqtt://([^:]+)", dsn)
+        if m:
+            return cls(host=m.group(1))
+        return cls()
 
 
 @dataclass
@@ -380,6 +402,7 @@ class MeshConfig:
 
     # Sub-configs
     pg: PGConfig = field(default_factory=PGConfig)
+    mqtt: MQTTConfig = field(default_factory=MQTTConfig)
     p2p: P2PConfig = field(default_factory=P2PConfig)
     http: HTTPConfig = field(default_factory=HTTPConfig)
     ssh_tunnel: SSHTunnelConfig = field(default_factory=SSHTunnelConfig)
@@ -526,6 +549,17 @@ class MeshConfig:
                 health_url=http_data.get('health_url', config.http.health_url),
                 timeout=http_data.get('timeout', config.http.timeout),
                 retries=http_data.get('retries', config.http.retries),
+            )
+
+        # MQTT config (additive transport, v0.47+)
+        mqtt_data = mesh.get('transports', {}).get('mqtt', {})
+        if mqtt_data:
+            config.mqtt = MQTTConfig(
+                enabled=mqtt_data.get('enabled', config.mqtt.enabled),
+                host=mqtt_data.get('host', config.mqtt.host),
+                port=mqtt_data.get('port', config.mqtt.port),
+                client_prefix=mqtt_data.get('client_prefix', config.mqtt.client_prefix),
+                keepalive=mqtt_data.get('keepalive', config.mqtt.keepalive),
             )
 
         # SSH tunnel config
