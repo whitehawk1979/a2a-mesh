@@ -132,8 +132,8 @@ class MQTTTransport(TransportAdapter):
             self._last_error = f"Connection failed with rc={rc}"
             log.warning(f"[{self.name}] Connection failed with rc={rc}")
 
-    def _on_disconnect(self, client, userdata, rc, properties=None):
-        """Handle disconnection."""
+    def _on_disconnect(self, client, userdata, disconnect_flags=None, rc=None, properties=None):
+        """Handle disconnection (paho v2 signature: flags, rc, properties)."""
         self._connected = False
         self._connect_event.clear()
         log.info(f"[{self.name}] Disconnected from broker (rc={rc})")
