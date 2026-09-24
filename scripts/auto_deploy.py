@@ -9,6 +9,11 @@ import os
 import time
 import json
 
+# Git pull diff-alapú skip (idea_639b591b0ffe): csak akkor pull,
+# ha a remote HEAD eltér a local HEAD-től → -90% felesleges fetch+checkout
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from core.git_pull_skip import pull_if_needed
+
 SSH_KEY = os.path.expanduser("~/.ssh/id_ed25519_openclaw")
 SSH_OPTS = ["-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
 
@@ -97,16 +102,17 @@ def run(cmd, timeout=30):
         return 1, str(e)
 
 def git_pull():
-    """Pull latest from Gitea."""
-    print("📥 Git pull...")
-    code, out = run(["git", "pull", "origin", "main"], timeout=30)
-    # git pull needs to run in mesh dir
-    code, out = run(["git", "-C", MESH_DIR, "pull", "origin", "main"], timeout=30)
-    if code == 0:
-        print("  ✅ Git pull OK")
-    else:
-        print(f"  ❌ Git pull failed: {out[:200]}")
-    return code == 0
+    """Pull latest from Gitea — diff-alapú skip (idea_639b591b0ffe)."""
+    # Git pull diff-alapú skip: ls-remote HEAD-ellenőrzés fetch nélkül
+    pulled, skipped, msg = pull_if_needed(MESH_DIR, remote="origin", branch="main")
+    if skipped:
+        print(f"  ⏭️  Skip pull: {msg}")
+        return True
+    if pulled:
+        print(f"  ✅ Git pull OK: {msg[:120]}")
+        return True
+    print(f"  ❌ Git pull failed: {msg[:200]}")
+    return False
 
 def deploy_to_node(name, host_info):
     """Deploy files to a remote node."""

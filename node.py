@@ -1556,25 +1556,33 @@ class MeshNode:
         if action == "git_pull":
             repo_dir = context.get("repo_dir", os.path.dirname(os.path.abspath(__file__)))
             git_remote = context.get("remote", "origin")
-            try:
-                r = subprocess.run(
-                    ["git", "fetch", "--prune", git_remote],
-                    capture_output=True, text=True, timeout=60, cwd=repo_dir
-                )
-                results.append(f"git fetch: {r.stdout.strip() or r.stderr.strip() or 'OK'}")
-                actions_taken.append(f"git fetch {git_remote}")
-                
-                r2 = subprocess.run(
-                    ["git", "merge", "--ff-only", f"{git_remote}/main"],
-                    capture_output=True, text=True, timeout=30, cwd=repo_dir
-                )
-                if r2.returncode == 0:
-                    results.append(f"git merge: {r2.stdout.strip() or 'Already up to date'}")
-                    actions_taken.append(f"git merge --ff-only {git_remote}/main")
-                else:
-                    results.append(f"git merge FAILED: {r2.stderr.strip()}")
-            except Exception as e:
-                results.append(f"git_pull error: {e}")
+            # Git pull diff-alapú skip (idea_639b591b0ffe): fetch/merge CSAK
+            # ha a remote HEAD != local HEAD — fetch nélküli ls-remote check
+            from core.git_pull_skip import pull_needed
+            need_pull, why = pull_needed(repo_dir, remote=git_remote, branch="main")
+            if not need_pull:
+                results.append(f"git pull skipped: {why}")
+                actions_taken.append("git pull skip (up to date)")
+            else:
+                try:
+                    r = subprocess.run(
+                        ["git", "fetch", "--prune", git_remote],
+                        capture_output=True, text=True, timeout=60, cwd=repo_dir
+                    )
+                    results.append(f"git fetch: {r.stdout.strip() or r.stderr.strip() or 'OK'}")
+                    actions_taken.append(f"git fetch {git_remote}")
+                    
+                    r2 = subprocess.run(
+                        ["git", "merge", "--ff-only", f"{git_remote}/main"],
+                        capture_output=True, text=True, timeout=30, cwd=repo_dir
+                    )
+                    if r2.returncode == 0:
+                        results.append(f"git merge: {r2.stdout.strip() or 'Already up to date'}")
+                        actions_taken.append(f"git merge --ff-only {git_remote}/main")
+                    else:
+                        results.append(f"git merge FAILED: {r2.stderr.strip()}")
+                except Exception as e:
+                    results.append(f"git_pull error: {e}")
         
         elif action == "service_restart":
             service_name = context.get("service", "a2a-mesh")

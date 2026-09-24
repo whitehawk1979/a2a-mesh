@@ -3121,12 +3121,20 @@ class DashboardAdminMixin:
             return err
         try:
             mesh_dir = os.path.expanduser("~/.hermes/scripts/a2a_mesh")
-            # Step 1: git stash local changes
-            subprocess.run(["git", "stash"], cwd=mesh_dir, capture_output=True, text=True, timeout=10)
-            # Step 2: git pull
-            result = subprocess.run(["git", "pull", "origin", "main"], cwd=mesh_dir, capture_output=True, text=True, timeout=30)
-            pull_ok = result.returncode == 0
-            pull_output = result.stdout + result.stderr
+            # Git pull diff-alapú skip (idea_639b591b0ffe): fetch/checkout CSAK
+            # ha a remote HEAD != local HEAD — a legtöbb deploy enélkül is megy
+            from core.git_pull_skip import pull_needed
+            need_pull, why = pull_needed(mesh_dir, remote="origin", branch="main")
+            if not need_pull:
+                pull_ok = True
+                pull_output = f"[SKIP] {why}"
+            else:
+                # Step 1: git stash local changes (csak tényleges pull előtt kell)
+                subprocess.run(["git", "stash"], cwd=mesh_dir, capture_output=True, text=True, timeout=10)
+                # Step 2: git pull
+                result = subprocess.run(["git", "pull", "origin", "main"], cwd=mesh_dir, capture_output=True, text=True, timeout=30)
+                pull_ok = result.returncode == 0
+                pull_output = (result.stdout + result.stderr)[:500]
             # Step 3: Deploy to peers via existing deploy API
             deploy_result = None
             if pull_ok and self.node and hasattr(self.node, 'delegation'):
