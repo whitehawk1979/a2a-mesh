@@ -208,10 +208,10 @@ class MQTTTransport(TransportAdapter):
             log.warning(f"[{self.name}] Error processing message on {topic}: {e}. Payload: {payload[:200]!r}")
 
     async def receive(self) -> List[A2AMessage]:
-        """Drain the RX queue and return list of messages."""
+        """Drain the RX queue and return list of (message, transport_name) tuples."""
         messages = []
         while self._rx:
-            messages.append(self._rx.popleft())
+            messages.append((self._rx.popleft(), self.name))
         return messages
 
     async def send(self, message) -> SendResult:

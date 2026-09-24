@@ -181,7 +181,7 @@ mesh:
   - http
   transports:
     mqtt:
-      enabled: false          # v0.47+: MQTT transport — flip to true after E2E pass
+      enabled: true           # v0.47+: MQTT transport E2E (broker :8683)
       host: 127.0.0.1
       port: 8683
       client_prefix: mesh
