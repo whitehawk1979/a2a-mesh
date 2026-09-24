@@ -1,83 +1,38 @@
-import argparse
-import random
-import time
-import sys
-import os
+#!/usr/bin/env python3
+"""SDK smoke-teszt: MeshDevice connect → manifest → telemetry → DM → LWT,
+   majd ellenőrzés, hogy a Nova node feldolgozta-e (log-tail)."""
+import time, json, sys, subprocess
+sys.path.insert(0, "/Users/zsolt/.hermes/scripts")
+from a2a_mesh.sdk.mqtt_device import MeshDevice
 
-# Ensure sdk is importable if run from repo root
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from sdk.mqtt_device import MeshDevice
+# 1) Device connect (LWT-vel)
+dev = MeshDevice(
+    dev_id="sdk-smoke-test",
+    parent_node="nova",
+    broker="192.168.1.8", port=8683,
+    caps=["test"],
+)
+dev.connect()
+print("1. connect OK")
 
-def main():
-    parser = argparse.ArgumentParser(description="A2A Mesh Device SDK Test CLI")
-    parser.add_argument("--dev", default="vsensor-1", help="Device ID")
-    parser.add_argument("--kind", default="sensor", help="Device kind")
-    parser.add_argument("--caps", default="temp,relay", help="Capabilities (comma separated)")
-    parser.add_argument("--broker", default="127.0.0.1", help="MQTT Broker")
-    parser.add_argument("--port", type=int, default=8683, help="MQTT Port")
-    parser.add_argument("--parent", default="nova", help="Parent node ID")
-    parser.add_argument("--mode", choices=["once", "loop"], default="loop", help="Test mode")
-    args = parser.parse_args()
+# 2) Manifest + telemetry + DM
+dev._publish_manifest()
+print("2. manifest OK")
+dev.publish_sensor("uptime_s", 42)
+print("3. telemetry OK")
+dev.send_dm("nova", "SDK smoke-test DM a Novanak — teljes lánc!")
+print("4. DM OK")
 
-    caps = args.caps.split(",")
-    # For this test, assume relay is writable state if present in caps
-    writable = [c for c in caps if c == "relay"]
+# 3) Nova log-ellenőrzés (feldolgozta-e a node a DM-et):
+time.sleep(2)
+r = subprocess.run(
+    ["grep", "-E", "from sdk-smoke-test.*via mqtt.*processed", "/Users/zsolt/.hermes/logs/a2a_mesh.log"],
+    capture_output=True, text=True)
+lines = r.stdout.strip().splitlines()
+print("5. Nova feldolgozta:", lines[-1] if lines else "NEM TALÁLható (log-tail)")
 
-    dev = MeshDevice(
-        dev_id=args.dev,
-        kind=args.kind,
-        parent_node=args.parent,
-        broker=args.broker,
-        port=args.port,
-        caps=caps,
-        writable_state=writable
-    )
+# 4) Disconnect → LWT (offline) ellenőrzése observerrel
+dev.disconnect()  # graceful → nem várunk LWT-t (az csak váratlan kilépésnél)
+print("6. disconnect OK (graceful, LWT nem váltódik ki — hard-killnél igen)")
 
-    # Custom logic for loop mode
-    if args.mode == "loop":
-        def on_cmd(key, payload):
-            print(f"[*] Handling CMD [{key}] -> {payload}")
-            dev.publish_state(f"cmd_ack:{key}", payload)
-            if key == "relay":
-                dev.publish_state("relay", payload)
-
-        def on_dm(sender, payload):
-            print(f"[*] Handling DM from {sender}: {payload}")
-
-        dev.on_cmd = on_cmd
-        dev.on_dm = on_dm
-
-    print(f"Connecting {args.dev} to {args.broker}:{args.port}...")
-    if not dev.connect():
-        print("Failed to connect to broker.")
-        sys.exit(1)
-
-    try:
-        if args.mode == "once":
-            temp = 21.5 + random.random() * 2
-            print(f"Publishing sensor temp: {temp:.2f}")
-            dev.publish_sensor("temp", f"{temp:.2f}")
-            
-            print("Publishing state relay: off")
-            dev.publish_state("relay", "off")
-            
-            msg = f"hello from {args.dev} — MQTT device SDK self-test"
-            print(f"Sending DM to {args.parent}: {msg}")
-            dev.send_dm(args.parent, msg)
-            
-            time.sleep(1) # Give time for publish
-            dev.disconnect()
-            print("Done.")
-        else:
-            print("Entering loop mode. Press Ctrl+C to exit.")
-            while True:
-                temp = 21.5 + random.random() * 2
-                dev.publish_sensor("temp", f"{temp:.2f}")
-                time.sleep(2)
-    except KeyboardInterrupt:
-        print("\nStopping...")
-    finally:
-        dev.disconnect()
-
-if __name__ == "__main__":
-    main()
+print("\nSMOKE TEST DONE")

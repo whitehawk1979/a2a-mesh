@@ -143,12 +143,16 @@ class MeshDevice:
 
     def send_dm(self, to, content):
         topic = f"a2a/chat/dm/{to}"
+        # agent_dm framing: a fogadó node trust-rétege így fogadja el külső device-tól
+        payload = content if isinstance(content, dict) else {"text": str(content)}
+        payload.setdefault("chat_type", "agent_dm")
+        payload.setdefault("sender_display", f"{self.dev_id} (device)")
         envelope = {
             "id": uuid.uuid4().hex,
             "type": "a2a_message",
             "sender": self.dev_id,
             "recipient": to,
-            "payload": content,
+            "payload": payload,
             "ts": datetime.now(timezone.utc).isoformat()
         }
         self.client.publish(topic, json.dumps(envelope), qos=1)
