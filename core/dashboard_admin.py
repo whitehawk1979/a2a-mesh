@@ -1531,8 +1531,10 @@ class DashboardAdminMixin:
                             "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
                             "message_count": existing.get("message_count", 0),
                             "p2p_available": p2p_available,
-                            "http_available": existing.get("http_available", False),
-                            "pg_available": existing.get("pg_available", False),
+                            # Live peer transport flags from PeerInfo (PG discovery keeps them fresh);
+                            # registry 'existing' entry has no such keys — only use it as fallback.
+                            "http_available": bool(getattr(peer, 'http_available', False)) or existing.get("http_available", False),
+                            "pg_available": bool(getattr(peer, 'pg_available', False)) or existing.get("pg_available", False),
                         }
                 if hasattr(pd, '_backoff_until') and pd._backoff_until:
                     backoff_peers = {k: str(v) for k, v in pd._backoff_until.items()}
