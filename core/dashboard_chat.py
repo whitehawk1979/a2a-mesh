@@ -374,9 +374,40 @@ async def handle_chat_send(node, request, pool, user):
     if not content.strip():
         return web.json_response({"error": "content is required"}, status=400)
 
+    # ── MCP bridge end-device identity ──
+    # A trusted bridge user (mcp-bridge) nevében érkező üzenetek a VALÓDI MCP
+    # kliens neve alatt jelennek meg (pl. 'opencode') — sidebar + shared room.
+    sender_name = username
+    is_mcp_sender = False
+    if username == "mcp-bridge":
+        client = (data.get("sender") or "").strip()
+        if client and client.replace("-", "").replace("_", "").isalnum():
+            sender_name = client
+            is_mcp_sender = True
+            await _ensure_chat_user(pool, sender_name, client, node_name)
+            # end-device jelzés a chat users táblában
+            try:
+                await pool.execute(
+                    """UPDATE mesh.mesh_chat_users SET is_mcp_end_device = true WHERE username = $1""",
+                    sender_name)
+            except Exception:
+                pass  # oszlop még nem létezik — nem blokkol
+
     await _ensure_chat_user(pool, username, display_name, node_name)
 
+    # v0.46.15: MCP end-device üzenetek a KÖZÖS SZOBÁBA kerülnek (username='broadcast'),
+    # hogy minden participant lássa őket — pontosan, mint egy bejelentkezett user üzeneteit.
+    # A DM-ből érkezők is: a shared room megjeleníti a DM-eket is (sender/recipient szűrés
+    # nélkül, l. handle_chat_messages broadcast query) — így az opencode "teljes jogú".
+    if is_mcp_sender and recipient != "broadcast":
+        # DM az end-device-tól: tárolás 'broadcast' username-nel, hogy a shared room
+        # és a DM-view is lássa; a recipient marad az eredeti címzett.
+        pass  # az insert lentebb már username=broadcast-szel megy (lásd insert_pg)
+
     msg_uuid = str(uuid.uuid4())
+
+    # v0.46.15: MCP end-device küldés → username='broadcast' (közös szoba láthatóság)
+    insert_username = "broadcast" if is_mcp_sender else username
 
     # Store in PG
     try:
@@ -385,12 +416,57 @@ async def handle_chat_send(node, request, pool, user):
                (message_uuid, username, sender, recipient, content, msg_type, status)
                VALUES ($1, $2, $3, $4, $5, $6, 'sent')
                RETURNING id, created_at""",
-            msg_uuid, username, username, recipient, content, msg_type
+            msg_uuid, insert_username, sender_name, recipient, content, msg_type
         )
         msg_id = row["id"] if row else None
         created_at = str(row["created_at"]) if row else None
     except Exception as e:
         return web.json_response({"error": f"DB error: {e}"}, status=500)
+
+    # v0.46.15: Ha a címzett egy MCP end-device (DM → opencode), a üzenet az
+    # mcp_end_device_inbox queue-ba is bekerül — a bridge on-demand kézbesíti
+    # (mesh_inbox tool) vagy long-poll. A dashboard user→end-device DM így célba ér.
+    if not is_mcp_sender and recipient not in ("broadcast", "") and not recipient.startswith("user:"):
+        try:
+            from core.mcp_registry import is_end_device
+            if is_end_device(recipient, parent_node=node_name):
+                await pool.execute(
+                    """INSERT INTO mesh.mcp_end_device_inbox
+                       (client_name, kind, sender, sender_display, content, message_uuid)
+                       VALUES ($1, 'dm', $2, $3, $4, $5)""",
+                    recipient, username, display_name, content, msg_uuid
+                )
+                log.info(f"📥 MCP inbox: DM {username}→{recipient} queued for end-device delivery")
+                # v0.46.16: DM-wake — a tétlen MCP kliens (opencode) headless futtatással
+                # ébreszthető: `opencode run "prompt"` SSH-n a kliens hostján.
+                # A prompt ráirányítja a mesh_inbox toolra → feldolgozza a DM-eket.
+                try:
+                    from core import mcp_registry as _mreg
+                    _client = _mreg._load().get(recipient, {})
+                    _host = _client.get("host", "") or ("192.168.1.30" if _client.get("parent_node") == "morzsa" else "")
+                    if _host:
+                        _wake_prompt = (
+                            f"🔔 Új DM érkezett {username}-tól: {content[:300]}\n"
+                            f"Hívd meg a mesh_inbox MCP eszközt, olvasd el a DM-eket, "
+                            f"majd válaszolj a mesh_dm_send eszközzel (recipient: {username})."
+                        )
+                        import subprocess as _sp
+                        _cmd = (
+                            f"timeout 240 ~/.opencode/bin/opencode run "
+                            f"{_wake_prompt!r}"
+                        )
+                        _sp.Popen(
+                            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                             f"openclaw@{_host}", _cmd],
+                            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                        )
+                        log.info(f"🔔 MCP DM-wake: opencode run → {_host} (session a2a-dm-{msg_uuid[:8]})")
+                    else:
+                        log.debug(f"MCP DM-wake: {recipient} host ismeretlen — pull kézbesítés marad")
+                except Exception as _we:
+                    log.warning(f"MCP DM-wake failed: {_we}")
+        except Exception as _qe:
+            log.debug(f"MCP inbox queue failed: {_qe}")
 
     # ── Telegram-style /command interceptor ──
     if content.strip().startswith("/"):
@@ -953,6 +1029,47 @@ async def handle_chat_inbox(node, request, pool, user):
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def handle_chat_mcp_inbox(node, request, pool, user):
+    """GET /api/chat/mcp-inbox?client=opencode&deliver=1
+
+    Az MCP end-device beérkező üzenetei (DM queue). Csak a trusted bridge
+    user (mcp-bridge) hívhatja. deliver=1 → delivered_at=now() jelölés.
+    """
+    from aiohttp import web
+    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
+    if username != "mcp-bridge":
+        return web.json_response({"error": "forbidden — mcp-bridge only"}, status=403)
+
+    client = request.query.get("client", "").strip()
+    deliver = request.query.get("deliver", "0") == "1"
+    if not client:
+        return web.json_response({"error": "client parameter required"}, status=400)
+
+    try:
+        rows = await pool.fetch(
+            """SELECT id, kind, sender, sender_display, content, message_uuid, created_at
+               FROM mesh.mcp_end_device_inbox
+               WHERE client_name = $1 AND delivered_at IS NULL
+               ORDER BY created_at ASC LIMIT 100""",
+            client
+        )
+        items = []
+        for row in rows:
+            r = dict(row)
+            r["created_at"] = str(r["created_at"]) if r.get("created_at") else None
+            items.append(r)
+        if deliver and items:
+            await pool.execute(
+                """UPDATE mesh.mcp_end_device_inbox
+                   SET delivered_at = NOW()
+                   WHERE client_name = $1 AND delivered_at IS NULL""",
+                client
+            )
+        return web.json_response({"items": items, "count": len(items)})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_chat_mark_read(node, request, pool, user):
     """POST /api/chat/read — Mark messages from a specific agent as read.
     Body: { from_agent: "morzsa" }
@@ -1010,6 +1127,24 @@ async def handle_chat_contacts(node, request, pool, user):
                 if name not in existing:
                     contacts.append({"agent": name, "total": 0, "unread": 0, "last_msg": None})
                     existing.add(name)
+        except Exception:
+            pass
+
+        # MCP end devices (agents connected via the MCP bridge) — sidebar visibility
+        try:
+            mcp_rows = await pool.fetch(
+                """SELECT username, display_name FROM mesh.mesh_chat_users
+                   WHERE is_mcp_end_device = true AND username != $1 ORDER BY username""",
+                username
+            )
+            for mr in mcp_rows:
+                mname = mr["username"]
+                contacts.append({
+                    "agent": mname,
+                    "display_name": mr.get("display_name") or mname,
+                    "total": 0, "unread": 0, "last_msg": None,
+                    "is_mcp_end_device": True,
+                })
         except Exception:
             pass
 

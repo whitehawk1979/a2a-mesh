@@ -134,6 +134,34 @@ class DashboardAdminMixin:
                     "http": peer.http_available,
                 },
             })
+
+        # ── MCP end devices (external agents on this node's bridge) — DM partners ──
+        # Sidebarban közvetlen üzenet partnerként jelennek meg, nem node-ként.
+        try:
+            from core.mcp_registry import list_clients as _mcp_list
+            parent = self.node.node_name
+            mesh_names = {a.get("name") for a in agents}  # node/agent nevek — duplikátum-szűrés
+            for c in _mcp_list(parent_node=parent):
+                if c.get("name") == parent or c.get("name") in mesh_names:
+                    continue
+                agents.append({
+                    "name": c["name"],
+                    "role": "mcp_end_device",
+                    "status": "online" if c.get("online") else "offline",
+                    "host": "",
+                    "version": "",
+                    "p2p_port": 0,
+                    "health_port": 0,
+                    "last_seen": c.get("last_seen", 0),
+                    "skills": ["mcp"],
+                    "capabilities": ["mcp_bridge"],
+                    "transports": {"mcp": True},
+                    "is_mcp_end_device": True,
+                    "transport_parent": parent,
+                })
+        except Exception as e:
+            log.debug(f"MCP end-device agents append failed (non-blocking): {e}")
+
         return web.json_response({"agents": agents, "total": len(agents)})
 
     # ─── Admin: Node Approval ──────────────────────────────────
@@ -1503,8 +1531,10 @@ class DashboardAdminMixin:
                             "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
                             "message_count": existing.get("message_count", 0),
                             "p2p_available": p2p_available,
-                            "http_available": existing.get("http_available", False),
-                            "pg_available": existing.get("pg_available", False),
+                            # Live peer transport flags from PeerInfo (PG discovery keeps them fresh);
+                            # registry 'existing' entry has no such keys — only use it as fallback.
+                            "http_available": bool(getattr(peer, 'http_available', False)) or existing.get("http_available", False),
+                            "pg_available": bool(getattr(peer, 'pg_available', False)) or existing.get("pg_available", False),
                         }
                 if hasattr(pd, '_backoff_until') and pd._backoff_until:
                     backoff_peers = {k: str(v) for k, v in pd._backoff_until.items()}
@@ -4888,6 +4918,17 @@ class DashboardAdminMixin:
         if not pool:
             return web.json_response({"error": "DB not available"}, status=503)
         return await handle_chat_messages(self.node, request, pool, user)
+
+    async def _api_chat_mcp_inbox(self, request):
+        """GET /api/chat/mcp-inbox — MCP end-device DM queue (mcp-bridge only)."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_mcp_inbox
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_mcp_inbox(self.node, request, pool, user)
 
     async def _api_chat_inbox(self, request):
         """GET /api/chat/inbox — Unread DMs for this user."""
