@@ -258,6 +258,12 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 ## Verzió történet
 
+### v0.47.1 (2026-09-25) — Topológia MQTT-követés + presence
+- **MQTT-élek a topológiában** — a `/api/mesh/topology` most mqtt-transport éleket is ad: minden MQTT-online peer felé egy `mqtt` él `broker` és `last_seen` mezővel (a dashboard node saját broker-kliense a peer retained statuszból építi).
+- **Node presence (retained + LWT)** — minden node connect-kor publikálja `a2a/nodes/{node}/status = "online"`-t (retained); a LWT will a CONNECT csomagban (`offline`, retained) — node-összeomlásnál a broker instant offline-t tesz közzé. A topológia ebből épül.
+- **Presence-parsing fix** — plain string ("online") és JSON-manifest is elfogadott (korábban JSONDecodeError eldobta a node-statusokat); topic-index fix: `a2a/nodes/{id}/status` = `[a2a, nodes, id, status]` (kind=[1], entity_id=[2], attr=[3]) — a korábbi off-by-two a presence-cache-t soha nem töltötte.
+- **5/5 node zöld** — nova, runa, morzsa, mano, tor mind publikál + 4 MQTT-él látszik a topológiában (nova→mind).
+
 ### v0.47.0 (2026-09-25) — MQTT transport + Device SDK
 - **MQTT transport** — pub/sub réteg a mesh-hez mosquitto brokeren (Nova `:8683`, launchd `com.hermes.mosquitto`). `MQTTTransport` (`transports/mqtt_transport.py`): DM + broadcast + presence + telemetry topicok, QoS 1, paho 2.x. A receive-láncba `(message, transport)` tuple-ként adja át — a node `_receive_loop` változatlan. LWT: node-összeomlásnál a broker instant `offline`-t publikál.
 - **Device SDK** — `sdk/mqtt_device.py` (MeshDevice): manifest/telemetry/state/DM első osztályú end-device-oknak; `send_dm` agent_dm framinggel (a trust-réteg átbocsátja). C++ ESP32-példa: `sdk/examples/esp32_device/`.
