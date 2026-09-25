@@ -87,6 +87,14 @@ class MQTTTransport(TransportAdapter):
             self._client.on_message = self._on_message
             self._client.on_disconnect = self._on_disconnect
 
+            # LWT: a CONNECT csomagba kerül — ha a node váratlanul lezuhan,
+            # a broker automatikusan "offline"-t tesz közzé (instant presence).
+            try:
+                self._client.will_set(f"a2a/nodes/{self._node_name}/status",
+                                      "offline", qos=1, retain=True)
+            except Exception as e:
+                log.warning(f"[{self.name}] LWT will_set failed: {e}")
+
             # Connect (synchronous call, wrapped in thread or handled by loop_start)
             # Using loop_start() for background processing
             self._client.connect(self._host, self._port, keepalive=30)
@@ -122,6 +130,14 @@ class MQTTTransport(TransportAdapter):
             self._client.subscribe(f"a2a/chat/dm/{self._node_name}", qos=1)
             self._client.subscribe("a2a/sys/broadcast", qos=1)
             self._client.subscribe("a2a/nodes/+/status", qos=1)
+
+            # Saját presence publikálás (retained) — connect után.
+            try:
+                status_topic = f"a2a/nodes/{self._node_name}/status"
+                self._client.publish(status_topic, "online", qos=1, retain=True)
+                log.info(f"[{self.name}] Presence published: {status_topic} = online")
+            except Exception as e:
+                log.warning(f"[{self.name}] Presence publish failed: {e}")
             self._client.subscribe("a2a/devices/+/manifest", qos=1)
             self._client.subscribe("a2a/devices/+/status", qos=1)
             

@@ -1570,6 +1570,37 @@ class DashboardAdminMixin:
                 except Exception as e:
                     log.warning(f"Topology: SSH tunnel status failed: {e}")
 
+            # ── MQTT transport connections (v0.47.0) ──────────────────────
+            # A node MQTT-kliense a brokerön át látja minden peer retained
+            # status-át (a2a/nodes/{node}/status). Ebből építünk mqtt-éleket:
+            # minden MQTT-online peer ← self kapcsolat (közös broker).
+            try:
+                mqtt_tr = getattr(self.node, '_mqtt_transport', None)
+                if mqtt_tr is not None and getattr(mqtt_tr, '_connected', False):
+                    broker = f"{getattr(mqtt_tr, '_host', '?')}:{getattr(mqtt_tr, '_port', 8683)}"
+                    for peer_name, entry in (getattr(mqtt_tr, 'devices', {}) or {}).items():
+                        if entry.get('kind') != 'nodes':
+                            continue
+                        status = entry.get('status')
+                        # status lehet JSON-szótár vagy sima string ("online")
+                        if isinstance(status, dict):
+                            status = status.get('status', 'online')
+                        online = str(status).lower() in ('online', 'ok', 'true', '1')
+                        if not online:
+                            continue
+                        if peer_name == self.node.node_name:
+                            continue  # self-edge nem kell
+                        connections.append({
+                            "source": self.node.node_name,
+                            "target": peer_name,
+                            "transport": "mqtt",
+                            "status": "connected",
+                            "broker": broker,
+                            "last_seen": entry.get('ts'),
+                        })
+            except Exception as e:
+                log.warning(f"Topology: MQTT status failed: {e}")
+
             # ── Peer-originated SSH tunnels (e.g. tor→peers run on the tor node) ──
             # The dashboard host only knows its OWN tunnels; tunnels other nodes originate
             # (tor→morzsa/runa/nova) are invisible here. Fetch each peer's /health in
