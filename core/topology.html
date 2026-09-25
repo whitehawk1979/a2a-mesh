@@ -94,6 +94,7 @@
   <div class="item"><div class="dot" style="background:var(--green)"></div> P2P Connected</div>
   <div class="item"><div class="dot" style="background:var(--yellow)"></div> P2P Backoff</div>
   <div class="item"><div class="dot" style="background:#00d0ff"></div> SSH Tunnel</div>
+  <div class="item"><div class="dot" style="background:#ff8c42"></div> MQTT Pub/Sub</div>
   <div class="item"><div class="dot" style="background:var(--red)"></div> Offline</div>
   <div class="item"><div class="dot" style="background:var(--accent)"></div> PG Transport</div>
   <div class="item"><div class="dot" style="background:#bc8cff"></div> MCP End Device</div>
@@ -172,12 +173,14 @@ function updateStats() {
   const online = meshNodes.filter(n => n.status === 'online' || n.status === 'connected').length;
   const p2pLinks = connections.filter(c => c.transport === 'p2p' && c.status === 'connected').length;
   const sshLinks = connections.filter(c => c.transport === 'ssh_tunnel' && c.status === 'connected').length;
+  const mqttLinks = connections.filter(c => c.transport === 'mqtt' && c.status === 'connected').length;
   const totalLinks = connections.length;
 
   let html = `<span class="badge green">${online}/${meshNodes.length} node</span>`;
   if (endDevices.length > 0) html += `<span class="badge" style="background:#bc8cff33;color:#bc8cff">${endDevices.length} MCP ED</span>`;
   html += `<span class="badge ${p2pLinks > 0 ? 'green' : 'red'}">${p2pLinks} P2P</span>`;
   if (sshLinks > 0) html += `<span class="badge" style="background:#00d0ff33;color:#00d0ff">${sshLinks} SSH</span>`;
+  if (mqttLinks > 0) html += `<span class="badge" style="background:#ff8c4233;color:#ff8c42">${mqttLinks} MQTT</span>`;
   html += `<span class="badge">${totalLinks} link</span>`;
   html += `<span style="color:var(--text2)">⭐ ${local}</span>`;
   document.getElementById('stats').innerHTML = html;
@@ -215,7 +218,7 @@ function calcPositions() {
 function spawnFlowParticles() {
   connections.forEach(conn => {
     if (conn.status !== 'connected') return;
-    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel' && conn.transport !== 'mcp') return;
+    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel' && conn.transport !== 'mcp' && conn.transport !== 'mqtt') return;
     if (Math.random() > 0.02) return;  // 2% chance per frame per connection
     const from = positions[conn.source];
     const to = positions[conn.target];
@@ -224,7 +227,7 @@ function spawnFlowParticles() {
       x: from.x, y: from.y,
       dx: to.x - from.x, dy: to.y - from.y,
       progress: 0, speed: 0.02 + Math.random() * 0.02,
-      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : (conn.transport === 'mcp' ? '#bc8cff' : '#238636')
+      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : (conn.transport === 'mcp' ? '#bc8cff' : (conn.transport === 'mqtt' ? '#ff8c42' : '#238636'))
     });
   });
 }
@@ -291,6 +294,33 @@ function draw() {
       ctx.stroke();
       ctx.setLineDash([]);
       return; // skip straight line
+    } else if (conn.transport === 'mqtt') {
+      // MQTT pub/sub: ívelt narancsív az SSH-ív MÁSIK oldalán (offset −25),
+      // hogy a két transport-görbe ne fedje egymást. A közös broker jelezi:
+      // minden MQTT-él ugyanarra a brokerre megy (conn.broker).
+      const mx = (from.x + to.x) / 2;
+      const my = (from.y + to.y) / 2;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const offset = -25;  // SSH: +25 — tükrözve, külön ív
+      const ox = -dy / len * offset;
+      const oy = dx / len * offset;
+      if (conn.status === 'connected') {
+        ctx.strokeStyle = '#ff8c42';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 4]);  // apró pöttyök = pub/sub
+      } else {
+        ctx.strokeStyle = '#ff8c4244';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 5]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.quadraticCurveTo(mx + ox, my + oy, to.x, to.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      return; // skip straight line
     } else if (conn.transport === 'mcp') {
       // Purple dashed orbit line for MCP end devices
       if (conn.status === 'connected') {
@@ -344,8 +374,10 @@ function draw() {
     const p2pConns = connections.filter(c => (c.source === node.name || c.target === node.name) && c.transport === 'p2p');
     const p2pConnected = p2pConns.some(c => c.status === 'connected');
     const p2pBackoff = p2pConns.some(c => c.status === 'backoff');
+    const mqttConns = connections.filter(c => (c.source === node.name || c.target === node.name) && c.transport === 'mqtt');
+    const mqttConnected = mqttConns.some(c => c.status === 'connected');
     if (isEndDevice) color = (node.status === 'online') ? '#bc8cff' : '#f85149';
-    else if (node.status === 'online' || isLocal || p2pConnected) color = '#238636';
+    else if (node.status === 'online' || isLocal || p2pConnected || mqttConnected) color = '#238636';
     else if (node.status === 'backoff' || p2pBackoff) color = '#d29922';
     else if (node.status === 'disconnected' || node.status === 'offline') color = '#f85149';
 
@@ -563,6 +595,7 @@ function showPanel(nodeName) {
   const p2pConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'p2p');
   const sshConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'ssh_tunnel');
   const pgConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'pg');
+  const mqttConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'mqtt');
   const isLocal = node.name === (topologyData?.local_node || '');
   const healthPct = Math.round((node.health_score || 0) * 100);
   const isEndDevice = !!node.is_mcp_end_device;
@@ -588,6 +621,14 @@ function showPanel(nodeName) {
     const sshInfo = sshConns.find(c => c.status === 'connected');
     const upStr = sshInfo && sshInfo.uptime_seconds ? ' (' + formatUptime(sshInfo.uptime_seconds) + ')' : '';
     html += `<div class="row"><span class="label">SSH Tunnel:</span><span class="value" style="color:#00d0ff">${sshConnected}/${sshConns.length}${upStr}</span></div>`;
+  }
+  if (mqttConns.length > 0) {
+    const mqttConnected = mqttConns.filter(c => c.status === 'connected').length;
+    const broker = mqttConns.find(c => c.broker)?.broker || '?';
+    const lastSeen = mqttConns.map(c => c.last_seen).filter(Boolean).sort((a, b) => b - a)[0];
+    html += `<div class="row"><span class="label">MQTT Pub/Sub:</span><span class="value" style="color:#ff8c42">${mqttConnected}/${mqttConns.length}</span></div>`;
+    html += `<div class="row"><span class="label">Broker:</span><span class="value" style="color:#ff8c42">${broker}</span></div>`;
+    if (lastSeen) html += `<div class="row"><span class="label">Utolsó presence:</span><span class="value">${fmtRelative(lastSeen)}</span></div>`;
   }
   html += `<div class="row"><span class="label">PG linkek:</span><span class="value">${pgConns.length}</span></div>`;
   if (node.uptime_seconds) html += `<div class="row"><span class="label">Uptime:</span><span class="value">${formatUptime(node.uptime_seconds)}</span></div>`;
