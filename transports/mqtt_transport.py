@@ -182,14 +182,18 @@ class MQTTTransport(TransportAdapter):
                 })
                 self._rx.append(message)
                 
-            # 2. Presence: Manifests, Statuses
+            # 2. Presence: Manifests, Statuses, Telemetry
             elif any(topic.startswith(p) for p in ("a2a/nodes/", "a2a/devices/")):
                 parts = topic.split('/')
+                # a2a/nodes/{id}/status           → [a2a, nodes, id, status]        (4)
+                # a2a/devices/{id}/manifest       → [a2a, devices, id, manifest]    (4)
+                # a2a/devices/{id}/sensors/{key}  → [a2a, devices, id, sensors, k]  (5)
                 if len(parts) < 4: return
-                
-                kind = parts[2]     # 'nodes' or 'devices'
-                entity_id = parts[3]
-                attr = parts[4] if len(parts) > 4 else None
+
+                kind = parts[1]      # 'nodes' or 'devices'
+                entity_id = parts[2] # node / device id
+                attr = parts[3]      # 'manifest' | 'status' | 'sensors' | 'state' | 'cmd'
+                sub_key = parts[4] if len(parts) > 4 else None
                 
                 if attr in ('manifest', 'status'):
                     # Presence lehet JSON (device-manifest) vagy plain string
@@ -215,14 +219,14 @@ class MQTTTransport(TransportAdapter):
                 # 3. Telemetry: Sensors
                 elif attr == 'sensors':
                     # topic: a2a/devices/{id}/sensors/{key}
-                    if len(parts) >= 5:
-                        sensor_key = parts[4]
+                    if sub_key:
+                        sensor_key = sub_key
                         try:
                             val = json.loads(payload)
                             # Bound telemetry to 1000 devices
                             if len(self.telemetry) < 1000 or entity_id in self.telemetry:
                                 self.telemetry[entity_id][sensor_key] = (val, time.time())
-                        except json.JSONDecodeError:
+                        except (ValueError, UnicodeDecodeError):
                             pass
                             
         except Exception as e:
