@@ -5105,7 +5105,14 @@ echo "Status: ok"
                         )
 
                 elif state == CoordinatorState.SUSPECTED:
-                    log.warning(f"⚠️ Coordinator suspected — age: {time.time() - self.election.coordinator.last_heartbeat:.0f}s")
+                    # v0.47.3 fix: coordinator lehet None ilyenkor (cold-start,
+                    # junior router várja a szenior claim-jét) — a None guard
+                    # hiányzott, minden election ciklus AttributeError-t dobott
+                    # (149x/nap Morzsán). Ez blokkolta a loop futását.
+                    if self.election.coordinator is not None:
+                        log.warning(f"⚠️ Coordinator suspected — age: {time.time() - self.election.coordinator.last_heartbeat:.0f}s")
+                    else:
+                        log.info("⏳ Waiting for senior router to claim coordinator role (no coordinator registered)")
 
             except asyncio.CancelledError:
                 break
