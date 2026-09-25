@@ -609,7 +609,6 @@ function showPanel(nodeName) {
   } else {
   // Continue with standard fields for mesh nodes
   html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
-  html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
   html += `<div class="row"><span class="label">Szerep:</span><span class="value">${node.role || 'router'}</span></div>`;
   html += `<div class="row"><span class="label">Verzió:</span><span class="value">v${node.version || '?'}</span></div>`;
   html += `<div class="row"><span class="label">Egészség:</span><span class="value">${healthPct}%</span></div>`;
@@ -637,7 +636,7 @@ function showPanel(nodeName) {
   // Skills
   if (node.skills && node.skills.length > 0) {
     html += `<div style="margin-top:10px;color:var(--text2);font-size:11px;font-weight:600">Képességek</div>`;
-    html += `<div class="skills">${node.skills.map(s => `<span class="skill-tag">${s}</span>`).join('')}</div>`;
+    html += `<div class="skills">${node.skills.map(s => `<span class="skill-tag">${(s && typeof s === 'object') ? (s.name || s.skill || s.id || JSON.stringify(s)) : s}</span>`).join('')}</div>`;
   }
 
   // Capabilities
