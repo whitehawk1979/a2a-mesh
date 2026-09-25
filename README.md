@@ -8,6 +8,8 @@ Decentralizált, P2P agent mesh hálózat — autonóm AI agent-ek közötti kom
 - **P2P transport** — TLS 1.3 titkosított közvetlen kapcsolat agent-ek között
 - **mDNS felfedezés** — zeroconf alapú peer discovery (LAN-on)
 - **PG NOTIFY** — PostgreSQL shared message bus (fallback transport)
+- **MQTT transport (v0.47.0)** — pub/sub messaging mosquitto brokeren (`:8683`), a teljes topic-séma: `a2a/chat/dm/{node}`, `a2a/sys/broadcast`, `a2a/nodes/{node}/status`, `a2a/devices/{id}/…`; LWT-alapú instant presence, QoS 1, retained status/manifest. Broker a Nován (launchd, `scripts/install_mosquitto.sh`), a node-ok paho 2.x klienssel csatlakoznak (`transports.mqtt` config). Additív: a P2P/PG transport érintetlen, a meglévő A2AMessage-envelope a payload.
+- **Device SDK (v0.47.0)** — `sdk/mqtt_device.py`: end-device-k (szenzorok, ESP32, külső eszközök) első osztályú mesh-résztvevők: manifest (retained), LWT, telemetry (`publish_sensor`), állapot (`publish_state`), DM a node-okhoz (`send_dm`, agent_dm framing — a trust-réteg átbocsátja). C++-példa: `sdk/examples/esp32_device/`.
 - **Offline queue** — megszakadt kapcsolatok esetén üzenetek buffering
 - **mTLS + HMAC** — mutual TLS + HMAC-SHA256 aláírás minden üzeneten
 - **Dedup + replay védelem** — nonce-based anti-replay
@@ -184,6 +186,15 @@ tls:
   cert_dir: ./certs
   verify_peer: false
 
+# MQTT transport (v0.47.0) — broker: scripts/install_mosquitto.sh
+transports:
+  mqtt:
+    enabled: true        # false = transport kikapcsolva (additív)
+    host: 192.168.1.8    # broker címe (Nova LAN IP)
+    port: 8683
+    client_prefix: mesh  # client_id: {prefix}-{node}
+    keepalive: 30
+
 discovery:
   mdns: true
   udp_broadcast: true
@@ -246,6 +257,14 @@ curl -H "Authorization: Bearer $TOKEN" \
 ```
 
 ## Verzió történet
+
+### v0.47.0 (2026-09-25) — MQTT transport + Device SDK
+- **MQTT transport** — pub/sub réteg a mesh-hez mosquitto brokeren (Nova `:8683`, launchd `com.hermes.mosquitto`). `MQTTTransport` (`transports/mqtt_transport.py`): DM + broadcast + presence + telemetry topicok, QoS 1, paho 2.x. A receive-láncba `(message, transport)` tuple-ként adja át — a node `_receive_loop` változatlan. LWT: node-összeomlásnál a broker instant `offline`-t publikál.
+- **Device SDK** — `sdk/mqtt_device.py` (MeshDevice): manifest/telemetry/state/DM első osztályú end-device-oknak; `send_dm` agent_dm framinggel (a trust-réteg átbocsátja). C++ ESP32-példa: `sdk/examples/esp32_device/`.
+- **Topic-séma v1** — `a2a/chat/dm/{node}`, `a2a/sys/broadcast`, `a2a/nodes/{node}/status`, `a2a/devices/{id}/manifest|status|telemetry/{k}|state/{k}|cmd/#`. Retained: csak status + manifest + device-state (loop-prevenció).
+- **5-node E2E zöld** — nova, runa, morzsa, mano, tor mind MQTT-connected; DM mindkét irányban processed; broker-kill → launchd KeepAlive újraindít, a node-ok maguktól reconnectelnek (paho v2 `_on_disconnect` szignatúra-fix).
+- **Mosquitto installer** — `scripts/install_mosquitto.sh`: brew-út + `--offline` kézi bottle-út (raw.github halott hálózaton: ghcr.io bottle a cache-ből, `install_name_tool` relocáció, ad-hoc codesign).
+- **Installálás node-oldalon** — `pip install paho-mqtt` (HAOS konténerben sérült pip esetén a paho pure-Python, másolható működő venvből), majd `transports.mqtt` szekció a futó configba (`enabled: true`, broker címe), node restart.
 
 ### v0.45.2 (2026-09-21)
 - **Multi-address dial finomítás** — (1) a `ssh_hosts` dial-lista soha nem tartalmaz konténer-bridge IP-t: ha az észlelt LAN IP egyezik az `advertised_forward_host`-tal (konténer-scenario), az kizárásra kerül — a belső cím helyes szerepe a `forward_host`; ugyanez a guard a publikált `ssh_host`-ra is. (2) `TunnelPeer.config_ssh_host`: a statikus config cím megőrzésre kerül és mindig az első jelölt a dial-listában — a registry és a rotáció soha nem veszti el. (3) A registry `ssh_host`-ja csak ÜRES dial-címet tölt fel, soha nem ír felül konfigurált/rotált címet — a címváltozás determinisztikusan, hibavezérelt rotációval követi a tunnel (a működő LAN-t nem rántja VPN-re).
