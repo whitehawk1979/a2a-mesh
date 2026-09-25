@@ -192,8 +192,13 @@ class MQTTTransport(TransportAdapter):
                 attr = parts[4] if len(parts) > 4 else None
                 
                 if attr in ('manifest', 'status'):
+                    # Presence lehet JSON (device-manifest) vagy plain string
+                    # ("online"/"offline" — node presence, LWT). Mindkettőt elfogadjuk.
                     try:
                         val = json.loads(payload)
+                    except (ValueError, UnicodeDecodeError):
+                        val = payload.decode('utf-8', errors='replace') if isinstance(payload, (bytes, bytearray)) else str(payload)
+                    try:
                         entry = self.devices.get(entity_id, {})
                         entry.update({
                             'kind': kind,
@@ -204,8 +209,8 @@ class MQTTTransport(TransportAdapter):
                         else:
                             entry['status'] = val
                         self.devices[entity_id] = entry
-                    except json.JSONDecodeError:
-                        log.warning(f"[{self.name}] Invalid JSON in {topic}: {payload[:200]!r}")
+                    except Exception as e:
+                        log.warning(f"[{self.name}] Presence cache update failed for {topic}: {e}")
                 
                 # 3. Telemetry: Sensors
                 elif attr == 'sensors':
