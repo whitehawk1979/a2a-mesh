@@ -130,6 +130,14 @@ class MQTTTransport(TransportAdapter):
             self._client.subscribe(f"a2a/chat/dm/{self._node_name}", qos=1)
             self._client.subscribe("a2a/sys/broadcast", qos=1)
             self._client.subscribe("a2a/nodes/+/status", qos=1)
+            
+            # ── MQTT Wake topic — bármely node wake-elhet bármelyiket ──
+            # Pattern: a2a/wake/{target} → DM wake, a2a/wake/+ wildcard
+            try:
+                self._client.subscribe("a2a/wake/+", qos=1)
+                log.info(f"[{self.name}] Subscribed to MQTT wake topic: a2a/wake/+")
+            except Exception as e:
+                log.warning(f"[{self.name}] Wake topic subscribe failed: {e}")
 
             # Saját presence publikálás (retained) — connect után.
             try:
@@ -233,6 +241,130 @@ class MQTTTransport(TransportAdapter):
                             
         except Exception as e:
             log.warning(f"[{self.name}] Error processing message on {topic}: {e}. Payload: {payload[:200]!r}")
+    
+    def _on_message(self, client, userdata, msg):
+        """Route incoming MQTT messages to appropriate handlers."""
+        topic = msg.topic
+        payload = msg.payload
+        
+        try:
+            # ── MQTT Wake: a2a/wake/{target} → direkt POST /api/wake-agent-re ──
+            parts = topic.split('/')
+            if len(parts) >= 3 and parts[1] == 'wake':
+                self._on_wake_message(topic, payload)
+                return  # Wake nem megy az A2AMessage buffer-be
+            
+            # Messaging: DM and Broadcast
+            if topic == f"a2a/chat/dm/{self._node_name}" or topic == "a2a/sys/broadcast":
+                data = json.loads(payload)
+                
+                # Lean parsing into A2AMessage
+                msg_id = data.get('id', uuid.uuid4().hex)
+                ts = data.get('ts', time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                
+                message = A2AMessage.from_dict({
+                    'id': msg_id,
+                    'sender': data.get('sender', 'unknown'),
+                    'recipient': data.get('recipient', 'broadcast'),
+                    'type': data.get('type') or data.get('msg_type', 'a2a_message'),
+                    'payload': data.get('payload', data),
+                    'priority': data.get('priority', 5),
+                    'ts': ts
+                })
+                self._rx.append(message)
+            
+            # Presence: Manifests, Statuses, Telemetry
+            elif any(topic.startswith(p) for p in ("a2a/nodes/", "a2a/devices/")):
+                kind = parts[1]
+                entity_id = parts[2]
+                attr = parts[3] if len(parts) > 3 else ''
+                sub_key = parts[4] if len(parts) > 4 else None
+                
+                if attr in ('manifest', 'status'):
+                    try:
+                        val = json.loads(payload)
+                    except (ValueError, UnicodeDecodeError):
+                        val = payload.decode('utf-8', errors='replace') if isinstance(payload, (bytes, bytearray)) else str(payload)
+                    try:
+                        entry = self.devices.get(entity_id, {})
+                        entry.update({'kind': kind, 'ts': time.time()})
+                        if attr == 'manifest':
+                            entry['manifest'] = val
+                        else:
+                            entry['status'] = val
+                        self.devices[entity_id] = entry
+                    except Exception as e:
+                        log.warning(f"[{self.name}] Presence cache update failed for {topic}: {e}")
+                
+                elif attr == 'sensors' and sub_key:
+                    try:
+                        val = json.loads(payload)
+                        if len(self.telemetry) < 1000 or entity_id in self.telemetry:
+                            self.telemetry[entity_id][sub_key] = (val, time.time())
+                    except (ValueError, UnicodeDecodeError):
+                        pass
+                        
+        except Exception as e:
+            log.warning(f"[{self.name}] Error processing message on {topic}: {e}. Payload: {payload[:200]!r}")
+    
+    def _on_wake_message(self, topic, raw_payload):
+        """Handle incoming MQTT wake trigger — direct POST to localhost /api/wake-agent.
+        
+        Topic pattern: a2a/wake/{target} -> target = node_name that must process this.
+        Payload: same dict as the dashboard_agents webhook payload.
+        Uses aiohttp.ClientSession to POST directly to the node's own HTTP endpoint.
+        """
+        try:
+            import sys
+            sys.path.insert(0, '/Users/zsolt/.hermes/scripts/a2a_mesh')
+            
+            payload = json.loads(raw_payload)
+        except (json.JSONDecodeError, TypeError):
+            log.warning(f"[{self.name}] MQTT wake payload not valid JSON from topic {topic}")
+            return
+        
+        # Extract target node name from topic: "a2a/wake/morzsa" -> "morzsa"
+        parts = topic.split('/')
+        if len(parts) < 3 or parts[1] != 'wake':
+            return
+        target_node = parts[2]
+        
+        # Only process if THIS node is the target (like /api/wake-agent local handler)
+        if target_node != self._node_name:
+            return
+        
+        sender = payload.get('sender', 'mqtt-wake')
+        prompt = payload.get('prompt', '')[:2000]
+        mesh_secret = payload.get('mesh_secret', '')
+        
+        if not prompt:
+            log.info(f"[{self.name}] Empty prompt from MQTT wake on {topic}, skipping")
+            return
+        
+        health_port = getattr(self.config, 'health_port', 8650) or 8650
+        
+        log.info(
+            f"[{self.name}] TEE Wake received via MQTT topic={topic}, preview: {prompt[:60]}..."
+        )
+        
+        # Direct POST to localhost /api/wake-agent — exactly the same flow as P2P/HTTP wake
+        try:
+            import asyncio
+            async def _post():
+                try:
+                    import aiohttp as aiohttp_module
+                    url = f"http://127.0.0.1:{health_port}/api/wake-agent"
+                    async with aiohttp_module.ClientSession(timeout=aiohttp_module.ClientTimeout(total=120)) as sess:
+                        async with sess.post(url, json=payload) as resp:
+                            body = await resp.text()
+                            log.info(f"[{self.name}] MQTT wake -> {target_node}: status={resp.status}, response_preview={body[:150]}")
+                except Exception as e:
+                    log.error(f"[{self.name}] MQTT wake POST failed for {target_node}: {e}")
+            
+            loop = asyncio.get_running_loop()
+            loop.create_task(_post())
+        except Exception as e:
+            log.error(f"[{self.name}] Failed to POST MQTT wake for {target_node}: {e}")
 
     async def receive(self) -> List[A2AMessage]:
         """Drain the RX queue and return list of (message, transport_name) tuples."""

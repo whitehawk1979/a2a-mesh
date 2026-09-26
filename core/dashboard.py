@@ -2028,13 +2028,17 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         
         try:
             from core.mqtt_proxy import MQTTProxy
-            mqtt_tr = getattr(getattr(self.node, 'config', None), 'mqtt', None)
+            
+            # Get the MQTT transport directly from node (not via config)
+            mqtt_tr = getattr(self.node, '_mqtt_transport', None)
             
             if not mqtt_tr or not hasattr(mqtt_tr, 'devices'):
+                log.debug("MQTT transport not available")
                 return web.json_response({"topics": {}, "total_messages": 0})
             
             proxy = MQTTProxy(mqtt_tr)
             result = await proxy.get_topic_tree()
+            log.info(f"MQTT topics: {len(result.get('topics', {}))} topics, {result.get('total_messages', 0)} msgs")
             return web.json_response(result)
         except Exception as e:
             log.error(f"MQTT topics error: {e}", exc_info=True)
