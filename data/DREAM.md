@@ -1,4 +1,4 @@
-# 🌙 Dream Engine — 2026-09-25T15:11:28.016426+00:00
+# 🌙 Dream Engine — 2026-09-26T03:13:06.953018+00:00
 **Node:** nova
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -24,8 +24,9 @@ Archiválható (done >7nap): 0
 
 ## 🤖 Bucket 5 — Agent teljesítmény
 
-- **morzsa**: 1 task, 100.0% siker, 4.1s átlag
-- **runa**: 1 task, 100.0% siker, 1.0s átlag
+- **morzsa**: 3 task, 100.0% siker, 4.5s átlag
+- **runa**: 2 task, 100.0% siker, 8.0s átlag
+- **tor**: 1 task, 100.0% siker, 21.0s átlag
 
 🏆 Legjobb: morzsa (100.0%)
 ⚠️ Legrosszabb: morzsa (100.0%)
@@ -37,20 +38,20 @@ Archiválható (done >7nap): 0
 - Tétlen skill-ek (10):
   - code_generation (nova)
   - translation (nova)
+  - gateway_discord_bridge (tor)
   - task_execution (morzsa)
   - image_gen (morzsa)
-  - data_analysis (runa)
 
 ## 💰 Bucket 7 — Költség
 
-- WARNING: cost bucket returned non-dict: 💰 **Költség (hó):** $0.0171
-   Token: 0 in / 245,063 out
+- WARNING: cost bucket returned non-dict: 💰 **Költség (hó):** $0.0172
+   Token: 0 in / 245,264 out
    runa: $0.0084
-   morzsa: $0.0053
+   morzsa: $0.0054
    nova: $0.0014
    tor: $0.0012
    mano: $0.0008
-📊 Token használat: 270,892 total (1407 kérés)
+📊 Token használat: 271,093 total (1410 kérés)
    runa: 12
 
 ## 🎯 Reggeli javaslatok

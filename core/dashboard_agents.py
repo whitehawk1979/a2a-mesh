@@ -1038,6 +1038,18 @@ class DashboardAgentsMixin:
                 return web.json_response({"error": "Empty prompt"}, status=400)
             
             log.info(f"Wake-agent request for '{agent_name}' — prompt {len(prompt)} chars")
+
+            # ── Wake 2.0: delivered-ack visszacsatolás a mesh.wake_log táblába ──
+            # A küldő node coalescing + watchdog dedup-ja erre az ackra épül.
+            _wake_id = body.get("wake_id", "")
+            if _wake_id:
+                try:
+                    _pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                    if _pool:
+                        from core.wake_lib import mark_delivered
+                        await mark_delivered(_pool, _wake_id)
+                except Exception as _wl_e:
+                    log.debug(f"wake_log delivered-ack failed: {_wl_e}")
             
             # Rate limit: prevent wake-agent storm (Ollama 429 + OOM SIGKILL root cause)
             import time as _time

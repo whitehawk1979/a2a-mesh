@@ -445,6 +445,36 @@ async def handle_chat_send(node, request, pool, user):
                     _client = _mreg._load().get(recipient, {})
                     _host = _client.get("host", "") or ("192.168.1.30" if _client.get("parent_node") == "morzsa" else "")
                     if _host:
+                        # ── Wake 2.0: MCP DM-wake dedup a mesh.wake_log-on keresztül ──
+                        # Korábban: minden bejövő DM új SSH Popen-t indított (race condition,
+                        # több párhuzamos opencode run ugyanarra a kliensre).
+                        # Most: 60s coalescing ablak — egy kliensre egy wake.
+                        _wl_dup = False
+                        try:
+                            _pool = getattr(node, 'pg_pool', None) or getattr(node, '_pg_pool', None)
+                            if _pool:
+                                from core.wake_lib import WakeLog
+                                _wlog = WakeLog(_pool)
+                                _ok, _wid, _wstat = await _wlog.send_wake(
+                                    target_agent=f"mcp:{recipient}",
+                                    target_host=_host,
+                                    health_port=0,  # SSH-alapú wake, nincs HTTP port
+                                    prompt=f"DM-wake {recipient} (opencode)",
+                                    sender=username,
+                                    message_id=msg_uuid,
+                                    wake_type="mcp_dm",
+                                    payload={},  # SSH megy külön az alábbi Popen-nel
+                                )
+                                if _wstat == "coalesced":
+                                    _wl_dup = True
+                                    log.info(f"🔁 MCP DM-wake coalesced → {recipient} (60s ablak, wake_log {_wid})")
+                        except Exception as _wl_e:
+                            log.debug(f"wake_log MCP dedup failed (fallback direct): {_wl_e}")
+                        if _wl_dup:
+                            return web.json_response({
+                                "ok": True, "message_id": msg_uuid, "db_id": msg_id,
+                                "recipient": recipient, "status": "coalesced_wake",
+                            })
                         _wake_prompt = (
                             f"🔔 Új DM érkezett {username}-tól: {content[:300]}\n"
                             f"Hívd meg a mesh_inbox MCP eszközt, olvasd el a DM-eket, "
@@ -719,28 +749,47 @@ async def handle_chat_send(node, request, pool, user):
                 wake_url = f"http://{peer_host}:{peer_port}/api/wake-agent"
                 log.info(f"🔔 Wake-agent broadcast → {peer_name} at {wake_url}")
                 _mentioned_direct = peer_name in _mentioned
-                async def _wake_broadcast(pn=peer_name, url=wake_url, ment=_mentioned_direct):
+
+                # ── Wake 2.0: dedup + coalescing a mesh.wake_log-on keresztül ──
+                # 60s-en belüli ismételt wake ugyanarra a peer-re NEM indul újra
+                # (a P2P-triggerelt wake-et a peer node maga logolja a dedupban).
+                _wl_body = {
+                    "prompt": (f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"
+                               if _mentioned_direct else
+                               f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}")[:2000],
+                    "agent_name": peer_name,
+                    "sender": username,
+                    "sender_display": display_name,
+                    "chat_username": username,
+                    "chat_msg_uuid": msg_uuid,
+                    "chat_type": "broadcast",
+                    "reply_endpoint": reply_endpoint,
+                    "mesh_secret": "mesh-wake-secret-2026",
+                }
+                async def _wake_broadcast(pn=peer_name, url=wake_url, ment=_mentioned_direct, wl_body=_wl_body):
                     import aiohttp as _aiohttp
                     await _aio.sleep(2)  # Delay 2s — let P2P wake-agent trigger first
                     try:
-                        if ment:
-                            _b_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"[:2000] + " — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
-                        else:
-                            # _cmd_prefix ide is kell: a /ideas, /debate formátum-utasítás
-                            # így jut el a peer-ekhez (korábban a P2P-ág [:300] vágása levette).
-                            _b_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000]
+                        _pool = getattr(node, 'pg_pool', None) or getattr(node, '_pg_pool', None)
+                        if _pool:
+                            from core.wake_lib import WakeLog
+                            _wlog = WakeLog(_pool)
+                            _ok, _wid, _wstat = await _wlog.send_wake(
+                                target_agent=pn,
+                                target_host=peer_host,
+                                health_port=peer_port,
+                                prompt=wl_body["prompt"],
+                                sender=username,
+                                message_id=msg_uuid,
+                                wake_type="broadcast",
+                                payload=wl_body,
+                            )
+                            if _wstat == "coalesced":
+                                log.info(f"🔁 Wake coalesced → {pn} (wake_log {_wid}) — no duplicate HTTP POST")
+                                return
+                        # Fallback: legacy direct POST (nincs PG vagy a wake_log hibás)
                         async with _aiohttp.ClientSession() as sess:
-                            async with sess.post(url, json={
-                                "prompt": _b_prompt,
-                                "agent_name": pn,
-                                "sender": username,
-                                "sender_display": display_name,
-                                "chat_username": username,
-                                "chat_msg_uuid": msg_uuid,
-                                "chat_type": "broadcast",
-                                "reply_endpoint": reply_endpoint,
-                                "mesh_secret": "mesh-wake-secret-2026"
-                            }, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                            async with sess.post(url, json=wl_body, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
                                 if resp.status == 429:
                                     log.info(f"🔔 Wake-agent broadcast {pn}: 429 (P2P already triggered — OK)")
                                 else:
