@@ -25010,10 +25010,192 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1790250723.3744352
+      },
+      {
+        "id": "card-1790322531442-440",
+        "title": "mesh-llm leszedése Runán (halott szolgáltatás)",
+        "description": "",
+        "column": "done",
+        "priority": "high",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1790322531.442914,
+        "updated_at": 1790322588.2762141,
+        "created_by": "unknown",
+        "delegation_task_id": "d43ec676-528c-483b-95a3-8f462e097239",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1790322531.784262
+          }
+        ]
+      },
+      {
+        "id": "card-1790322532142-441",
+        "title": "mesh-llm leszedése Runán (halott szolgáltatás)",
+        "column": "done",
+        "priority": 7,
+        "assigned_to": "runa",
+        "created_at": 1790322532.142827,
+        "updated_at": 1790322546.4898582,
+        "delegation_task_id": "d43ec676-528c-483b-95a3-8f462e097239",
+        "description": "",
+        "task_type": "generic",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1790322532.142842
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] Acknowledged task 'mesh-llm leszedese Runan (halott szolgaltatas)' at 2026-09-25T07:48:[PHONE REDACTED]+00:00",
+            "timestamp": 1790322533.519246
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "a243e859",
+            "timestamp": 1790322539.676543
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1790322546.490518
+          }
+        ],
+        "delegation_status": "completed",
+        "delegation_result": "[runa] Acknowledged task 'mesh-llm leszedese Runan (halott szolgaltatas)' at 2026-09-25T07:48:[PHONE REDACTED]+00:00",
+        "completed_at": "2026-09-25 07:48:52.090742+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "a243e859-5140-40db-bf29-dbd848078cad",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1790322546.489856
+      },
+      {
+        "id": "card-1790392351771-442",
+        "title": "[DEPLOY] Deploy main to morzsa",
+        "description": "{\"remote\": \"gitea\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 60}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "morzsa",
+        "parent_id": null,
+        "created_at": 1790392351.771179,
+        "updated_at": 1790392393.933888,
+        "created_by": "unknown",
+        "delegation_task_id": "20d66c92-ba6f-4129-b639-5c0f25bf4242",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "morzsa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1790392352.1720939
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch gitea: OK\n[morzsa] git merge: OK — 7bb4957 fix(ssh-key-sync): churn guard — on_peer_connected rate-limit 5perc (tor\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+            "timestamp": 1790392359.256804
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "7e3ed4c9",
+            "timestamp": 1790392366.195659
+          },
+          {
+            "agent": "tor",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "",
+            "timestamp": 1790392393.9346209
+          }
+        ],
+        "delegation_result": "[morzsa] repo_path=/home/openclaw/a2a_mesh\n[morzsa] git fetch gitea: OK\n[morzsa] git merge: OK — 7bb4957 fix(ssh-key-sync): churn guard — on_peer_connected rate-limit 5perc (tor\n[morzsa] restart: scheduled (3s delay)\n[morzsa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-26 03:12:36.113353+00:",
+        "reviewer": "tor",
+        "review_task_id": "7e3ed4c9-76d4-417b-af85-88041792afe9",
+        "review_status": "accept",
+        "review_reason": "",
+        "reviewed_at": 1790392393.9338722
+      },
+      {
+        "id": "card-1790392352844-443",
+        "title": "[DEPLOY] Deploy main to runa",
+        "description": "{\"remote\": \"origin\", \"branch\": \"main\", \"restart_cmd\": \"systemctl --user restart a2a-mesh\", \"health_url\": \"http://localhost:8650/api/health\", \"timeout\": 60}",
+        "column": "done",
+        "priority": "low",
+        "assigned_to": "runa",
+        "parent_id": null,
+        "created_at": 1790392352.8445709,
+        "updated_at": 1790392381.759287,
+        "created_by": "unknown",
+        "delegation_task_id": "fd51ed3d-48ad-4195-bbb6-9ec13276c349",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "runa",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1790392353.217865
+          },
+          {
+            "agent": "runa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge: OK — 7bb4957 fix(ssh-key-sync): churn guard — on_peer_connected rate-limit 5perc (tor\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+            "timestamp": 1790392371.044447
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review delegated",
+            "review_task_id": "30ce012f",
+            "timestamp": 1790392374.231607
+          },
+          {
+            "agent": "morzsa",
+            "role": "reviewer",
+            "action": "review: accept",
+            "verdict": "accept",
+            "reason": "Deployment to runa completed successfully: fetch OK, merge OK (7bb4957), restart scheduled. All steps present and correct.",
+            "timestamp": 1790392381.7601979
+          }
+        ],
+        "delegation_result": "[runa] repo_path=/home/zsolt/a2a_mesh\n[runa] git fetch origin: OK\n[runa] git merge: OK — 7bb4957 fix(ssh-key-sync): churn guard — on_peer_connected rate-limit 5perc (tor\n[runa] restart: scheduled (3s delay)\n[runa] deploy complete — node will restart shortly",
+        "completed_at": "2026-09-26 03:12:47.703338+00:",
+        "reviewer": "morzsa",
+        "review_task_id": "30ce012f-176f-434b-8947-b86b47852bc0",
+        "review_status": "accept",
+        "review_reason": "Deployment to runa completed successfully: fetch OK, merge OK (7bb4957), restart scheduled. All steps present and correct.",
+        "reviewed_at": 1790392381.759281
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1790250656.2621682
+    "updated_at": 1790392373.708004
   },
   {
     "id": "board-archive-orphaned-20260830",

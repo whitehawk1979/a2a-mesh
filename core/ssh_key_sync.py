@@ -39,6 +39,7 @@ _FORCE_FLOOR_INTERVAL = 120.0  # min. küldési idő force=True (reconnect) eset
 # v2 protocol: coordinator re-bundles and rebroadcasts when the registry
 # changes, but at most this often (flood protection)
 _BUNDLE_MIN_INTERVAL = 30.0
+_REQUEST_FLOOR_INTERVAL = 300.0  # min. request/announce küldési idő reconnect churn ellen (5 perc)
 
 # v2: how long a received bundle entry stays valid in the local registry
 _BUNDLE_ENTRY_TTL = 0  # 0 = no expiry (keys are only additive)
@@ -60,6 +61,7 @@ class SSHKeySync:
         self._node_config = node_config  # mesh config (SSHTunnelConfig accessible)
         self._node_ref = None  # set by node.py via set_node_ref()
         self._last_sent: Dict[str, float] = {}  # peer_name -> ts
+        self._last_request: Dict[str, float] = {}  # peer_name -> last full handshake ts
         # v2: coordinator-aggregated key registry (peer_name -> {keys, tunnel, ts})
         self._key_registry: Dict[str, dict] = {}
         self._last_bundle_ts = 0.0
@@ -468,7 +470,19 @@ class SSHKeySync:
         self._node_ref = node
 
     async def on_peer_connected(self, peer_name: str):
-        """Called on every transport peer_connected — send keys + request."""
+        """Called on every transport peer_connected — send keys + request.
+
+        Rate-limited: a flapping peer (tor churn ~14 reconnect/min) must not
+        trigger a key-sync storm. Only the FIRST connect in _REQUEST_FLOOR_INTERVAL
+        does the full 3-message handshake; subsequent connects within the window
+        are skipped (send_keys_to already has its own force-floor).
+        """
+        import time as _t
+        now = _t.time()
+        if now - self._last_request.get(peer_name, 0) < _REQUEST_FLOOR_INTERVAL:
+            log.debug(f"SSHKeySync: on_peer_connected({peer_name}) skipped — rate-limited (churn guard)")
+            return
+        self._last_request[peer_name] = now
         try:
             # force=True: peer restarts reset _last_sent state on THEIR side,
             # but our rate-limit must not block the re-sync handshake either

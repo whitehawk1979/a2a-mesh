@@ -5055,6 +5055,18 @@ echo "Status: ok"
                     if removed > 0:
                         log.debug(f"Dedup cache cleanup: removed {removed} expired entries ({self.router.dedup.size} remaining)")
 
+                # ── Wake 2.0 watchdog: 5p delivered-ack nélküli wake-ek retry-ozása ──
+                # Determinisztikus, LLM-mentes (agent-ötlet: morzsa watchdog).
+                try:
+                    _wl_pool = getattr(self, '_pg_pool', None)
+                    if _wl_pool and hasattr(_wl_pool, 'is_connected') and _wl_pool.is_connected():
+                        from core.wake_lib import run_wake_watchdog
+                        _retried = await run_wake_watchdog(_wl_pool, self)
+                        if _retried:
+                            log.info(f"⏰ Wake watchdog retried {_retried} wake(s)")
+                except Exception as _wd_e:
+                    log.debug(f"Wake watchdog skipped: {_wd_e}")
+
                 # Also send via transport
                 result = await self.router.send(msg)
                 if not result.success:
@@ -5105,7 +5117,14 @@ echo "Status: ok"
                         )
 
                 elif state == CoordinatorState.SUSPECTED:
-                    log.warning(f"⚠️ Coordinator suspected — age: {time.time() - self.election.coordinator.last_heartbeat:.0f}s")
+                    # v0.47.3 fix: coordinator lehet None ilyenkor (cold-start,
+                    # junior router várja a szenior claim-jét) — a None guard
+                    # hiányzott, minden election ciklus AttributeError-t dobott
+                    # (149x/nap Morzsán). Ez blokkolta a loop futását.
+                    if self.election.coordinator is not None:
+                        log.warning(f"⚠️ Coordinator suspected — age: {time.time() - self.election.coordinator.last_heartbeat:.0f}s")
+                    else:
+                        log.info("⏳ Waiting for senior router to claim coordinator role (no coordinator registered)")
 
             except asyncio.CancelledError:
                 break

@@ -1622,7 +1622,9 @@ class P2PTransport(TransportAdapter):
 
                 now = time.time()
                 for peer_name in list(self._peers.keys()):
-                    last_seen = self._peer_last_seen.get(peer_name, 0)
+                    # Default to now: peer in _peers but missing from _peer_last_seen
+                    # means tracking was lost — don't report a bogus epoch-sized idle
+                    last_seen = self._peer_last_seen.get(peer_name, now)
                     idle = now - last_seen
 
                     if idle > self.HEALTH_CHECK_TIMEOUT:
