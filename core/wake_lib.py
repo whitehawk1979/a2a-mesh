@@ -65,6 +65,7 @@ class WakeLog:
                     target_host TEXT,
                     wake_type TEXT NOT NULL DEFAULT 'agent',
                     prompt_hash TEXT,
+                    prompt TEXT,
                     message_id TEXT,
                     sender TEXT,
                     status TEXT NOT NULL DEFAULT 'sent',
@@ -132,15 +133,15 @@ class WakeLog:
             log.info(f"🔁 Wake coalesced → {target_agent} (aktív wake {row['wake_id']} < {coalesce_window_s}s)")
             return (True, row["wake_id"], "coalesced")
 
-        # ── Új wake sor beszúrása ──
+        # ── Új wake sor beszúrása (teljes prompt tárolása a watchdog retry-hoz) ──
         wake_id = str(_uuid.uuid4())
         await self.pool.execute("""
             INSERT INTO mesh.wake_log
                 (wake_id, target_agent, target_host, wake_type, prompt_hash,
-                 message_id, sender, status, attempts)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', 1)
+                 message_id, sender, status, attempts, prompt)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'sent', 1, $8)
         """, _uuid.UUID(wake_id), target_agent, target_host, wake_type, ph,
-             message_id or None, sender)
+             message_id or None, sender, prompt[:2000])
 
         # ── HTTP POST a /api/wake-agent endpointra ──
         # (SSH-alapú wake, pl. MCP DM-wake: health_port=0 → csak log, küldés a hívóban)
@@ -154,9 +155,12 @@ class WakeLog:
             mesh_secret=mesh_secret,
         )
         if not ok:
+            # Nem írjuk felül a 'delivered' státuszt — a fogadó esetleg már ackolta,
+            # csak a lassú HTTP-válasz miatt timeoutolt a küldő oldalon.
             await self.pool.execute("""
                 UPDATE mesh.wake_log
-                SET status='failed', last_error=$2, updated_at=now()
+                SET status=CASE WHEN status='delivered' THEN 'delivered' ELSE 'failed' END,
+                    last_error=$2, updated_at=now()
                 WHERE wake_id = $1
             """, _uuid.UUID(wake_id), err)
             return (False, wake_id, "failed")
@@ -209,8 +213,9 @@ async def mark_delivered(pool, wake_id: str):
         await pool.execute("""
             UPDATE mesh.wake_log
             SET status='delivered',
-                delivered_at=now(),
+                delivered_at=COALESCE(delivered_at, now()),
                 first_ack_at=COALESCE(first_ack_at, now()),
+                last_error=NULL,
                 updated_at=now()
             WHERE wake_id = $1
         """, _uuid.UUID(wake_id))
@@ -228,7 +233,7 @@ async def run_wake_watchdog(pool, node) -> int:
     retried = 0
     try:
         rows = await pool.fetch("""
-            SELECT wake_id, target_agent, target_host, prompt_hash, message_id,
+            SELECT wake_id, target_agent, target_host, prompt_hash, prompt, message_id,
                    sender, wake_type, attempts, max_attempts
             FROM mesh.wake_log
             WHERE status = 'sent'
@@ -244,13 +249,14 @@ async def run_wake_watchdog(pool, node) -> int:
             if not row["target_host"] or not health_port:
                 log.warning(f"⏰ Wake watchdog: {row['target_agent']} host/port ismeretlen — retry skipped")
                 continue
-            # Retry: ugyanaz a prompt-hash, új attempt
+            # Retry a TÁROLT prompttal (korábban üresen ment → 400 a fogadónál);
+            # a wake_id marad az eredeti — a fogadó ugyanazt a sort ackolja.
             ok, err = await _post_wake(
                 row["target_host"], health_port,
-                prompt="",  # watchdognak nincs teljes promptja — a hash-elt azonosítót használjuk
-                payload={"__wake_retry__": True,
-                         "original_wake_id": str(row["wake_id"]),
-                         "message_id": row["message_id"] or ""},
+                prompt=row["prompt"] or "",
+                payload={"wake_id": str(row["wake_id"]),
+                         "message_id": row["message_id"] or "",
+                         "__wake_retry__": True},
                 agent_name=row["target_agent"], sender=row["sender"] or "watchdog",
                 message_id=row["message_id"] or "",
                 mesh_secret="mesh-wake-secret-2026",
