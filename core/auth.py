@@ -268,8 +268,10 @@ class AuthManager:
             
             # Sync each PG user into local SQLite
             local_conn = sqlite3.connect(self.db_path)
+            pg_names = set()
             for row in pg_users:
                 username, display_name, password_hash, salt, role, created_at, last_login, is_active = row
+                pg_names.add(username)
                 try:
                     local_conn.execute(
                         "INSERT OR REPLACE INTO users (user_id, username, display_name, password_hash, salt, role, created_at, last_login, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -277,8 +279,22 @@ class AuthManager:
                     )
                 except Exception as e:
                     log.debug(f"Sync user {username}: {e}")
+            # Tükör szemantika: a PG-bol torolt (reject/deleted) user fusson ki
+            # a lokalis mirrorbol is — kulonben az elutasított user loginolhato
+            # marad masik node-on. A PG a Single Source of Truth.
+            cur2 = local_conn.execute("SELECT username FROM users")
+            local_names = {r[0] for r in cur2.fetchall()}
+            gone = local_names - pg_names
+            for name in gone:
+                cur3 = local_conn.execute("SELECT user_id FROM users WHERE username = ?", (name,))
+                row3 = cur3.fetchone()
+                if row3:
+                    local_conn.execute("DELETE FROM sessions WHERE user_id = ?", (row3[0],))
+                    local_conn.execute("DELETE FROM users WHERE username = ?", (name,))
             local_conn.commit()
             local_conn.close()
+            if gone:
+                log.info(f"PG user sync: {len(gone)} user(s) removed from local mirror (deleted in PG): {sorted(gone)}")
             log.info(f"PG user sync: {len(pg_users)} users pulled from PG")
         except Exception as e:
             log.warning(f"PG user sync failed: {e}")
