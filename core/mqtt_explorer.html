@@ -153,43 +153,44 @@ function renderTree() {
 }
 
 function buildTree(data, depth) {
-  let html = '';
-  // Sort keys: group by first segment
+  // Group keys by first path segment → recursive tree
   const groups = {};
+  const leafTopics = [];
   for (const [key, val] of Object.entries(data)) {
     const parts = key.split('/');
-    const rootKey = parts[0];
-    if (!groups[rootKey]) groups[rootKey] = [];
-    groups[rootKey].push([key, val]);
-  }
-  
-  for (const [rootKey, items] of Object.entries(groups).sort()) {
-    const hasChildren = items.some(([k]) => k.includes('/'));
-    const icon = hasChildren ? (depth <= 1 ? '📂' : '📄') : '📝';
-    const msgCount = items.reduce((sum, [, v]) => sum + (v.count || 0), 0);
-    html += `<div class="tree-item" onclick="toggleGroup('${rootKey}', this)">
-      <span class="tree-icon">${icon}</span>${rootKey}<span class="tree-count">${msgCount}</span>
-    </div>`;
-    if (hasChildren && depth <= 2) {
-      html += '<div class="tree-children">';
-      for (const [key, val] of items.sort()) {
-        if (key.includes('/')) {
-          const subParts = key.split('/').slice(1);
-          if (subParts.length > 1) {
-            const parentKey = subParts[0];
-            if (!groups[parentKey]) groups[parentKey] = [];
-            groups[parentKey].push([key, val]);
-          } else {
-            html += `<div class="tree-item" onclick="selectTopic('${key}')">
-              <span class="tree-icon">📝</span>${key}<span class="tree-count">${val.count||0}</span>
-            </div>`;
-          }
-        }
-      }
-      html += '</div>';
+    if (parts.length === 1) {
+      leafTopics.push([key, val]);
+    } else {
+      const rootKey = parts[0];
+      if (!groups[rootKey]) groups[rootKey] = {};
+      groups[rootKey][parts.slice(1).join('/')] = val;
     }
   }
+  let html = '';
+  for (const [rootKey, children] of Object.entries(groups).sort()) {
+    const childCount = Object.keys(flattenTopics(children)).length;
+    const expanded = depth <= 2 ? 'block' : 'none';
+    html += `<div class="tree-item" onclick="toggleGroup('${rootKey}', this)">
+      <span class="tree-icon">${expanded === 'none' ? '📁' : '📂'}</span>${rootKey}<span class="tree-count">${childCount}</span>
+    </div>`;
+    html += `<div class="tree-children" style="display:${expanded}">` + buildTree(children, depth + 1) + '</div>';
+  }
+  for (const [key, val] of leafTopics.sort()) {
+    html += `<div class="tree-item" onclick="selectTopic('${key}')">
+      <span class="tree-icon">📝</span>${key}<span class="tree-count">${val.count || 0}</span>
+    </div>`;
+  }
   return html;
+}
+
+function flattenTopics(data) {
+  // count all leaf topics under a nested group object
+  const out = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (val && val.messages) { out[key] = val; }
+    else if (val && typeof val === 'object') { Object.assign(out, flattenTopics(val)); }
+  }
+  return out;
 }
 
 function toggleGroup(rootKey, el) {
@@ -201,7 +202,13 @@ function toggleGroup(rootKey, el) {
 
 function selectAllTopics() {
   selectedTopic = '_all';
-  showMessagePanel(null);
+  // Flatten all messages from all topics
+  const all = [];
+  for (const [topic, info] of Object.entries(allTopics)) {
+    (info.messages || []).forEach(m => all.push(m));
+  }
+  all.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  showMessagePanel(all);
 }
 
 function selectTopic(topic) {
