@@ -442,6 +442,24 @@ class MQTTTransport(TransportAdapter):
             log.warning(f"[{self.name}] SSH key publish to {topic} failed: {e}")
             return False
 
+    def publish_wake_to(self, target_node: str, payload: str):
+        """Publish a wake message for a peer node via a2a/wake/{target_node}.
+
+        The target node's _on_wake_message handler receives this and POSTs
+        locally to its own /api/wake-agent endpoint.  This works independently
+        of P2P/HTTP reachability — as long as the target is connected to the
+        broker, the wake gets through.
+        """
+        if not self._connected or not self._client:
+            return False
+        try:
+            self._client.publish(f"a2a/wake/{target_node}", payload, qos=1, retain=False)
+            log.info(f"[{self.name}] Wake published for '{target_node}' via MQTT")
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] Wake publish to {target_node} failed: {e}")
+            return False
+
     async def receive(self) -> List[A2AMessage]:
         """Drain the RX queue and return list of (message, transport_name) tuples."""
         messages = []
