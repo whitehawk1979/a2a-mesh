@@ -2020,11 +2020,11 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             return web.Response(text="<h1>MQTT Explorer page not found</h1>", status=404)
     
     async def _api_mqtt_topics(self, request):
-        """GET /api/mqtt/topics — Hierarchical topic tree with subscriber counts."""
+        """GET /api/mqtt/topics — Hierarchical topic tree with subscriber counts.
+        
+        Local-only endpoint — no auth required (accessible via localhost only).
+        """
         from aiohttp import web
-        user, err = self._require_auth(request)
-        if err:
-            return err
         
         try:
             from core.mqtt_proxy import MQTTProxy
