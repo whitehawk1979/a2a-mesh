@@ -18,6 +18,7 @@ Security:
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -66,6 +67,8 @@ class SSHKeySync:
         self._key_registry: Dict[str, dict] = {}
         self._last_bundle_ts = 0.0
         self._self_registered = False
+        # MQTT fallback client (PG nélkül használjuk)
+        self._mqtt_client = None
         # Resolve authorized_keys path per platform
         if authorized_keys_path:
             self._ak_path = Path(authorized_keys_path).expanduser()
@@ -461,6 +464,75 @@ class SSHKeySync:
                     )
         except Exception as e:
             log.debug(f"SSHKeySync: PG persist failed (non-blocking): {e}")
+
+    # ── MQTT fallback (PG nélkül) ─────────────────────────────────
+    #
+    # Ha a PG pool nem elérhető, az SSH kulcs cserét MQTT-n keresztül
+    # végezzük: minden node publikálja a kulcsait a2a/ssh_keys/{node_name}
+    # topic-ra retained=True, és a többiek feliratkoznak a2a/ssh_keys/+ -ra.
+    # A node.py init során kapcsolja össze az MQTT transportot ezzel a
+    # metódussal, ha pg_pool is None.
+
+    def _mqtt_enabled(self) -> bool:
+        """MQTT fallback használható? (van mqtt_client és nincs pg_pool)"""
+        return self._mqtt_client is not None and self._pg_pool is None
+
+    def set_mqtt_client(self, client):
+        """MQTT client referenciát adunk (node.py hívja, ha pg_pool None)."""
+        self._mqtt_client = client
+
+    def publish_via_mqtt(self):
+        """Saját SSH publikus kulcs(ok) publikálása MQTT topic-ra."""
+        if not self._mqtt_client:
+            return False
+        keys = self._read_own_pubkeys()
+        if not keys:
+            log.debug("SSHKeySync(MQTT): no pubkeys to publish")
+            return False
+        tunnel = self._ssh_tunnel_info()
+        payload = json.dumps({
+            "node_name": self._node_name,
+            "keys": keys,
+            "tunnel": tunnel,
+        })
+        topic = f"a2a/ssh_keys/{self._node_name}"
+        try:
+            self._mqtt_client.publish_ssh_keys(topic, payload, retain=True)
+            log.info(f"SSHKeySync(MQTT): published {len(keys)} key(s) to {topic}")
+            return True
+        except Exception as e:
+            log.warning(f"SSHKeySync(MQTT): publish failed: {e}")
+            return False
+
+    def handle_mqtt_key_message(self, sender: str, raw_payload: bytes):
+        """Bejövő MQTT SSH key üzenet feldolgozása."""
+        if sender == self._node_name:
+            return  # saját üzenetünket figyelmen kívül hagyjuk
+        try:
+            payload = json.loads(raw_payload) if isinstance(raw_payload, (bytes, bytearray)) else json.loads(raw_payload)
+        except (json.JSONDecodeError, TypeError) as e:
+            log.debug(f"SSHKeySync(MQTT): invalid JSON from {sender}: {e}")
+            return
+        keys = payload.get("keys", []) or []
+        if not keys:
+            return
+        added = 0
+        for k in keys:
+            if isinstance(k, str) and _KEY_RE.match(k.strip()):
+                if self._merge_key(k.strip()):
+                    added += 1
+        if added:
+            log.info(f"SSHKeySync(MQTT): merged {added} new key(s) from {sender}")
+        # Tunnel info alapján auto-regisztráció
+        tunnel_info = payload.get("tunnel") or {}
+        if isinstance(tunnel_info, dict) and tunnel_info.get("ssh_port"):
+            # aszinkron task a tunnel peer regisztrációhoz
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                loop.create_task(self._auto_register_tunnel_peer(sender, tunnel_info))
+            except Exception:
+                pass  # ha nincs futó event loop, skip
 
     # ── Peer-connect hook ─────────────────────────────────────────
 

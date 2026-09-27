@@ -26530,10 +26530,43 @@
         "review_status": "accept",
         "review_reason": "",
         "reviewed_at": 1790432440.752925
+      },
+      {
+        "id": "card-1790489664356-466",
+        "title": "[ötletláda] Wake-on-DAG + prioritás szűrés — ha egy alvó üzenetben nem szerepeln",
+        "description": "{\"type\": \"code_generation\", \"language\": \"python\", \"language_hint\": \"python\", \"description\": \"A2A Mesh rep\\u00f3 implement\\u00e1ci\\u00f3. \\u00d6tlet: Wake-on-DAG + priorit\\u00e1s sz\\u0171r\\u00e9s \\u2014 ha egy alv\\u00f3 \\u00fczenetben nem szerepelnek kulcsszavak (pl. `hazeepites`, `proxmox`, `cron`)\\n\\nKontextus: Debate-javaslat (automatikus bek\\u00fcld\\u00e9s)\\n\\nEredeti hozz\\u00e1sz\\u00f3l\\u00e1s: [\\u00f6TLET] Wake-on-DAG + priorit\\u00e1s sz\\u0171r\\u00e9s \\u2014 ha egy alv\\u00f3 \\u00fczenetben nem szerepelnek kulcsszavak (pl. `hazeepites`, `proxmox`, `cron`), az MCP-agenteket sim\\u00e1n \\u00e1tugorni, helyette direkt a feladat v\\u00e9grehajt\\u00f3ira dispatchelni. Ez cs\\u00f6kkenti a felesleges call-chain-eket \\u00e9s sp\\u00f3rol a tool h\\u00edv\\u00e1sokkal. \\ud83c\\udf5e\\n\\nBek\\u00fcldte: morzsa\\n\\nA munkak\\u00f6nyvt\\u00e1r az a2a_mesh git rep\\u00f3. A feladat az \\u00f6tlet t\\u00e9nyleges k\\u00f3d-implement\\u00e1ci\\u00f3ja: hozz l\\u00e9tre vagy m\\u00f3dos\\u00edts .py f\\u00e1jlokat a rep\\u00f3ban, amik az \\u00f6tlet funkcionalit\\u00e1s\\u00e1t megval\\u00f3s\\u00edtj\\u00e1k. Gener\\u00e1lj futtathat\\u00f3, \\u00f6n\\u00e1ll\\u00f3 Python k\\u00f3dot, ami a rep\\u00f3 gy\\u00f6ker\\u00e9b\\u0151l futtathat\\u00f3.\", \"idea_id\": \"idea_202b5e17673b\", \"source\": \"otletlada_implement\", \"repo\": \"a2a_mesh\", \"target\": \"mesh\"}",
+        "column": "review",
+        "priority": "high",
+        "assigned_to": "",
+        "parent_id": null,
+        "created_at": 1790489664.3562188,
+        "updated_at": 1790489668.875649,
+        "created_by": "unknown",
+        "delegation_task_id": "59d018df-749f-40d9-8d97-99ae23aac0b1",
+        "delegation_status": "completed",
+        "from_agent": "nova",
+        "to_agent": "any",
+        "agent_history": [
+          {
+            "agent": "nova",
+            "role": "delegator",
+            "action": "created task",
+            "timestamp": 1790489664.7893848
+          },
+          {
+            "agent": "morzsa",
+            "role": "executor",
+            "action": "completed task",
+            "result": "[morzsa] Generated bash code for '[otletlada] Wake-on-DAG + prioritas szures — ha eg' at 2026-09-27T06:14:[PHONE REDACTED]+00:00\n\n── Execution Output ──\nAgent: morzsa\nHost: openclaw\nTime: 2026-09-27T06:14:25Z\nStatus: ok\n",
+            "timestamp": 1790489667.699947
+          }
+        ],
+        "delegation_result": "[morzsa] Generated bash code for '[otletlada] Wake-on-DAG + prioritas szures — ha eg' at 2026-09-27T06:14:[PHONE REDACTED]+00:00\n\n── Execution Output ──\nAgent: morzsa\nHost: openclaw\nTime: 2026-09-27T06:14:25Z\nStatus: ok\n",
+        "completed_at": "2026-09-27 06:14:26.182347+00:"
       }
     ],
     "created_at": 1786966798.705906,
-    "updated_at": 1790431487.924695
+    "updated_at": 1790489668.875652
   },
   {
     "id": "board-archive-orphaned-20260830",

@@ -876,6 +876,18 @@ class MeshNode:
             if getattr(self, 'ssh_key_sync', None):
                 self.ssh_key_sync._pg_pool = self._pg_pool._pool if hasattr(self._pg_pool, '_pool') else self._pg_pool
 
+        # MQTT key sync fallback (ha PG nem elérhető)
+        if not self._pg_pool or not self._pg_pool.is_connected():
+            if getattr(self, 'ssh_key_sync', None) and self._mqtt_transport is not None:
+                try:
+                    self.ssh_key_sync.set_mqtt_client(self._mqtt_transport)
+                    self._mqtt_transport.set_ssh_key_handler(
+                        self.ssh_key_sync.handle_mqtt_key_message
+                    )
+                    log.info("Node: MQTT key sync fallback activated (PG unavailable)")
+                except Exception as e:
+                    log.warning(f"Node: MQTT key sync setup failed: {e}")
+
         # Register self in mesh.mesh_nodes
         await self._register_node()
 
@@ -924,6 +936,12 @@ class MeshNode:
             except Exception as e:
                 log.warning(f"MQTT transport start failed (non-fatal): {e}")
                 results["mqtt"] = False
+        # MQTT key sync: ha PG fallback aktiválva van, publikáljuk a kulcsokat
+        if results.get("mqtt") and getattr(self, 'ssh_key_sync', None) and self.ssh_key_sync._mqtt_enabled():
+            try:
+                self.ssh_key_sync.publish_via_mqtt()
+            except Exception as e:
+                log.warning(f"MQTT key publish failed: {e}")
         if results["ble"]:
             log.info("✅ BLE transport started")
         else:

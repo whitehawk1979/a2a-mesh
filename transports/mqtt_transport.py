@@ -57,6 +57,9 @@ class MQTTTransport(TransportAdapter):
         self._last_error = ""
         self._latency = 0.0
         
+        # SSH key sync handler (set by node.py)
+        self._ssh_key_handler = None
+        
         # Buffers
         self._rx = collections.deque(maxlen=5000)
         self.devices: Dict[str, Any] = {}
@@ -146,6 +149,13 @@ class MQTTTransport(TransportAdapter):
                 log.info(f"[{self.name}] Presence published: {status_topic} = online")
             except Exception as e:
                 log.warning(f"[{self.name}] Presence publish failed: {e}")
+            # SSH key sync — minden node publikálja a publikus kulcsait
+            try:
+                self._client.subscribe("a2a/ssh_keys/+", qos=1)
+                log.info(f"[{self.name}] Subscribed to SSH key sync: a2a/ssh_keys/+")
+            except Exception as e:
+                log.warning(f"[{self.name}] SSH key topic subscribe failed: {e}")
+
             self._client.subscribe("a2a/devices/+/manifest", qos=1)
             self._client.subscribe("a2a/devices/+/status", qos=1)
             
@@ -254,6 +264,16 @@ class MQTTTransport(TransportAdapter):
                 self._on_wake_message(topic, payload)
                 return  # Wake nem megy az A2AMessage buffer-be
             
+            # ── SSH key sync: a2a/ssh_keys/{sender} ──
+            elif len(parts) >= 3 and parts[1] == 'ssh_keys':
+                sender = parts[2]
+                if self._ssh_key_handler:
+                    try:
+                        self._ssh_key_handler(sender, payload)
+                    except Exception as e:
+                        log.warning(f"[{self.name}] SSH key handler failed: {e}")
+                return
+
             # Messaging: DM and Broadcast
             if topic == f"a2a/chat/dm/{self._node_name}" or topic == "a2a/sys/broadcast":
                 data = json.loads(payload)
@@ -365,6 +385,21 @@ class MQTTTransport(TransportAdapter):
             loop.create_task(_post())
         except Exception as e:
             log.error(f"[{self.name}] Failed to POST MQTT wake for {target_node}: {e}")
+
+    def set_ssh_key_handler(self, handler):
+        """Register callback for incoming MQTT SSH key messages: handler(sender, payload_bytes)."""
+        self._ssh_key_handler = handler
+
+    def publish_ssh_keys(self, topic: str, payload: str, retain: bool = True):
+        """Publish SSH public key(s) to MQTT topic (rate-limited by caller)."""
+        if not self._connected or not self._client:
+            return False
+        try:
+            self._client.publish(topic, payload, qos=1, retain=retain)
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] SSH key publish to {topic} failed: {e}")
+            return False
 
     async def receive(self) -> List[A2AMessage]:
         """Drain the RX queue and return list of (message, transport_name) tuples."""
