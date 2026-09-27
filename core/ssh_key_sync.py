@@ -274,10 +274,22 @@ class SSHKeySync:
         except Exception as e:
             log.debug(f"SSHKeySync: announce_to_coordinator failed: {e}")
 
-    async def send_keys_to(self, peer_name: str, force: bool = False):
+    async def send_keys_to(self, peer_name: str, force: bool = False,
+                           request_reply: bool = False):
         """Advertise our public key(s) to an approved peer (idempotent)."""
         now = time.time()
-        if now - self._last_sent.get(peer_name, 0) < (_FORCE_FLOOR_INTERVAL if force else _RESEND_INTERVAL):
+        if request_reply:
+            # Explicit request-reply: a kérdő oldal maga rate-limiteli a
+            # requestjeit (_REQUEST_FLOOR_INTERVAL=300s), így itt egy rövid
+            # floor is biztonságos — de a kézzel fabricált request-storm
+            # ellen 30s marad. Ez biztosítja, hogy egy restartolt peer
+            # másodperceken belül megkapja a kulcsokat, ne a következő
+            # reconnect-ciklusig várjon (2026-09-27: mano 0 kulccsal
+            # maradt, mert a morzsa válaszát a 120s floor blokkolta).
+            floor = 30.0
+        else:
+            floor = _FORCE_FLOOR_INTERVAL if force else _RESEND_INTERVAL
+        if now - self._last_sent.get(peer_name, 0) < floor:
             # force-floor: a peer-reconnect (force=True) sem indíthat újabb küldést
             # 120s-enként — a flappelő HAOS tunnel-ek ne generáljanak ssh_key_sync vihart
             return
@@ -369,7 +381,7 @@ class SSHKeySync:
             await self._maybe_broadcast_bundle()
         # Bidirectional: reply with our keys if asked
         if payload.get("request"):
-            await self.send_keys_to(sender, force=True)
+            await self.send_keys_to(sender, force=True, request_reply=True)
         return added > 0
 
     async def _auto_register_tunnel_peer(self, peer_name: str, tunnel_info: dict):
