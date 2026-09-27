@@ -69,6 +69,10 @@ class SSHKeySync:
         self._self_registered = False
         # MQTT fallback client (PG nélkül használjuk)
         self._mqtt_client = None
+        # Buffer: peer-regisztracio elott beérkezett retained kulcsuzenetek
+        # (feldolgozza a flusher, ha a peer mar latszik a registryben)
+        self._mqtt_pending: Dict[str, bytes] = {}
+        self._flusher_task = None
         # Resolve authorized_keys path per platform
         if authorized_keys_path:
             self._ak_path = Path(authorized_keys_path).expanduser()
@@ -486,8 +490,12 @@ class SSHKeySync:
     # metódussal, ha pg_pool is None.
 
     def _mqtt_enabled(self) -> bool:
-        """MQTT fallback használható? (van mqtt_client és nincs pg_pool)"""
-        return self._mqtt_client is not None and self._pg_pool is None
+        """MQTT key sync használható? (mqtt client elérhető).
+
+        v0.48+: mindig aktív — a PG csak audit-persistencia, az MQTT a
+        terjesztési útvonal (később belépő node-ok a retained üzenetből
+        azonnal megkapják a kulcsokat)."""
+        return self._mqtt_client is not None
 
     def set_mqtt_client(self, client):
         """MQTT client referenciát adunk (node.py hívja, ha pg_pool None)."""
@@ -511,15 +519,59 @@ class SSHKeySync:
         try:
             self._mqtt_client.publish_ssh_keys(topic, payload, retain=True)
             log.info(f"SSHKeySync(MQTT): published {len(keys)} key(s) to {topic}")
+            self._start_pending_flusher()
             return True
         except Exception as e:
             log.warning(f"SSHKeySync(MQTT): publish failed: {e}")
             return False
 
+    def _start_pending_flusher(self):
+        """Hatter task: a pufferolt (meg nem regisztralt peer-tol szarmazo)
+        kulcsokat akkor dolgozza fel, ha a peer mar latszik a registryben.
+        Determinisztikus — nem fug eventektol, 30s-enkent nez at a puffert,
+        5 perc utan uriti a regeneralt topic retained ertekevel."""
+        if getattr(self, "_flusher_task", None):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._flusher_deadline = time.time() + 300.0
+
+        async def _flusher():
+            while time.time() < self._flusher_deadline and self._mqtt_pending:
+                await asyncio.sleep(30)
+                for name in list(self._mqtt_pending.keys()):
+                    if self._sender_is_approved(name):
+                        raw = self._mqtt_pending.pop(name)
+                        self._process_mqtt_keys(name, raw)
+            if self._mqtt_pending:
+                log.info(f"SSHKeySync(MQTT): dropping {len(self._mqtt_pending)} buffered key msg(s) — peers never registered")
+                self._mqtt_pending.clear()
+            self._flusher_task = None
+
+        self._flusher_task = loop.create_task(_flusher())
+
     def handle_mqtt_key_message(self, sender: str, raw_payload: bytes):
-        """Bejövő MQTT SSH key üzenet feldolgozása."""
+        """Bejovo MQTT SSH key uszenet feldolgozasa.
+
+        BIZTONSAG: a broker allow_anonymous — barmki publikalhatna hamis
+        kulcsot a topicon, ezert a kulcsokat csak regisztralt peer-tol
+        fogadjuk el (registry check, mint az A2A uton).
+
+        RACE: boot-kor a retained uzenet elobb beérkezik, mint ahogy a peer
+        AgentCardja regisztralna a discoverynel — az ilyen kulcsot pufferoljuk
+        (_mqtt_pending) es az on_peer_connected flush feldolgozza."""
         if sender == self._node_name:
-            return  # saját üzenetünket figyelmen kívül hagyjuk
+            return  # sajat uszenetunket figyelmen kivul hagyjuk
+        if not self._sender_is_approved(sender):
+            self._mqtt_pending[sender] = raw_payload
+            log.info(f"SSHKeySync(MQTT): keys from {sender} buffered (peer not yet registered)")
+            return
+        self._process_mqtt_keys(sender, raw_payload)
+
+    def _process_mqtt_keys(self, sender: str, raw_payload) -> None:
+        """Merge keys + auto-register tunnel peer (sync part of MQTT key msg)."""
         try:
             payload = json.loads(raw_payload) if isinstance(raw_payload, (bytes, bytearray)) else json.loads(raw_payload)
         except (json.JSONDecodeError, TypeError) as e:
@@ -535,16 +587,22 @@ class SSHKeySync:
                     added += 1
         if added:
             log.info(f"SSHKeySync(MQTT): merged {added} new key(s) from {sender}")
-        # Tunnel info alapján auto-regisztráció
         tunnel_info = payload.get("tunnel") or {}
         if isinstance(tunnel_info, dict) and tunnel_info.get("ssh_port"):
-            # aszinkron task a tunnel peer regisztrációhoz
             try:
                 import asyncio
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._auto_register_tunnel_peer(sender, tunnel_info))
             except Exception:
                 pass  # ha nincs futó event loop, skip
+
+    def flush_mqtt_pending(self, peer_name: str) -> int:
+        """Process buffered MQTT key messages for a now-registered peer."""
+        raw = self._mqtt_pending.pop(peer_name, None)
+        if raw is None:
+            return 0
+        self._process_mqtt_keys(peer_name, raw)
+        return 1
 
     # ── Peer-connect hook ─────────────────────────────────────────
 
@@ -568,6 +626,9 @@ class SSHKeySync:
             return
         self._last_request[peer_name] = now
         try:
+            # flush: a boot-utan pufferolt, meg nem erkezett kulcsok most
+            # dolgozzuk fel (mar regisztraltuk a peer AgentCardjat)
+            self.flush_mqtt_pending(peer_name)
             # force=True: peer restarts reset _last_sent state on THEIR side,
             # but our rate-limit must not block the re-sync handshake either
             await self.send_keys_to(peer_name, force=True)

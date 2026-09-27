@@ -148,12 +148,14 @@ function renderTree() {
   const root = document.getElementById('tree-root');
   let html = '<div class="tree-item selected" onclick="selectAllTopics()"><span class="tree-icon">🌐</span> összes';
   html += `<span class="tree-count">${messageCount}</span></div>`;
-  html += '<div class="tree-children">' + buildTree(allTopics, 1) + '</div>';
+  html += '<div class="tree-children">' + buildTree(allTopics, 1, '') + '</div>';
   root.innerHTML = html;
 }
 
-function buildTree(data, depth) {
-  // Group keys by first path segment → recursive tree
+function buildTree(data, depth, prefix) {
+  // Group keys by first path segment → recursive tree.
+  // IMPORTANT: leaf onclick must carry the FULL topic path (prefix + key),
+  // otherwise allTopics[topic] lookup fails and the panel shows empty.
   const groups = {};
   const leafTopics = [];
   for (const [key, val] of Object.entries(data)) {
@@ -170,13 +172,15 @@ function buildTree(data, depth) {
   for (const [rootKey, children] of Object.entries(groups).sort()) {
     const childCount = Object.keys(flattenTopics(children)).length;
     const expanded = depth <= 2 ? 'block' : 'none';
-    html += `<div class="tree-item" onclick="toggleGroup('${rootKey}', this)">
+    const grpPath = prefix ? prefix + '/' + rootKey : rootKey;
+    html += `<div class="tree-item" onclick="event.stopPropagation();toggleGroup(this,'${grpPath}')">
       <span class="tree-icon">${expanded === 'none' ? '📁' : '📂'}</span>${rootKey}<span class="tree-count">${childCount}</span>
     </div>`;
-    html += `<div class="tree-children" style="display:${expanded}">` + buildTree(children, depth + 1) + '</div>';
+    html += `<div class="tree-children" style="display:${expanded}">` + buildTree(children, depth + 1, grpPath) + '</div>';
   }
   for (const [key, val] of leafTopics.sort()) {
-    html += `<div class="tree-item" onclick="selectTopic('${key}')">
+    const fullPath = prefix ? prefix + '/' + key : key;
+    html += `<div class="tree-item" onclick="event.stopPropagation();selectTopic('${fullPath}')">
       <span class="tree-icon">📝</span>${key}<span class="tree-count">${val.count || 0}</span>
     </div>`;
   }
@@ -193,10 +197,14 @@ function flattenTopics(data) {
   return out;
 }
 
-function toggleGroup(rootKey, el) {
+function toggleGroup(el, grpPath) {
+  // Signature: toggleGroup(this, 'full/path') — toggle children of a folder node
   const nextEl = el.nextElementSibling;
   if (nextEl && nextEl.classList.contains('tree-children')) {
-    nextEl.style.display = nextEl.style.display === 'none' ? 'block' : 'none';
+    const hidden = nextEl.style.display === 'none';
+    nextEl.style.display = hidden ? 'block' : 'none';
+    const icon = el.querySelector('.tree-icon');
+    if (icon) icon.textContent = hidden ? '📂' : '📁';
   }
 }
 

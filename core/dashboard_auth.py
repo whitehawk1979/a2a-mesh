@@ -11,6 +11,19 @@ log = logging.getLogger("a2a_mesh.dashboard.auth")
 class DashboardAuthMixin:
     """Auth-related endpoints extracted from DashboardHandler."""
 
+    def _notify_users_changed(self, reason: str = ""):
+        """MQTT broadcast: mesh_users torzs valtozott (approve/reject/role/jelszo).
+
+        A tobbi node a `a2a/sys/users_changed` feliratas ra azonnal lehuzzza
+        a friss listat PG-bol. Best-effort: ha nincs MQTT, csendben elsut.
+        """
+        try:
+            mqtt_t = getattr(self.node, '_mqtt_transport', None) if getattr(self, 'node', None) else None
+            if mqtt_t:
+                mqtt_t.publish_users_changed(reason)
+        except Exception as e:
+            log.debug(f"users_changed notify skipped: {e}")
+
     async def _api_auth_register(self, request):
         """Register a new user.
         
@@ -52,6 +65,7 @@ class DashboardAuthMixin:
         if not user:
             return web.json_response({"error": "Username already taken"}, status=409)
 
+        self._notify_users_changed(f"registered:{username}")
         status_str = "pending_approval" if is_public else "registered"
         return web.json_response({
             "status": status_str,
@@ -262,6 +276,7 @@ class DashboardAuthMixin:
 
         try:
             self.auth.change_password(target.user_id, new_password)
+            self._notify_users_changed(f"password:{username}")
             log.info(f"Owner '{caller.username}' changed password for user '{username}'")
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
@@ -364,6 +379,7 @@ class DashboardAuthMixin:
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
+        self._notify_users_changed(f"approved:{username}:{role}")
         log.info(f"'{caller.username}' approved user '{username}' with role '{role}'")
         target = self.auth.get_user_by_username(username)
         return web.json_response({
@@ -391,6 +407,7 @@ class DashboardAuthMixin:
             return web.json_response({"error": f"User '{username}' is already active"}, status=400)
 
         self.auth.delete_user(target.user_id)
+        self._notify_users_changed(f"rejected:{username}")
         log.info(f"'{caller.username}' rejected pending user '{username}'")
         return web.json_response({
             "status": "rejected",

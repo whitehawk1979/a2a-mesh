@@ -876,17 +876,33 @@ class MeshNode:
             if getattr(self, 'ssh_key_sync', None):
                 self.ssh_key_sync._pg_pool = self._pg_pool._pool if hasattr(self._pg_pool, '_pool') else self._pg_pool
 
-        # MQTT key sync fallback (ha PG nem elérhető)
-        if not self._pg_pool or not self._pg_pool.is_connected():
-            if getattr(self, 'ssh_key_sync', None) and self._mqtt_transport is not None:
-                try:
-                    self.ssh_key_sync.set_mqtt_client(self._mqtt_transport)
-                    self._mqtt_transport.set_ssh_key_handler(
-                        self.ssh_key_sync.handle_mqtt_key_message
-                    )
-                    log.info("Node: MQTT key sync fallback activated (PG unavailable)")
-                except Exception as e:
-                    log.warning(f"Node: MQTT key sync setup failed: {e}")
+        # MQTT key sync — FO UTVOVAL (v0.48+): a PG csak audit-persistencia,
+        # az MQTT a kulcsok terjesztesi csatornaja (retained + feliratasok).
+        # Regisztralt kulcs: a jovo node a brokerol azonnal lehuzzaja a tobbi kulcsat,
+        # es a sajatjat is meglatjak a tobbiek boot-kor.
+        if getattr(self, 'ssh_key_sync', None) and self._mqtt_transport is not None:
+            try:
+                self.ssh_key_sync.set_mqtt_client(self._mqtt_transport)
+                self._mqtt_transport.set_ssh_key_handler(
+                    self.ssh_key_sync.handle_mqtt_key_message
+                )
+                log.info("Node: MQTT key sync activated (primary path, retained topics)")
+            except Exception as e:
+                log.warning(f"Node: MQTT key sync setup failed: {e}")
+        # MQTT user-sync notify: masik node approval/role valtozasara azonnal
+        # huzzuk le a friss user-listat PG-bol (SQLite mirror frissen tartasa)
+        if self._mqtt_transport is not None:
+            try:
+                def _on_users_changed():
+                    try:
+                        self.dashboard.auth._sync_from_pg()
+                        log.info("users_changed: fresh user list pulled from PG")
+                    except Exception as e:
+                        log.warning(f"users_changed PG pull failed: {e}")
+                self._mqtt_transport.set_users_changed_handler(_on_users_changed)
+                log.info("Node: MQTT users_changed handler registered")
+            except Exception as e:
+                log.warning(f"Node: users_changed handler setup failed: {e}")
 
         # Register self in mesh.mesh_nodes
         await self._register_node()

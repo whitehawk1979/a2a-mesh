@@ -59,6 +59,9 @@ class MQTTTransport(TransportAdapter):
         
         # SSH key sync handler (set by node.py)
         self._ssh_key_handler = None
+
+        # User-change notify handler (set by node.py; calls AuthManager._sync_from_pg)
+        self._users_changed_handler = None
         
         # Buffers
         self._rx = collections.deque(maxlen=5000)
@@ -155,6 +158,14 @@ class MQTTTransport(TransportAdapter):
                 log.info(f"[{self.name}] Subscribed to SSH key sync: a2a/ssh_keys/+")
             except Exception as e:
                 log.warning(f"[{self.name}] SSH key topic subscribe failed: {e}")
+
+            # User sync — admin/owner modositas utan a tobbi node azonnal
+            # lehuzzja a PG-friss user-listat (pendingus + jogosultsag valtozasok)
+            try:
+                self._client.subscribe("a2a/sys/users_changed", qos=1)
+                log.info(f"[{self.name}] Subscribed to user change notifications: a2a/sys/users_changed")
+            except Exception as e:
+                log.warning(f"[{self.name}] users_changed subscribe failed: {e}")
 
             self._client.subscribe("a2a/devices/+/manifest", qos=1)
             self._client.subscribe("a2a/devices/+/status", qos=1)
@@ -274,6 +285,15 @@ class MQTTTransport(TransportAdapter):
                         log.warning(f"[{self.name}] SSH key handler failed: {e}")
                 return
 
+            # ── User sync notify: a2a/sys/users_changed ──
+            elif topic == "a2a/sys/users_changed":
+                if self._users_changed_handler:
+                    try:
+                        self._users_changed_handler()
+                    except Exception as e:
+                        log.warning(f"[{self.name}] users_changed handler failed: {e}")
+                return
+
             # Messaging: DM and Broadcast
             if topic == f"a2a/chat/dm/{self._node_name}" or topic == "a2a/sys/broadcast":
                 data = json.loads(payload)
@@ -389,6 +409,27 @@ class MQTTTransport(TransportAdapter):
     def set_ssh_key_handler(self, handler):
         """Register callback for incoming MQTT SSH key messages: handler(sender, payload_bytes)."""
         self._ssh_key_handler = handler
+
+    def set_users_changed_handler(self, handler):
+        """Register callback for user-change notifications: handler().
+
+        Called when another node pushes changes to mesh_users (approve/reject/
+        role change). The handler typically runs AuthManager._sync_from_pg()
+        so local SQLite mirrors PG (the source of truth)."""
+        self._users_changed_handler = handler
+
+    def publish_users_changed(self, reason: str = ""):
+        """Announce that mesh_users changed — other nodes should re-pull from PG."""
+        if not self._connected or not self._client:
+            return False
+        try:
+            payload = json.dumps({"node": self._node_name, "reason": reason, "ts": time.time()})
+            self._client.publish("a2a/sys/users_changed", payload, qos=1, retain=False)
+            log.info(f"[{self.name}] users_changed published ({reason})")
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] users_changed publish failed: {e}")
+            return False
 
     def publish_ssh_keys(self, topic: str, payload: str, retain: bool = True):
         """Publish SSH public key(s) to MQTT topic (rate-limited by caller)."""

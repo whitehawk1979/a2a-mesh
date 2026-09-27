@@ -1,4 +1,4 @@
-# 🌙 Dream Engine — 2026-09-27T10:59:27.633349+00:00
+# 🌙 Dream Engine — 2026-09-27T15:28:18.909534+00:00
 **Node:** nova
 
 ## 💡 Bucket 1 — Skill javaslatok
@@ -24,13 +24,11 @@ Archiválható (done >7nap): 0
 
 ## 🤖 Bucket 5 — Agent teljesítmény
 
-- **morzsa**: 15 task, 86.7% siker, 170.1s átlag
-- **any**: 13 task, 100.0% siker, 5.2s átlag
-- **tor**: 4 task, 100.0% siker, 55.0s átlag
-- **mano**: 4 task, 100.0% siker, 6.5s átlag
+- **tor**: 2 task, 100.0% siker, 61.4s átlag
+- **any**: 1 task, 100.0% siker, 1.8s átlag
 
-🏆 Legjobb: any (100.0%)
-⚠️ Legrosszabb: morzsa (86.7%)
+🏆 Legjobb: tor (100.0%)
+⚠️ Legrosszabb: tor (100.0%)
 
 ## ⭐ Bucket 6 — Skill használat
 
@@ -41,7 +39,7 @@ Archiválható (done >7nap): 0
   - translation (nova)
   - mesh_send (mano)
   - gateway_discord_bridge (tor)
-  - data_analysis (mano)
+  - data_analysis (runa)
 
 ## 💰 Bucket 7 — Költség
 

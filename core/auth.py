@@ -260,7 +260,10 @@ class AuthManager:
             return
         try:
             cur = conn.cursor()
-            cur.execute("SELECT username, display_name, password_hash, salt, role, created_at, last_login, is_active FROM mesh.mesh_users WHERE is_active = 1")
+            # v0.48+: minden user szinkronizalando (pending is_active=0 is) —
+            # a dashboard listaknak latniuk kell a fuggoben levoket.
+            # A login elve a kulon szures (login() WHERE is_active=1).
+            cur.execute("SELECT username, display_name, password_hash, salt, role, created_at, last_login, is_active FROM mesh.mesh_users")
             pg_users = cur.fetchall()
             
             # Sync each PG user into local SQLite
@@ -282,23 +285,29 @@ class AuthManager:
         finally:
             conn.close()
 
-    def _sync_to_pg(self, username: str, display_name: str, password_hash: str, salt: str, role: str, created_at: float):
-        """Push a user upsert to PG."""
+    def _sync_to_pg(self, username: str, display_name: str, password_hash: str, salt: str, role: str, created_at: float, is_active: int = 1):
+        """Push a user upsert to PG.
+
+        IMPORTANT: is_active must be explicit — a public registration creates a
+        PENDING (is_active=0) user; if PG defaulted to 1 the approval flow could
+        be bypassed when other nodes pull from PG.
+        """
         conn = self._get_pg_conn()
         if not conn:
             return
         try:
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO mesh.mesh_users (username, display_name, password_hash, salt, role, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO mesh.mesh_users (username, display_name, password_hash, salt, role, created_at, is_active, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (username) DO UPDATE SET
                     display_name = EXCLUDED.display_name,
                     password_hash = EXCLUDED.password_hash,
                     salt = EXCLUDED.salt,
                     role = EXCLUDED.role,
+                    is_active = EXCLUDED.is_active,
                     updated_at = EXCLUDED.updated_at
-            """, (username, display_name, password_hash, salt, role, created_at, time.time()))
+            """, (username, display_name, password_hash, salt, role, created_at, is_active, time.time()))
             conn.commit()
             log.info(f"PG user sync: user '{username}' pushed to PG")
         except Exception as e:
@@ -385,7 +394,7 @@ class AuthManager:
 
         # Sync to PG (other nodes will pull from there)
         if self.pg_dsn:
-            self._sync_to_pg(username.lower(), display_name, password_hash, salt, role, created_at)
+            self._sync_to_pg(username.lower(), display_name, password_hash, salt, role, created_at, is_active=is_active)
 
         return DashboardUser(
             user_id=user_id,
@@ -687,12 +696,31 @@ class AuthManager:
         return True
 
     def delete_user(self, user_id: str) -> bool:
-        """Deactivate a user (soft delete)."""
+        """Delete a user permanently (local + PG). Rejected/deleted users
+        must vanish from the pending list too — soft delete would leave
+        them 'awaiting approval' forever."""
         conn = sqlite3.connect(self.db_path)
-        conn.execute("UPDATE users SET is_active = 0 WHERE user_id = ?", (user_id,))
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT username FROM users WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+        if row:
+            conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
+        # PG-bol is toroljuk — kulonben a kovetkezo _sync_from_pg visszahozza
+        # a rejected usert (es a useId megfogalhato ujboli regisztracioval).
+        if row and self.pg_dsn:
+            try:
+                pg = self._get_pg_conn()
+                if pg:
+                    pcur = pg.cursor()
+                    pcur.execute("DELETE FROM mesh.mesh_users WHERE username = %s", (row["username"],))
+                    pg.commit()
+                    pg.close()
+                    log.info(f"PG user sync: user '{row['username']}' deleted from PG")
+            except Exception as e:
+                log.warning(f"PG user delete failed for '{row['username']}': {e}")
         return True
 
     def cleanup_sessions(self):
@@ -735,7 +763,7 @@ class AuthManager:
                 self._sync_to_pg(
                     row["username"], row["display_name"],
                     row["password_hash"], row["salt"],
-                    row["role"], row["created_at"]
+                    row["role"], row["created_at"], is_active=1
                 )
         return ok
 
