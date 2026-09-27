@@ -644,10 +644,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">🚨</span>
       <span class="nav-label">Alertek</span>
     </button>
-    <button class="nav-item" onclick="showApprovals()" id="navApprovals" style="display:none">
-      <span class="nav-icon">✅</span>
-      <span class="nav-label">Jóváhagyások <span id="pendingApprovalBadge" style="display:none;background:var(--danger);color:white;border-radius:10px;padding:0 5px;font-size:9px">0</span></span>
-    </button>
     <button class="nav-item" onclick="switchMobileTab('lab')" id="navLab">
       <span class="nav-icon">🧪</span>
       <span class="nav-label">Lab</span>
@@ -667,6 +663,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <button class="nav-item" onclick="window.open(location.protocol+'//'+location.host+'/dashboard','_blank')" id="navDashboard">
       <span class="nav-icon">🖥️</span>
       <span class="nav-label">Dashboard</span>
+    </button>
+    <button class="nav-item" onclick="showApprovals()" id="navApprovals" style="display:none;flex:0 0 auto;min-width:76px">
+      <span class="nav-icon" style="position:relative">✅<span id="pendingApprovalBadge" style="display:none;position:absolute;top:-6px;right:-10px;background:var(--danger);color:white;border-radius:10px;min-width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center;padding:0 4px">0</span></span>
+      <span class="nav-label">Jóváhagyás</span>
     </button>
   </div>
 </div>
@@ -1591,6 +1591,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<script src="/dashboard.js?v=1789569987"></script>
+<script src="/dashboard.js?v=1790523000"></script>
 </body>
 </html>

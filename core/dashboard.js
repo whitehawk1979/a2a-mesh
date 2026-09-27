@@ -1762,10 +1762,11 @@ function checkAdminPanel() {
   // Show approvals nav item for admin/owner only
   var appItem = document.getElementById("navApprovals");
   if (appItem) {
-    appItem.style.display = (authUser && (authUser.role === "owner" || authUser.role === "admin")) ? "block" : "none";
+    appItem.style.display = (authUser && (authUser.role === "owner" || authUser.role === "admin")) ? "" : "none";
   }
   loadAllNodes();
   loadQuickLinks();
+  refreshApprovalsBadge();
 }
 
 // ─── Quick Links — dynamic node dashboard links ──────────
@@ -9692,6 +9693,20 @@ function showApprovals() {
   loadPendingApprovals();
 }
 
+// Frissíti a Jóváhagyás gomb badge-et a bottom navban
+function refreshApprovalsBadge() {
+  if (!authUser || (authUser.role !== 'owner' && authUser.role !== 'admin')) return;
+  fetch('/api/auth/pending-users', {
+    headers: {'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')}
+  }).then(function(r) { return r.ok ? r.json() : {users: []}; }).then(function(d) {
+    var badge = document.getElementById('pendingApprovalBadge');
+    if (!badge) return;
+    var n = (d.users || []).length;
+    badge.textContent = n;
+    badge.style.display = n > 0 ? 'block' : 'none';
+  }).catch(function() {});
+}
+
 function loadPendingApprovals() {
   var list = document.getElementById('pendingUsersList');
   list.innerHTML = '<div style="color:var(--text3);padding:16px 0;text-align:center">Betöltés...</div>';
@@ -9705,7 +9720,7 @@ function loadPendingApprovals() {
       return;
     }
     document.getElementById('pendingApprovalBadge').textContent = users.length;
-    document.getElementById('pendingApprovalBadge').style.display = 'inline';
+    document.getElementById('pendingApprovalBadge').style.display = 'block';
     list.innerHTML = users.map(function(u) {
       var created = new Date(u.created_at * 1000).toLocaleString('hu-HU');
       return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
