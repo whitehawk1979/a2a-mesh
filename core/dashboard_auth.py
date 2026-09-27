@@ -347,7 +347,7 @@ class DashboardAuthMixin:
         if not username:
             return web.json_response({"error": "username required"}, status=400)
 
-        target = self.auth.get_user_by_username(username)
+        target = self.auth.get_user_by_username(username, include_inactive=True)
         if not target:
             return web.json_response({"error": f"User '{username}' not found"}, status=404)
         if target.is_active:
@@ -384,7 +384,7 @@ class DashboardAuthMixin:
         if not username:
             return web.json_response({"error": "username required"}, status=400)
 
-        target = self.auth.get_user_by_username(username)
+        target = self.auth.get_user_by_username(username, include_inactive=True)
         if not target:
             return web.json_response({"error": f"User '{username}' not found"}, status=404)
         if target.is_active:

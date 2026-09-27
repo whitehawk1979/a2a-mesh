@@ -604,11 +604,14 @@ class AuthManager:
             is_active=bool(row["is_active"]),
         )
 
-    def get_user_by_username(self, username: str) -> Optional[DashboardUser]:
-        """Get a user by username (case-insensitive). Returns active user only."""
+    def get_user_by_username(self, username: str, include_inactive: bool = False) -> Optional[DashboardUser]:
+        """Get a user by username (case-insensitive). Returns active user only unless include_inactive=True."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT * FROM users WHERE username = ? AND is_active = 1", (username.lower(),))
+        query = "SELECT * FROM users WHERE username = ?"
+        if not include_inactive:
+            query += " AND is_active = 1"
+        cur = conn.execute(query, (username.lower(),))
         row = cur.fetchone()
         conn.close()
 
