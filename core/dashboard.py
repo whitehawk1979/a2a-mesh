@@ -114,6 +114,9 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             password = pg_conf.password if hasattr(pg_conf, 'password') else ''
             pg_dsn = f"postgresql://{pg_conf.user}:{password}@{pg_conf.host}:{pg_conf.port}/{pg_conf.dbname}"
         self.auth = AuthManager(pg_dsn=pg_dsn)
+        # Enable public registration so new users can self-register
+        # (approval flow: pending → admin/owner activates via Jóváhagyások menu)
+        self.auth.public_registration_enabled = True
         # Sync existing users to PG on startup (bootstrap)
         if pg_dsn:
             try:
