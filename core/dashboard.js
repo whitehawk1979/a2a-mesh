@@ -1756,9 +1756,14 @@ function formatTimeAgo(ts) {
 }
 
 function checkAdminPanel() {
-  isAdmin = authUser && authUser.role === "owner";
+  isAdmin = authUser && (authUser.role === "owner" || authUser.role === "admin");
   document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
   if (isAdmin) loadPendingNodes();
+  // Show approvals nav item for admin/owner only
+  var appItem = document.getElementById("navApprovals");
+  if (appItem) {
+    appItem.style.display = (authUser && (authUser.role === "owner" || authUser.role === "admin")) ? "block" : "none";
+  }
   loadAllNodes();
   loadQuickLinks();
 }
@@ -9679,6 +9684,82 @@ function loadAlerts() {
   }).catch(function(e) {
     document.getElementById('alertsList').innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Prometheus nem elerheto — probald a Custom Rules tabot</div>';
   });
+}
+
+// ─── Approvals — pending user management for admin/owner ──────────
+function showApprovals() {
+  document.getElementById('approvalsModal').style.display = 'flex';
+  loadPendingApprovals();
+}
+
+function loadPendingApprovals() {
+  var list = document.getElementById('pendingUsersList');
+  list.innerHTML = '<div style="color:var(--text3);padding:16px 0;text-align:center">Betöltés...</div>';
+  fetch('/api/auth/pending-users', {
+    headers: {'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')}
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    var users = d.users || [];
+    if (!users.length) {
+      list.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--text3)">Nincsenek függőben lévő regisztrációk ✅</div>';
+      document.getElementById('pendingApprovalBadge').style.display = 'none';
+      return;
+    }
+    document.getElementById('pendingApprovalBadge').textContent = users.length;
+    document.getElementById('pendingApprovalBadge').style.display = 'inline';
+    list.innerHTML = users.map(function(u) {
+      var created = new Date(u.created_at * 1000).toLocaleString('hu-HU');
+      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<div><strong>' + escHtml(u.display_name || u.username) + '</strong>' +
+          ' <span style="font-size:11px;color:var(--text3)">@' + escHtml(u.username) + '</span></div>' +
+          '<span style="font-size:11px;color:var(--text3)">' + created + '</span>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+          '<select id="role_' + escHtml(u.username) + '" style="padding:4px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px">' +
+            '<option value="user">👤 Felhasználó</option>' +
+            (authUser.role === 'owner' ? '<option value="admin">🛡️ Admin</option>' : '') +
+            (authUser.role === 'owner' ? '<option value="owner">👑 Tulajdonos</option>' : '') +
+          '</select>' +
+          '<button class="btn btn-sm" style="background:var(--success)" onclick="approvePendingUser(\'' + escHtml(u.username) + '\')">✅ Jóváhagy</button>' +
+          '<button class="btn btn-sm" style="background:var(--danger)" onclick="rejectPendingUser(\'' + escHtml(u.username) + '\')">❌ Elutasít</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }).catch(function(e) {
+    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Hiba: ' + e.message + '</div>';
+  });
+}
+
+function approvePendingUser(username) {
+  var role = document.getElementById('role_' + username).value;
+  if (!confirm('Biztosan jóváhagyod @' + username + ' mint \'' + role + '\'?')) return;
+  fetch('/api/auth/approve', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')},
+    body: JSON.stringify({username: username, role: role})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === 'approved') {
+      alert('✅ @' + username + ' jóváhagyva mint ' + role + '!');
+      loadPendingApprovals();
+    } else {
+      alert('❌ Hiba: ' + (d.error || 'Ismeretlen'));
+    }
+  }).catch(function() { alert('Hálózati hiba'); });
+}
+
+function rejectPendingUser(username) {
+  if (!confirm('Biztosan elutasítod @' + username + ' regisztrációját? A felhasználó törlésre kerül.')) return;
+  fetch('/api/auth/reject/' + encodeURIComponent(username), {
+    method: 'POST',
+    headers: {'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')}
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.status === 'rejected') {
+      alert('✅ @' + username + ' regisztrációja elutasítva!');
+      loadPendingApprovals();
+    } else {
+      alert('❌ Hiba: ' + (d.error || 'Ismeretlen'));
+    }
+  }).catch(function() { alert('Hálózati hiba'); });
 }
 
 function switchAlertTab(tab) {

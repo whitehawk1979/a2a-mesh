@@ -156,8 +156,10 @@ class AuthManager:
 
     def __init__(self, db_path: str = DB_PATH, pg_dsn: str = None):
         self.db_path = db_path
-        self.pg_dsn = pg_dsn  # e.g. "postgresql://nova:nova_agent_2026@192.168.1.30:5432/agent_memory"
+        self.pg_dsn = pg_dsn  # e.g. "postgresql://nova:***@192.168.1.30:5432/agent_memory"
         self._rate_limits: dict = {}  # username -> [timestamp, ...]
+        # Public registration — enabled by owner via dashboard config
+        self.public_registration_enabled = False
         self._init_db()
         # Create PG users table and sync
         if self.pg_dsn:
@@ -353,14 +355,15 @@ class AuthManager:
         ).hexdigest()
         return hmac.compare_digest(computed, stored_hash)
 
-    def register_user(self, username: str, display_name: str, password: str, role: str = "user") -> Optional[DashboardUser]:
-        """Register a new user. Returns the user object or None if username taken."""
+    def register_user(self, username: str, display_name: str, password: str, role: str = "user", is_active: int = 1) -> Optional[DashboardUser]:
+        """Register a new user. Returns the user object or None if username taken.
+        If is_active=0, the user is created as pending — must be approved by owner/admin."""
         if len(username) < 2 or len(username) > 30:
             raise ValueError("Username must be 2-30 characters")
         if len(password) < 6:
             raise ValueError("Password must be at least 6 characters")
-        if role not in ("owner", "user"):
-            raise ValueError("Role must be 'owner' or 'user'")
+        if role not in ("owner", "admin", "user"):
+            raise ValueError("Role must be 'owner', 'admin' or 'user'")
 
         password_hash, salt = self._hash_password(password)
         user_id = uuid.uuid4().hex[:12]
@@ -369,9 +372,9 @@ class AuthManager:
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
-                "INSERT INTO users (user_id, username, display_name, password_hash, salt, role, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user_id, username.lower(), display_name, password_hash, salt, role, created_at)
+                "INSERT INTO users (user_id, username, display_name, password_hash, salt, role, created_at, is_active) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username.lower(), display_name, password_hash, salt, role, created_at, is_active)
             )
             conn.commit()
         except sqlite3.IntegrityError:
@@ -694,6 +697,43 @@ class AuthManager:
         conn.execute("DELETE FROM sessions WHERE expires_at > 0 AND expires_at < ?", (time.time(),))
         conn.commit()
         conn.close()
+
+    def list_pending_users(self) -> list:
+        """List all users awaiting approval (is_active=0), sorted by registration time."""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cur = conn.execute("SELECT * FROM users WHERE is_active = 0 ORDER BY created_at")
+        rows = cur.fetchall()
+        conn.close()
+        return [DashboardUser(
+            user_id=r["user_id"],
+            username=r["username"],
+            display_name=r["display_name"],
+            role=r["role"],
+            created_at=r["created_at"],
+            last_login=r["last_login"] or 0,
+            is_active=False,
+        ) for r in rows]
+
+    def activate_user(self, user_id: str, role: str = "user") -> bool:
+        """Approve a pending user: mark is_active=1 and set role. Returns True on success."""
+        if role not in ("owner", "admin", "user"):
+            raise ValueError("Role must be 'owner', 'admin' or 'user'")
+        ok = self.update_user(user_id, is_active=1, role=role)
+        if ok and self.pg_dsn:
+            # Push activated user to PG so other mesh nodes can pull
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cur = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                self._sync_to_pg(
+                    row["username"], row["display_name"],
+                    row["password_hash"], row["salt"],
+                    row["role"], row["created_at"]
+                )
+        return ok
 
 
 # ─── Node Authentication (peer-to-peer) ───

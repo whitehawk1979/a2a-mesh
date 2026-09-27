@@ -184,6 +184,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/auth/users", self._api_auth_users)
         app.router.add_delete("/api/auth/users/{username}", self._api_auth_delete_user)
         app.router.add_put("/api/auth/users/{username}/password", self._api_auth_change_password)
+        # Approval endpoints (owner/admin)
+        app.router.add_get("/api/auth/pending-users", self._api_auth_pending_users)
+        app.router.add_post("/api/auth/approve", self._api_auth_approve_user)
+        app.router.add_post("/api/auth/reject/{username}", self._api_auth_reject_user)
         # User sync endpoint — other nodes pull users from PG
         app.router.add_post("/api/auth/sync", self._api_auth_sync)
         app.router.add_get("/api/auth/sync", self._api_auth_sync_pull)
