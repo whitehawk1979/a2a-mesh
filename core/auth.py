@@ -393,6 +393,7 @@ class AuthManager:
             display_name=display_name,
             role=role,
             created_at=created_at,
+            is_active=bool(is_active),
         )
 
     def login(self, username: str, password: str) -> Optional[dict]:
