@@ -1020,6 +1020,13 @@ class MeshNode:
             # Embedded sshd self-heal loop (containers: restarts heal sshd)
             if getattr(self, 'embedded_sshd', None):
                 self._tasks.append(asyncio.create_task(self.embedded_sshd.self_heal_loop(interval=60)))
+            else:
+                # BOOT-EDGE-CASE: first start_embedded_sshd() failed (e.g. HAOS
+                # reboot — apt-get unreachable while network still settling).
+                # Without this fallback, embedded_sshd stays None FOREVER and
+                # inbound SSH tunnels never recover until manual restart.
+                # Lazy retry loop re-attempts start_embedded_sshd until it sticks.
+                self._tasks.append(asyncio.create_task(self._sshd_lazy_retry_loop()))
         # v0.29: Auto-Bootstrap + Self-Healing loop
         self._tasks.append(asyncio.create_task(self._auto_bootstrap_heal_loop()))
 
@@ -5551,6 +5558,46 @@ echo "Status: ok"
                 log.error(f"Health monitor error: {e}")
 
     # ─── v0.29: Auto-Bootstrap + Self-Healing Loop ────────────────────
+
+    async def _sshd_lazy_retry_loop(self, interval: int = 90, max_attempts: int = 20):
+        """Retry embedded sshd start if the __init__-time attempt failed.
+
+        Root cause this fixes: HAOS host reboot recreates the addon container
+        without openssh-server installed. At __init__ time apt-get often fails
+        (network settling / repo unreachable) → start_embedded_sshd() returns
+        None → the self-heal loop at node.py:1021 is never created because it
+        only attaches when embedded_sshd is truthy. Result: sshd dead forever,
+        inbound SSH tunnels fail-loop until a manual restart.
+        """
+        for attempt in range(1, max_attempts + 1):
+            await asyncio.sleep(interval)
+            # Already healed by an earlier iteration or external start?
+            if getattr(self, 'embedded_sshd', None) and self.embedded_sshd.running:
+                return
+            try:
+                from .core.ssh_server import start_embedded_sshd
+                ssh_cfg = getattr(self.config, 'ssh_tunnel', None) or getattr(
+                    getattr(self.config, 'transports', None), 'ssh_tunnel', None)
+                sshd_cfg = {
+                    'sshd_port': int(getattr(ssh_cfg, 'sshd_port', 2230) or 2230) if ssh_cfg else 2230,
+                    'sshd_bind': getattr(ssh_cfg, 'sshd_bind', '0.0.0.0') if ssh_cfg else '0.0.0.0',
+                    'sshd_config_dir': getattr(ssh_cfg, 'sshd_config_dir', '') if ssh_cfg else '',
+                }
+                inst = start_embedded_sshd(self.node_name, sshd_cfg)
+                if inst:
+                    self.embedded_sshd = inst
+                    log.info(f"Embedded sshd recovered on :{inst.port} (lazy retry attempt {attempt})")
+                    # Peer keys land in the sshd's persistent authorized_keys
+                    try:
+                        self.ssh_key_sync._ak_path = inst._authorized_keys
+                    except Exception:
+                        pass
+                    self._tasks.append(asyncio.create_task(inst.self_heal_loop(interval=60)))
+                    return
+                log.warning(f"[sshd-lazy-retry] attempt {attempt}/{max_attempts} failed to start sshd")
+            except Exception as e:
+                log.warning(f"[sshd-lazy-retry] attempt {attempt}/{max_attempts} error: {e}")
+        log.error("[sshd-lazy-retry] gave up after max attempts — embedded sshd unavailable")
 
     async def _ssh_key_announce_loop(self):
         """v2 SSH key protocol: keep ourselves registered with the coordinator.
