@@ -392,7 +392,7 @@ class MQTTTransport(TransportAdapter):
     async def send(self, message) -> SendResult:
         """Send a message via MQTT."""
         if not self._connected:
-            return SendResult(success=False, error="mqtt not connected")
+            return SendResult(transport=self.name, success=False, error="mqtt not connected")
         
         try:
             # Topic resolution
@@ -423,12 +423,12 @@ class MQTTTransport(TransportAdapter):
             # Wait for publish confirmation if possible
             # Paho publish is async; we can check result.rc
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                return SendResult(success=True)
+                return SendResult(transport=self.name, success=True)
             else:
-                return SendResult(success=False, error=f"MQTT publish error rc={result.rc}")
+                return SendResult(transport=self.name, success=False, error=f"MQTT publish error rc={result.rc}")
                 
         except Exception as e:
-            return SendResult(success=False, error=str(e))
+            return SendResult(transport=self.name, success=False, error=str(e))
 
     async def discover(self) -> List[Dict[str, Any]]:
         """Return currently known devices/nodes from the presence mirror."""
