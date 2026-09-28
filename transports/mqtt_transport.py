@@ -186,84 +186,6 @@ class MQTTTransport(TransportAdapter):
         log.info(f"[{self.name}] Disconnected from broker (rc={rc})")
 
     def _on_message(self, client, userdata, msg):
-        """Route incoming MQTT messages to appropriate buffers."""
-        topic = msg.topic
-        payload = msg.payload
-        
-        try:
-            # 1. Messaging: DM and Broadcast
-            if topic == f"a2a/chat/dm/{self._node_name}" or topic == "a2a/sys/broadcast":
-                data = json.loads(payload)
-                
-                # Lean parsing into A2AMessage
-                # Expected keys: id, type ('a2a_message'), sender, recipient, payload, ts
-                msg_id = data.get('id', uuid.uuid4().hex)
-                ts = data.get('ts', time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
-                
-                # Construct message matching a2a_mesh's internal structure
-                # We use the logic implied by PGTransport's fallback
-                message = A2AMessage.from_dict({
-                    'id': msg_id,
-                    'sender': data.get('sender', 'unknown'),
-                    'recipient': data.get('recipient', 'broadcast'),
-                    'type': data.get('type') or data.get('msg_type', 'a2a_message'),
-                    'payload': data.get('payload', data),
-                    'priority': data.get('priority', 5),
-                    'ts': ts
-                })
-                self._rx.append(message)
-                
-            # 2. Presence: Manifests, Statuses, Telemetry
-            elif any(topic.startswith(p) for p in ("a2a/nodes/", "a2a/devices/")):
-                parts = topic.split('/')
-                # a2a/nodes/{id}/status           → [a2a, nodes, id, status]        (4)
-                # a2a/devices/{id}/manifest       → [a2a, devices, id, manifest]    (4)
-                # a2a/devices/{id}/sensors/{key}  → [a2a, devices, id, sensors, k]  (5)
-                if len(parts) < 4: return
-
-                kind = parts[1]      # 'nodes' or 'devices'
-                entity_id = parts[2] # node / device id
-                attr = parts[3]      # 'manifest' | 'status' | 'sensors' | 'state' | 'cmd'
-                sub_key = parts[4] if len(parts) > 4 else None
-                
-                if attr in ('manifest', 'status'):
-                    # Presence lehet JSON (device-manifest) vagy plain string
-                    # ("online"/"offline" — node presence, LWT). Mindkettőt elfogadjuk.
-                    try:
-                        val = json.loads(payload)
-                    except (ValueError, UnicodeDecodeError):
-                        val = payload.decode('utf-8', errors='replace') if isinstance(payload, (bytes, bytearray)) else str(payload)
-                    try:
-                        entry = self.devices.get(entity_id, {})
-                        entry.update({
-                            'kind': kind,
-                            'ts': time.time(),
-                        })
-                        if attr == 'manifest':
-                            entry['manifest'] = val
-                        else:
-                            entry['status'] = val
-                        self.devices[entity_id] = entry
-                    except Exception as e:
-                        log.warning(f"[{self.name}] Presence cache update failed for {topic}: {e}")
-                
-                # 3. Telemetry: Sensors
-                elif attr == 'sensors':
-                    # topic: a2a/devices/{id}/sensors/{key}
-                    if sub_key:
-                        sensor_key = sub_key
-                        try:
-                            val = json.loads(payload)
-                            # Bound telemetry to 1000 devices
-                            if len(self.telemetry) < 1000 or entity_id in self.telemetry:
-                                self.telemetry[entity_id][sensor_key] = (val, time.time())
-                        except (ValueError, UnicodeDecodeError):
-                            pass
-                            
-        except Exception as e:
-            log.warning(f"[{self.name}] Error processing message on {topic}: {e}. Payload: {payload[:200]!r}")
-    
-    def _on_message(self, client, userdata, msg):
         """Route incoming MQTT messages to appropriate handlers."""
         topic = msg.topic
         payload = msg.payload
@@ -493,7 +415,7 @@ class MQTTTransport(TransportAdapter):
                 'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
             }
             
-            payload_json = json.dumps(payload_dict)
+            payload_json = json.dumps(payload_dict, default=str)
             
             # Publish QoS1
             result = self._client.publish(topic, payload_json, qos=1)
