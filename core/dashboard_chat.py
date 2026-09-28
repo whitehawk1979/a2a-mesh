@@ -5,6 +5,7 @@ Each dashboard user gets a personal chat identity. Messages are stored in PG
 stored as DMs back to the user.
 """
 import uuid
+import json
 import logging
 
 log = logging.getLogger("mesh.chat")
@@ -796,6 +797,14 @@ async def handle_chat_send(node, request, pool, user):
                                     log.info(f"🔔 Wake-agent broadcast {pn}: {resp.status}")
                     except Exception as e:
                         log.warning(f"🔔 Wake-agent broadcast {pn} failed: {e}")
+                        # ── MQTT wake fallback (ha HTTP nem ment, de a peer MQTT-n elerheto) ──
+                        try:
+                            _mqtt_tr = getattr(node, '_mqtt_transport', None)
+                            if _mqtt_tr and _mqtt_tr.is_available():
+                                _mqtt_tr.publish_wake_to(pn, json.dumps(wl_body))
+                                log.info(f"🔔 Wake-agent broadcast {pn}: MQTT fallback sent ✓")
+                        except Exception as _mqtt_e:
+                            log.warning(f"🔔 Wake-agent broadcast {pn} MQTT fallback failed: {_mqtt_e}")
                 _aio.create_task(_wake_broadcast())
 
             # Self-wake: Nova also responds to broadcast (not just peers)
