@@ -18,6 +18,7 @@ Flow:
 """
 
 import asyncio
+import os
 import random
 import json
 import logging
@@ -185,6 +186,7 @@ class DelegationManager:
         eligible_agents: Optional[List[str]] = None,
         distribute_mode: bool = False,
         depends_on: Optional[str] = None,
+        input_file_ids: Optional[List[str]] = None,
     ) -> Union[str, List[str]]:
         """Delegate a task to another agent or make it available for any agent.
         
@@ -280,10 +282,11 @@ class DelegationManager:
 
         await self.pg_pool.execute(
             """INSERT INTO shared_delegations 
-               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries, task_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
+               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries, task_type, input_files)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
             task_id, self.node_name, actual_to, subject, desc_json,
             status, priority, expires_at, None, max_retries, task_type or "generic",
+            json.dumps(input_file_ids) if input_file_ids else None,
         )
 
         log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
@@ -1360,6 +1363,73 @@ class DelegationManager:
 
         task_type = desc.get("type", "generic")
         context = desc.get("context", {})
+
+        # ── Input-file materializáció (v0.48.1) ──────────────────────────────
+        # A delegáló által feltöltött munka-fileok lematerializálása lokálisan,
+        # hogy bármelyik handler lokálisan olvashassa őket. A contextbe:
+        #   input_files: [{filename, path, content_type, size}]
+        #   input_files_dir: abszolút workdir útvonal
+        try:
+            # Futásidőben frissen húzzuk le a PG-ből (a feltöltés a task-létrehozás
+            # után másodpercekkel készülhet el — a claim-kor kapott task dict elavult lehet)
+            input_ids = task.get("input_files")
+            if not input_ids:
+                fresh_ids = await self.pg_pool.fetchval(
+                    "SELECT input_files FROM shared_delegations WHERE task_id = $1", str(task_id),
+                )
+                input_ids = fresh_ids or []
+            if isinstance(input_ids, str):
+                input_ids = json.loads(input_ids) if input_ids.strip().startswith("[") else []
+            if input_ids:
+                import base64 as _b64
+                workdir = os.path.join(
+                    os.path.expanduser("~/.hermes/cache/delegation_input"), str(task_id),
+                )
+                os.makedirs(workdir, exist_ok=True)
+                ctx_files = []
+                for fid in input_ids[:20]:  # max 20 file per task
+                    fr = await self.pg_pool.fetchrow(
+                        "SELECT filename, content_type, file_size, encoding, content FROM shared_files WHERE id = $1",
+                        str(fid),
+                    )
+                    if not fr:
+                        log.warning(f"Input file {fid} not found for task {task_id[:8]}")
+                        continue
+                    safe_name = os.path.basename(fr["filename"] or f"input_{fid[:8]}")
+                    # Névütközés elkerülése: duplikát nevek elé prefix
+                    local_path = os.path.join(workdir, safe_name)
+                    i = 1
+                    while os.path.exists(local_path):
+                        root, ext = os.path.splitext(safe_name)
+                        local_path = os.path.join(workdir, f"{root}_{i}{ext}")
+                        i += 1
+                    raw = fr["content"]
+                    if fr["encoding"] == "base64":
+                        try:
+                            raw = _b64.b64decode(raw)
+                        except Exception:
+                            pass
+                    if isinstance(raw, str):
+                        raw = raw.encode("utf-8")
+                    with open(local_path, "wb") as fh:
+                        fh.write(raw)
+                    ctx_files.append({
+                        "filename": os.path.basename(local_path),
+                        "path": local_path,
+                        "content_type": fr["content_type"] or "application/octet-stream",
+                        "size": int(fr["file_size"] or len(raw)),
+                    })
+                if ctx_files:
+                    context = dict(context)
+                    context["input_files"] = ctx_files
+                    context["input_files_dir"] = workdir
+                    await self.add_note(
+                        task_id,
+                        f"Input files materialized: {len(ctx_files)} file → {workdir}",
+                    )
+                    log.info(f"Materialized {len(ctx_files)} input files for task {task_id[:8]}")
+        except Exception as inf_err:
+            log.warning(f"Input file materialization failed (non-fatal): {inf_err}")
 
         # --- FEATURE C: Explicit Context Attachment ---
         shared_keys = context.get("attach_shared")

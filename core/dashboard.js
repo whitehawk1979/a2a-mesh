@@ -8055,45 +8055,53 @@ function showTaskDetail(taskId) {
         // Fetch files after modal renders
         setTimeout(function() {
           fetch(filesUrl, {headers: {"Authorization": "Bearer " + token}})
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-              var container = document.getElementById("taskFiles");
-              if (!container) return;
-              var files = data.files || [];
-              if (files.length === 0) {
-                container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs csatolt fájl</div>';
-                return;
-              }
-              var baseUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
-              var html = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok (' + files.length + ')</h4>';
-              html += '<div style="display:flex;flex-direction:column;gap:6px">';
-              files.forEach(function(f) {
-                var icon = f.filename.endsWith(".py") ? "🐍" : f.filename.endsWith(".html") ? "🌐" : f.filename.endsWith(".pptx") ? "📊" : f.filename.endsWith(".zip") ? "📦" : f.filename.endsWith(".pdf") ? "📕" : "📄";
-                var sizeKB = f.file_size ? Math.round(f.file_size / 1024) + " KB" : "?";
-                var dlUrl = baseUrl + "&download=1&file_id=" + encodeURIComponent(f.id);
-                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">';
-                html += '<span style="font-size:18px">' + icon + '</span>';
-                html += '<div style="flex:1;min-width:0">';
-                html += '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.filename) + '</div>';
-                html += '<div style="font-size:11px;color:var(--text3)">' + sizeKB + ' · ' + escHtml(f.content_type || "text/plain") + '</div>';
-                if (f.preview) html += '<div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.preview.substring(0, 120)) + '</div>';
-                html += '</div>';
-                html += '<a href="' + dlUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;white-space:nowrap">⬇️ Letöltés</a>';
-                html += '</div>';
-              });
-              if (files.length > 1) {
-                var zipUrl = baseUrl + "&zip=1";
-                html += '<a href="' + zipUrl + '" target="_blank" class="btn btn-sm" style="background:var(--info);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px">📦 Összes letöltése ZIP-ként</a>';
-              }
-              html += '</div>';
-              container.innerHTML = html;
-            })
-            .catch(function(e) {
-              var container = document.getElementById("taskFiles");
-              if (container) container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--danger);font-size:12px">Hiba: ' + escHtml(e.message || String(e)) + '</div>';
+          .then(function(r) { return r.json(); })
+          .then(function(fd) {
+            var box = document.getElementById('taskFiles');
+            if (!box) return;
+            if (!fd.files || fd.files.length === 0) { box.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs eredmény-file</div>'; return; }
+            var h = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok (' + fd.files.length + ')</h4>';
+            fd.files.forEach(function(f) {
+              var icon = String(f.filename).endsWith(".py") ? "🐍" : String(f.filename).endsWith(".html") ? "🌐" : String(f.filename).endsWith(".pptx") ? "📊" : String(f.filename).endsWith(".zip") ? "📦" : String(f.filename).endsWith(".pdf") ? "📕" : "📄";
+              var sizeKB = f.file_size ? Math.round(f.file_size / 1024) + " KB" : "?";
+              var dlUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token) + "&download=1&file_id=" + encodeURIComponent(f.id);
+              h += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);margin-bottom:6px">';
+              h += '<span style="font-size:18px">' + icon + '</span>';
+              h += '<div style="flex:1;min-width:0">';
+              h += '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.filename) + '</div>';
+              h += '<div style="font-size:11px;color:var(--text3)">' + sizeKB + ' · ' + escHtml(f.content_type || "text/plain") + '</div>';
+              if (f.preview) h += '<div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(String(f.preview).substring(0, 120)) + '</div>';
+              h += '</div>';
+              h += '<a href="' + dlUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;white-space:nowrap">⬇️</a>';
+              h += '</div>';
             });
-        }, 100);
+            if (fd.files.length > 1) {
+              h += '<a href="/api/delegations/' + d.task_id + '/files?token=' + encodeURIComponent(token) + '&zip=1" target="_blank" class="btn btn-sm" style="background:var(--info);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:2px">📦 Összes ZIP-ként</a>';
+            }
+            box.innerHTML = h;
+          }).catch(function() {});
+        }, 200);
       }
+
+      // ── Input (munka) fájlok — a delegáló csatolta a taskhoz (v0.48.1) ──
+      var inputFileHtml = "";
+      var inToken = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+      var inFilesUrl = "/api/delegations/" + d.task_id + "/input-files?token=" + encodeURIComponent(inToken);
+      fileHtml += '<div style="margin-bottom:12px" id="taskInputFiles"><h4 style="margin:0 0 8px 0;font-size:13px">📂 Munka (bemeneti) fájlok</h4><div style="color:var(--text3);font-size:12px">Betöltés...</div></div>';
+      setTimeout(function() {
+        fetch(inFilesUrl, {headers: {"Authorization": "Bearer " + inToken}})
+        .then(function(r) { return r.json(); })
+        .then(function(ifd) {
+          var box = document.getElementById('taskInputFiles');
+          if (!box) return;
+          if (!ifd.files || ifd.files.length === 0) { box.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📂 Munka (bemeneti) fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs csatolt munka-file</div>'; return; }
+          var h = '<h4 style="margin:0 0 8px 0;font-size:13px">📂 Munka (bemeneti) fájlok (' + ifd.files.length + ')</h4>';
+          ifd.files.forEach(function(f) {
+            h += '<div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px">📄 <a href="/api/delegations/' + d.task_id + '/input-files?token=' + encodeURIComponent(inToken) + '&download=1&file_id=' + f.file_id + '" style="color:var(--info)">' + escHtml(f.filename) + '</a> <span style="color:var(--text3)">' + Math.round((f.size||0)/1024) + ' KB</span></div>';
+          });
+          box.innerHTML = h;
+        }).catch(function() {});
+      }, 250);
 
       // Meta info
       var metaHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px">';
@@ -8267,16 +8275,36 @@ function createDelegation() {
     body.to_agent = target;
   }
 
-  fetch("/api/delegations", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
-    body: JSON.stringify(body)
-  })
+  // ── Atomikus create: ha vannak input-fileok, multipart (payload+fileok egy requestben) ──
+  var fileInput = document.getElementById('delInputFiles');
+  var hasFiles = fileInput && fileInput.files && fileInput.files.length > 0;
+  var fetchOpts;
+  if (hasFiles) {
+    var fd = new FormData();
+    fd.append("payload", JSON.stringify(body));
+    for (var fi = 0; fi < fileInput.files.length; fi++) fd.append("files", fileInput.files[fi], fileInput.files[fi].name);
+    fetchOpts = {method: "POST", headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}, body: fd};
+  } else {
+    fetchOpts = {method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}, body: JSON.stringify(body)};
+  }
+
+  fetch("/api/delegations", fetchOpts)
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.task_id) {
-      statusEl.textContent = "✅ Elküldve! ID: " + data.task_id.substring(0, 8);
-      statusEl.style.color = "var(--success)";
+      var nUp = data.input_files_uploaded || 0;
+      if (nUp > 0) {
+        statusEl.textContent = "✅ Elküldve + " + nUp + " file csatolva! ID: " + data.task_id.substring(0, 8);
+      } else if (hasFiles) {
+        statusEl.textContent = "✅ Elküldve, de a file-csatolás sikertelen (task: " + data.task_id.substring(0, 8) + ")";
+        statusEl.style.color = "var(--warning)";
+      } else {
+        statusEl.textContent = "✅ Elküldve! ID: " + data.task_id.substring(0, 8);
+      }
+      statusEl.style.color = nUp > 0 ? "var(--success)" : (statusEl.style.color === "var(--warning)" ? "var(--warning)" : "var(--success)");
+      if (fileInput) fileInput.value = "";
+      var listEl = document.getElementById('delInputFilesList');
+      if (listEl) listEl.innerHTML = "";
       document.getElementById('delSubject').value = "";
       document.getElementById('delDesc').value = "";
       loadDelegations();
@@ -8289,6 +8317,43 @@ function createDelegation() {
   .catch(function(e) {
     statusEl.textContent = "❌ Hálózati hiba";
     statusEl.style.color = "var(--danger)";
+  });
+}
+
+// ── Delegációs input-file támogatás (v0.48.1) ─────────────────────────────
+// Preview a file-picker alatt: nev + meret
+function delInputFilePreview() {
+  var input = document.getElementById('delInputFiles');
+  var list = document.getElementById('delInputFilesList');
+  if (!input || !list) return;
+  if (!input.files || input.files.length === 0) { list.innerHTML = ""; return; }
+  var html = "";
+  var total = 0;
+  for (var i = 0; i < input.files.length; i++) {
+    var f = input.files[i];
+    total += f.size;
+    html += "📄 " + f.name + " (" + Math.round(f.size/1024) + " KB)<br>";
+  }
+  if (total > 8*1024*1024) html += "<span style='color:var(--danger)'>⚠️ Összesen >8MB — nagy file esetén használj shared_files-t!</span>";
+  list.innerHTML = html;
+}
+
+// Multipart feltoltes a taskhoz: POST /api/delegations/{task_id}/input-files
+function uploadDelegationInputFiles(taskId, files, statusEl, done) {
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) fd.append("files", files[i], files[i].name);
+  fetch("/api/delegations/" + taskId + "/input-files", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
+    body: fd
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    var ok = data && data.uploaded > 0;
+    if (done) done(ok, data && data.uploaded ? data.uploaded : 0);
+  })
+  .catch(function(e) {
+    if (done) done(false, 0);
   });
 }
 
