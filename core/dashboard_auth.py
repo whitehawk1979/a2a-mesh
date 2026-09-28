@@ -239,6 +239,7 @@ class DashboardAuthMixin:
             return web.json_response({"error": f"User '{username}' not found"}, status=404)
 
         self.auth.delete_user(target.user_id)
+        self._notify_users_changed(f"deleted:{username}")
         log.info(f"Owner '{caller.username}' deleted user '{username}'")
 
         return web.json_response({
