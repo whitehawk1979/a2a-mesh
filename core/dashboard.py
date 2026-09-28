@@ -114,6 +114,9 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             password = pg_conf.password if hasattr(pg_conf, 'password') else ''
             pg_dsn = f"postgresql://{pg_conf.user}:{password}@{pg_conf.host}:{pg_conf.port}/{pg_conf.dbname}"
         self.auth = AuthManager(pg_dsn=pg_dsn)
+        # Enable public registration so new users can self-register
+        # (approval flow: pending → admin/owner activates via Jóváhagyások menu)
+        self.auth.public_registration_enabled = True
         # Sync existing users to PG on startup (bootstrap)
         if pg_dsn:
             try:
@@ -184,6 +187,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/auth/users", self._api_auth_users)
         app.router.add_delete("/api/auth/users/{username}", self._api_auth_delete_user)
         app.router.add_put("/api/auth/users/{username}/password", self._api_auth_change_password)
+        # Approval endpoints (owner/admin)
+        app.router.add_get("/api/auth/pending-users", self._api_auth_pending_users)
+        app.router.add_post("/api/auth/approve", self._api_auth_approve_user)
+        app.router.add_post("/api/auth/reject/{username}", self._api_auth_reject_user)
         # User sync endpoint — other nodes pull users from PG
         app.router.add_post("/api/auth/sync", self._api_auth_sync)
         app.router.add_get("/api/auth/sync", self._api_auth_sync_pull)
@@ -259,6 +266,10 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/kanban", self._kanban_page)
         # Marveen Engine — visual dashboard
         app.router.add_get("/marveen", self._marveen_page)
+        # MQTT Explorer — topic tree + live messages + publish UI
+        app.router.add_get("/mqtt-explorer", self._api_mqtt_explorer_page)
+        app.router.add_get("/api/mqtt/topics", self._api_mqtt_topics)
+        app.router.add_post("/api/mqtt/publish", self._api_mqtt_publish)
         # Project CRUD API
         app.router.add_get("/api/projects", self._api_projects_list)
         app.router.add_post("/api/projects", self._api_projects_create)
@@ -2003,6 +2014,113 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
 
     # NOTE: _api_send_file lives in DashboardFilesMixin (multipart upload).
     # The old JSON-body variant here shadowed it via MRO — removed.
+
+    # ── MQTT Explorer endpoints ───────────────────────────────────
+    async def _api_mqtt_explorer_page(self, request):
+        """GET /mqtt-explorer — MQTT topic explorer + publisher UI."""
+        from aiohttp import web
+        html_path = os.path.join(os.path.dirname(__file__), "mqtt_explorer.html")
+        try:
+            with open(html_path, "r", encoding="utf-8") as f:
+                return web.Response(text=f.read(), content_type="text/html")
+        except FileNotFoundError:
+            return web.Response(text="<h1>MQTT Explorer page not found</h1>", status=404)
+    
+    async def _api_mqtt_topics(self, request):
+        """GET /api/mqtt/topics — Hierarchical topic tree with subscriber counts.
+        
+        Local-only endpoint — no auth required (accessible via localhost only).
+        """
+        from aiohttp import web
+        
+        try:
+            from core.mqtt_proxy import MQTTProxy
+            
+            # Get the MQTT transport directly from node (not via config)
+            mqtt_tr = getattr(self.node, '_mqtt_transport', None)
+            
+            if not mqtt_tr or not hasattr(mqtt_tr, 'devices'):
+                log.debug("MQTT transport not available")
+                return web.json_response({"topics": {}, "total_messages": 0})
+            
+            proxy = MQTTProxy(mqtt_tr)
+            result = await proxy.get_topic_tree()
+            log.info(f"MQTT topics: {len(result.get('topics', {}))} topics, {result.get('total_messages', 0)} msgs")
+            return web.json_response(result)
+        except Exception as e:
+            log.error(f"MQTT topics error: {e}", exc_info=True)
+            return web.json_response({
+                "topics": {}, 
+                "total_messages": 0, 
+                "error": str(e)
+            }, status=500)
+    
+    async def _api_mqtt_publish(self, request):
+        """POST /api/mqtt/publish — Publish message to any MQTT topic."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        
+        try:
+            data = await request.json()
+            target = data.get("target", "broadcast")
+            topic = data.get("topic", "").strip()
+            payload_data = data.get("payload", {})
+            qos = int(data.get("qos", 1))
+            retain = bool(data.get("retain", False))
+            
+            if not topic:
+                return web.json_response({"error": "topic required"}, status=400)
+            
+            if not isinstance(payload_data, dict) and not isinstance(payload_data, str):
+                return web.json_response({"error": "invalid payload"}, status=400)
+            
+            # Validate target node exists
+            valid_targets = {"broadcast", "nova", "morzsa", "runa", "tor", "mano"}
+            if target not in valid_targets:
+                return web.json_response(
+                    {"error": f"Invalid target. Valid: {valid_targets}"}, 
+                    status=400
+                )
+            
+            # Build the full payload for publishing
+            publish_payload = {
+                "target_node": target,
+                "sender": "dashboard-mqtt-proxy",
+                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                "payload": payload_data
+            }
+            
+            # Try to resolve target node's host/port
+            if target != "broadcast":
+                pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                if pool:
+                    row = await pool.fetchrow(
+                        "SELECT host, p2p_port FROM mesh.mesh_nodes WHERE node_name = $1",
+                        target
+                    )
+                    if row and row['host']:
+                        publish_payload["node_host"] = row['host']
+                        publish_payload["node_port"] = row['p2p_port']
+                        if target == 'nova':
+                            topic = f"a2a/wake/{target}"
+            
+            from core.mqtt_proxy import MQTTProxy
+            mqtt_tr = getattr(self.node, '_mqtt_transport', None)
+            
+            if not mqtt_tr or not mqtt_tr.is_available():
+                return web.json_response(
+                    {"success": False, "error": "MQTT transport not available"}, 
+                    status=503
+                )
+            
+            proxy = MQTTProxy(mqtt_tr)
+            result = await proxy.publish_to_broker(topic, publish_payload, qos=qos, retain=retain)
+            return web.json_response(result)
+        except Exception as e:
+            log.error(f"MQTT publish error: {e}", exc_info=True)
+            return web.json_response({"success": False, "error": str(e)}, status=500)
 
     async def _api_message_detail(self, request):
         """Get full message detail by ID (including payload)."""

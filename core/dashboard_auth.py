@@ -11,14 +11,36 @@ log = logging.getLogger("a2a_mesh.dashboard.auth")
 class DashboardAuthMixin:
     """Auth-related endpoints extracted from DashboardHandler."""
 
+    def _notify_users_changed(self, reason: str = ""):
+        """MQTT broadcast: mesh_users torzs valtozott (approve/reject/role/jelszo).
+
+        A tobbi node a `a2a/sys/users_changed` feliratas ra azonnal lehuzzza
+        a friss listat PG-bol. Best-effort: ha nincs MQTT, csendben elsut.
+        """
+        try:
+            mqtt_t = getattr(self.node, '_mqtt_transport', None) if getattr(self, 'node', None) else None
+            if mqtt_t:
+                mqtt_t.publish_users_changed(reason)
+        except Exception as e:
+            log.debug(f"users_changed notify skipped: {e}")
+
     async def _api_auth_register(self, request):
-        """Register a new user. Only owners can create other users."""
+        """Register a new user.
+        
+        - With owner auth: creates user with specified role (legacy path)
+        - Without auth + public_registration_enabled: creates pending user (is_active=0)
+        """
         from aiohttp import web
         caller, err = self._require_auth(request)
-        if err:
+        is_public = False
+        if err and getattr(self.auth, 'public_registration_enabled', False):
+            # Allow public self-registration as pending user
+            is_public = True
+            caller = None
+        elif err:
             return err
 
-        if caller.role != "owner":
+        if not is_public and caller.role != "owner":
             return web.json_response({"error": "Only owners can register new users"}, status=403)
 
         try:
@@ -29,21 +51,24 @@ class DashboardAuthMixin:
         username = data.get("username", "").strip().lower()
         display_name = data.get("display_name", "").strip()
         password = data.get("password", "")
-        role = data.get("role", "user")
+        role = "user" if is_public else data.get("role", "user")
+        is_active = 0 if is_public else 1
 
         if not username or not password:
             return web.json_response({"error": "Username and password required"}, status=400)
 
         try:
-            user = self.auth.register_user(username, display_name or username, password, role=role)
+            user = self.auth.register_user(username, display_name or username, password, role=role, is_active=is_active)
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
 
         if not user:
             return web.json_response({"error": "Username already taken"}, status=409)
 
+        self._notify_users_changed(f"registered:{username}")
+        status_str = "pending_approval" if is_public else "registered"
         return web.json_response({
-            "status": "registered",
+            "status": status_str,
             "user": user.to_dict(),
         })
 
@@ -214,6 +239,7 @@ class DashboardAuthMixin:
             return web.json_response({"error": f"User '{username}' not found"}, status=404)
 
         self.auth.delete_user(target.user_id)
+        self._notify_users_changed(f"deleted:{username}")
         log.info(f"Owner '{caller.username}' deleted user '{username}'")
 
         return web.json_response({
@@ -251,6 +277,7 @@ class DashboardAuthMixin:
 
         try:
             self.auth.change_password(target.user_id, new_password)
+            self._notify_users_changed(f"password:{username}")
             log.info(f"Owner '{caller.username}' changed password for user '{username}'")
         except ValueError as e:
             return web.json_response({"error": str(e)}, status=400)
@@ -298,3 +325,92 @@ class DashboardAuthMixin:
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_auth_pending_users(self, request):
+        """List all pending (unapproved) users. Owner or admin only."""
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        if user.role not in ("owner", "admin"):
+            return web.json_response({"error": "Owner or admin access required"}, status=403)
+
+        pending = self.auth.list_pending_users()
+        return web.json_response({
+            "users": [u.to_dict() for u in pending],
+            "total": len(pending),
+        })
+
+    async def _api_auth_approve_user(self, request):
+        """Approve a pending user, optionally setting role. Owner/admin only.
+        - Admin can only set role='user'.
+        - Owner can set role to 'user', 'admin', or 'owner'.
+        POST body: {username: str, role?: str}
+        """
+        from aiohttp import web
+        caller, err = self._require_auth(request)
+        if err:
+            return err
+        if caller.role not in ("owner", "admin"):
+            return web.json_response({"error": "Owner or admin access required"}, status=403)
+
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+
+        username = data.get("username", "").strip().lower()
+        if not username:
+            return web.json_response({"error": "username required"}, status=400)
+
+        target = self.auth.get_user_by_username(username, include_inactive=True)
+        if not target:
+            return web.json_response({"error": f"User '{username}' not found"}, status=404)
+        if target.is_active:
+            return web.json_response({"error": f"User '{username}' is already active"}, status=400)
+
+        role = data.get("role", "user")
+        if role not in ("user", "admin", "owner"):
+            return web.json_response({"error": "Role must be 'user', 'admin' or 'owner'"}, status=400)
+        if caller.role == "admin" and role != "user":
+            return web.json_response({"error": "Admin can only set role to 'user'"}, status=403)
+
+        try:
+            self.auth.activate_user(target.user_id, role=role)
+        except ValueError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+        self._notify_users_changed(f"approved:{username}:{role}")
+        log.info(f"'{caller.username}' approved user '{username}' with role '{role}'")
+        target = self.auth.get_user_by_username(username)
+        return web.json_response({
+            "status": "approved",
+            "user": target.to_dict(),
+        })
+
+    async def _api_auth_reject_user(self, request):
+        """Reject (delete) a pending user. Owner/admin only."""
+        from aiohttp import web
+        caller, err = self._require_auth(request)
+        if err:
+            return err
+        if caller.role not in ("owner", "admin"):
+            return web.json_response({"error": "Owner or admin access required"}, status=403)
+
+        username = request.match_info.get("username", "").strip().lower()
+        if not username:
+            return web.json_response({"error": "username required"}, status=400)
+
+        target = self.auth.get_user_by_username(username, include_inactive=True)
+        if not target:
+            return web.json_response({"error": f"User '{username}' not found"}, status=404)
+        if target.is_active:
+            return web.json_response({"error": f"User '{username}' is already active"}, status=400)
+
+        self.auth.delete_user(target.user_id)
+        self._notify_users_changed(f"rejected:{username}")
+        log.info(f"'{caller.username}' rejected pending user '{username}'")
+        return web.json_response({
+            "status": "rejected",
+            "username": username,
+        })

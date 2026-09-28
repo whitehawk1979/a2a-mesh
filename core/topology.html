@@ -34,7 +34,18 @@
   canvas { display: block; }
 
   /* Side panel */
-  #side-panel { width: 280px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 12px; display: none; }
+  #side-panel { 
+    width: 320px; 
+    background: var(--bg2); 
+    border-left: 1px solid var(--border); 
+    overflow-y: auto; 
+    overflow-x: hidden;
+    padding: 12px; 
+    display: none; 
+    flex-shrink: 0;
+    max-height: calc(100dvh - 60px);
+    min-height: 0;
+  }
   #side-panel.active { display: block; }
   #side-panel h3 { color: var(--accent); font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
   #side-panel .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
@@ -295,30 +306,33 @@ function draw() {
       ctx.setLineDash([]);
       return; // skip straight line
     } else if (conn.transport === 'mqtt') {
-      // MQTT pub/sub: ívelt narancsív az SSH-ív MÁSIK oldalán (offset −25),
-      // hogy a két transport-görbe ne fedje egymást. A közös broker jelezi:
-      // minden MQTT-él ugyanarra a brokerre megy (conn.broker).
+      // MQTT pub/sub: szélesebb, világosabb narancsív az SSH-ív MÃ¡sik oldalÃ¡n
+      // (offset -55), vastagabb stroke, kettÅ'sÅ's dashed pattern.
+      // Nagyobb offset: nem veszik el az Å'rnyÃ©kban.
       const mx = (from.x + to.x) / 2;
       const my = (from.y + to.y) / 2;
       const dx = to.x - from.x;
       const dy = to.y - from.y;
       const len = Math.hypot(dx, dy) || 1;
-      const offset = -25;  // SSH: +25 — tükrözve, külön ív
+      const offset = -55;  // SSH: +25, MQTT: -55 -> nagy tÃ©rbeli szÃ©tcsÃºszÃ¡s
       const ox = -dy / len * offset;
       const oy = dx / len * offset;
       if (conn.status === 'connected') {
         ctx.strokeStyle = '#ff8c42';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([3, 4]);  // apró pöttyök = pub/sub
+        ctx.lineWidth = 4;  // vastagabb, lÃ¡thatÃ³bb
+        ctx.globalAlpha = 0.85;
+        ctx.setLineDash([8, 4]);  // hosszabb szÃ¡llÃ¡s = pub/sub Ã¶sszeeskÃ¼vÃ©s
       } else {
         ctx.strokeStyle = '#ff8c4244';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 5]);
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.5;
+        ctx.setLineDash([4, 6]);
       }
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       ctx.quadraticCurveTo(mx + ox, my + oy, to.x, to.y);
       ctx.stroke();
+      ctx.globalAlpha = 1.0;
       ctx.setLineDash([]);
       return; // skip straight line
     } else if (conn.transport === 'mcp') {

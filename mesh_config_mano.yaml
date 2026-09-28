@@ -1,0 +1,264 @@
+diagnostic:
+  developer_nodes:
+  - nova
+  enabled: true
+  include_config_suggestions: true
+  include_error_patterns: true
+  include_memory_stats: true
+  include_mesh_health: true
+  include_performance: true
+  max_reports_stored: 100
+  report_interval: 300
+mesh:
+  auth_mode: open
+  auto_steer:
+    priority_threshold: 10
+    queue_lower_priorities: true
+  auto_update:
+    enabled: false
+  capabilities:
+  - a2a_messaging
+  - file_transfer
+  - p2p_transport
+  - pg_transport
+  - health_monitor
+  - registry
+  - dashboard
+  - image_gen
+  - web_search
+  - research
+  - analysis
+  - monitoring
+  - code_generation
+  discovery:
+    mdns:
+      enabled: true
+      port: 8645
+      service: _a2a._tcp
+    min_target_peers: 2
+    static:
+      nodes:
+      - health_port: 8650
+        ip: 192.168.1.8
+        name: nova
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.75.253.52
+        name: nova
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.30
+        name: morzsa
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.65.232.47
+        name: morzsa
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.100
+        name: runa
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.125.223.24
+        name: runa
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 192.168.1.43
+        name: mano
+        p2p_port: 8645
+        transport: p2p
+      - health_port: 8650
+        ip: 100.74.221.46
+        name: mano
+        p2p_port: 8645
+        transport: p2p
+  gossipsub:
+    flood_threshold: 6
+  health_port: 8650
+  heartbeat:
+    critical_threshold: 900
+    interval: 300
+    silent_on_success: true
+    warning_threshold: 300
+  log_file: /config/a2a_mesh/a2a_mesh.log
+  loop_prevention:
+    dedup_cache_size: 5000
+    dedup_ttl: 300
+    not_for_me_filter: true
+    re_chain_limit: 4
+    self_reference_filter: true
+  node_id: ''
+  node_name: mano
+  security:
+    encryption: nacl
+    signing_key: ''
+    transport_auth: hmac
+    trusted_keys: {}
+  skills:
+  - description: Send a message to another agent or broadcast to all
+    id: mesh_send
+    name: Send Message
+    tags:
+    - messaging
+    - send
+  - description: List all agents in the mesh and their capabilities
+    id: mesh_discover
+    name: Discover Agents
+    tags:
+    - discovery
+    - agents
+  - description: Get health status and metrics of this agent
+    id: mesh_health
+    name: Health Check
+    tags:
+    - health
+    - monitoring
+  - description: Coordinate multi-agent decisions with voting, consensus, and ranking
+      protocols
+    id: gdm
+    name: Group Decision Making
+    tags:
+    - gdm
+    - decision
+    - voting
+    - consensus
+    - coordination
+  - description: Execute delegated tasks and report results back to the coordinator
+    id: task_execution
+    name: Task Execution
+    tags:
+    - task
+    - execution
+    - delegation
+  telegram_auto_image: false
+  telegram_bot_token: ''
+  telegram_chat_id: ''
+  topology:
+    allowed_public_keys: []
+    auto_approve_known_agents: true
+    coordinator_heartbeat_interval: 10
+    enable_route_cache: true
+    enable_sleepy_end_devices: true
+    max_children: 20
+    max_depth: 5
+    max_routers: 6
+    message_buffer_max_size: 1000
+    message_buffer_ttl_seconds: 86400
+    node_role: router
+    re_association_timeout: 30
+    route_cache_ttl: 300
+    routing_mode: hybrid
+    trust_center_enabled: true
+  topology_tuning:
+    auto_apply: false
+    check_interval: 300
+    cooldown: 600
+    coordinator_threshold: 0.5
+    demote_threshold: 0.3
+    enabled: true
+    min_observations: 10
+    promote_threshold: 0.9
+  transport_priority:
+  - p2p
+  - pg_notify
+  - http
+  transports:
+    http:
+      health_url: http://192.168.1.43:8650/api/health
+      retries: 3
+      timeout: 10
+      url: http://192.168.1.43:8650
+    p2p:
+      enabled: true
+      idle_timeout: 300
+      listen_host: 0.0.0.0
+      listen_port: 8645
+      max_connections: 50
+      tls_ca: /config/a2a_mesh/certs/a2a-mesh-ca.crt
+      tls_cert: /config/a2a_mesh/certs/mano.crt
+      tls_enabled: true
+      tls_key: /config/a2a_mesh/certs/mano.key
+      tls_verify_peer: true
+    pg_notify:
+      channels:
+      - a2a_channel
+      - a2a_steer_channel
+      - delegation_channel
+      - mesh_channel
+      - diagnostic_channel
+      dbname: agent_memory
+      host: 192.168.1.30
+      password: nova_agent_2026
+      port: 5432
+      user: nova
+    ssh_tunnel:
+      advertised_forward_host: 192.168.1.43
+      advertised_ssh_port: 0
+      connect_timeout: 30
+      default_identity_file: /config/.ssh/id_ed25519
+      default_ssh_user: root
+      embedded_sshd: true
+      enabled: true
+      keepalive_interval: 30
+      local_port_start: 9400
+      max_retries: 3
+      peers:
+        morzsa:
+          identity_file: /config/.ssh/id_ed25519
+          remote_port: 8645
+          ssh_host: 192.168.1.30
+          ssh_port: 22
+          ssh_user: openclaw
+        nova:
+          connect_timeout: 30
+          remote_port: 8645
+          ssh_host: 192.168.1.8
+          ssh_port: 2230
+          ssh_user: zsolt
+        runa:
+          identity_file: /config/.ssh/id_ed25519
+          remote_port: 8645
+          ssh_host: 192.168.1.100
+          ssh_port: 22
+          ssh_user: zsolt
+        tor:
+          connect_timeout: 60
+          identity_file: /config/.ssh/id_ed25519
+          remote_port: 8645
+          ssh_host: 172.30.33.13
+          ssh_port: 2230
+          ssh_user: root
+          forward_host: 172.30.33.13
+      reconnect_interval: 15
+      sshd_bind: 0.0.0.0
+      sshd_config_dir: /config/.ssh/
+      sshd_port: 2230
+    mqtt:
+      enabled: true
+      host: 192.168.1.8
+      port: 8683
+      client_prefix: mesh
+      keepalive: 30
+  wake_agent_on_message: true
+  ollama_url: http://localhost:11434
+  webhook_port: 8765
+  webhook_secret: ''
+plugins:
+  task_dispatch:
+    allowed_actions:
+    - shell
+    - scan
+    - status
+    - ping
+    - custom
+    enabled: true
+    max_concurrent_tasks: 5
+    require_confirmation_for:
+    - shell
+    task_timeout_seconds: 300

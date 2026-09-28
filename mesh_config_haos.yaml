@@ -1,97 +1,187 @@
 mesh:
+  node_name: tor
+  node_id: ''
+  transport_priority:
+  - p2p
+  - pg_notify
+  - ssh_tunnel
+  - http
   capabilities:
   - a2a_messaging
   - file_transfer
   - p2p_transport
   - pg_transport
-  - ssh_tunnel_transport
   - health_monitor
   - registry
   - dashboard
-  discovery:
-    mdns:
-      enabled: false
-    static_only: true
+  - image_gen
+  skills:
+  - id: mesh_send
+    name: Send Message
+    description: Send a message to another agent or broadcast to all
+    tags:
+    - messaging
+    - send
+  - id: mesh_discover
+    name: Discover Agents
+    description: List all agents in the mesh and their capabilities
+    tags:
+    - discovery
+    - agents
+  - id: mesh_health
+    name: Health Check
+    description: Get health status and metrics of this agent
+    tags:
+    - health
+    - monitoring
+  - id: gdm
+    name: Group Decision Making
+    description: Coordinate multi-agent decisions with voting, consensus, and ranking protocols
+    tags:
+    - gdm
+    - decision
+    - voting
+    - consensus
+    - coordination
+  - id: task_execution
+    name: Task Execution
+    description: Execute delegated tasks and report results back to the coordinator
+    tags:
+    - task
+    - execution
+    - delegation
+  - id: image_gen
+    name: Image Generation
+    description: Generate images from text prompts using Pollinations.ai (Flux, Flux Realism, Flux Anime, Flux 3D, Turbo). Can send generated images to Telegram chats.
+    tags:
+    - image
+    - generation
+    - pollinations
+    - telegram
+  webhook_port: 8765
+  webhook_secret: ${WEBHOOK_SECRET}
+  telegram_chat_id: ${A2A_TELEGRAM_CHAT_ID}
+  telegram_bot_token: ${A2A_TELEGRAM_BOT_TOKEN}
+  telegram_auto_image: true
+  log_file: ~/a2a_mesh/a2a_mesh.log
+  auth_mode: open
   health_port: 8650
-  node_name: tor
+  wake_agent_on_message: true
+  transports:
+    pg_notify:
+      host: 192.168.1.30
+      port: 5432
+      dbname: agent_memory
+      user: nova
+      password: nova_agent_2026
+      channels:
+      - a2a_channel
+      - a2a_steer_channel
+      - delegation_channel
+      - mesh_ch
+    p2p:
+      enabled: true
+      listen_host: 0.0.0.0
+      listen_port: 8645
+      tls_enabled: true
+      tls_cert: /config/a2a-mesh/certs/tor.crt
+      tls_key: /config/a2a-mesh/certs/tor.key
+      tls_ca: /config/a2a-mesh/certs/a2a-mesh-ca.crt
+      tls_verify_peer: false
+      advertise_host: 192.168.1.43
+    mqtt:
+      enabled: true
+      host: 192.168.1.8
+      port: 8683
+      will_topic: a2a/nodes/tor/status
+      will_message: offline
+      will_qos: 1
+      will_retain: true
+    ssh_tunnel:
+      advertised_forward_host: 172.30.33.13
+      enabled: true
+      default_ssh_user: root
+      ssh_key_file: /root/.ssh/id_mesh
+      peers:
+        mano:
+          ssh_host: "192.168.1.43"
+          ssh_port: 2230
+          remote_port: 8645
+          identity_file: /root/.ssh/id_mesh
+        morzsa:
+          ssh_host: "192.168.1.30"
+          ssh_user: openclaw
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_mesh
+        nova:
+          ssh_host: "192.168.1.8"
+          ssh_user: zsolt
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_mesh
+        runa:
+          ssh_host: "192.168.1.100"
+          ssh_user: zsolt
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_mesh
+  auto_steer:
+    priority_threshold: 10
+    queue_lower_priorities: true
+  heartbeat:
+    interval: 300
+    warning_threshold: 300
+    critical_threshold: 900
+    silent_on_success: true
   topology:
-    auto_approve_known_agents: true
-    max_children: 20
-    max_depth: 5
-    max_routers: 8
     node_role: router
     routing_mode: hybrid
+    max_children: 20
+    max_routers: 6
+    max_depth: 5
     trust_center_enabled: true
-  transport_priority:
-  - p2p
-  - ssh_tunnel
-  - pg_notify
-  - http
-  transports:
-    p2p:
-      advertise_host: 100.74.221.46
-      listen_port: 8645
-      static_nodes:
-      - host: 192.168.1.8
-        name: nova
-        port: 8645
-      - host: 192.168.1.30
-        name: morzsa
-        port: 8645
-      - host: 192.168.1.100
-        name: runa
-        port: 8645
-      tls_ca: /config/a2a-mesh/certs/a2a-mesh-ca.crt
-      tls_cert: /config/a2a-mesh/certs/tor.crt
-      tls_enabled: true
-      tls_key: /config/a2a-mesh/certs/tor.key
-    pg_notify:
-      dbname: agent_memory
-      host: 192.168.1.30
-      listen: true
-      password: vault:MESH/PG_PASSWORD
-      port: 5432
-      user: nova
-    ssh_tunnel:
-      connect_timeout: 15
-      default_identity_file: /config/.ssh/id_ed25519
-      default_ssh_user: ''
-      enabled: true
-      keepalive_interval: 30
-      local_port_start: 9200
-      max_retries: 3
-      peers:
-        morzsa:
-          connect_timeout: 60
-          identity_file: /config/.ssh/id_ed25519
-          remote_port: 8645
-          ssh_host: 192.168.1.30
-          ssh_port: 22
-          ssh_user: openclaw
-        nova:
-          connect_timeout: 60
-          identity_file: /config/.ssh/id_ed25519
-          remote_port: 8645
-          ssh_host: 192.168.1.8
-          ssh_port: 2230
-          ssh_user: zsolt
-        runa:
-          connect_timeout: 60
-          identity_file: /config/.ssh/id_ed25519
-          remote_port: 8645
-          ssh_host: 192.168.1.100
-          ssh_port: 22
-          ssh_user: zsolt
-        mano:
-          connect_timeout: 60
-          identity_file: /config/.ssh/id_ed25519
-          remote_port: 8645
-          ssh_host: 192.168.1.43
-          ssh_port: 2230
-          ssh_user: root
-          forward_host: 127.0.0.1
-      advertised_forward_host: 172.30.33.13
-      reconnect_interval: 10
-  wake_agent_on_message: true
-  ollama_url: http://100.75.253.52:11434
-  webhook_port: 8766
+    auto_approve_known_agents: true
+    allowed_public_keys: []
+    enable_sleepy_end_devices: true
+    message_buffer_max_size: 1000
+    message_buffer_ttl_seconds: 86400
+    re_association_timeout: 30
+    coordinator_heartbeat_interval: 10
+    enable_route_cache: true
+    route_cache_ttl: 300
+  gossipsub:
+    flood_threshold: 6
+  topology_tuning:
+    enabled: true
+    check_interval: 300
+    promote_threshold: 0.9
+    demote_threshold: 0.3
+    coordinator_threshold: 0.5
+    min_observations: 10
+    cooldown: 600
+    auto_apply: false
+plugins:
+  task_dispatch:
+    enabled: true
+    max_concurrent_tasks: 5
+    task_timeout_seconds: 300
+    allowed_actions:
+    - shell
+    - scan
+    - status
+    - ping
+    - custom
+    require_confirmation_for:
+    - shell
+diagnostic:
+  enabled: true
+  report_interval: 300
+  max_reports_stored: 100
+  developer_nodes:
+  - nova
+  include_memory_stats: true
+  include_error_patterns: true
+  include_mesh_health: true
+  include_performance: true
+  include_config_suggestions: true

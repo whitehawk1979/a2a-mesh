@@ -279,15 +279,34 @@ class DashboardAgentsMixin:
                 "mesh_message_id": message.id,
             })
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    wake_url,
-                    data=wake_body.encode(),
-                    headers={"Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as resp:
-                    result = await resp.json()
-                    log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
+            # ── HTTP POST wake (elsődleges út) ──
+            _woke_via_mqtt = False
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        wake_url,
+                        data=wake_body.encode(),
+                        headers={"Content-Type": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=120),
+                    ) as resp:
+                        result = await resp.json()
+                        log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
+            except asyncio.TimeoutError:
+                log.warning(f"Wake-agent '{agent_name}' timed out (120s) via HTTP ({wake_url})")
+                _woke_via_mqtt = True
+            except Exception as e:
+                log.warning(f"Wake-agent '{agent_name}' HTTP failed ({wake_url}): {e}")
+                _woke_via_mqtt = True
+
+            # ── MQTT wake fallback (ha HTTP nem ment, de a target MQTT-n van) ──
+            if _woke_via_mqtt and agent_name != self.node.node_name:
+                try:
+                    mqtt_tr = getattr(self.node, '_mqtt_transport', None)
+                    if mqtt_tr and mqtt_tr.is_available():
+                        mqtt_tr.publish_wake_to(agent_name, wake_body)
+                        log.info(f"Wake-agent '{agent_name}': MQTT fallback sent ✓")
+                except Exception as mqtt_e:
+                    log.warning(f"MQTT wake fallback for '{agent_name}' failed: {mqtt_e}")
                     
         except asyncio.TimeoutError:
             log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
