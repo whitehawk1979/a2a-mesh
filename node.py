@@ -889,6 +889,21 @@ class MeshNode:
                 log.info("Node: MQTT key sync activated (primary path, retained topics)")
             except Exception as e:
                 log.warning(f"Node: MQTT key sync setup failed: {e}")
+
+        # ── MQTT LIVE ENDPOINT SYNC (v0.48.1) ─────────────────────────────
+        # a2a/endpoints/{node} retained topic: minden node publikalja az ELO
+        # cimadatait (ssh_hosts dial-lista, portok, forward_host). A peer-ek
+        # ebbol frissitik a tunnel-dialt azonnal — a 60s-es PG registry cache
+        # helyett/felett a broker a valodi ideju csatorna (a HAOS-reboot
+        # altal okozott stale bridge-IP problemak determinisztikus fixe).
+        if self._mqtt_transport is not None:
+            try:
+                self._mqtt_transport.set_endpoint_handler(
+                    self._on_mqtt_endpoint_message
+                )
+                log.info("Node: MQTT live endpoint sync handler registered")
+            except Exception as e:
+                log.warning(f"Node: MQTT endpoint handler setup failed: {e}")
         # MQTT user-sync notify: masik node approval/role valtozasara azonnal
         # huzzuk le a friss user-listat PG-bol (SQLite mirror frissen tartasa)
         if self._mqtt_transport is not None:
@@ -5090,6 +5105,18 @@ echo "Status: ok"
                 # Persist heartbeat to PG
                 await self._update_heartbeat_pg()
 
+                # ── MQTT LIVE ENDPOINT PUBLISH (v0.48.1) ─────────────────────
+                # Retained a2a/endpoints/{node}: a peer-ek azonnal latjak az
+                # elo cimunkat (bridge-IP valtozas, sshd ujrakepules stb.),
+                # nem csak a 60s-es PG cache-en keresztul.
+                try:
+                    if self._mqtt_transport is not None and self._mqtt_transport._connected:
+                        self._mqtt_transport.publish_endpoint(
+                            self.node_name, self._build_transport_info()
+                        )
+                except Exception as e:
+                    log.debug(f"MQTT endpoint publish skipped: {e}")
+
                 # Cleanup expired dedup cache entries (prevents unbounded growth)
                 if hasattr(self.router, 'dedup') and self.router.dedup:
                     removed = self.router.dedup.cleanup()
@@ -5241,6 +5268,57 @@ echo "Status: ok"
             if isinstance(docker_cfg, dict) and docker_cfg.get('host_ip'):
                 return docker_cfg['host_ip']
         return self._get_local_ip()
+
+    def _on_mqtt_endpoint_message(self, node_name: str, info: dict) -> None:
+        """Live endpoint announcement from a peer via a2a/endpoints/{node}.
+
+        Deterministic consumer: writes the received info straight into the
+        SSH tunnel layer's registry cache (the same shape the PG heartbeat
+        fills), so the next _refresh_peer_from_registry / _peer_dial_list
+        uses the LIVE address — zero extra PG round-trip, zero staleness.
+        Skips self-announcements (our own retained topic echo).
+        """
+        try:
+            if not info or not isinstance(info, dict):
+                return
+            if str(node_name).lower() == str(self.node_name).lower():
+                return  # own announcement echoed back by the broker
+            tun = getattr(self, '_ssh_tunnel_transport', None)
+            if tun is None:
+                return
+            # Same tuple shape the PG path stores: (info, cached_at, heartbeat)
+            # heartbeat=None is fine — freshness gating lives in the PG path;
+            # MQTT announcements are inherently live (just published).
+            tun._registry_cache[str(node_name).lower()] = (info, time.time(), None)
+            # If a TunnelPeer exists for this node, refresh its dial fields
+            # immediately (same precedence rules as the PG refresh).
+            # _tunnels keys are the config peer names (e.g. 'tor', 'morzsa') —
+            # exact match first, then case-insensitive fallback.
+            peer = getattr(tun, '_tunnels', {}).get(str(node_name)) \
+                   or getattr(tun, '_tunnels', {}).get(str(node_name).lower())
+            if peer is None:
+                for _k, _p in getattr(tun, '_tunnels', {}).items():
+                    if str(_k).lower() == str(node_name).lower():
+                        peer = _p
+                        break
+            if peer is not None:
+                changed = []
+                if info.get("ssh_host") and not peer.ssh_host:
+                    peer.ssh_host = str(info["ssh_host"]); changed.append(f"ssh_host→{peer.ssh_host}")
+                if info.get("ssh_port") and not peer.config_ssh_port \
+                        and int(info["ssh_port"]) != peer.ssh_port:
+                    peer.ssh_port = int(info["ssh_port"]); changed.append(f"ssh_port→{peer.ssh_port}")
+                if info.get("ssh_user") and info["ssh_user"] != peer.ssh_user:
+                    peer.ssh_user = str(info["ssh_user"]); changed.append(f"ssh_user→{peer.ssh_user}")
+                if info.get("forward_host") and info["forward_host"] != (peer.forward_host or ""):
+                    peer.forward_host = str(info["forward_host"]); changed.append(f"forward_host→{peer.forward_host}")
+                if info.get("p2p_port") and int(info["p2p_port"]) != peer.remote_port:
+                    peer.remote_port = int(info["p2p_port"]); changed.append(f"remote_port→{peer.remote_port}")
+                if changed:
+                    log.info(f"SSH tunnel {node_name}: live MQTT endpoint update: {', '.join(changed)}")
+            log.debug(f"MQTT endpoint cached: {node_name} ssh_hosts={info.get('ssh_hosts')}")
+        except Exception as e:
+            log.warning(f"MQTT endpoint handler error for {node_name}: {e}")
 
     def _build_transport_info(self) -> dict:
         """Build the live transport address registry entry for THIS node.

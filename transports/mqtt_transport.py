@@ -59,6 +59,7 @@ class MQTTTransport(TransportAdapter):
         
         # SSH key sync handler (set by node.py)
         self._ssh_key_handler = None
+        self._endpoint_handler = None
 
         # User-change notify handler (set by node.py; calls AuthManager._sync_from_pg)
         self._users_changed_handler = None
@@ -159,6 +160,16 @@ class MQTTTransport(TransportAdapter):
             except Exception as e:
                 log.warning(f"[{self.name}] SSH key topic subscribe failed: {e}")
 
+            # ── Live endpoint sync (v0.48.1): a2a/endpoints/{node} retained ──
+            # Minden node élő címadatait publikálja (ssh_hosts dial-lista,
+            # portok, forward_host) — a peer-ek ebből frissítik a tunnel-dialt
+            # azonnal, nem csak a 60s-es PG registry cache-n keresztül.
+            try:
+                self._client.subscribe("a2a/endpoints/+", qos=1)
+                log.info(f"[{self.name}] Subscribed to live endpoints: a2a/endpoints/+")
+            except Exception as e:
+                log.warning(f"[{self.name}] endpoints subscribe failed: {e}")
+
             # User sync — admin/owner modositas utan a tobbi node azonnal
             # lehuzzja a PG-friss user-listat (pendingus + jogosultsag valtozasok)
             try:
@@ -205,6 +216,17 @@ class MQTTTransport(TransportAdapter):
                         self._ssh_key_handler(sender, payload)
                     except Exception as e:
                         log.warning(f"[{self.name}] SSH key handler failed: {e}")
+                return
+
+            # ── Live endpoint sync: a2a/endpoints/{node} (retained) ──
+            elif len(parts) >= 3 and parts[1] == 'endpoints':
+                node_name = parts[2]
+                if self._endpoint_handler:
+                    try:
+                        info = json.loads(payload)
+                        self._endpoint_handler(node_name, info)
+                    except Exception as e:
+                        log.warning(f"[{self.name}] endpoint handler failed: {e}")
                 return
 
             # ── User sync notify: a2a/sys/users_changed ──
@@ -331,6 +353,35 @@ class MQTTTransport(TransportAdapter):
     def set_ssh_key_handler(self, handler):
         """Register callback for incoming MQTT SSH key messages: handler(sender, payload_bytes)."""
         self._ssh_key_handler = handler
+
+    def set_endpoint_handler(self, handler):
+        """Register callback for incoming MQTT endpoint announcements.
+
+        Topic a2a/endpoints/{node} (retained): handler(node_name, info_dict).
+        info_dict = the publisher's live _build_transport_info() snapshot —
+        ssh_hosts dial list, ssh_port, ssh_user, forward_host, p2p_port.
+        Consumers (SSH tunnel layer) use it to refresh peer dial addresses
+        immediately instead of waiting for the PG registry cache (60s TTL).
+        """
+        self._endpoint_handler = handler
+
+    def publish_endpoint(self, node_name: str, info: dict):
+        """Publish this node's LIVE endpoint info to a2a/endpoints/{node} (retained).
+
+        Retained so a freshly booted node pulls every peer's last-known
+        endpoint from the broker immediately — same pattern as ssh_keys.
+        """
+        if not self._connected or not self._client:
+            return False
+        try:
+            payload = json.dumps(info, ensure_ascii=True)
+            self._client.publish(f"a2a/endpoints/{node_name}", payload, qos=1, retain=True)
+            log.info(f"[{self.name}] endpoint published: a2a/endpoints/{node_name} "
+                     f"(ssh_hosts={info.get('ssh_hosts')} port={info.get('ssh_port')})")
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] endpoint publish failed: {e}")
+            return False
 
     def set_users_changed_handler(self, handler):
         """Register callback for user-change notifications: handler().

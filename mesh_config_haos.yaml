@@ -98,7 +98,7 @@ mesh:
       will_qos: 1
       will_retain: true
     ssh_tunnel:
-      advertised_forward_host: 172.30.33.13
+      advertised_forward_host: 0a6523c6-hermes-agent
       enabled: true
       default_ssh_user: root
       ssh_key_file: /root/.ssh/id_mesh
