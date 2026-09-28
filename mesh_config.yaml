@@ -4,6 +4,7 @@ mesh:
   transport_priority:
   - p2p
   - pg_notify
+  - ssh_tunnel
   - http
   capabilities:
   - a2a_messaging
@@ -65,7 +66,7 @@ mesh:
   log_file: ~/a2a_mesh/a2a_mesh.log
   auth_mode: open
   health_port: 8650
-  wake_agent_on_message: true  # Wake local agent on incoming messages (non-blocking, mesh infra unaffected)
+  wake_agent_on_message: true
   transports:
     pg_notify:
       host: 192.168.1.30
@@ -77,81 +78,43 @@ mesh:
       - a2a_channel
       - a2a_steer_channel
       - delegation_channel
-      - mesh_channel
-      - diagnostic_channel
-    p2p:
+      - mesh_ch
+    mqtt_transport:
+      broker_host: localhost
+      broker_port: 1883
+      client_id: tor-a2a-mesh
+      will_topic: a2a/nodes/tor/status
+      will_message: offline
+      will_qos: 1
+      will_retain: true
+    ssh_tunnel:
       enabled: true
-      listen_host: 0.0.0.0
-      listen_port: 8645
-      tls_cert: ~/.hermes/scripts/a2a_mesh/certs/runa.crt
-      tls_key: ~/.hermes/scripts/a2a_mesh/certs/runa.key
-      tls_ca: ~/.hermes/scripts/a2a_mesh/certs/a2a-mesh-ca.crt
-      tls_verify_peer: true
-      max_connections: 50
-      idle_timeout: 300
-      tls_enabled: true
-    http:
-      url: http://192.168.1.30:8650
-      health_url: http://192.168.1.30:8650/api/health
-      timeout: 10
-      retries: 3
-  discovery:
-    min_target_peers: 2
-    mdns:
-      enabled: true
-      service: _a2a._tcp
-      port: 8645
-    static:
-      nodes:
-      - name: nova
-        ip: 192.168.1.8
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: nova
-        ip: 100.75.253.52
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: morzsa
-        ip: 192.168.1.30
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: morzsa
-        ip: 100.65.232.47
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: runa
-        ip: 192.168.1.100
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-      - name: runa
-        ip: 100.125.223.24
-        p2p_port: 8645
-        health_port: 8650
-        transport: p2p
-  auto_update:
-    enabled: true
-    check_interval: 300
-    apply_automatically: false
-    gitea_url: http://192.168.1.100:3001
-    gitea_repo: nova/a2a-mesh
-    gitea_user: zsolt
-    gitea_pass: admin1234
-  security:
-    signing_key: ''
-    trusted_keys: {}
-    encryption: nacl
-    transport_auth: hmac
-  loop_prevention:
-    self_reference_filter: true
-    not_for_me_filter: true
-    re_chain_limit: 4
-    dedup_cache_size: 5000
-    dedup_ttl: 300
+      default_ssh_user: root
+      ssh_key_file: /root/.ssh/id_mesh
+      peers:
+        mano:
+          ssh_host: "192.168.1.43"
+          ssh_port: 2230
+          remote_port: 8645
+          identity_file: /root/.ssh/id_mesh
+        morzsa:
+          ssh_host: "192.168.1.30"
+          ssh_user: openclaw
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_mesh
+        nova:
+          ssh_host: "192.168.1.8"
+          ssh_user: zsolt
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_mesh
+        runa:
+          ssh_host: "192.168.1.100"
+          ssh_user: zsolt
+          ssh_port: 22
+          remote_port: 8645
+          identity_file: ~/.ssh/id_mesh
   auto_steer:
     priority_threshold: 10
     queue_lower_priorities: true
@@ -177,7 +140,7 @@ mesh:
     enable_route_cache: true
     route_cache_ttl: 300
   gossipsub:
-    flood_threshold: 6  # ≤6 peers → flood mode; above → gossipsub mesh
+    flood_threshold: 6
   topology_tuning:
     enabled: true
     check_interval: 300

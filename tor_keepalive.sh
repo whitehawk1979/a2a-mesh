@@ -27,7 +27,7 @@ TUNNEL_IDENTITY=/config/.ssh/id_ed25519
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 
 # idempotent guard — if a live instance holds the lock, exit
-if [ -e "$LOCK" ] && kill -0 "$(cat "$LOCK" 2>/dev/null)" 2>/dev/null; then
+if [ -e "$LOCK" ] && _old=$(cat "$LOCK" 2>/dev/null) && kill -0 "$_old" 2>/dev/null && grep -aq tor_keepalive "/proc/$_old/cmdline" 2>/dev/null; then
   exit 0
 fi
 echo $$ > "$LOCK"

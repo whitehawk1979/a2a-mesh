@@ -1,0 +1,4 @@
+#!/bin/sh
+# s6 longrun: tor a2a-mesh keepalive (sshd :2222 + morzsa tunnel + mesh node)
+# A tor_keepalive.sh foreground loopban fut; ha meghal, az s6 újraindítja.
+exec /bin/bash /config/a2a-mesh/tor_keepalive.sh
