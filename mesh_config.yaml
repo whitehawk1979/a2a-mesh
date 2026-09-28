@@ -79,10 +79,10 @@ mesh:
       - a2a_steer_channel
       - delegation_channel
       - mesh_ch
-    mqtt_transport:
-      broker_host: localhost
-      broker_port: 1883
-      client_id: tor-a2a-mesh
+    mqtt:
+      enabled: true
+      host: 192.168.1.8
+      port: 8683
       will_topic: a2a/nodes/tor/status
       will_message: offline
       will_qos: 1
