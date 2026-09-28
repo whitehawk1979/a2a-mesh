@@ -1887,13 +1887,18 @@ class MeshNode:
                 pass
 
             fetch_ok = False
-            # FIX (v0.43.4): 'git fetch origin main' fetches only the branch ref —
-            # TAGS are not included, so version-resolve (git describe --tags) still
-            # reports the previous tag after a deploy. Fetch tags alongside the
-            # branch in the fallback path; the full fetch ([remote]) already gets
-            # tags. This makes post-deploy version verification meaningful.
-            # Try full prune fetch first; fallback to branch+tags fetch (immune to ref-lock)
-            for fetch_args in ([remote], [remote, branch, "--tags"]):
+            # FIX (v0.48.1→v0.49 follow-up, 2026-09-29): a full `git fetch <remote>`
+            # writes FETCH_HEAD with the LAST refspec fetched — with multiple
+            # branches (feature/* sorts before main alphabetically) FETCH_HEAD can
+            # point at the feature branch tip, NOT main. Merging FETCH_HEAD then
+            # silently no-ops ("Already up to date") or deploys the wrong branch.
+            # Deterministic fix: fetch ONLY the target branch + tags (explicit
+            # refspec => FETCH_HEAD == main tip), merge from refs/remotes/<remote>/<branch>.
+            for fetch_args in (
+                [remote, f"refs/heads/{branch}:refs/remotes/{remote}/{branch}", "--tags"],  # explicit refspec
+                [remote, branch, "--tags"],   # named-branch fallback (same FETCH_HEAD semantics)
+                [remote],                     # full fetch — last resort (tags included)
+            ):
                 try:
                     r = subprocess.run(
                         ["git", "fetch"] + fetch_args,
@@ -1909,16 +1914,27 @@ class MeshNode:
             if not fetch_ok:
                 return {"result": "\n".join(steps), "files": [], "context_updates": {"deploy_status": "failed_git"}}
 
-            # Merge from FETCH_HEAD — always reflects the last successful fetch,
-            # immune to 'cannot lock ref' failures that leave origin/main stale.
+            # Merge from the explicit remote-tracking ref — deterministic target.
+            # FETCH_HEAD is ambiguous with multi-branch remotes (feature/* can win
+            # over main); refs/remotes/<remote>/<branch> always means the branch we
+            # intend to deploy. Falls back to FETCH_HEAD if the tracking ref is
+            # missing (shallow clones).
+            merge_target = f"refs/remotes/{remote}/{branch}"
+            r_check = subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", merge_target],
+                cwd=repo_path, capture_output=True, text=True, timeout=10
+            )
+            if r_check.returncode != 0:
+                merge_target = "FETCH_HEAD"  # tracking ref unavailable (shallow clone)
+            steps.append(f"[{node}] merge target: {merge_target}")
             r = subprocess.run(
-                ["git", "merge", "--ff-only", "FETCH_HEAD"],
+                ["git", "merge", "--ff-only", merge_target],
                 cwd=repo_path, capture_output=True, text=True, timeout=30
             )
             if r.returncode != 0:
-                steps.append(f"[{node}] git merge --ff-only: retry with reset --hard FETCH_HEAD")
+                steps.append(f"[{node}] git merge --ff-only {merge_target}: retry with reset --hard")
                 r2 = subprocess.run(
-                    ["git", "reset", "--hard", "FETCH_HEAD"],
+                    ["git", "reset", "--hard", merge_target],
                     cwd=repo_path, capture_output=True, text=True, timeout=30
                 )
                 if r2.returncode != 0:
