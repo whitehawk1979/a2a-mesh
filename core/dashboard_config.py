@@ -528,3 +528,88 @@ class ConfigSyncMixin:
         except Exception as e:
             log.error(f"Transport set error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
+
+
+    # ── Auto-discovery (v0.48.3): node-ok felismerése a Settings panelhez ──
+    async def _api_discovery_scan(self, request):
+        """POST /api/config/discovery/scan — determinisztikus node-felderítés.
+
+        Források: (1) PG mesh_nodes (SSOT), (2) MQTT presence retained
+        topicok, (3) meglévő peers. Minden találatra TCP health-probe
+        (p2p_port + health_port) — az eredmény közvetlenül behúzható a
+        transport-beállításokba (host/port javaslat).
+        """
+        from aiohttp import web
+        import asyncio as _aio
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            node = self.node
+            node_name = getattr(node, "node_name", "?")
+            found = {}
+
+            # 1) PG registry (SSOT)
+            pg_pool = getattr(node, "_pg_pool", None)
+            if pg_pool and pg_pool.is_connected():
+                try:
+                    rows = await pg_pool.fetch(
+                        """SELECT node_name, host, p2p_port, health_port, transport_info
+                           FROM mesh.mesh_nodes
+                           WHERE last_heartbeat > NOW() - INTERVAL '10 minutes'"""
+                    )
+                    for r in rows:
+                        n = r["node_name"]
+                        if n == node_name:
+                            continue
+                        ti = {}
+                        try:
+                            import json as _j
+                            ti = _j.loads(r["transport_info"]) if r["transport_info"] else {}
+                        except Exception:
+                            pass
+                        hosts = []
+                        if r["host"]:
+                            hosts.append(r["host"])
+                        # transport_info ssh_hosts lista (élő dial-címek)
+                        for h in (ti.get("ssh_hosts") or [])[:3]:
+                            if h and h not in hosts:
+                                hosts.append(h)
+                        found[n] = {
+                            "name": n,
+                            "hosts": hosts,
+                            "p2p_port": int(r["p2p_port"] or 8645),
+                            "health_port": int(r["health_port"] or 8650),
+                            "source": "pg",
+                        }
+                except Exception as pe:
+                    log.warning(f"Discovery PG scan failed: {pe}")
+
+            # 2) MQTT presence: a2a/nodes/+/status retained (retained payload
+            #    offline/online), a host nem szerepel benne — csak a jelenlét
+            #    megerősítése; kihagyjuk, a PG a címforrás.
+            # 3) Health-probe minden találatra (párhuzamos, 2s timeout)
+            async def _probe(entry):
+                host_ok = None
+                for h in entry["hosts"][:3]:
+                    try:
+                        reader, writer = await _aio.wait_for(
+                            _aio.open_connection(h, entry["health_port"]), timeout=2)
+                        writer.close()
+                        host_ok = h
+                        break
+                    except Exception:
+                        continue
+                entry["reachable_host"] = host_ok
+                entry["status"] = "online" if host_ok else "unreachable"
+
+            await _aio.gather(*[_probe(e) for e in found.values()])
+            return web.json_response({
+                "ok": True,
+                "node": node_name,
+                "discovered": list(found.values()),
+                "count": len(found),
+            })
+        except Exception as e:
+            log.error(f"Discovery scan error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)

@@ -514,6 +514,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         app.router.add_get("/api/config/transports", self._api_config_transports_get)
         app.router.add_post("/api/config/transports/test", self._api_config_transport_test)
         app.router.add_post("/api/config/transports", self._api_config_transport_set)
+        # ── Auto-discovery (v0.48.3) ──
+        app.router.add_post("/api/config/discovery/scan", self._api_discovery_scan)
         # Alert rules
         app.router.add_get("/api/alerts", self._api_alerts_status)
         app.router.add_get("/api/alerts/delegation", self._api_alerts_delegation)

@@ -649,8 +649,15 @@ class AutoUpdater:
                 return True  # Never reached, but for type checker
 
             else:
-                logger.error(f"Unsupported platform: {system}")
-                return False
+                # HAOS konténer / egyéb: nincs systemd — önmagát újraindító
+                # watchdog-minta (a HAOS keepalive loop / watchdog cronnal
+                # együttműködve). A folyamat elengedett állapotban kilép,
+                # a külső watchdog az új kóddal indítja újra.
+                logger.warning(f"No service manager on {system} — exiting for external watchdog restart")
+                # Kis delay, hogy a log kiíródjon és a git-checkout lezáruljon
+                await asyncio.sleep(3)
+                os._exit(75)  # EX_TEMPFAIL — watchdog jelzés
+                return True  # Never reached
 
         except Exception as e:
             logger.error(f"Restart failed: {e}")

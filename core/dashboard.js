@@ -8577,6 +8577,54 @@ function saveAutoUpdateSetting() {
   });
 }
 
+// ── Auto-discovery (v0.48.3): node-ok felismerése a Settings panelen ──
+function runDiscoveryScan() {
+  var box = document.getElementById("discoveryResults");
+  box.textContent = "🔍 Keresés fut... (PG registry + health-probe)";
+  fetch("/api/config/discovery/scan", {
+    method: "POST",
+    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: "{}"
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.error) {
+      box.innerHTML = "<span style='color:var(--danger)'>❌ " + escHtml(d.error) + "</span>";
+      return;
+    }
+    var nodes = d.discovered || [];
+    if (nodes.length === 0) {
+      box.innerHTML = "⚪ Nem találtam node-okat (PG registry üres vagy nincs friss heartbeat)";
+      return;
+    }
+    var h = "Talált node-ok: <b>" + nodes.length + "</b><br>";
+    nodes.forEach(function(n) {
+      var icon = n.status === "online" ? "🟢" : "🟠";
+      h += "<div style='display:flex;align-items:center;gap:6px;margin-top:4px'>" + icon +
+        " <b>" + escHtml(n.name) + "</b>" +
+        " <span style='color:var(--text3)'>" + escHtml(n.reachable_host || n.hosts.join(", ") + ":" + n.p2p_port) + "</span>" +
+        " <button class='btn btn-sm' style='padding:2px 8px;font-size:10px' onclick=\"applyDiscovery('" + escHtml(n.name) + "','" + escHtml(n.reachable_host || (n.hosts[0] || "")) + "'," + n.p2p_port + ")\">→ SSH peer</button>" +
+        "</div>";
+    });
+    box.innerHTML = h;
+  })
+  .catch(function(e) {
+    box.innerHTML = "<span style='color:var(--danger)'>❌ Hiba: " + escHtml(e.message) + "</span>";
+  });
+}
+
+// Talált node behúzása az SSH-tunnel peers közé (a saveTransport ssh_tunnel majd menti)
+function applyDiscovery(name, host, p2pPort) {
+  // Meglévő peers listájának kiegészítése a beállításokban — egyszerűsített:
+  // az SSH-tunnel kártya peers mezőjébe írjuk, Mentés a saveTransport('ssh_tunnel')
+  var peersEl = document.getElementById("tsSshPeers");
+  if (!peersEl) return;
+  var note = document.createElement("div");
+  note.style.cssText = "margin-top:4px;color:var(--info)";
+  note.textContent = "➕ " + name + " → " + host + ":" + p2pPort + " (SSH peer javaslat — mentés: SSH-kártya 💾)";
+  peersEl.appendChild(note);
+}
+
 // ── Transport kézi beállítások (v0.48.3) ──────────────────────────────
 function loadTransportSettings() {
   fetch("/api/config/transports", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
