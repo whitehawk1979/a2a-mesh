@@ -8538,8 +8538,42 @@ function loadSharedConfig() {
       // Monitoring
       if (cfg["monitoring.dedup_cache_threshold"]) document.getElementById("cfgMonDedupThreshold").value = cfg["monitoring.dedup_cache_threshold"].value;
       if (cfg["monitoring.dedup_cleanup_interval"]) document.getElementById("cfgMonDedupCleanup").value = cfg["monitoring.dedup_cleanup_interval"].value;
+      // Auto-update (v0.48.2)
+      if (cfg["auto_update.enabled"]) document.getElementById("cfgAutoUpdateEnabled").checked = cfg["auto_update.enabled"].value;
+      if (cfg["auto_update.apply_automatically"]) document.getElementById("cfgAutoUpdateApply").checked = cfg["auto_update.apply_automatically"].value;
+      if (cfg["auto_update.check_interval"]) document.getElementById("cfgAutoUpdateInterval").value = cfg["auto_update.check_interval"].value;
     })
     .catch(function(e) { console.error("Shared config load error:", e); });
+}
+
+// ── Auto-update settings mentése (v0.48.2) ──
+function saveAutoUpdateSetting() {
+  var st = document.getElementById("autoUpdateStatus");
+  st.textContent = "💾 Mentés...";
+  var body = {
+    "auto_update.enabled": document.getElementById("cfgAutoUpdateEnabled").checked,
+    "auto_update.apply_automatically": document.getElementById("cfgAutoUpdateApply").checked,
+    "auto_update.check_interval": parseInt(document.getElementById("cfgAutoUpdateInterval").value) || 300
+  };
+  fetch("/api/config/shared", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify(body)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.accepted && Object.keys(d.accepted).length > 0) {
+      st.innerHTML = "✅ Mentve — a Szinkronizálás gombbal alkalmazható a node-okon";
+      st.style.color = "var(--success)";
+    } else {
+      st.innerHTML = "❌ " + JSON.stringify(d.rejected || {});
+      st.style.color = "var(--danger)";
+    }
+  })
+  .catch(function(e) {
+    st.innerHTML = "❌ Hiba: " + e.message;
+    st.style.color = "var(--danger)";
+  });
 }
 
 // ── Config Sync ──

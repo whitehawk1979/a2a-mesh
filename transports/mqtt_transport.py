@@ -10,6 +10,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 
 import paho.mqtt.client as mqtt
@@ -60,6 +61,7 @@ class MQTTTransport(TransportAdapter):
         # SSH key sync handler (set by node.py)
         self._ssh_key_handler = None
         self._endpoint_handler = None
+        self._version_handler = None
 
         # User-change notify handler (set by node.py; calls AuthManager._sync_from_pg)
         self._users_changed_handler = None
@@ -170,6 +172,18 @@ class MQTTTransport(TransportAdapter):
             except Exception as e:
                 log.warning(f"[{self.name}] endpoints subscribe failed: {e}")
 
+            # ── Version sync (v0.48.2): a2a/version/{node} retained ──
+            # Minden node publikálja a futó verzióját + update-elérhetőséget +
+            # auto-update flaget. A dashboard/monitor ebből látja a version-skew-t,
+            # az agentek pedig a a2a/update/latest topicról olvashatják, hogy
+            # van-e új release — verzió-eltérés elhárítása céljából.
+            try:
+                self._client.subscribe("a2a/version/+", qos=1)
+                self._client.subscribe("a2a/update/latest", qos=1)
+                log.info(f"[{self.name}] Subscribed to version topics: a2a/version/+ + a2a/update/latest")
+            except Exception as e:
+                log.warning(f"[{self.name}] version topic subscribe failed: {e}")
+
             # User sync — admin/owner modositas utan a tobbi node azonnal
             # lehuzzja a PG-friss user-listat (pendingus + jogosultsag valtozasok)
             try:
@@ -227,6 +241,28 @@ class MQTTTransport(TransportAdapter):
                         self._endpoint_handler(node_name, info)
                     except Exception as e:
                         log.warning(f"[{self.name}] endpoint handler failed: {e}")
+                return
+
+            # ── Version sync (v0.48.2): a2a/version/{node} (retained) ──
+            elif len(parts) >= 3 and parts[1] == 'version':
+                node_name = parts[2]
+                if self._version_handler:
+                    try:
+                        info = json.loads(payload)
+                        self._version_handler(node_name, info)
+                    except Exception as e:
+                        log.warning(f"[{self.name}] version handler failed: {e}")
+                # Log mindenképp — látható a version-skew a node logban
+                log.info(f"[{self.name}] version: {node_name} → {payload[:120]}")
+                return
+
+            # ── Latest release: a2a/update/latest (retained) ──
+            elif topic == "a2a/update/latest":
+                try:
+                    info = json.loads(payload)
+                    log.info(f"[{self.name}] 📢 Új release elérhető: {info.get('tag')} ({info.get('url')})")
+                except Exception:
+                    log.info(f"[{self.name}] 📢 Update info: {payload[:120]}")
                 return
 
             # ── User sync notify: a2a/sys/users_changed ──
@@ -365,6 +401,16 @@ class MQTTTransport(TransportAdapter):
         """
         self._endpoint_handler = handler
 
+    def set_version_handler(self, handler):
+        """Register callback for incoming version announcements (v0.48.2).
+
+        Topic a2a/version/{node} (retained): handler(node_name, info_dict),
+        info_dict = {version, update_available, auto_update, update_method, ts}.
+        A node.py-ban pl. peer-version cache frissítésére használandó
+        (version-skew detektálás a topology/nodes view-ban).
+        """
+        self._version_handler = handler
+
     def publish_endpoint(self, node_name: str, info: dict):
         """Publish this node's LIVE endpoint info to a2a/endpoints/{node} (retained).
 
@@ -381,6 +427,49 @@ class MQTTTransport(TransportAdapter):
             return True
         except Exception as e:
             log.warning(f"[{self.name}] endpoint publish failed: {e}")
+            return False
+
+    def publish_version(self, node_name: str, version: str, update_available: str = "",
+                        auto_update: bool = False, update_method: str = "git_pull"):
+        """Publish this node's version info to a2a/version/{node} (retained, v0.48.2).
+
+        Payload: {"version": "0.48.2", "update_available": "v0.49.0" | "",
+                  "auto_update": false, "update_method": "git_pull|manual"}
+        Consumers: dashboard topology/nodes view (version-skew vizualizáció),
+        agent-ek (a2a/update/latest szubszkripcióval észlelik az új release-t).
+        """
+        if not self._connected or not self._client:
+            return False
+        try:
+            payload = json.dumps({
+                "version": version,
+                "update_available": update_available or "",
+                "auto_update": bool(auto_update),
+                "update_method": update_method,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            }, ensure_ascii=True)
+            self._client.publish(f"a2a/version/{node_name}", payload, qos=1, retain=True)
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] version publish failed: {e}")
+            return False
+
+    def publish_latest_release(self, tag: str, url: str = ""):
+        """Publish the latest known release to a2a/update/latest (retained).
+
+        Bármelyik node publikálhatja (aki legelőször észleli) — a többiek
+        ebből látják, hogy van-e frissítés, Gitea API hívás nélkül is.
+        """
+        if not self._connected or not self._client:
+            return False
+        try:
+            payload = json.dumps({"tag": tag, "url": url or "",
+                                  "ts": datetime.now(timezone.utc).isoformat()},
+                                 ensure_ascii=True)
+            self._client.publish("a2a/update/latest", payload, qos=1, retain=True)
+            return True
+        except Exception as e:
+            log.warning(f"[{self.name}] latest release publish failed: {e}")
             return False
 
     def set_users_changed_handler(self, handler):

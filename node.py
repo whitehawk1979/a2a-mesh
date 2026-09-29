@@ -904,6 +904,17 @@ class MeshNode:
                 log.info("Node: MQTT live endpoint sync handler registered")
             except Exception as e:
                 log.warning(f"Node: MQTT endpoint handler setup failed: {e}")
+        # ── MQTT VERSION SYNC (v0.48.2) ────────────────────────────────────
+        # a2a/version/{node} retained: peer node-ok futó verzióját cache-eljük,
+        # a topology/nodes view a version-skew-t ebből mutatja.
+        if self._mqtt_transport is not None:
+            try:
+                self._peer_versions = getattr(self, '_peer_versions', {})
+                self._mqtt_transport.set_version_handler(self._on_mqtt_version_message)
+                log.info("Node: MQTT version sync handler registered")
+            except Exception as e:
+                log.warning(f"Node: MQTT version handler setup failed: {e}")
+
         # MQTT user-sync notify: masik node approval/role valtozasara azonnal
         # huzzuk le a friss user-listat PG-bol (SQLite mirror frissen tartasa)
         if self._mqtt_transport is not None:
@@ -1092,7 +1103,12 @@ class MeshNode:
         auto_update_cfg = getattr(self.config, 'auto_update', None)
         if auto_update_cfg and getattr(auto_update_cfg, 'enabled', False):
             check_interval = getattr(auto_update_cfg, 'check_interval', 300)
-            self._tasks.append(asyncio.create_task(self._auto_update_loop(check_interval)))
+            _au_task = asyncio.create_task(self._auto_update_loop(check_interval))
+            try:
+                _au_task.set_name("auto-update-loop")
+            except Exception:
+                pass
+            self._tasks.append(_au_task)
 
         # Auto-update state (shared with health endpoint)
         self._updater_state = {"state": "idle", "last_check": None, "last_update": None, "current_version": self._resolved_version}
@@ -5133,6 +5149,22 @@ echo "Status: ok"
                 except Exception as e:
                     log.debug(f"MQTT endpoint publish skipped: {e}")
 
+                # ── MQTT VERSION PUBLISH (v0.48.2) ────────────────────────────
+                # Retained a2a/version/{node}: futó verzió + update-elérhetőség +
+                # auto-update flag. A dashboardok/agentek verzió-eltérést látnak.
+                try:
+                    if self._mqtt_transport is not None and self._mqtt_transport._connected:
+                        auto_cfg = getattr(self.config, 'auto_update', None)
+                        self._mqtt_transport.publish_version(
+                            self.node_name,
+                            getattr(self, '_resolved_version', 'unknown'),
+                            update_available=getattr(self, '_updater_state', {}).get("available_tag", ""),
+                            auto_update=bool(auto_cfg and getattr(auto_cfg, 'apply_automatically', False)),
+                            update_method=("git_pull" if auto_cfg else "manual"),
+                        )
+                except Exception as e:
+                    log.debug(f"MQTT version publish skipped: {e}")
+
                 # Cleanup expired dedup cache entries (prevents unbounded growth)
                 if hasattr(self.router, 'dedup') and self.router.dedup:
                     removed = self.router.dedup.cleanup()
@@ -5335,6 +5367,34 @@ echo "Status: ok"
             log.debug(f"MQTT endpoint cached: {node_name} ssh_hosts={info.get('ssh_hosts')}")
         except Exception as e:
             log.warning(f"MQTT endpoint handler error for {node_name}: {e}")
+
+    def _on_mqtt_version_message(self, node_name: str, info: dict) -> None:
+        """Version announcement from a peer via a2a/version/{node} (v0.48.2).
+
+        Deterministic consumer: cache-eljük a peer futó verzióját + auto-update
+        állapotát — a topology/nodes API ebből szolgálja ki a version-skew
+        nézetet. Saját echo (own retained topic) skip.
+        """
+        try:
+            if not info or not isinstance(info, dict):
+                return
+            if str(node_name).lower() == str(self.node_name).lower():
+                return  # own announcement echoed back by the broker
+            self._peer_versions = getattr(self, '_peer_versions', {})
+            prev = self._peer_versions.get(node_name)
+            self._peer_versions[node_name] = {
+                "version": info.get("version", "?"),
+                "update_available": info.get("update_available", ""),
+                "auto_update": bool(info.get("auto_update", False)),
+                "update_method": info.get("update_method", "manual"),
+                "ts": info.get("ts", ""),
+            }
+            # Verzió-változás logolása (skew észlelhető a node logban)
+            if prev and prev.get("version") != info.get("version"):
+                log.info(f"📢 Peer {node_name} version change: "
+                         f"{prev.get('version')} → {info.get('version')}")
+        except Exception as e:
+            log.warning(f"MQTT version handler error for {node_name}: {e}")
 
     def _build_transport_info(self) -> dict:
         """Build the live transport address registry entry for THIS node.
@@ -6402,6 +6462,18 @@ echo "Status: ok"
                     self._updater_state["current_version"] = current
                     
                     if latest_tag:
+                        self._updater_state["available_tag"] = latest_tag
+                        # MQTT: jelzés a mesh felé, hogy van új release
+                        # (a2a/update/latest retained — minden node/agent látja)
+                        try:
+                            if self._mqtt_transport is not None and self._mqtt_transport._connected:
+                                self._mqtt_transport.publish_latest_release(
+                                    latest_tag,
+                                    url=f"http://192.168.1.100:3001/nova/a2a-mesh/releases/tag/{latest_tag}",
+                                )
+                                log.info(f"📢 MQTT: latest release publikálva: {latest_tag}")
+                        except Exception as mqtt_err:
+                            log.debug(f"MQTT latest release publish skipped: {mqtt_err}")
                         apply_auto = getattr(auto_update_cfg, 'apply_automatically', False)
                         if apply_auto:
                             log.info(f"🔄 Auto-update: {current} → {latest_tag.lstrip('v')}, applying...")

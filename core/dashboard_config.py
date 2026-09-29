@@ -3,6 +3,7 @@
 Stores non-node-specific settings in PG (mesh.mesh_shared_config).
 Nodes can pull and apply these on startup or on-demand via POST /api/config/sync.
 """
+import asyncio
 import json as _json
 import time as _time
 import logging
@@ -42,6 +43,7 @@ SYNCABLE_KEYS = {
     "heartbeat.timeout",
     "auto_update.enabled",
     "auto_update.check_interval",
+    "auto_update.apply_automatically",
 }
 
 
@@ -190,6 +192,33 @@ class ConfigSyncMixin:
                     elif key == "security.token_rotation_interval":
                         if hasattr(node, "message_auth"):
                             node.message_auth.rotation_interval = int(value)
+                        applied[key] = value
+                    elif key == "auto_update.enabled":
+                        # Auto-update loop indítása/leállítása élőben (v0.48.2)
+                        if hasattr(node, "config"):
+                            node.config.auto_update.enabled = bool(value)
+                        if bool(value) and not any(
+                            getattr(t, "get_name", lambda: "")() == "auto-update-loop"
+                            for t in getattr(node, "_tasks", [])
+                            if hasattr(t, "get_name")
+                        ):
+                            try:
+                                interval = int(getattr(node.config.auto_update, "check_interval", 300))
+                                t = asyncio.create_task(node._auto_update_loop(interval))
+                                t.set_name("auto-update-loop")
+                                node._tasks.append(t)
+                                log.info("🔄 Auto-update loop ELINDÍTVA config-sync által")
+                            except Exception as ae:
+                                log.warning(f"Auto-update loop start failed: {ae}")
+                        applied[key] = value
+                    elif key == "auto_update.check_interval":
+                        if hasattr(node, "config"):
+                            node.config.auto_update.check_interval = int(value)
+                        applied[key] = value
+                    elif key == "auto_update.apply_automatically":
+                        # A valódi frissítés-kapcsoló: élőben be/ki (v0.48.2)
+                        if hasattr(node, "config"):
+                            node.config.auto_update.apply_automatically = bool(value)
                         applied[key] = value
                     else:
                         skipped[key] = "no local handler for this key"
