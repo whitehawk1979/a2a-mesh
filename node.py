@@ -914,6 +914,15 @@ class MeshNode:
                 log.info("Node: MQTT version sync handler registered")
             except Exception as e:
                 log.warning(f"Node: MQTT version handler setup failed: {e}")
+        # ── MQTT UPDATE TRIGGER (v0.48.13) ─────────────────────────────────
+        # a2a/update/latest: más node publikálta az új release-t → azonnali
+        # check+apply (nem vár a 300s poll-ra). Dedup a transportban (ts).
+        if self._mqtt_transport is not None:
+            try:
+                self._mqtt_transport.set_update_trigger_handler(self._on_mqtt_update_trigger)
+                log.info("Node: MQTT update-trigger handler registered (instant update on new release)")
+            except Exception as e:
+                log.warning(f"Node: MQTT update-trigger setup failed: {e}")
 
         # MQTT user-sync notify: masik node approval/role valtozasara azonnal
         # huzzuk le a friss user-listat PG-bol (SQLite mirror frissen tartasa)
@@ -6435,6 +6444,84 @@ echo "Status: ok"
             except Exception as e:
                 log.warning(f"Memory maintenance error: {e}")
 
+    async def _run_update_check(self, trigger: str = "poll"):
+        """Egységes determinisztikus update-check (poll és MQTT-trigger is ezt futtatja).
+
+        Returns: True ha update elindult/futott, False ha nincs új verzió / hiba.
+        """
+        auto_update_cfg = getattr(self.config, 'auto_update', None)
+        if not auto_update_cfg or not getattr(auto_update_cfg, 'enabled', False):
+            return False
+        # Ne fusson párhuzamosan két update (poll + trigger verseny)
+        if self._updater_state.get("state") in ("updating", "checking"):
+            log.info(f"🔄 Update-check skipped ({trigger}): már fut ({self._updater_state.get('state')})")
+            return False
+
+        from core.auto_updater import AutoUpdater
+        updater = AutoUpdater(node=self)
+        try:
+            self._updater_state["state"] = "checking"
+            self._updater_state["last_check"] = time.time()
+
+            latest_tag = await updater.check_for_update()
+            current = updater.current_version
+            self._updater_state["current_version"] = current
+
+            if latest_tag:
+                self._updater_state["available_tag"] = latest_tag
+                # MQTT: jelzés a mesh felé, hogy van új release
+                # (a2a/update/latest retained — minden node/agent látja)
+                try:
+                    if self._mqtt_transport is not None and self._mqtt_transport._connected:
+                        self._mqtt_transport.publish_latest_release(
+                            latest_tag,
+                            url=f"http://192.168.1.100:3001/nova/a2a-mesh/releases/tag/{latest_tag}",
+                        )
+                        log.info(f"📢 MQTT: latest release publikálva: {latest_tag}")
+                except Exception as mqtt_err:
+                    log.debug(f"MQTT latest release publish skipped: {mqtt_err}")
+                apply_auto = getattr(auto_update_cfg, 'apply_automatically', False)
+                if apply_auto:
+                    log.info(f"🔄 Auto-update ({trigger}): {current} → {latest_tag.lstrip('v')}, applying...")
+                    self._updater_state["state"] = "updating"
+                    result = await updater.apply_update(latest_tag)
+                    if result.success:
+                        log.info(f"✅ Auto-update successful: {result.previous_version} → {result.new_version}")
+                        self._updater_state["state"] = "updated"
+                        self._updater_state["last_update"] = time.time()
+                        return True
+                    else:
+                        log.error(f"❌ Auto-update failed ({trigger}): {result.error}")
+                        self._updater_state["state"] = "failed"
+                        return False
+                else:
+                    log.info(f"🆕 Update available: {current} → {latest_tag.lstrip('v')} (auto-apply disabled)")
+                    self._updater_state["state"] = "update_available"
+            else:
+                self._updater_state["state"] = "idle"
+            return False
+        finally:
+            await updater.close()
+
+    def _on_mqtt_update_trigger(self, info: dict) -> None:
+        """a2a/update/latest → azonnali update-check (v0.48.13).
+
+        A paho callback szálon hívódik — a check+apply-t taskban indítjuk,
+        hogy ne blokkolja az MQTT hálózati ciklust. A verzió-összehasonlítás
+        a _run_update_check-ben determinisztikusan történik.
+        """
+        try:
+            if not info or not isinstance(info, dict):
+                return
+            auto_update_cfg = getattr(self.config, 'auto_update', None)
+            if not auto_update_cfg or not getattr(auto_update_cfg, 'enabled', False):
+                return
+            log.info(f"⚡ MQTT update-trigger: {info.get('tag')} (azonnali check)")
+            task = asyncio.create_task(self._run_update_check(trigger="mqtt"))
+            task.set_name("mqtt-update-trigger")
+        except Exception as e:
+            log.warning(f"MQTT update-trigger scheduling failed: {e}")
+
     async def _auto_update_loop(self, check_interval: int = 300):
         """Periodically check Gitea for new versions and auto-update if configured."""
         log.info(f"🔄 Auto-update loop starting (interval={check_interval}s, enabled=True)")
@@ -6450,49 +6537,8 @@ echo "Status: ok"
                 if not auto_update_cfg or not getattr(auto_update_cfg, 'enabled', False):
                     break
 
-                from core.auto_updater import AutoUpdater
-                updater = AutoUpdater(node=self)
-                try:
-                    # Update state: checking
-                    self._updater_state["state"] = "checking"
-                    self._updater_state["last_check"] = time.time()
-                    
-                    latest_tag = await updater.check_for_update()
-                    current = updater.current_version
-                    self._updater_state["current_version"] = current
-                    
-                    if latest_tag:
-                        self._updater_state["available_tag"] = latest_tag
-                        # MQTT: jelzés a mesh felé, hogy van új release
-                        # (a2a/update/latest retained — minden node/agent látja)
-                        try:
-                            if self._mqtt_transport is not None and self._mqtt_transport._connected:
-                                self._mqtt_transport.publish_latest_release(
-                                    latest_tag,
-                                    url=f"http://192.168.1.100:3001/nova/a2a-mesh/releases/tag/{latest_tag}",
-                                )
-                                log.info(f"📢 MQTT: latest release publikálva: {latest_tag}")
-                        except Exception as mqtt_err:
-                            log.debug(f"MQTT latest release publish skipped: {mqtt_err}")
-                        apply_auto = getattr(auto_update_cfg, 'apply_automatically', False)
-                        if apply_auto:
-                            log.info(f"🔄 Auto-update: {current} → {latest_tag.lstrip('v')}, applying...")
-                            self._updater_state["state"] = "updating"
-                            result = await updater.apply_update(latest_tag)
-                            if result.success:
-                                log.info(f"✅ Auto-update successful: {result.previous_version} → {result.new_version}")
-                                self._updater_state["state"] = "updated"
-                                self._updater_state["last_update"] = time.time()
-                            else:
-                                log.error(f"❌ Auto-update failed: {result.error}")
-                                self._updater_state["state"] = "failed"
-                        else:
-                            log.info(f"🆕 Update available: {current} → {latest_tag.lstrip('v')} (auto-apply disabled)")
-                            self._updater_state["state"] = "update_available"
-                    else:
-                        self._updater_state["state"] = "idle"
-                finally:
-                    await updater.close()
+                # v0.48.13: közös determinisztikus check (poll-triggerrel)
+                await self._run_update_check(trigger="poll")
             except asyncio.CancelledError:
                 break
             except Exception as e:
