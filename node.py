@@ -1043,6 +1043,9 @@ class MeshNode:
 
         # Start background loops
         self._running = True
+        # v0.48.13: a fő event loop referenciája — a paho MQTT callback szálból
+        # run_coroutine_threadsafe-tel tudunk csak taskot ütemezni (trigger).
+        self._loop = asyncio.get_running_loop()
         self._tasks.append(asyncio.create_task(self._receive_loop()))
         self._tasks.append(asyncio.create_task(self._heartbeat_loop()))
         self._tasks.append(asyncio.create_task(self._election_monitor_loop()))
@@ -6506,9 +6509,9 @@ echo "Status: ok"
     def _on_mqtt_update_trigger(self, info: dict) -> None:
         """a2a/update/latest → azonnali update-check (v0.48.13).
 
-        A paho callback szálon hívódik — a check+apply-t taskban indítjuk,
-        hogy ne blokkolja az MQTT hálózati ciklust. A verzió-összehasonlítás
-        a _run_update_check-ben determinisztikusan történik.
+        A paho callback KÜLÖN SZÁLBAN hívódik (nincs event loop) — ezért a
+        coroutine-t a fő loopra ütemezzük run_coroutine_threadsafe-tel.
+        A verzió-összehasonlítás a _run_update_check-ben determinisztikus.
         """
         try:
             if not info or not isinstance(info, dict):
@@ -6517,8 +6520,13 @@ echo "Status: ok"
             if not auto_update_cfg or not getattr(auto_update_cfg, 'enabled', False):
                 return
             log.info(f"⚡ MQTT update-trigger: {info.get('tag')} (azonnali check)")
-            task = asyncio.create_task(self._run_update_check(trigger="mqtt"))
-            task.set_name("mqtt-update-trigger")
+            loop = getattr(self, '_loop', None)
+            if loop is not None and loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self._run_update_check(trigger="mqtt"), loop
+                )
+            else:
+                log.warning("MQTT update-trigger: fő event loop nem elérhető — a 300s poll majd elvégzi")
         except Exception as e:
             log.warning(f"MQTT update-trigger scheduling failed: {e}")
 
