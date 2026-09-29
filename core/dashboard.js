@@ -11,6 +11,15 @@ channelMessages["general"] = [];
 var openChats = ["general"];  // track which chats are open as tabs
 
 // ─── Open Chats Bar — horizontal tabs above send area ───
+// v0.48.8: user-csatorna (user:xyz) online-státusza a contacts-ból jön
+// (knownChatUserOnline), self-DM mindig online (önmagunk vagyunk).
+function _userChannelOnline(ch) {
+  if (String(ch).indexOf("user:") !== 0) return null;  // nem user-csatorna
+  var uname = ch.substring(5);
+  var me = localStorage.getItem("a2a_username") || localStorage.getItem("mesh_username") || "";
+  if (uname === me) return true;  // saját magunk — mindig online
+  return !!knownChatUserOnline[uname];  // contacts-ból származó online flag
+}
 function renderOpenChatsBar() {
   var bar = document.getElementById("openChatsBar");
   if (!bar) return;
@@ -18,13 +27,21 @@ function renderOpenChatsBar() {
   openChats.forEach(function(ch) {
     var isGeneral = (ch === "general");
     var isActive = (ch === currentChannel);
-    var status = knownAgents[ch] || (isGeneral ? "online" : "offline");
+    var uOnline = _userChannelOnline(ch);
+    var status = (uOnline === null) ? (knownAgents[ch] || (isGeneral ? "online" : "offline")) : (uOnline ? "online" : "offline");
     var dot = isGeneral ? "" : (status === "online") ? "🟢 " : (status === "available" || status === "connected") ? "🟡 " : "🔴 ";
     var tab = document.createElement("div");
     tab.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0;" +
       (isActive ? "background:var(--primary);color:#fff;font-weight:600;" : "background:var(--surface2);color:var(--text);border:1px solid var(--border);");
     var label = document.createElement("span");
-    label.textContent = (isGeneral ? "💬 " : dot + "👤 ") + (isGeneral ? "Közös" : ch);
+    // v0.48.8: user:-tabon a display-név (nem a nyers user:xyz), self-DM "(te)"
+    var tabLabel = ch;
+    if (String(ch).indexOf("user:") === 0) {
+      var _tu = ch.substring(5);
+      var _meU = localStorage.getItem("a2a_username") || "";
+      tabLabel = (knownChatUsers[_tu] || _tu) + (_tu === _meU ? " (te)" : "");
+    }
+    label.textContent = (isGeneral ? "💬 " : dot + "👤 ") + (isGeneral ? "Közös" : tabLabel);
     label.onclick = function() { switchChannel(ch); };
     tab.appendChild(label);
     // Close button (not for general)
@@ -208,14 +225,23 @@ function switchChannel(channel) {
       }
     }
     // Show DM agent indicator with status
-    var status = knownAgents[channel] || "offline";
+    // v0.48.8: user-csatorna státusza a contacts online-flagjéből (self-DM mindig online)
+    var uOnlineDM = _userChannelOnline(channel);
+    var status = (uOnlineDM === null) ? (knownAgents[channel] || "offline") : (uOnlineDM ? "online" : "offline");
     var dot = (status === "online") ? "🟢" : (status === "available" || status === "connected") ? "🟡" : "🔴";
     var ind = document.getElementById("dmAgentIndicator");
     var indDot = document.getElementById("dmAgentDot");
     var indName = document.getElementById("dmAgentName");
     if (ind && indDot && indName) {
+      // v0.48.8: indikátor címkéje user-DM-nél a display-név, ne a nyers user:xyz
+      var indLabel = channel;
+      if (String(channel).indexOf("user:") === 0) {
+        var _iu = channel.substring(5);
+        var _ime = localStorage.getItem("a2a_username") || "";
+        indLabel = (knownChatUsers[_iu] || _iu) + (_iu === _ime ? " (te)" : "");
+      }
       indDot.textContent = dot;
-      indName.textContent = channel + (status === "online" ? " (aktív)" : status === "available" || status === "connected" ? " (elérhető)" : " (offline)");
+      indName.textContent = indLabel + (status === "online" ? " (aktív)" : status === "available" || status === "connected" ? " (elérhető)" : " (offline)");
       ind.style.display = "flex";
     }
   }
@@ -531,6 +557,7 @@ function addMessage(msg, scroll) {
 
 var knownAgents = {};  // agent name -> status info for DM channel status dots
 var knownChatUsers = {};  // username -> display_name (bejelentkezett dashboard userek)
+var knownChatUserOnline = {};  // username -> online flag (contacts-pollból, v0.48.8)
 
 function addDMChannel(agentName, status, isMcpEndDevice) {
   // Track agent status + MCP end-device flag
@@ -613,9 +640,14 @@ function loadChatUserContacts() {
     .then(function(data) {
       (data.contacts || []).forEach(function(c) {
         if (c.is_user && c.agent && c.agent.indexOf("user:") === 0) {
-          addChatUserChannel(c.agent.substring(5), c.display_name || c.agent.substring(5), c.is_self, c.online);
+          var uname = c.agent.substring(5);
+          // v0.48.8: online-flag cache-elése (tab + indikátor rendereléshez)
+          knownChatUserOnline[uname] = !!c.online;
+          addChatUserChannel(uname, c.display_name || uname, c.is_self, c.online);
         }
       });
+      // Státusz-változás után a tab-ok újrarajzolása (zöld/piros pötty frissül)
+      if (typeof renderOpenChatsBar === "function") renderOpenChatsBar();
     }).catch(function() {});
 }
 
