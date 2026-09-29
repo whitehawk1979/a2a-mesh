@@ -760,6 +760,27 @@ class AutoUpdater:
                 else:
                     service = "a2a-mesh"
 
+                # v0.48.12: HAOS/Docker konténer — nincs systemd/sudo.
+                # Ilyenkor a futó mesh-processet kilőjük; a konténer
+                # keepalive watchdogja (a2a-mesh-start.sh / keepalive loop)
+                # néhány másodpercen belül újraindítja az ÚJ kóddal.
+                have_systemctl = shutil.which("systemctl") is not None
+                if not have_systemctl:
+                    logger.info(
+                        "No systemctl (container?) — killing mesh process; "
+                        "keepalive watchdog will restart it"
+                    )
+                    try:
+                        killed = subprocess.run(
+                            ["pkill", "-f", "cli.py start"],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        # pkill 0 = talált és kilőtt; 1 = nem futott process (szintén OK)
+                        return killed.returncode in (0, 1)
+                    except Exception as e:
+                        logger.error(f"pkill restart failed: {e}")
+                        return False
+
                 logger.info(f"Restarting systemd service: {service}")
                 result = subprocess.run(
                     ["systemctl", "--user", "restart", service],
