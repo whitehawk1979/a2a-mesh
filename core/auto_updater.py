@@ -391,16 +391,27 @@ class AutoUpdater:
 
         logger.info(f"Creating backup: {backup_path}")
 
-        # Copy everything except .git, __pycache__, .venv, backups, local_store
-        shutil.copytree(
-            self.mesh_dir,
-            backup_path,
-            ignore=shutil.ignore_patterns(
-                ".git", "__pycache__", ".venv", "backups",
-                "local_store*", "mesh.db", "mesh_store.db",
-                "*.pyc", ".pytest_cache", "incoming_files"
-            ),
-        )
+        # Copy everything except .git, __pycache__, .venv, backups, local_store.
+        # NOTE: symlinks=dangling-ok — repo root contains node-specific symlinks
+        # (e.g. tor/HAOS: a2a-mesh -> /config/a2a-mesh) that are BROKEN on other
+        # nodes; copytree follows them and dies with FileNotFoundError. Ignore
+        # broken links instead of failing the whole backup.
+        try:
+            shutil.copytree(
+                self.mesh_dir,
+                backup_path,
+                ignore=shutil.ignore_patterns(
+                    ".git", "__pycache__", ".venv", "backups",
+                    "local_store*", "mesh.db", "mesh_store.db",
+                    "*.pyc", ".pytest_cache", "incoming_files"
+                ),
+                symlinks=True,
+            )
+        except Exception as copy_err:
+            # Partial backup dir is useless (no .update_info.json) — clean it up
+            # so failed retries don't accumulate gigabytes in backups/
+            shutil.rmtree(backup_path, ignore_errors=True)
+            raise RuntimeError(f"copytree failed: {copy_err}") from copy_err
 
         # Save version info for rollback
         version_info = {
@@ -431,6 +442,25 @@ class AutoUpdater:
             old = backups.pop(0)
             logger.info(f"Removing old backup: {old}")
             shutil.rmtree(old, ignore_errors=True)
+
+    def _purge_partial_backups(self):
+        """Remove incomplete backup dirs (missing .update_info.json).
+
+        A failed _create_backup() can leave a partial copytree behind (the
+        dir exists but .update_info.json was never written). These are
+        unusable for rollback and accumulate GBs over repeated retries.
+        """
+        if not self.backup_dir.exists():
+            return
+        purged = 0
+        for d in self.backup_dir.iterdir():
+            if d.is_dir() and d.name.startswith("a2a_mesh_v"):
+                if not (d / ".update_info.json").exists():
+                    logger.info(f"Purging partial backup: {d.name}")
+                    shutil.rmtree(d, ignore_errors=True)
+                    purged += 1
+        if purged:
+            logger.info(f"Purged {purged} partial backup(s)")
 
     # ─── Update Process ───
 
@@ -494,6 +524,10 @@ class AutoUpdater:
             result.error = f"Backup failed: {e}"
             result.state = UpdateState.FAILED
             logger.error(f"❌ Backup failed: {e}")
+            # Purge partial backups (dirs without .update_info.json) — a failed
+            # backup step leaves an incomplete copytree; retention never runs
+            # because it only executes after a SUCCESSFUL backup.
+            self._purge_partial_backups()
             return result
 
         # Step 5: Git pull + checkout
