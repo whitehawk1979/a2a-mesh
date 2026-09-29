@@ -735,7 +735,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <!-- Delegations Modal -->
-<div class="file-modal-overlay" id="delegationsModal" style="display:none">
+<div class="file-modal-overlay" id="delegationsModal" style="display:none" onclick="if(event.target===this)closeDelegationsModal()">
   <div class="file-modal" style="width:960px;max-width:98vw;max-height:90vh;display:flex;flex-direction:column">
     <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
@@ -743,8 +743,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-sm" style="background:var(--success)" onclick="toggleNewTask()">➕ Új feladat</button>
         <button class="btn btn-sm" style="background:var(--primary)" onclick="addCardToBoard()">+ Kártya</button>
+        <button class="btn btn-sm" id="delAutoRefreshBtn" style="background:var(--surface2);color:var(--text)" title="Auto-frissítés kikapcsolása (5s)" onclick="toggleDelegationAutoRefresh(this)">⏸️ Auto</button>
         <button class="btn btn-sm" onclick="loadDelegations()">🔄</button>
-        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('delegationsModal').style.display='none'">✕</button>
+        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="closeDelegationsModal()">✕</button>
       </div>
     </div>
 
@@ -795,6 +796,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn btn-sm" style="background:var(--success)" onclick="createDelegation()">📤 Küldés</button>
+        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="cancelNewTaskForm()">✖ Mégse</button>
         <span id="delCreateStatus" style="font-size:13px;color:var(--text3)"></span>
       </div>
       <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">
@@ -898,7 +900,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="file-modal" style="width:700px;max-width:95vw;max-height:85vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="margin:0" id="taskDetailTitle">📋 Feladat részletei</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('taskDetailModal').style.display='none';var dm=document.getElementById('delegationsModal');if(dm)dm.style.display='flex';">✕</button>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="backToDelegations()">✕</button>
     </div>
     <div id="taskDetailContent">Betöltés...</div>
   </div>

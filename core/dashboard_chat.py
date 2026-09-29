@@ -957,7 +957,46 @@ async def handle_chat_messages(node, request, pool, user):
             # DM conversation between user and specific agent/user
             # v0.44.1: broadcast agent replies (username='broadcast') must also appear
             # in DM view with that agent, otherwise replies vanish on reload.
-            if before_id:
+            # v0.48.8: user↔user DM — a beszélgetés a KÉT résztvevő szemszögéből is
+            # lekérdezhető: az üzenet username=a küldő, de a címzett user
+            # a sender/recipient mezők alapján találja rá (user:x ↔ user:y).
+            is_user_peer = peer.startswith("user:")
+            # user↔user DM rekordstruktúra: a KÜLDŐ sorában
+            # username=zsolt, sender=zsolt, recipient='user:hajnalka'.
+            # A címzett (hajnalka) szemszögéből a partnerrel folytatott
+            # beszélgetés = amit ő küldött (recipient=peer) + amit a partner
+            # küldött neki (sender=partner_neve, recipient='user:'||ő_maga).
+            if is_user_peer:
+                partner = peer[5:]  # 'user:zsolt' → 'zsolt'
+                if before_id:
+                    rows = await pool.fetch(
+                        """SELECT id, message_uuid, username, sender, recipient, content,
+                                  msg_type, status, created_at, read_at
+                           FROM mesh.mesh_chat_messages
+                           WHERE (username = $1 AND recipient = $2 AND id < $3)
+                              OR (sender = $4 AND recipient = 'user:' || $1 AND id < $3)
+                           ORDER BY created_at DESC LIMIT $5""",
+                        username, peer, before_id, partner, limit
+                    )
+                else:
+                    rows = await pool.fetch(
+                        """SELECT id, message_uuid, username, sender, recipient, content,
+                                  msg_type, status, created_at, read_at
+                           FROM mesh.mesh_chat_messages
+                           WHERE (username = $1 AND recipient = $2)
+                              OR (sender = $3 AND recipient = 'user:' || $1)
+                           ORDER BY created_at DESC LIMIT $4""",
+                        username, peer, partner, limit
+                    )
+                # Total count for this conversation
+                total_row = await pool.fetchrow(
+                    """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
+                       WHERE (username = $1 AND recipient = $2)
+                          OR (sender = $3 AND recipient = 'user:' || $1)""",
+                    username, peer, partner
+                )
+            elif before_id:
+                # Agent-DM, régebbi üzenetek (scroll-up)
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
@@ -968,7 +1007,14 @@ async def handle_chat_messages(node, request, pool, user):
                        ORDER BY created_at DESC LIMIT $4""",
                     username, peer, before_id, limit
                 )
+                total_row = await pool.fetchrow(
+                    """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
+                       WHERE (username = $1 OR username = 'broadcast')
+                         AND (sender = $2 OR recipient = $2)""",
+                    username, peer
+                )
             else:
+                # Agent-DM, első betöltés
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
@@ -978,18 +1024,20 @@ async def handle_chat_messages(node, request, pool, user):
                        ORDER BY created_at DESC LIMIT $3""",
                     username, peer, limit
                 )
-            # Total count for this conversation
-            total_row = await pool.fetchrow(
-                """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                   WHERE (username = $1 OR username = 'broadcast')
-                     AND (sender = $2 OR recipient = $2)""",
-                username, peer
-            )
+                total_row = await pool.fetchrow(
+                    """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
+                       WHERE (username = $1 OR username = 'broadcast')
+                         AND (sender = $2 OR recipient = $2)""",
+                    username, peer
+                )
         else:
             # All messages for this user (general/broadcast channel)
             # v0.44.1: broadcast agent replies are stored with username='broadcast'
             # (see dashboard.py on_mesh_message persist) — include them so the shared
             # conversation survives a page reload, not just via live WS.
+            # v0.48.8: user↔user DM sorok NEM kerülnek a general listába —
+            # a recipient 'user:' prefixszel kezdődik (self-DM: user:<sajátnév>),
+            # ezek kizárólag a DM nézetben jelennek meg.
             if before_id:
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
@@ -997,6 +1045,7 @@ async def handle_chat_messages(node, request, pool, user):
                        FROM mesh.mesh_chat_messages
                        WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
                          AND id < $2
+                         AND NOT (recipient LIKE 'user:%')
                        ORDER BY created_at DESC LIMIT $3""",
                     username, before_id, limit
                 )
@@ -1006,12 +1055,14 @@ async def handle_chat_messages(node, request, pool, user):
                               msg_type, status, created_at, read_at
                        FROM mesh.mesh_chat_messages
                        WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
+                         AND NOT (recipient LIKE 'user:%')
                        ORDER BY created_at DESC LIMIT $2""",
                     username, limit
                 )
             total_row = await pool.fetchrow(
                 """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                   WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))""",
+                   WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
+                     AND NOT (recipient LIKE 'user:%')""",
                 username
             )
 
@@ -1138,12 +1189,27 @@ async def handle_chat_mark_read(node, request, pool, user):
     from_agent = data.get("from_agent", "")
 
     try:
-        result = await pool.execute(
-            """UPDATE mesh.mesh_chat_messages
-               SET read_at = NOW()
-               WHERE username = $1 AND sender = $2 AND read_at IS NULL""",
-            username, from_agent
-        )
+        # v0.48.8: user↔user DM read-jelzés — a partner (user:xyz) által nekem
+        # küldött üzenetek: sender=partner_neve (sima username!), recipient='user:'||én.
+        # Az agent-DM marad a régi logika (username=én, sender=agent).
+        is_user_from = from_agent.startswith("user:")
+        if is_user_from:
+            partner = from_agent[5:]
+            result = await pool.execute(
+                """UPDATE mesh.mesh_chat_messages
+                   SET read_at = NOW()
+                   WHERE read_at IS NULL
+                     AND sender = $2
+                     AND recipient = 'user:' || $1""",
+                username, partner
+            )
+        else:
+            result = await pool.execute(
+                """UPDATE mesh.mesh_chat_messages
+                   SET read_at = NOW()
+                   WHERE username = $1 AND sender = $2 AND read_at IS NULL""",
+                username, from_agent
+            )
         return web.json_response({"ok": True, "updated": result})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -1153,6 +1219,16 @@ async def handle_chat_contacts(node, request, pool, user):
     """GET /api/chat/contacts — List agents this user has chatted with + unread counts."""
     from aiohttp import web
     username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
+
+    # v0.48.8: heartbeat — a contacts-poll (3s) frissíti a hívó last_seen-jét,
+    # így a bejelentkezett user online-nak látszik, amíg a lapja nyitva van.
+    try:
+        await pool.execute(
+            "UPDATE mesh.mesh_chat_users SET last_seen = NOW() WHERE username = $1",
+            username
+        )
+    except Exception:
+        pass
 
     try:
         rows = await pool.fetch(
@@ -1208,17 +1284,35 @@ async def handle_chat_contacts(node, request, pool, user):
 
         # Also list dashboard users (for user↔user DM)
         try:
+            # v0.48.8: az alap a mesh.mesh_users auth tábla (minden regisztrált,
+            # aktív user) — a chat_users-ból csak a display_name JOIN-olódik.
+            # Node/bridge fiókok kiszűrése: mesh_nodes nevei, '%-agent' végűek,
+            # mcp-bridge, mesh — ezekből amúgy is van agent-contact fentebb.
+            # SAJÁT USER IS listázódik (megjelöltük: "(te)"), online-státusz a
+            # chat_users.last_seen alapján (60s ablak = online).
             user_rows = await pool.fetch(
-                "SELECT username, display_name FROM mesh.mesh_chat_users WHERE username != $1 ORDER BY username",
-                username
+                """SELECT mu.username, COALESCE(cu.display_name, mu.display_name) AS display_name,
+                          CASE WHEN cu.last_seen > NOW() - INTERVAL '60 seconds' THEN true ELSE false END AS online
+                   FROM mesh.mesh_users mu
+                   LEFT JOIN mesh.mesh_chat_users cu ON cu.username = mu.username
+                   WHERE mu.is_active = 1
+                     AND mu.username NOT IN (SELECT node_name FROM mesh.mesh_nodes)
+                     AND mu.username NOT IN ('mcp-bridge', 'mesh')
+                     AND mu.username NOT LIKE '%-agent'
+                   ORDER BY online DESC, mu.username""",
             )
             for ur in user_rows:
                 uname = "user:" + ur["username"]
+                is_self = (ur["username"] == username)
                 contacts.append({
                     "agent": uname,
+                    # display_name tisztán marad — az "(te)" címkét a frontend
+                    # teszi hozzá az is_self flag alapján (duplikáció elkerülése)
                     "display_name": ur.get("display_name") or ur["username"],
                     "total": 0, "unread": 0, "last_msg": None,
-                    "is_user": True
+                    "is_user": True,
+                    "is_self": is_self,
+                    "online": bool(ur.get("online")),
                 })
         except Exception:
             pass

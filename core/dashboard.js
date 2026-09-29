@@ -176,16 +176,35 @@ function switchChannel(channel) {
     var ind = document.getElementById("dmAgentIndicator");
     if (ind) ind.style.display = "none";
   } else {
-    header.innerHTML = (knownAgents[channel + ":mcp"] ? "🔌 " : "👤 ") + channel;
-    info.innerHTML = "Közvetlen üzenet — csak te és " + channel;
+    // User-DM channel („user:xyz”) külön címkézéssel (v0.48.8)
+    var isUserDM = channel.indexOf("user:") === 0;
+    var displayLabel = channel;
+    if (isUserDM) {
+      var uname = channel.substring(5);
+      var meUser = localStorage.getItem("a2a_username") || "";
+      displayLabel = (knownChatUsers[uname] || uname) + (uname === meUser ? " (te)" : " (user)");
+    }
+    header.innerHTML = (isUserDM ? "👤 " : (knownAgents[channel + ":mcp"] ? "🔌 " : "👤 ")) + escapeHtml(displayLabel);
+    info.innerHTML = isUserDM
+      ? "Közvetlen üzenet — csak te és " + escapeHtml(knownChatUsers[channel.substring(5)] || channel.substring(5))
+      : "Közvetlen üzenet — csak te és " + channel;
     // Set recipient to this agent — use .value (more reliable than selectedIndex)
     var selEl = document.getElementById("recipientSelect");
     if (selEl) selEl.value = channel;
-    // Fallback: if .value didn't stick (option not found), find by text
+    // Fallback: if .value didn't stick (option not found), add it dynamically
+    // (user: channel-eknek alapból nincs option-ja a selectben)
     if (selEl && selEl.value !== channel) {
+      var found = false;
       var opts = selEl.options;
       for (var i = 0; i < opts.length; i++) {
-        if (opts[i].value === channel) { selEl.selectedIndex = i; break; }
+        if (opts[i].value === channel) { selEl.selectedIndex = i; found = true; break; }
+      }
+      if (!found) {
+        var uopt = document.createElement("option");
+        uopt.value = channel;
+        uopt.textContent = "👤 " + (isUserDM ? (knownChatUsers[channel.substring(5)] || channel.substring(5)) + " (user)" : channel);
+        selEl.appendChild(uopt);
+        selEl.value = channel;
       }
     }
     // Show DM agent indicator with status
@@ -511,6 +530,7 @@ function addMessage(msg, scroll) {
 }
 
 var knownAgents = {};  // agent name -> status info for DM channel status dots
+var knownChatUsers = {};  // username -> display_name (bejelentkezett dashboard userek)
 
 function addDMChannel(agentName, status, isMcpEndDevice) {
   // Track agent status + MCP end-device flag
@@ -542,6 +562,61 @@ function addDMChannel(agentName, status, isMcpEndDevice) {
   div.onclick = function() { switchChannel(agentName); };
   div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">' + (isMcpEndDevice ? '🔌' : '👤') + '</span> ' + escapeHtml(agentName) + (isMcpEndDevice ? ' <span style="font-size:10px;color:#bc8cff;">MCP</span>' : '');
   list.appendChild(div);
+}
+
+// ── Bejelentkezett userek a DM-listában (v0.48.8) ─────────────────────
+// A /api/chat/contacts user: prefixszel adja a usereket — ezek külön
+// szekcióba („Userek”) kerülnek, kattintásra user↔user DM nyílik.
+function addChatUserChannel(username, displayName, isSelf, online) {
+  knownChatUsers[username] = displayName || username;
+  var list = document.getElementById("dmList");
+  if (!list) return;
+  // v0.48.8: saját user is látszik "(te)" jelöléssel; online=zöld, offline=piros
+  var me = localStorage.getItem("a2a_username") || localStorage.getItem("mesh_username") || "";
+  var isSelfUser = (username === me) || !!isSelf;
+  var chName = "user:" + username;
+  var existing = document.getElementById("ch-" + chName);
+  var statusIcon = online ? "🟢" : "🔴";
+  if (existing) {
+    // Már bent — csak státuszfrissítés
+    var oldDot = existing.querySelector(".dm-status-dot");
+    if (oldDot) oldDot.textContent = statusIcon;
+    return;
+  }
+  // „Userek” szekció konténer (lazy create)
+  var sec = document.getElementById("dmUserSection");
+  if (!sec) {
+    var wrap = document.createElement("div");
+    wrap.className = "channel-section";
+    wrap.innerHTML = '<div class="channel-section-title" style="font-size:10px;color:var(--text3);opacity:.8;">👤 Userek</div>';
+    sec = document.createElement("div");
+    sec.id = "dmUserSection";
+    sec.style.padding = "0";
+    wrap.appendChild(sec);
+    // Beszúrás a DM-lista után (a „Közvetlen üzenetek” blokk végére)
+    list.parentNode.insertBefore(wrap, list.nextSibling);
+  }
+  var div = document.createElement("div");
+  div.className = "channel-item";
+  div.id = "ch-" + chName;
+  div.onclick = function() { switchChannel(chName); };
+  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">👤</span> ' + escapeHtml(displayName || username) + (isSelfUser ? ' <span style="font-size:9px;color:var(--text3);font-weight:400;">(te)</span>' : ' <span style="font-size:9px;color:var(--text3);font-weight:400;">(user)</span>');
+  sec.appendChild(div);
+}
+
+// Bejelentkezett userek betöltése a /api/chat/contacts végpontról
+function loadChatUserContacts() {
+  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
+  if (!token) return;
+  fetch("/api/chat/contacts", {headers: {"Authorization": "Bearer " + token}})
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      (data.contacts || []).forEach(function(c) {
+        if (c.is_user && c.agent && c.agent.indexOf("user:") === 0) {
+          addChatUserChannel(c.agent.substring(5), c.display_name || c.agent.substring(5), c.is_self, c.online);
+        }
+      });
+    }).catch(function() {});
 }
 
 function sendMessage() {
@@ -1259,12 +1334,14 @@ function submitAuth() {
         loadStatus();
         loadMessages();
         loadAgents();
+        loadChatUserContacts();   // v0.48.8: bejelentkezett userek a DM-listába
         checkAdminPanel();
         // Auto-refresh messages every 10 seconds (Telegram-style live updates)
         if (window._msgRefreshInterval) clearInterval(window._msgRefreshInterval);
         window._msgRefreshInterval = setInterval(function() {
           loadMessages();
           loadAgents();
+          loadChatUserContacts();  // userek 3s-enként frissülnek (új belépés)
         }, 3000);
       }
     }).catch(function() { errEl.textContent = "Hálózati hiba"; });
@@ -1317,6 +1394,19 @@ function initWebSocket() {
       case "new_message":
         // A real message from an agent replaces their typing bubble (Telegram pattern)
         try { if (data.message && data.message.sender) window.hideTypingIndicator(data.message.sender); } catch(e) {}
+        // v0.48.8: user↔user DM (recipient user: prefix) NEM kerül a közösbe —
+        // az addMessage() DM-routingja a saját DM csatornába teszi.
+        var _wsMsg = data.message || {};
+        var _wsRcp = String(_wsMsg.recipient || "");
+        if (_wsRcp.indexOf("user:") === 0) {
+          addMessage(_wsMsg);   // DM routing — csak a saját DM nézetben jelenik meg
+          incrementMsgCount();
+          var _ch0 = currentChannel || "general";
+          if (_ch0 !== "general" && typeof window._loadChatMessages === "function") {
+            window._loadChatMessages(_ch0, true);
+          }
+          break;
+        }
         // Force-add to general channel for unified view
         if (!channelMessages["general"]) channelMessages["general"] = [];
         channelMessages["general"].push(data.message);
@@ -1415,7 +1505,10 @@ function loadMessages() {
         var mType = m.msg_type || m.type || "";
         if (mType === "ack" || mType === "heartbeat" || mType === "skills_announcement" || mType === "diagnostic_report") return;
         // Skip DM messages (recipient is a specific agent, not broadcast)
+        // v0.48.8: user: prefixszel kezdődő recipient (user↔user DM) SEM jelenik
+        // meg a közösben — az a saját DM nézetbe tartozik (self-DM: user:<sajátnév>)
         if (m.recipient && m.recipient !== "broadcast" && m.recipient !== username && mType !== "agent_reply") return;
+        if (m.recipient && String(m.recipient).indexOf("user:") === 0) return;
         // Skip agent_reply DMs (sender is a specific agent, recipient is username — not broadcast)
         if (mType === "agent_reply" && m.recipient && m.recipient !== "broadcast") return;
       } else {
@@ -1467,6 +1560,27 @@ function loadAgents() {
       sel.appendChild(opt);
       // Also add DM channel with status (MCP end-device: own icon, still DM-able)
       addDMChannel(a.name, a.status, a.is_mcp_end_device);
+    });
+    // v0.48.8: user-opciók is részei a selectnek — a 3s poll rebuild után is
+    // megmaradnak (különben a user:-címzés kiesik és „Mindenkinek" marad aktív).
+    // Az aktív user-opció (currentVal) előre kerül, a többi betöltés után.
+    var userOpts = Object.keys(knownChatUsers).map(function(uname) {
+      return "user:" + uname;
+    });
+    if (currentVal && String(currentVal).indexOf("user:") === 0) userOpts.unshift(currentVal);
+    userOpts.forEach(function(uo) {
+      if (String(uo).indexOf("user:") !== 0) return;
+      var uname = uo.substring(5);
+      // dedup — csak ha még nincs ilyen opció
+      var dup = false;
+      for (var oi = 0; oi < sel.options.length; oi++) {
+        if (sel.options[oi].value === uo) { dup = true; break; }
+      }
+      if (dup) return;
+      var uopt = document.createElement("option");
+      uopt.value = uo;
+      uopt.textContent = "👤 " + (knownChatUsers[uname] || uname) + " (user)";
+      sel.appendChild(uopt);
     });
     // Restore selection
     sel.value = currentVal;
@@ -2174,10 +2288,19 @@ if (savedToken) {
     .then(function(r) { return r.json(); }).then(function(d) {
       if (d.user) {
         authToken = savedToken; authUser = d.user;
+        // v0.48.8: restore-ág is frissíti a username-t (self-detektáláshoz a sidebarban)
+        if (d.user.username) { try { localStorage.setItem("a2a_username", d.user.username); } catch(e) {} }
         document.getElementById("authModal").style.display = "none";
         document.getElementById("userBadge").style.display = "flex";
         updateUserBadge();
-        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel(); renderOpenChatsBar(); window.refreshMentionAgents();
+        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); loadChatUserContacts(); checkAdminPanel(); renderOpenChatsBar(); window.refreshMentionAgents();
+        // v0.48.8: restore-ág is kap auto-refresh pollt (korábban csak a login-ágban volt)
+        if (window._msgRefreshInterval) clearInterval(window._msgRefreshInterval);
+        window._msgRefreshInterval = setInterval(function() {
+          loadMessages();
+          loadAgents();
+          loadChatUserContacts();
+        }, 3000);
       } else { localStorage.removeItem("a2a_token"); localStorage.removeItem("mesh_token"); showAuth(); }
     }).catch(function() { showAuth(); });
 } else { showAuth(); }
@@ -7704,6 +7827,40 @@ function showDelegations() {
   startDelegationAutoRefresh();
 }
 
+// ── Delegációs modal bezárás — egyetlen kapu (v0.48.8) ──
+// Minden bezárási út (✕ gomb, overlay-katt, ESC) ezen megy át, így a
+// form-állapot resetel, az auto-refresh leáll, nem marad beragadva.
+function closeDelegationsModal() {
+  var m = document.getElementById('delegationsModal');
+  if (m) m.style.display = 'none';
+  var f = document.getElementById('newTaskForm');
+  if (f) f.style.display = 'none';
+  if (_delegationAutoRefresh) { clearInterval(_delegationAutoRefresh); _delegationAutoRefresh = null; }
+}
+
+// Auto-refresh kikapcsolás gombbal (nem csak bezáráskor áll le)
+function toggleDelegationAutoRefresh(btn) {
+  if (_delegationAutoRefresh) {
+    clearInterval(_delegationAutoRefresh);
+    _delegationAutoRefresh = null;
+    if (btn) { btn.textContent = '▶️ Auto'; btn.title = 'Auto-frissítés bekapcsolása'; btn.style.opacity = '0.6'; }
+  } else {
+    startDelegationAutoRefresh();
+    if (btn) { btn.textContent = '⏸️ Auto'; btn.title = 'Auto-frissítés kikapcsolása (5s)'; btn.style.opacity = '1'; }
+  }
+}
+
+// Overlay-kattintás és ESC kezelése a delegációs modalra
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  var dm = document.getElementById('delegationsModal');
+  var td = document.getElementById('taskDetailModal');
+  var kc = document.getElementById('kanbanCardDetailModal');
+  if (kc) { kc.remove(); return; }          // legmélyebb: kanban-kártya
+  if (td && td.style.display !== 'none') { td.style.display = 'none'; return; }  // task-detail
+  if (dm && dm.style.display !== 'none') { closeDelegationsModal(); return; }    // fő delegációs
+});
+
 var _delegationAutoRefresh = null;
 function startDelegationAutoRefresh() {
   if (_delegationAutoRefresh) clearInterval(_delegationAutoRefresh);
@@ -7785,6 +7942,26 @@ function toggleNewTask() {
     document.getElementById("eligibleAgentsPanel").style.display = "none";
     document.getElementById("delTarget").disabled = false;
   }
+}
+
+// Mégse gomb az új feladat formon — mezők törlése + form elrejtése
+function cancelNewTaskForm() {
+  var f = document.getElementById('newTaskForm');
+  if (!f) return;
+  f.style.display = 'none';
+  ['delSubject', 'delDesc', 'delFanOut', 'delDependsOn'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById("delAvailable").checked = false;
+  document.getElementById("delTarget").disabled = false;
+  document.getElementById("eligibleAgentsPanel").style.display = "none";
+  var st = document.getElementById('delCreateStatus');
+  if (st) { st.textContent = ''; }
+  var fi = document.getElementById('delInputFiles');
+  if (fi) fi.value = '';
+  var fl = document.getElementById('delInputFilesList');
+  if (fl) fl.innerHTML = '';
 }
 
 function renderKanbanCard(card, delegation) {
@@ -7999,6 +8176,10 @@ function showTaskDetail(taskId) {
   // Hide delegations modal background so it doesn't block the detail modal
   var delModal = document.getElementById('delegationsModal');
   if (delModal) delModal.style.display = 'none';
+  // Task-detail nézetben a lista auto-refresh felesleges (háttérben pörögne)
+  if (_delegationAutoRefresh) { clearInterval(_delegationAutoRefresh); _delegationAutoRefresh = null; }
+  var arb = document.getElementById('delAutoRefreshBtn');
+  if (arb) { arb.textContent = '▶️ Auto'; arb.style.opacity = '0.6'; }
   document.getElementById('taskDetailModal').style.display = 'flex';
   document.getElementById('taskDetailTitle').textContent = '📋 Betöltés...';
   document.getElementById('taskDetailContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Betöltés...</div>';
@@ -8170,8 +8351,20 @@ function showTaskDetail(taskId) {
       document.getElementById('taskDetailContent').innerHTML = metaHtml + descHtml + progressHtml + timelineHtml + resultHtml + fileHtml + actionsHtml;
     })
     .catch(function(e) {
-      document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ Hiba: ' + escHtml(e.message || String(e)) + '</div>';
+      // Hiba esetén visszaugrik a delegációs panelre — ne ragadjon be a
+      // taskDetail modal üres tartalommal a delegációs modal rejtve maradva
+      document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ Hiba: ' + escHtml(e.message || String(e)) + '</div>' +
+        '<div style="margin-top:10px"><button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="backToDelegations()">⬅️ Vissza a delegációkhoz</button></div>';
     });
+}
+
+// Task-detail → delegációs panel visszatérés (bezárás + fő modal vissza)
+function backToDelegations() {
+  var td = document.getElementById('taskDetailModal');
+  if (td) td.style.display = 'none';
+  var dm = document.getElementById('delegationsModal');
+  if (dm) dm.style.display = 'flex';
+  startDelegationAutoRefresh();
 }
 
 function claimDelegation(taskId) {
@@ -10813,7 +11006,7 @@ function showKanbanCardDetail(cardId) {
       modal.innerHTML = '<div class="file-modal" style="width:600px;max-width:95vw;max-height:80vh;overflow-y:auto">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<h2 style="margin:0">📋 ' + escHtml(card.title) + '</h2>' +
-        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();var dm=document.getElementById(\'delegationsModal\');if(dm)dm.style.display=\'flex\';">✕</button>' +
+        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();backToDelegations()">✕</button>' +
         '</div>' +
         '<div style="margin-bottom:12px;font-size:14px;line-height:1.6">' +
         '<div style="margin-bottom:8px">' + statusBadge + ' <span class="priority-badge priority-' + (card.priority||5) + '">P' + (card.priority||5) + '</span></div>' +
@@ -10825,12 +11018,15 @@ function showKanbanCardDetail(cardId) {
         resultHtml +
         '<div style="display:flex;justify-content:flex-end;gap:8px">' +
         approveBtn +
-        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();var dm=document.getElementById(\'delegationsModal\');if(dm)dm.style.display=\'flex\';">Bezárás</button>' +
+        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();backToDelegations()">Bezárás</button>' +
         '</div></div>';
       
       document.body.appendChild(modal);
     })
     .catch(function(e) {
+      // A delegációs modal rejtve maradt — visszaállítjuk, különben beragad
+      var delModal = document.getElementById('delegationsModal');
+      if (delModal) delModal.style.display = 'flex';
       alert('Hiba: ' + e.message);
     });
 }
