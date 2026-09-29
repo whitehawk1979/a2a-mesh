@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>A2A Mesh — MQTT Explorer</title>
 <link rel="icon" type="image/png" href="/branding/favicon_32.png">
 <style>
@@ -59,9 +59,15 @@ body { background: var(--bg); color: var(--text); font-family: -apple-system, 'S
 .empty { color: var(--text2); font-style: italic; padding: 20px; text-align: center; }
 
 @media (max-width: 768px) {
-  #tree-panel { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+  #tree-panel { width: 100%; max-height: 45dvh; min-height: 120px; border-right: none; border-bottom: 1px solid var(--border); flex-shrink: 0; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   #main { flex-direction: column; }
+  #content-area { flex: 1; min-height: 0; }
   #publisher { padding: 8px; }
+  #publisher h4 { margin-bottom: 4px; }
+  .msg-row { font-size: 10px; padding: 6px; }
+  #header { padding: 8px 10px; }
+  #header h1 { font-size: 13px; }
+  #header .badge { font-size: 10px; }
 }
 </style>
 </head>
@@ -123,6 +129,12 @@ let messageCount = 0;
 let selectedTopic = null;
 let autoRefresh = true;
 let refreshTimer = null;
+// Kibontott fa-ágak állapota (group-path Set) — auto-refreshnél is megmarad,
+// így a 5s-enkénti renderTree nem csinálja újra a teljes kibontást.
+let expandedGroups = new Set();
+// Scroll-pozíciók megőrzése frissítéskor
+let treeScrollPos = 0;
+let panelScrollPos = 0;
 
 // ── Auth ──
 function getToken() { return localStorage.getItem('mesh_token') || ''; }
@@ -137,7 +149,14 @@ async function loadTopics() {
     messageCount = data.total_messages || 0;
     document.getElementById('msg-count').textContent = `${messageCount} üzenet`;
     renderTree();
-    if (selectedTopic) showTopicDetails(selectedTopic);
+    if (selectedTopic) {
+      // A részletek-panel ne ugorjon a tetejére frissítéskor — a scroll
+      // pozíciót megőrizzük (kivéve explicit új topic-választásnál)
+      const panel = document.getElementById('messages-panel');
+      panelScrollPos = panel.scrollTop;
+      showTopicDetails(selectedTopic, true);
+      panel.scrollTop = panelScrollPos;
+    }
   } catch (e) {
     document.getElementById('messages-panel').innerHTML = `<div class="empty">❌ Hiba: ${e.message}</div>`;
   }
@@ -146,10 +165,14 @@ async function loadTopics() {
 // ── Render Tree ──
 function renderTree() {
   const root = document.getElementById('tree-root');
+  // Scroll-pozíció megőrzése a re-render után (auto-refreshnél ne ugorjon)
+  const treePanel = document.getElementById('tree-panel');
+  treeScrollPos = treePanel.scrollTop;
   let html = '<div class="tree-item selected" onclick="selectAllTopics()"><span class="tree-icon">🌐</span> összes';
   html += `<span class="tree-count">${messageCount}</span></div>`;
   html += '<div class="tree-children">' + buildTree(allTopics, 1, '') + '</div>';
   root.innerHTML = html;
+  treePanel.scrollTop = treeScrollPos;
 }
 
 function buildTree(data, depth, prefix) {
@@ -171,12 +194,14 @@ function buildTree(data, depth, prefix) {
   let html = '';
   for (const [rootKey, children] of Object.entries(groups).sort()) {
     const childCount = Object.keys(flattenTopics(children)).length;
-    const expanded = depth <= 2 ? 'block' : 'none';
     const grpPath = prefix ? prefix + '/' + rootKey : rootKey;
+    // Kibontás: (1) korábban felnyitott ág (Set — auto-refreshnél megmarad),
+    // (2) különben depth<=2 alapértelmezett nyitva
+    const expanded = expandedGroups.has(grpPath) || (depth <= 2 && !expandedGroups.has('!' + grpPath));
     html += `<div class="tree-item" onclick="event.stopPropagation();toggleGroup(this,'${grpPath}')">
-      <span class="tree-icon">${expanded === 'none' ? '📁' : '📂'}</span>${rootKey}<span class="tree-count">${childCount}</span>
+      <span class="tree-icon">${expanded ? '📂' : '📁'}</span>${rootKey}<span class="tree-count">${childCount}</span>
     </div>`;
-    html += `<div class="tree-children" style="display:${expanded}">` + buildTree(children, depth + 1, grpPath) + '</div>';
+    html += `<div class="tree-children" style="display:${expanded ? 'block' : 'none'}">` + buildTree(children, depth + 1, grpPath) + '</div>';
   }
   for (const [key, val] of leafTopics.sort()) {
     const fullPath = prefix ? prefix + '/' + key : key;
@@ -198,13 +223,22 @@ function flattenTopics(data) {
 }
 
 function toggleGroup(el, grpPath) {
-  // Signature: toggleGroup(this, 'full/path') — toggle children of a folder node
+  // Signature: toggleGroup(this, 'full/path') — toggle children of a folder node.
+  // A kibontás-állapot a expandedGroups Set-be íródik → az auto-refresh
+  // (5s-enkénti renderTree) nem csinálja újra a teljes kibontást.
   const nextEl = el.nextElementSibling;
   if (nextEl && nextEl.classList.contains('tree-children')) {
     const hidden = nextEl.style.display === 'none';
     nextEl.style.display = hidden ? 'block' : 'none';
     const icon = el.querySelector('.tree-icon');
     if (icon) icon.textContent = hidden ? '📂' : '📁';
+    if (hidden) {
+      expandedGroups.add(grpPath);          // kibontva
+      expandedGroups.delete('!' + grpPath); // "bezárt" jelölés törlése
+    } else {
+      expandedGroups.delete(grpPath);
+      expandedGroups.add('!' + grpPath);     // explicit bezárás (default-nyitva ágnál is)
+    }
   }
 }
 
@@ -225,25 +259,26 @@ function selectTopic(topic) {
 }
 
 // ── Show Details ──
-function showTopicDetails(topic) {
+function showTopicDetails(topic, isRefresh = false) {
   const panel = document.getElementById('messages-panel');
   if (!topic) {
     panel.innerHTML = '<div class="empty">Válasszon topic-t vagy kattintson az „összes"-re ↗️</div>';
     return;
   }
-  
+  const savedScroll = isRefresh ? panel.scrollTop : null;
+
   const msgs = allTopics[topic]?.messages || [];
   if (!msgs.length) {
     panel.innerHTML = `<h3>${topic}</h3><div class="empty">Nincs üzenet ezen a topicon</div>`;
     return;
   }
-  
+
   let html = `<h3>📨 ${topic} (${msgs.length} üzenet)</h3>`;
   msgs.slice(0, 50).forEach(m => {
     const ts = new Date(m.timestamp * 1000).toLocaleString('hu-HU');
     const payload = typeof m.payload === 'string' ? m.payload : JSON.stringify(m.payload, null, 2);
     html += `<div class="msg-row">
-      <span class="msg-topic">${m.sender || '?'}</span> — 
+      <span class="msg-topic">${m.sender || '?'}</span> —
       <span class="msg-payload">${escapeHtml(payload)}</span>
       <div class="msg-meta">
         <span>🕒 ${ts}</span>
@@ -253,14 +288,25 @@ function showTopicDetails(topic) {
     </div>`;
   });
   panel.innerHTML = html;
-  panel.scrollTop = 0;
+  // Auto-refreshnél megtartjuk a scroll pozíciót, explicit választásnál a tetejére
+  panel.scrollTop = (savedScroll !== null) ? savedScroll : 0;
 }
 
 function showMessagePanel(msgs) {
   const panel = document.getElementById('messages-panel');
   let html = `<h3>📨 Minden üzenet (${msgs?.length||0})</h3>`;
   (msgs||[]).forEach(m => {
-    html += `<div class="msg-row">...</div>`;
+    const ts = new Date(m.timestamp * 1000).toLocaleString('hu-HU');
+    const payload = typeof m.payload === 'string' ? m.payload : JSON.stringify(m.payload, null, 2);
+    html += `<div class="msg-row">
+      <span class="msg-topic">${escapeHtml(m.topic || '?')}</span> —
+      <span class="msg-payload">${escapeHtml(payload)}</span>
+      <div class="msg-meta">
+        <span>🕒 ${ts}</span>
+        <span>QoS ${m.qos || 1}</span>
+        ${m.retain ? '<span>📌 retain</span>' : ''}
+      </div>
+    </div>`;
   });
   panel.innerHTML = html;
 }
