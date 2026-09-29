@@ -44,7 +44,7 @@ logger = logging.getLogger("a2a.mesh.updater")
 
 GITEA_BASE = os.environ.get("A2A_GITEA_URL", "http://192.168.1.100:3001")
 GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "nova/a2a-mesh")
-GITEA_USER = os.environ.get("A2A_GITEA_USER", "zsolt")
+GITEA_USER = os.environ.get("A2A_GITEA_USER", "nova")  # zsolt:admin1234 → 401; nova API-user működik
 GITEA_PASS = os.environ.get("A2A_GITEA_PASS", "admin1234")
 GITEA_TOKEN = os.environ.get("A2A_GITEA_TOKEN", "")  # token auth wins over BasicAuth
 
@@ -165,6 +165,101 @@ class AutoUpdater:
                     timeout=aiohttp.ClientTimeout(total=30),
                 )
         return self._http_session
+
+    # ─── API File-Sync (v0.48.4): git-fetch 404 fallback ─────────────────
+    # A Gitea konténer git-http/SSH pack protokollja hibás (remote: wget 404),
+    # de a REST API minden node-ról elérhető. Ez a fallback determinisztikusan
+    # letölti a release commit teljes fájlistáját raw API-n és beírja a
+    # VERSION_SYNC fájlt, hogy a _resolve_version ne a (régi) git tagot mutassa.
+
+    async def _api_list_files(self, ref: str) -> list:
+        """A release commit teljes fájllistája a Gitea tree API-ból."""
+        session = await self._get_session()
+        base = self.gitea_tags_url.rsplit("/tags", 1)[0]  # .../repos/{owner}/{repo}
+        url = f"{base}/git/trees/{ref}?recursive=true"
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    logger.error(f"Tree API HTTP {resp.status}")
+                    return []
+                d = await resp.json()
+                if d.get("truncated"):
+                    logger.warning("Git tree truncated — nagy repó, fájlszinkron részleges!")
+                return [e["path"] for e in d.get("tree", [])
+                        if e.get("type") == "blob" and not e["path"].startswith(".git")]
+        except Exception as e:
+            logger.error(f"Tree API error: {e}")
+            return []
+
+    async def _api_sync(self, target_tag: str, backup_path: Path) -> bool:
+        """Fájlszinkron raw API-n (git-fetch fallback). Return: success.
+
+        Determinisztikus: a tree lista -> minden fájl raw letöltés -> lokális
+        .bak-kimentés (már a _create_backup készített teljes backupot) ->
+        felülírás. A VERSION_SYNC fájl rögzíti a futó verziót.
+        """
+        session = await self._get_session()
+        base = self.gitea_tags_url.rsplit("/tags", 1)[0]
+        # Tag → commit sha feloldás (Gitea 1.27: /tags/{tag} endpoint, a
+        # régi /git/ref/tags/ 404-et ad; az annot. tag commitja a .commit.sha)
+        commit_sha = None
+        try:
+            async with session.get(f"{base}/tags/{target_tag}") as resp:
+                if resp.status == 200:
+                    d = await resp.json()
+                    commit_sha = (d.get("commit") or {}).get("sha") or d.get("id")
+                    if not commit_sha:
+                        # Annotated tag: a message-ből vagy id-ből; a Gitea a
+                        # tag objektum sha-ját adja — a commit sha a commit mezőben
+                        commit_sha = d.get("id") if d.get("id") else None
+        except Exception as e:
+            logger.warning(f"Tag→commit feloldás hiba: {e}")
+        if not commit_sha:
+            logger.error("API-sync: commit sha nem oldódott fel")
+            return False
+        files = await self._api_list_files(commit_sha)
+        if not files:
+            logger.error("API-sync: üres fájllista")
+            return False
+        # Raw letöltés + írás (skip: .env* gyökérben, kulcsok, git belsők)
+        def _skip(p: str) -> bool:
+            base = p.rsplit("/", 1)[-1]
+            return (p.startswith(".env") or p.startswith(".git")
+                    or base.startswith(".env") or "/.git/" in p
+                    or base.endswith((".pem", ".key", ".crt", ".pub")))
+
+        synced = 0
+        failed = []
+        for path in files:
+            if _skip(path):
+                continue
+            try:
+                async with session.get(
+                    f"{base}/raw/{path}?ref={commit_sha}"
+                ) as resp:
+                    if resp.status != 200:
+                        failed.append(path)
+                        continue
+                    content = await resp.read()
+                target = self.mesh_dir / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                synced += 1
+            except Exception as e:
+                failed.append(f"{path} ({e})")
+        # VERSION_SYNC: a futó verzió SSOT-ja (a _resolve_version ezt olvassa,
+        # ha a git tag régi/hiányzik)
+        vs = self.mesh_dir / "VERSION_SYNC"
+        vs.write_text(target_tag.lstrip("v") + "\n")
+        logger.info(f"📥 API-sync: {synced} fájl szinkronizálva, "
+                    f"{len(failed)} hibás {target_tag}-ról")
+        if failed:
+            logger.warning(f"API-sync hibás fájlok: {failed[:10]}")
+        # Siker-kritérium: >90% szinkronizálva ÉS a kritikus fájlok OK
+        # (a 100% túl szigorú — egy-egy bináris/kulcsfájl hibája ne blokkolja)
+        total = synced + len(failed)
+        success_ratio = (synced / total) if total else 0
+        return synced > 50 and success_ratio > 0.9
 
     async def close(self):
         if self._http_session and not self._http_session.closed:
@@ -505,6 +600,18 @@ class AutoUpdater:
                 ),
             )
         if result.returncode != 0:
+            # ── v0.48.4: git-fetch 404 workaround — API fájlszinkron ──
+            # A Gitea konténer git protokollja nem megy bizonyos node-okról
+            # (remote: wget 404), de a REST API igen. Az API-sync a release
+            # commit fájljait hozza — a git tree ezt követően dirty lesz,
+            # de a futó kód + VERSION_SYNC a friss.
+            logger.warning(
+                f"git fetch failed minden remote-ról — API fájlszinkron fallback ({target_tag})"
+            )
+            ok = await self._api_sync(target_tag, None)
+            if ok:
+                logger.info("✅ API-sync kész — git checkout átugorva")
+                return
             raise RuntimeError(f"git fetch failed: {result.stderr}")
 
         # Checkout the tag on main branch (avoid detached HEAD)

@@ -219,7 +219,7 @@ class AutoUpdateConfig:
     apply_automatically: bool = False  # auto-apply or just notify
     gitea_url: str = "http://192.168.1.100:3001"
     gitea_repo: str = "nova/a2a-mesh"
-    gitea_user: str = "zsolt"
+    gitea_user: str = "nova"  # zsolt:admin1234 → 401 a Gitea API-n
     gitea_pass: str = "admin1234"
 
 @dataclass
@@ -307,7 +307,9 @@ class MeshConfig:
 
         Priority:
         1. Explicit version in config YAML (if set)
-        2. Git tag (SSOT — always reflects latest release)
+        2. max(git tag, VERSION_SYNC fájl) — ha API-sync történt (git-fetch
+           404 fallback), a VERSION_SYNC a tényleges telepített verzió;
+           a kettő közül a nagyobb nyer (bármelyik út frissített, az él)
         3. pyproject.toml (fallback for non-git deployments)
         4. Hardcoded default
         """
@@ -315,15 +317,35 @@ class MeshConfig:
             return self.version
         import subprocess, os
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # Try git tag first (single source of truth)
+
+        def _vk(ver: str):
+            # Egyszerű determinisztikus verzió-kulcs: "0.48.4" → (0, 48, 4)
+            try:
+                return tuple(int(x) for x in ver.strip().lstrip("v").split("."))
+            except Exception:
+                return (0,)
+
+        candidates = []
+        # Git tag (SSOT — amíg a git protokoll működik)
         try:
             tag = subprocess.check_output(
                 ["git", "describe", "--tags", "--abbrev=0"],
                 cwd=repo_dir, stderr=subprocess.DEVNULL
             ).decode().strip().lstrip("v")
-            return tag
+            candidates.append(tag)
         except Exception:
             pass
+        # VERSION_SYNC fájl (API-sync 404 fallback — v0.48.4)
+        try:
+            vs = os.path.join(repo_dir, "VERSION_SYNC")
+            if os.path.exists(vs):
+                vs_ver = open(vs).read().strip().lstrip("v")
+                if vs_ver:
+                    candidates.append(vs_ver)
+        except Exception:
+            pass
+        if candidates:
+            return max(candidates, key=_vk)
         # Fallback: pyproject.toml (for non-git deployments)
         try:
             pyproject = os.path.join(repo_dir, "pyproject.toml")
@@ -696,7 +718,7 @@ class MeshConfig:
                 apply_automatically=au_data.get('apply_automatically', False),
                 gitea_url=au_data.get('gitea_url', os.environ.get('A2A_GITEA_URL', 'http://192.168.1.100:3001')),
                 gitea_repo=au_data.get('gitea_repo', 'nova/a2a-mesh'),
-                gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'zsolt')),
+                gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'nova')),
                 gitea_pass=au_data.get('gitea_pass', os.environ.get('A2A_GITEA_PASS', 'admin1234')),
             )
 

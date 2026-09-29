@@ -92,7 +92,7 @@ mesh:
     apply_automatically: true
     gitea_url: http://100.125.223.24:3001
     gitea_repo: nova/a2a-mesh
-    gitea_user: zsolt
+    gitea_user: nova
     gitea_pass: admin1234
   security:
     signing_key: ''
