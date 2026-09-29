@@ -1032,6 +1032,96 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div id="settingsTransport" style="font-size:13px;color:var(--text3)">Betöltés...</div>
     </div>
 
+    <!-- Transport Kézi Beállítások (v0.48.3) -->
+    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0;font-size:14px">🔧 Transport Beállítások</h3>
+        <button class="btn btn-sm" onclick="loadTransportSettings()">🔄 Frissítés</button>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Minden transport kézzel állítható — a „Teszt" gomb azonnal ellenőrzi a beállítást, a „Mentés" élőben alkalmazza (MQTT-nél reconnect is).</div>
+
+      <!-- MQTT -->
+      <div id="tsCardMqtt" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px">📡 MQTT</b>
+          <span id="tsMqttStatus" style="font-size:11px">⏳</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center">
+          <input type="text" id="tsMqttHost" placeholder="host (pl. 192.168.1.8)" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="number" id="tsMqttPort" placeholder="port" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" id="tsMqttEnabled" style="cursor:pointer"> BE</label>
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="testTransport('mqtt')">🔍 Teszt</button>
+            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('mqtt')">💾</button>
+          </div>
+        </div>
+        <div id="tsMqttResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+      </div>
+
+      <!-- P2P -->
+      <div id="tsCardP2p" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px">🔗 P2P</b>
+          <span id="tsP2pStatus" style="font-size:11px">⏳</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center">
+          <input type="text" id="tsP2pHost" placeholder="listen host" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="number" id="tsP2pPort" placeholder="port" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="text" id="tsP2pAdvertise" placeholder="advertise IP (bridge)" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="testTransport('p2p')">🔍 Teszt</button>
+            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('p2p')">💾</button>
+          </div>
+        </div>
+        <div id="tsP2pResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+      </div>
+
+      <!-- PG -->
+      <div id="tsCardPg" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px">🐘 PostgreSQL</b>
+          <span id="tsPgStatus" style="font-size:11px">⏳</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1.2fr 0.7fr 1fr 1fr auto;gap:6px;align-items:center">
+          <input type="text" id="tsPgHost" placeholder="host" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="number" id="tsPgPort" placeholder="port" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="text" id="tsPgDb" placeholder="dbname" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="text" id="tsPgUser" placeholder="user" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="testTransport('pg')">🔍 Teszt</button>
+            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('pg')">💾</button>
+          </div>
+        </div>
+        <div id="tsPgResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+      </div>
+
+      <!-- SSH tunnel -->
+      <div id="tsCardSsh" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px">🔒 SSH Tunnel</b>
+          <span id="tsSshStatus" style="font-size:11px">⏳</span>
+        </div>
+        <div style="font-size:12px;color:var(--text3)" id="tsSshPeers">Betöltés...</div>
+      </div>
+
+      <!-- HTTP -->
+      <div id="tsCardHttp" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b style="font-size:13px">🌐 HTTP Relay</b>
+          <span id="tsHttpStatus" style="font-size:11px">⏳</span>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:6px;align-items:center">
+          <input type="text" id="tsHttpUrl" placeholder="relay URL" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <input type="number" id="tsHttpTimeout" placeholder="timeout (s)" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <div style="display:flex;gap:4px">
+            <button class="btn btn-sm" onclick="testTransport('http')">🔍 Teszt</button>
+            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('http')">💾</button>
+          </div>
+        </div>
+        <div id="tsHttpResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
+      </div>
+    </div>
+
     <!-- Delegation Settings -->
     <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
       <h3 style="margin:0 0 8px 0;font-size:14px">🔄 Delegáció Beállítások</h3>

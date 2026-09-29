@@ -8446,6 +8446,7 @@ function loadSettings() {
       loadPendingAgents();
       loadTransportStatus();
       loadSharedConfig();
+      loadTransportSettings();
     })
     .catch(function(e) { console.error("Settings load error:", e); });
 }
@@ -8574,6 +8575,162 @@ function saveAutoUpdateSetting() {
     st.innerHTML = "❌ Hiba: " + e.message;
     st.style.color = "var(--danger)";
   });
+}
+
+// ── Transport kézi beállítások (v0.48.3) ──────────────────────────────
+function loadTransportSettings() {
+  fetch("/api/config/transports", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) return;
+      var T = d.transports || {};
+      // Státusz ikonok
+      function stIcon(s, conn) { return s === "connected" || conn ? "🟢 " + s : (s === "disabled" ? "⚪ " + s : "🟠 " + s); }
+      // MQTT
+      if (T.mqtt) {
+        document.getElementById("tsMqttHost").value = T.mqtt.host || "";
+        document.getElementById("tsMqttPort").value = T.mqtt.port || 8683;
+        document.getElementById("tsMqttEnabled").checked = !!T.mqtt.enabled;
+        document.getElementById("tsMqttStatus").textContent = stIcon(T.mqtt.status);
+      }
+      // P2P
+      if (T.p2p) {
+        document.getElementById("tsP2pHost").value = T.p2p.listen_host || "0.0.0.0";
+        document.getElementById("tsP2pPort").value = T.p2p.listen_port || 8645;
+        document.getElementById("tsP2pAdvertise").value = T.p2p.advertise_host || "";
+        document.getElementById("tsP2pStatus").textContent = stIcon(T.p2p.status, T.p2p.connected_peers > 0) + (T.p2p.connected_peers ? " (" + T.p2p.connected_peers + " peer)" : "");
+      }
+      // PG
+      if (T.pg) {
+        document.getElementById("tsPgHost").value = T.pg.host || "";
+        document.getElementById("tsPgPort").value = T.pg.port || 5432;
+        document.getElementById("tsPgDb").value = T.pg.dbname || "";
+        document.getElementById("tsPgUser").value = T.pg.user || "";
+        document.getElementById("tsPgStatus").textContent = stIcon(T.pg.status);
+      }
+      // SSH tunnel
+      if (T.ssh_tunnel) {
+        document.getElementById("tsSshStatus").textContent = stIcon(T.ssh_tunnel.status, Object.keys(T.ssh_tunnel.peers || {}).length > 0);
+        var ph = "";
+        var peers = T.ssh_tunnel.peers || {};
+        for (var p in peers) {
+          if (peers.hasOwnProperty(p)) {
+            var pc = peers[p];
+            ph += (pc.connected ? "🟢 " : "🔴 ") + escHtml(p) + " → " + escHtml(pc.ssh_host || "?") + ":" + (pc.ssh_port || 22) + " (lokál " + (pc.local_port || "?") + "→" + (pc.remote_port || "?") + ")<br>";
+          }
+        }
+        document.getElementById("tsSshPeers").innerHTML = ph || "Nincs peer kapcsolat";
+      }
+      // HTTP
+      if (T.http) {
+        document.getElementById("tsHttpUrl").value = T.http.url || "";
+        document.getElementById("tsHttpTimeout").value = T.http.timeout || 5;
+        document.getElementById("tsHttpStatus").textContent = stIcon(T.http.status);
+      }
+    })
+    .catch(function(e) { console.error("Transport settings load error:", e); });
+}
+
+function testTransport(kind) {
+  // Determinisztikus elem-ID map (kind → result elem)
+  var RES = {
+    "mqtt": "tsMqttResult",
+    "p2p": "tsP2pResult",
+    "pg": "tsPgResult",
+    "http": "tsHttpResult",
+    "ssh_tunnel": "tsSshPeers"
+  };
+  var resEl = document.getElementById(RES[kind] || "tsMqttResult");
+  resEl.textContent = "🔍 Teszt fut...";
+  resEl.style.color = "var(--text3)";
+  var body = {transport: kind};
+  if (kind === "mqtt") {
+    body.host = document.getElementById("tsMqttHost").value;
+    body.port = parseInt(document.getElementById("tsMqttPort").value);
+  } else if (kind === "p2p") {
+    // Local bind test: a beállított listen_port elérhető-e a node-on
+    body.host = "127.0.0.1";
+    body.port = parseInt(document.getElementById("tsP2pPort").value);
+  } else if (kind === "pg") {
+    body.host = document.getElementById("tsPgHost").value;
+    body.port = parseInt(document.getElementById("tsPgPort").value);
+    body.dbname = document.getElementById("tsPgDb").value;
+    body.user = document.getElementById("tsPgUser").value;
+  } else if (kind === "http") {
+    body.url = document.getElementById("tsHttpUrl").value;
+  } else if (kind === "ssh_tunnel") {
+    // Az első konfigurált peer hostja tesztelve (a peers listából)
+    var firstPeer = document.querySelector("#tsSshPeers b");
+    var sshInfo = (firstPeer ? firstPeer.textContent : "127.0.0.1:2230").split(":");
+    body.host = sshInfo[0] || "127.0.0.1";
+    body.port = parseInt(sshInfo[1] || "2230");
+  }
+  fetch("/api/config/transports/test", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify(body)
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      resEl.innerHTML = "✅ " + escHtml(d.detail || "Elérhető");
+      resEl.style.color = "var(--success)";
+    } else {
+      resEl.innerHTML = "❌ " + escHtml(d.detail || d.error || "Sikertelen");
+      resEl.style.color = "var(--danger)";
+    }
+  })
+  .catch(function(e) {
+    resEl.innerHTML = "❌ Hiba: " + escHtml(e.message);
+    resEl.style.color = "var(--danger)";
+  });
+}
+
+function saveTransport(kind) {
+  var values = {};
+  if (kind === "mqtt") {
+    values.host = document.getElementById("tsMqttHost").value;
+    values.port = parseInt(document.getElementById("tsMqttPort").value);
+    values.enabled = document.getElementById("tsMqttEnabled").checked;
+  } else if (kind === "p2p") {
+    values.listen_host = document.getElementById("tsP2pHost").value;
+    values.listen_port = parseInt(document.getElementById("tsP2pPort").value);
+    values.advertise_host = document.getElementById("tsP2pAdvertise").value;
+  } else if (kind === "pg") {
+    values.host = document.getElementById("tsPgHost").value;
+    values.port = parseInt(document.getElementById("tsPgPort").value);
+    values.dbname = document.getElementById("tsPgDb").value;
+    values.user = document.getElementById("tsPgUser").value;
+  } else if (kind === "http") {
+    values.url = document.getElementById("tsHttpUrl").value;
+    values.timeout = parseInt(document.getElementById("tsHttpTimeout").value);
+  }
+  fetch("/api/config/transports", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify({transport: kind, values: values})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    var RES_SAVE = {
+      "mqtt": "tsMqttResult",
+      "p2p": "tsP2pResult",
+      "pg": "tsPgResult",
+      "http": "tsHttpResult",
+      "ssh_tunnel": "tsSshPeers"
+    };
+    var resEl = document.getElementById(RES_SAVE[kind] || "tsMqttResult");
+    if (d.error) {
+      resEl.innerHTML = "❌ " + escHtml(d.error);
+      resEl.style.color = "var(--danger)";
+      return;
+    }
+    var msg = "✅ Mentve" + (d.mqtt_reconnected ? " + MQTT RECONNECT OK 🟢" : (d.restart_needed ? " (node restart szükséges a teljes érvényesítéshez)" : ""));
+    resEl.innerHTML = escHtml(msg) + " <span style='color:var(--text3)'>" + escHtml(d.saved_yaml ? "→ " + d.saved_yaml : "") + "</span>";
+    resEl.style.color = "var(--success)";
+    setTimeout(loadTransportSettings, 1500);
+  })
+  .catch(function(e) { console.error("Transport save error:", e); });
 }
 
 // ── Config Sync ──

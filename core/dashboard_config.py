@@ -234,3 +234,297 @@ class ConfigSyncMixin:
         except Exception as e:
             log.error(f"Config sync error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
+
+    # ── Transport kézi beállítások (v0.48.3) ─────────────────────────────
+    # GET /api/config/transports — élő transport státusz + beállítható mezők
+    async def _api_config_transports_get(self, request):
+        """Élő transport-állapot + config-értékek a Settings panelhez."""
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from aiohttp import web
+            node = self.node
+            cfg = getattr(node, "config", None)
+            result = {"node": getattr(node, "node_name", "?"), "transports": {}}
+
+            # ── P2P ──
+            p2p = getattr(node, "_p2p_transport", None)
+            p2p_status = "disabled"
+            if p2p:
+                try:
+                    st = p2p.status() if hasattr(p2p, "status") else {}
+                    p2p_status = st.get("status", st.get("state", "unknown")) if isinstance(st, dict) else str(st)
+                except Exception:
+                    p2p_status = "unknown"
+            result["transports"]["p2p"] = {
+                "enabled": bool(cfg.p2p.enabled) if cfg else True,
+                "listen_port": cfg.p2p.listen_port if cfg else 8645,
+                "listen_host": cfg.p2p.listen_host if cfg else "0.0.0.0",
+                "advertise_host": (cfg.p2p.advertise_host if cfg else "") or "",
+                "status": p2p_status,
+                "connected_peers": len(getattr(p2p, "_peers", {}) or {}) if p2p else 0,
+            }
+
+            # ── MQTT ──
+            mq = getattr(node, "_mqtt_transport", None)
+            mqtt_connected = bool(mq and getattr(mq, "_connected", False))
+            result["transports"]["mqtt"] = {
+                "enabled": bool(cfg.mqtt.enabled) if cfg else False,
+                "host": cfg.mqtt.host if cfg else "127.0.0.1",
+                "port": cfg.mqtt.port if cfg else 8683,
+                "keepalive": cfg.mqtt.keepalive if cfg else 30,
+                "status": "connected" if mqtt_connected else ("enabled" if (cfg and cfg.mqtt.enabled) else "disabled"),
+            }
+
+            # ── SSH tunnel ──
+            tun = getattr(node, "_ssh_tunnel_transport", None)
+            peers_info = {}
+            if tun:
+                try:
+                    for name, peer in (getattr(tun, "_tunnels", {}) or {}).items():
+                        peers_info[name] = {
+                            "connected": bool(getattr(peer, "connected", False)),
+                            "ssh_host": getattr(peer, "ssh_host", ""),
+                            "ssh_port": getattr(peer, "ssh_port", 22),
+                            "local_port": getattr(peer, "local_port", 0),
+                            "remote_port": getattr(peer, "remote_port", 8645),
+                        }
+                except Exception:
+                    pass
+            result["transports"]["ssh_tunnel"] = {
+                "enabled": bool(cfg.ssh_tunnel.enabled) if cfg else False,
+                "status": "active" if peers_info else "idle",
+                "peers": peers_info,
+            }
+
+            # ── PG ──
+            pg = getattr(node, "_pg_pool", None)
+            pg_ok = bool(pg and getattr(pg, "is_connected", lambda: False)())
+            result["transports"]["pg"] = {
+                "enabled": True,
+                "host": cfg.pg.host if cfg else "",
+                "port": cfg.pg.port if cfg else 5432,
+                "dbname": cfg.pg.dbname if cfg else "agent_memory",
+                "status": "connected" if pg_ok else "disconnected",
+            }
+
+            # ── HTTP relay ──
+            result["transports"]["http"] = {
+                "enabled": bool(cfg.http.url) if cfg else False,
+                "url": cfg.http.url if cfg else "",
+                "health_url": cfg.http.health_url if cfg else "",
+                "timeout": cfg.http.timeout if cfg else 5,
+                "status": "configured",
+            }
+
+            # ── Transport priority sorrend ──
+            result["transport_priority"] = list(cfg.transport_priority) if cfg else []
+
+            return web.json_response(result)
+        except Exception as e:
+            log.error(f"Transports get error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_config_transport_test(self, request):
+        """POST /api/config/transports/test — adott transport ÉLŐ tesztje.
+        Body: {"transport": "mqtt", "host": "192.168.1.8", "port": 8683}
+              {"transport": "pg", "host": ..., "port": ..., "user": ..., "password": ..., "dbname": ...}
+              {"transport": "ssh_tunnel", "host": ..., "port": ..., "user": ...}
+              {"transport": "http", "url": ...}
+              {"transport": "p2p", "listen_port": ...} (local bind test)
+        Determinista probe — nincs LLM, csak hálózati próbálkozás rövid timeouttal.
+        """
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            from aiohttp import web
+            import socket
+            body = await request.json()
+            t = body.get("transport", "")
+            host = str(body.get("host", ""))
+            port = int(body.get("port", 0))
+            result = {"transport": t, "ok": False, "detail": ""}
+
+            if t in ("mqtt", "ssh_tunnel", "p2p", "pg"):
+                # TCP connect probe — biztonságos, gyors (3s timeout)
+                if not host or not port:
+                    return web.json_response({"error": "host és port kötelező"}, status=400)
+                try:
+                    sock = socket.create_connection((host, port), timeout=3)
+                    sock.close()
+                    result["ok"] = True
+                    result["detail"] = f"TCP {host}:{port} elérhető"
+                except Exception as e:
+                    result["detail"] = f"TCP {host}:{port} SIKERTELEN: {e}"
+            elif t == "pg":
+                # Teljes PG connect próbálkozás (asyncpg-vel)
+                if not host or not port:
+                    return web.json_response({"error": "host és port kötelező"}, status=400)
+                import asyncpg
+                try:
+                    conn = await asyncio.wait_for(
+                        asyncpg.connect(
+                            host=host, port=port,
+                            user=body.get("user", "nova"),
+                            password=body.get("password", ""),
+                            database=body.get("dbname", "agent_memory"),
+                            timeout=5,
+                        ), timeout=6)
+                    ver = await conn.fetchval("SELECT version()")
+                    await conn.close()
+                    result["ok"] = True
+                    result["detail"] = f"PG connect OK: {str(ver)[:60]}"
+                except Exception as e:
+                    result["detail"] = f"PG connect SIKERTELEN: {e}"
+            elif t == "http":
+                url = str(body.get("url", ""))
+                if not url:
+                    return web.json_response({"error": "url kötelező"}, status=400)
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession() as sess:
+                        async with sess.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            result["ok"] = resp.status < 500
+                            result["detail"] = f"HTTP {resp.status} — {url[:70]}"
+                except Exception as e:
+                    result["detail"] = f"HTTP SIKERTELEN: {e}"
+            else:
+                return web.json_response({"error": f"Ismeretlen transport: {t}"}, status=400)
+
+            return web.json_response(result)
+        except Exception as e:
+            log.error(f"Transport test error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_config_transport_set(self, request):
+        """POST /api/config/transports — transport beállítás élő mentése (v0.48.3).
+
+        Body: {"transport": "mqtt", "values": {"host": "192.168.1.8", "port": 8683, "enabled": true}}
+        Hatás: futó config frissítése + mesh_config_{node}.yaml persist + MQTT-nél élő reconnect.
+        """
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        # Csak admin/owner módosíthat transportot
+        if user and getattr(user, "role", "") not in ("admin", "owner"):
+            return web.json_response({"error": "Admin jog szükséges"}, status=403)
+        try:
+            from aiohttp import web
+            node = self.node
+            body = await request.json()
+            t = body.get("transport", "")
+            values = body.get("values", {})
+            if not t or not isinstance(values, dict):
+                return web.json_response({"error": "transport és values (dict) kötelező"}, status=400)
+
+            cfg = getattr(node, "config", None)
+            if cfg is None:
+                return web.json_response({"error": "Config nem elérhető"}, status=503)
+
+            applied = {}
+            restart_needed = False
+
+            if t == "mqtt" and hasattr(cfg, "mqtt"):
+                for k, v in values.items():
+                    if k == "enabled":
+                        cfg.mqtt.enabled = bool(v); applied[k] = bool(v)
+                    elif k == "host":
+                        cfg.mqtt.host = str(v); applied[k] = str(v)
+                    elif k == "port":
+                        cfg.mqtt.port = int(v); applied[k] = int(v)
+                    elif k == "keepalive":
+                        cfg.mqtt.keepalive = int(v); applied[k] = int(v)
+                restart_needed = True
+            elif t == "p2p" and hasattr(cfg, "p2p"):
+                for k, v in values.items():
+                    if k == "enabled":
+                        cfg.p2p.enabled = bool(v); applied[k] = bool(v)
+                    elif k == "listen_port":
+                        cfg.p2p.listen_port = int(v); applied[k] = int(v)
+                    elif k == "listen_host":
+                        cfg.p2p.listen_host = str(v); applied[k] = str(v)
+                    elif k == "advertise_host":
+                        cfg.p2p.advertise_host = str(v); applied[k] = str(v)
+                restart_needed = True
+            elif t == "pg" and hasattr(cfg, "pg"):
+                for k, v in values.items():
+                    if k == "host":
+                        cfg.pg.host = str(v); applied[k] = str(v)
+                    elif k == "port":
+                        cfg.pg.port = int(v); applied[k] = int(v)
+                    elif k == "dbname":
+                        cfg.pg.dbname = str(v); applied[k] = str(v)
+                    elif k == "user":
+                        cfg.pg.user = str(v); applied[k] = str(v)
+                restart_needed = True
+            elif t == "ssh_tunnel" and hasattr(cfg, "ssh_tunnel"):
+                for k, v in values.items():
+                    if k == "enabled":
+                        cfg.ssh_tunnel.enabled = bool(v); applied[k] = bool(v)
+                restart_needed = True
+            elif t == "http" and hasattr(cfg, "http"):
+                for k, v in values.items():
+                    if k == "url":
+                        cfg.http.url = str(v); applied[k] = str(v)
+                    elif k == "health_url":
+                        cfg.http.health_url = str(v); applied[k] = str(v)
+                    elif k == "timeout":
+                        cfg.http.timeout = int(v); applied[k] = int(v)
+            else:
+                return web.json_response({"error": f"Ismeretlen transport: {t}"}, status=400)
+
+            # ── Persist: mesh_config_{node}.yaml frissítése ──
+            saved_yaml = ""
+            try:
+                import os as _os, yaml as _yaml
+                ypath = _os.path.expanduser(f"~/.hermes/scripts/a2a_mesh/mesh_config_{node.node_name}.yaml")
+                if not _os.path.exists(ypath):
+                    ypath = _os.path.expanduser("~/.hermes/scripts/a2a_mesh/mesh_config.yaml")
+                if _os.path.exists(ypath):
+                    with open(ypath) as f:
+                        ydata = _yaml.safe_load(f) or {}
+                    ysec = ydata.setdefault(t, {}) if t != "ssh_tunnel" else ydata.setdefault("ssh_tunnel", {})
+                    for k, v in applied.items():
+                        ysec[k] = v
+                    with open(ypath, "w") as f:
+                        _yaml.safe_dump(ydata, f, default_flow_style=False, allow_unicode=True)
+                    saved_yaml = ypath
+            except Exception as ye:
+                log.warning(f"Transport yaml persist failed: {ye}")
+
+            # ── MQTT élő reconnect, ha az MQTT-et állítottuk ──
+            mqtt_reconnected = False
+            if t == "mqtt":
+                try:
+                    mq = getattr(node, "_mqtt_transport", None)
+                    if mq:
+                        if hasattr(mq, "stop"):
+                            try:
+                                await asyncio.wait_for(mq.stop(), timeout=5)
+                            except Exception:
+                                pass
+                        # host/port frissítése a configból
+                        if hasattr(mq, "_host"):
+                            mq._host = cfg.mqtt.host
+                            mq._port = cfg.mqtt.port
+                            mq._enabled = cfg.mqtt.enabled
+                        if cfg.mqtt.enabled and hasattr(mq, "start"):
+                            await mq.start()
+                            mqtt_reconnected = bool(getattr(mq, "_connected", False))
+                except Exception as re_err:
+                    log.warning(f"MQTT reconnect failed: {re_err}")
+
+            return web.json_response({
+                "transport": t,
+                "applied": applied,
+                "saved_yaml": saved_yaml,
+                "mqtt_reconnected": mqtt_reconnected,
+                "restart_needed": restart_needed and not mqtt_reconnected,
+                "message": "Beállítások élőben alkalmazva" if not restart_needed else
+                           "Beállítások mentve — teljes érvényesítéshez node restart",
+            })
+        except Exception as e:
+            log.error(f"Transport set error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
