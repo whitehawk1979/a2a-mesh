@@ -62,6 +62,9 @@ class MQTTTransport(TransportAdapter):
         self._ssh_key_handler = None
         self._endpoint_handler = None
         self._version_handler = None
+        # Update trigger handler (v0.48.13): a2a/update/latest → azonnali update-check
+        self._update_trigger_handler = None
+        self._last_update_trigger_ts = ""
 
         # User-change notify handler (set by node.py; calls AuthManager._sync_from_pg)
         self._users_changed_handler = None
@@ -260,9 +263,22 @@ class MQTTTransport(TransportAdapter):
             elif topic == "a2a/update/latest":
                 try:
                     info = json.loads(payload)
-                    log.info(f"[{self.name}] 📢 Új release elérhető: {info.get('tag')} ({info.get('url')})")
                 except Exception:
-                    log.info(f"[{self.name}] 📢 Update info: {payload[:120]}")
+                    info = {"tag": payload[:60], "ts": ""}
+                # v0.48.13: azonnali update-trigger (determinisztikus, ts-dedup).
+                # A retained üzenet minden újracsatlakozáskor újra jön — csak
+                # az első (új ts) vált ki trigger-t, az echo nem pörgeti.
+                ts = str(info.get("ts", ""))
+                if ts and ts != self._last_update_trigger_ts:
+                    self._last_update_trigger_ts = ts
+                    log.info(f"[{self.name}] 📢 Új release: {info.get('tag')} (ts={ts[:19]})")
+                    if self._update_trigger_handler:
+                        try:
+                            self._update_trigger_handler(info)
+                        except Exception as e:
+                            log.warning(f"[{self.name}] update trigger handler failed: {e}")
+                else:
+                    log.info(f"[{self.name}] 📢 Update info (dedup/echo): {payload[:120]}")
                 return
 
             # ── User sync notify: a2a/sys/users_changed ──
@@ -410,6 +426,16 @@ class MQTTTransport(TransportAdapter):
         (version-skew detektálás a topology/nodes view-ban).
         """
         self._version_handler = handler
+
+    def set_update_trigger_handler(self, handler):
+        """Register callback for instant update-check on a2a/update/latest (v0.48.13).
+
+        Handler(info_dict) hívódik, ha ÚJ release-üzenet érkezik (ts-dedup után).
+        A node.py-ban a handler azonnal (taskban) lefuttatja a check+apply-t,
+        nem vár a 300s-es poll-ciklusra. Determinisztikus: verzió-összehasonlítás
+        a node-ban, itt csak a jelzés továbbítása.
+        """
+        self._update_trigger_handler = handler
 
     def publish_endpoint(self, node_name: str, info: dict):
         """Publish this node's LIVE endpoint info to a2a/endpoints/{node} (retained).
