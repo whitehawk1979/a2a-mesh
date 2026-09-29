@@ -15,7 +15,9 @@ mesh:
     priority_threshold: 10
     queue_lower_priorities: true
   auto_update:
-    enabled: false
+    enabled: true
+    check_interval: 300
+    apply_automatically: true
   capabilities:
   - a2a_messaging
   - file_transfer
