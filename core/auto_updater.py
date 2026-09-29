@@ -221,12 +221,16 @@ class AutoUpdater:
         if not files:
             logger.error("API-sync: üres fájllista")
             return False
-        # Raw letöltés + írás (skip: .env* gyökérben, kulcsok, git belsők)
+        # Raw letöltés + írás (skip: .env* gyökérben, kulcsok, git belsők,
+        # node-specifikus mesh_config YAML-ok — kézi menedzsment, a repo
+        # verzió elavult lehet a node-on élő confighoz képest!)
         def _skip(p: str) -> bool:
             base = p.rsplit("/", 1)[-1]
             return (p.startswith(".env") or p.startswith(".git")
                     or base.startswith(".env") or "/.git/" in p
-                    or base.endswith((".pem", ".key", ".crt", ".pub")))
+                    or base.startswith("mesh_config")
+                    or base.endswith((".pem", ".key", ".crt", ".pub"))
+                    or base.startswith(".topo_") or base == "VERSION_SYNC")
 
         synced = 0
         failed = []
