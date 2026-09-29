@@ -731,14 +731,23 @@ class AutoUpdater:
 
         try:
             if system == "Darwin":
-                # macOS LaunchAgent
+                # macOS LaunchAgent — launchctl kickstart -k (kill + respawn).
+                # BUGFIX: the previous unload/load used a literal "~/Library/..."
+                # path — subprocess without a shell does NOT expand "~", so
+                # launchctl always failed silently and we returned True while
+                # the OLD process kept running (verify then passed against the
+                # old process → false "Update complete", version never changed).
+                # The kickstart kills THIS process too, so run it detached with
+                # a short delay (same pattern as the deploy handler).
                 label = "com.hermes.a2a-mesh-node"
-                logger.info(f"Restarting LaunchAgent: {label}")
-                subprocess.run(["launchctl", "unload", f"~/Library/LaunchAgents/{label}.plist"],
-                              capture_output=True, timeout=10)
-                await asyncio.sleep(2)
-                subprocess.run(["launchctl", "load", f"~/Library/LaunchAgents/{label}.plist"],
-                              capture_output=True, timeout=10)
+                uid = os.getuid()
+                logger.info(f"Restarting LaunchAgent (delayed kickstart): {label}")
+                subprocess.Popen(
+                    ["bash", "-c", f"sleep 2 && exec launchctl kickstart -k gui/{uid}/{label}"],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
                 return True
 
             elif system == "Linux":
