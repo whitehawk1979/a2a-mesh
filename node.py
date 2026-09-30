@@ -1914,6 +1914,26 @@ class MeshNode:
             except Exception:
                 pass
 
+            # FIX (2026-09-30): HAOS/mano — a repo dir lehet symlink, amit masik
+            # user birtokol (pl. /config/a2a_mesh -> /config/a2a-mesh). Ilyenkor a
+            # git "detected dubious ownership"-al megtagadja a muveletet.
+            # Determinisztikus self-heal: probe, majd safe.directory kivetel a
+            # VALDI (realpath) repo konyvtarra, ezutan a fetch mar megy.
+            try:
+                _probe = subprocess.run(
+                    ["git", "rev-parse", "--git-dir"], cwd=repo_path,
+                    capture_output=True, text=True, timeout=15,
+                )
+                if _probe.returncode != 0 and "dubious ownership" in (_probe.stderr or ""):
+                    _rp = _os.path.realpath(repo_path)
+                    subprocess.run(
+                        ["git", "config", "--global", "--add", "safe.directory", _rp],
+                        capture_output=True, text=True, timeout=15,
+                    )
+                    steps.append(f"[{node}] git: added safe.directory exception for {_rp}")
+            except Exception as _so_e:
+                steps.append(f"[{node}] git ownership probe skipped: {_so_e}")
+
             fetch_ok = False
             # FIX (v0.48.1→v0.49 follow-up, 2026-09-29): a full `git fetch <remote>`
             # writes FETCH_HEAD with the LAST refspec fetched — with multiple
