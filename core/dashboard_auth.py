@@ -120,8 +120,8 @@ class DashboardAuthMixin:
                 except KeyError:
                     pass
 
-            # 2) DB login sessions, deduped by username (keeps latest)
-            sessions = self.auth.list_active_sessions()
+            # 2) MESH-WIDE login sessions (SQLite local + PG merge — remote nodes included)
+            sessions = self.auth.list_mesh_sessions()
             session_by_user = {}
             for s in sessions:
                 uname = (s.get("username") or s.get("display_name") or "").strip().lower()
@@ -133,15 +133,22 @@ class DashboardAuthMixin:
                     session_by_user[uname] = s
 
             sessions_display = []
-            # DB-session users
+            # DB-session users (local OR any mesh node via PG)
             for uname, s in session_by_user.items():
                 exp = s.get("expires_at", 0)
                 is_expired = exp > 0 and exp < now
-                online = uname in online_via_ws and not is_expired
+                # mesh-wide presence: a live DB session on ANY node = online.
+                # WS connection on THIS node = "connected_here" (stronger signal).
+                online = (not is_expired) and (
+                    uname in online_via_ws or not s.get("remote", False)
+                    or exp > 0  # fresh session somewhere in the mesh
+                )
                 sessions_display.append({
                     "username": uname,
                     "display_name": s.get("display_name", s.get("username", uname)),
                     "online": online,
+                    "connected_here": uname in online_via_ws,
+                    "node_name": s.get("node_name", ""),
                     "connected_at": s.get("created_at", 0),
                     "expires_at": exp,
                     "is_expired": is_expired,

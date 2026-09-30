@@ -7299,8 +7299,9 @@ window.updateSessionUI = function(sessions) {
         var dot = online ? '<span style="color:var(--success)">●</span> Online' : '<span style="color:var(--danger)">●</span> Offline';
         var badge = isSelf ? ' <span style="background:var(--primary);color:#fff;padding:1px 5px;border-radius:4px;font-size:9px;">\u00C9n</span>' : '';
         var created = s.connected_at ? new Date(s.connected_at * 1000).toLocaleString('hu-HU') : '?';
-        h += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:' + (online ? 'var(--surface2)' : 'transparent') + ';border-radius:6px;margin-bottom:4px;font-size:11px;border:1px solid ' + (isSelf ? 'var(--primary)' : 'var(--border)') + ';opacity:' + (online ? '1' : '0.55') + ';">';
-        h += '<span style="flex:1;"><strong>' + esc(s.username || '?') + badge + '</strong> ' + dot + ' <span style="color:var(--text3);">(bejelentkezve: ' + esc(created) + ')</span></span>';
+        var nodeBadge = s.node_name ? ' <span style="background:var(--surface2);color:var(--text3);padding:1px 5px;border-radius:4px;font-size:9px;border:1px solid var(--border);">@' + esc(s.node_name) + '</span>' : '';
+        h += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:' + (online ? 'var(--surface2)' : 'transparent') + ';border-radius:6px;margin-bottom:4px;font-size:11px;border:1px solid ' + (isSelf ? 'var(--primary)' : 'var(--border)') + ';opacity:' + (online ? '1' : '0.55') + ';\">';
+        h += '<span style="flex:1;"><strong>' + esc(s.username || '?') + badge + '</strong> ' + dot + nodeBadge + ' <span style="color:var(--text3);">(bejelentkezve: ' + esc(created) + ')</span></span>';
         h += '</div>';
       });
       container.innerHTML = h;

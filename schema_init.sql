@@ -105,13 +105,14 @@ CREATE INDEX IF NOT EXISTS idx_events_node_time ON mesh.mesh_events (node_name, 
 
 -- ─── Sessions ─────────────────────────────────────────────┬
 CREATE TABLE IF NOT EXISTS mesh.mesh_sessions (
-    token       TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL,
-    username    TEXT NOT NULL DEFAULT '',
+    token        TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    username     TEXT NOT NULL DEFAULT '',
     display_name TEXT NOT NULL DEFAULT '',
-    created_at  TIMESTAMPTZ DEFAULT NOW(),
-    expires_at  TIMESTAMPTZ,
-    ip_address  TEXT DEFAULT ''
+    created_at   REAL NOT NULL,
+    expires_at   REAL NOT NULL DEFAULT 0,
+    ip_address   TEXT DEFAULT '',
+    node_name    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_mesh_sessions_user ON mesh.mesh_sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_mesh_sessions_expires ON mesh.mesh_sessions (expires_at);

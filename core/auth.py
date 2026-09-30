@@ -308,9 +308,15 @@ class AuthManager:
                     display_name TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
                     expires_at REAL NOT NULL DEFAULT 0,
-                    ip_address TEXT DEFAULT ''
+                    ip_address TEXT DEFAULT '',
+                    node_name TEXT NOT NULL DEFAULT ''
                 )
             """)
+            # Self-heal: older tables lack node_name
+            try:
+                cur.execute("ALTER TABLE mesh.mesh_sessions ADD COLUMN IF NOT EXISTS node_name TEXT NOT NULL DEFAULT ''")
+            except Exception:
+                pass
             cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_sessions_user ON mesh.mesh_sessions (user_id)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_sessions_expires ON mesh.mesh_sessions (expires_at)")
             conn.close()
@@ -339,12 +345,14 @@ class AuthManager:
                 conn.close()
                 return
             pg_cur = conn.cursor()
+            import socket
+            _nn = getattr(self, "node_name", "") or socket.gethostname().split('.')[0]
             for row in rows:
                 pg_cur.execute("""
-                    INSERT INTO mesh.mesh_sessions (token, user_id, username, display_name, created_at, expires_at)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO mesh.mesh_sessions (token, user_id, username, display_name, created_at, expires_at, node_name)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (token) DO UPDATE
-                    SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at
+                    SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at, node_name = EXCLUDED.node_name
                 """, (
                     row["token"],
                     row["user_id"],
@@ -352,6 +360,7 @@ class AuthManager:
                     row["display_name"] if "display_name" in row.keys() else "",
                     row["created_at"],
                     row["expires_at"],
+                    _nn,
                 ))
             conn.close()
             log.info(f"PG session sync: {len(rows)} sessions pushed to PG")
@@ -360,23 +369,26 @@ class AuthManager:
             conn.close()
 
     def _push_session_to_pg(self, token, user_id, username, display_name, created_at, expires_at):
-        """Push a single session to PG."""
+        """Push a single session to PG (with node_name for mesh-wide presence)."""
         conn = self._get_pg_conn()
         if not conn:
             return
         try:
+            import socket
+            node_name = getattr(self, "node_name", "") or socket.gethostname().split('.')[0]
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO mesh.mesh_sessions (token, user_id, username, display_name, created_at, expires_at)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO mesh.mesh_sessions (token, user_id, username, display_name, created_at, expires_at, node_name)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (token) DO UPDATE
-                SET expires_at = EXCLUDED.expires_at
-            """, (token, user_id, username, display_name, created_at, float(expires_at)))
+                SET expires_at = EXCLUDED.expires_at, node_name = EXCLUDED.node_name
+            """, (token, user_id, username, display_name, created_at, float(expires_at), node_name))
             conn.commit()  # <-- KRITIKUS!
             conn.close()
         except Exception as e:
             log.warning(f"PG session push failed: {e}")
-            conn.close()
+            try: conn.close()
+            except Exception: pass
 
     def _delete_session_from_pg(self, token):
         """Delete a session from PG."""
@@ -604,6 +616,58 @@ class AuthManager:
         rows = cur.fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    def list_mesh_sessions(self) -> list:
+        """Merge local SQLite sessions + PG sessions (mesh-wide presence).
+
+        Each row gets a 'node_name' key. Local rows keep their node_name
+        if present, PG rows carry the originating node's hostname.
+        PG unavailable → gracefully falls back to SQLite-only (autonomy).
+        """
+        # 1) Local sessions (source: SQLite, always available)
+        local = self.list_active_sessions()
+        merged = {s["token"]: dict(s) for s in local if s.get("token")}
+
+        # 2) PG sessions (mesh-wide)
+        conn = self._get_pg_conn()
+        if conn:
+            try:
+                import socket
+                my_node = getattr(self, "node_name", "") or socket.gethostname().split('.')[0]
+                cur = conn.cursor()
+                cur.execute("""
+                    SELECT token, user_id, username, display_name,
+                           created_at, expires_at, node_name
+                    FROM mesh.mesh_sessions
+                    WHERE expires_at = 0 OR expires_at > %s
+                """, (time.time(),))
+                for row in cur.fetchall():
+                    token = row[0]
+                    entry = {
+                        "token": token,
+                        "user_id": row[1],
+                        "username": row[2] or "",
+                        "display_name": row[3] or "",
+                        "created_at": float(row[4] or 0),
+                        "expires_at": float(row[5] or 0),
+                        "node_name": row[6] or "unknown",
+                    }
+                    existing = merged.get(token)
+                    if existing:
+                        # Enrich local row with PG node_name
+                        if entry["node_name"] and entry["node_name"] != "unknown":
+                            existing["node_name"] = entry["node_name"]
+                    else:
+                        # Session from ANOTHER node — visible but not "online here"
+                        entry["remote"] = (entry["node_name"] != my_node)
+                        merged[token] = entry
+                conn.close()
+            except Exception as e:
+                log.debug(f"PG mesh session read failed (SQLite-only fallback): {e}")
+                try: conn.close()
+                except Exception: pass
+
+        return list(merged.values())
 
     def revoke_session(self, token_signature: str) -> bool:
         """Revoke a specific session by its signature."""

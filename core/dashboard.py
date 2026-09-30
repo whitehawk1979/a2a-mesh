@@ -114,6 +114,11 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
             password = pg_conf.password if hasattr(pg_conf, 'password') else ''
             pg_dsn = f"postgresql://{pg_conf.user}:{password}@{pg_conf.host}:{pg_conf.port}/{pg_conf.dbname}"
         self.auth = AuthManager(pg_dsn=pg_dsn)
+        # Propagate node name for mesh-wide session presence badges
+        try:
+            self.auth.node_name = getattr(getattr(node, 'config', None), 'node_name', '') or ''
+        except Exception:
+            pass
         # Sync existing users to PG on startup (bootstrap)
         if pg_dsn:
             try:
