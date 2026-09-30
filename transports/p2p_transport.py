@@ -310,8 +310,13 @@ class P2PTransport(TransportAdapter):
                 # Wait for port to be freed (up to 5 seconds)
                 for wait in range(50):  # 50 x 0.1s = 5s
                     try:
+                        # SECURITY: keep TLS on the reclaimed listener — the old
+                        # process held the port; without ssl= here the server
+                        # silently downgraded to plain TCP and rejected every
+                        # TLS peer handshake (EOF-on-ClientHello).
                         self._server = await asyncio.start_server(
-                            self._handle_connection, self._listen_host, original_port
+                            self._handle_connection, self._listen_host, original_port,
+                            ssl=self._ssl_context
                         )
                         self._running = True
                         self._available = True
@@ -326,8 +331,10 @@ class P2PTransport(TransportAdapter):
                 for offset in [1, -1]:
                     alt_port = original_port + offset
                     try:
+                        # SECURITY: same TLS preservation as the reclaim path
                         self._server = await asyncio.start_server(
-                            self._handle_connection, self._listen_host, alt_port
+                            self._handle_connection, self._listen_host, alt_port,
+                            ssl=self._ssl_context
                         )
                         self._listen_port = alt_port
                         self._running = True
