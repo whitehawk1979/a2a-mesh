@@ -18,6 +18,7 @@ Flow:
 """
 
 import asyncio
+import os
 import random
 import json
 import logging
@@ -123,6 +124,53 @@ class DelegationManager:
 
     # ── Send side: delegate a task ──
 
+    # ── v0.46.13: Dinamikus load-balancing (approved idea) ──
+    # A 'auto' célú delegálásnál a legkevésbé terhelt élő node-t választja:
+    # score = CPU% * 0.5 + MEM% * 0.3 + aktív taskok * 8 (friss health-adat alapján).
+    async def pick_agent(self, task_type: str = "generic",
+                         eligible_agents: Optional[List[str]] = None) -> Optional[str]:
+        """Pick the least-loaded live node for a task. Deterministic, no LLM.
+
+        Sources: public.mesh_node_health (fresh < 120s) + active task counts
+        from shared_delegations. Returns None if no eligible node is healthy.
+        """
+        try:
+            rows = await self.pg_pool.fetch(
+                """SELECT node_name, cpu_pct, memory_pct, disk_pct
+                   FROM mesh_node_health
+                   WHERE last_seen > NOW() - INTERVAL '120 seconds'""",
+            )
+        except Exception:
+            rows = []
+        if not rows:
+            return None
+        # Aktív taskok súlyozás (pending/accepted/running)
+        try:
+            act = await self.pg_pool.fetch(
+                """SELECT assigned_agent, COUNT(*) AS n FROM shared_delegations
+                   WHERE status IN ('pending','accepted','running')
+                     AND assigned_agent IS NOT NULL
+                   GROUP BY assigned_agent""",
+            )
+            active = {r["assigned_agent"]: int(r["n"]) for r in act}
+        except Exception:
+            active = {}
+        best, best_score = None, None
+        for r in rows:
+            name = r["node_name"]
+            if name == self.node_name:
+                continue  # self-delegation nem (delegate_task úgyis blokkolja)
+            if eligible_agents and name not in eligible_agents:
+                continue
+            score = (float(r["cpu_pct"] or 0) * 0.5
+                     + float(r["memory_pct"] or 0) * 0.3
+                     + active.get(name, 0) * 8)
+            if best_score is None or score < best_score:
+                best, best_score = name, score
+        if best:
+            log.info(f"⚖️ load-balancing: '{task_type}' → {best} (score={best_score:.1f})")
+        return best
+
     async def delegate_task(
         self,
         to_agent: str,
@@ -138,6 +186,7 @@ class DelegationManager:
         eligible_agents: Optional[List[str]] = None,
         distribute_mode: bool = False,
         depends_on: Optional[str] = None,
+        input_file_ids: Optional[List[str]] = None,
     ) -> Union[str, List[str]]:
         """Delegate a task to another agent or make it available for any agent.
         
@@ -182,6 +231,19 @@ class DelegationManager:
         if to_agent == self.node_name and not available:
             log.warning(f"Skipping self-delegation: {self.node_name} → {to_agent} (use available=True instead)")
             return ""
+        # ── v0.46.13: 'auto' cél — load-balancing a legkevésbé terhelt élő node-ra.
+        # Determinisztikus: mesh_node_health + aktív taskszám súlyozás.
+        if to_agent == "auto":
+            _picked = await self.pick_agent(task_type, eligible_agents)
+            if _picked:
+                to_agent = _picked
+                log.info(f"⚖️ auto-delegation → {to_agent} (least-loaded live node)")
+            else:
+                # Nincs friss health-adat — available-ként fut tovább (bárki claimelheti)
+                log.info("⚖️ auto: nincs élő node health-adat → 'any' available mód")
+                available = True
+                to_agent = "any"
+
         # Check circuit breaker for target agent
         if not available and to_agent != "any":
             cb = self._circuit_breakers.get(to_agent)
@@ -220,10 +282,11 @@ class DelegationManager:
 
         await self.pg_pool.execute(
             """INSERT INTO shared_delegations 
-               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries, task_type)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
+               (task_id, from_agent, to_agent, subject, description, status, priority, expires_at, assigned_agent, max_retries, task_type, input_files)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
             task_id, self.node_name, actual_to, subject, desc_json,
             status, priority, expires_at, None, max_retries, task_type or "generic",
+            json.dumps(input_file_ids) if input_file_ids else None,
         )
 
         log.info(f"Delegated task {task_id} to {actual_to}: {subject} (P{priority}, {status})")
@@ -451,11 +514,19 @@ class DelegationManager:
             return False
 
     async def reassign_task(self, task_id: str, new_agent: str) -> bool:
-        """Reassign a task to a different agent."""
+        """Reassign a task to a different agent. Accepts full or partial id."""
+        if len(str(task_id)) < 36:
+            row = await self.pg_pool.fetchrow(
+                "SELECT task_id::text AS tid FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
+                f"%{task_id}%",
+            )
+            if not row:
+                return False
+            task_id = row["tid"]
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations 
                SET to_agent = $1, assigned_agent = $1
-               WHERE task_id = $2 AND status IN ($3, $4)""",
+               WHERE task_id::text = $2 AND status IN ($3, $4)""",
             new_agent, task_id, STATUS_ACCEPTED, STATUS_PENDING,
         )
         return "UPDATE 1" in result
@@ -468,7 +539,7 @@ class DelegationManager:
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations 
                SET notes = COALESCE(notes, '[]'::jsonb) || $1::jsonb
-               WHERE task_id = $2""",
+               WHERE task_id::text = $2""",
             note_entry, task_id,
         )
         return "UPDATE 1" in result
@@ -484,19 +555,33 @@ class DelegationManager:
         return "UPDATE 1" in result
 
     async def get_task_status(self, task_id: str) -> Optional[Dict]:
-        """Check the status of a delegated task."""
+        """Check the status of a delegated task. Accepts full or partial (via /task) id."""
+        if len(str(task_id)) < 36:
+            rows = await self.pg_pool.fetch(
+                "SELECT * FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
+                f"%{task_id}%",
+            )
+            return dict(rows[0]) if rows else None
         row = await self.pg_pool.fetchrow(
-            "SELECT * FROM shared_delegations WHERE task_id = $1", task_id
+            "SELECT * FROM shared_delegations WHERE task_id::text = $1", task_id
         )
         if row:
             return dict(row)
         return None
 
     async def cancel_task(self, task_id: str) -> bool:
-        """Cancel a pending delegation."""
+        """Cancel a pending delegation. Accepts full or partial id."""
+        if len(str(task_id)) < 36:
+            row = await self.pg_pool.fetchrow(
+                "SELECT task_id::text AS tid FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
+                f"%{task_id}%",
+            )
+            if not row:
+                return False
+            task_id = row["tid"]
         result = await self.pg_pool.execute(
             """UPDATE shared_delegations SET status = $1 
-               WHERE task_id = $2 AND status IN ($3, $4, $5)""",
+               WHERE task_id::text = $2 AND status IN ($3, $4, $5)""",
             STATUS_CANCELLED, task_id, STATUS_PENDING, STATUS_AVAILABLE, STATUS_ACCEPTED,
         )
         return "UPDATE 1" in result
@@ -1278,6 +1363,73 @@ class DelegationManager:
 
         task_type = desc.get("type", "generic")
         context = desc.get("context", {})
+
+        # ── Input-file materializáció (v0.48.1) ──────────────────────────────
+        # A delegáló által feltöltött munka-fileok lematerializálása lokálisan,
+        # hogy bármelyik handler lokálisan olvashassa őket. A contextbe:
+        #   input_files: [{filename, path, content_type, size}]
+        #   input_files_dir: abszolút workdir útvonal
+        try:
+            # Futásidőben frissen húzzuk le a PG-ből (a feltöltés a task-létrehozás
+            # után másodpercekkel készülhet el — a claim-kor kapott task dict elavult lehet)
+            input_ids = task.get("input_files")
+            if not input_ids:
+                fresh_ids = await self.pg_pool.fetchval(
+                    "SELECT input_files FROM shared_delegations WHERE task_id = $1", str(task_id),
+                )
+                input_ids = fresh_ids or []
+            if isinstance(input_ids, str):
+                input_ids = json.loads(input_ids) if input_ids.strip().startswith("[") else []
+            if input_ids:
+                import base64 as _b64
+                workdir = os.path.join(
+                    os.path.expanduser("~/.hermes/cache/delegation_input"), str(task_id),
+                )
+                os.makedirs(workdir, exist_ok=True)
+                ctx_files = []
+                for fid in input_ids[:20]:  # max 20 file per task
+                    fr = await self.pg_pool.fetchrow(
+                        "SELECT filename, content_type, file_size, encoding, content FROM shared_files WHERE id = $1",
+                        str(fid),
+                    )
+                    if not fr:
+                        log.warning(f"Input file {fid} not found for task {task_id[:8]}")
+                        continue
+                    safe_name = os.path.basename(fr["filename"] or f"input_{fid[:8]}")
+                    # Névütközés elkerülése: duplikát nevek elé prefix
+                    local_path = os.path.join(workdir, safe_name)
+                    i = 1
+                    while os.path.exists(local_path):
+                        root, ext = os.path.splitext(safe_name)
+                        local_path = os.path.join(workdir, f"{root}_{i}{ext}")
+                        i += 1
+                    raw = fr["content"]
+                    if fr["encoding"] == "base64":
+                        try:
+                            raw = _b64.b64decode(raw)
+                        except Exception:
+                            pass
+                    if isinstance(raw, str):
+                        raw = raw.encode("utf-8")
+                    with open(local_path, "wb") as fh:
+                        fh.write(raw)
+                    ctx_files.append({
+                        "filename": os.path.basename(local_path),
+                        "path": local_path,
+                        "content_type": fr["content_type"] or "application/octet-stream",
+                        "size": int(fr["file_size"] or len(raw)),
+                    })
+                if ctx_files:
+                    context = dict(context)
+                    context["input_files"] = ctx_files
+                    context["input_files_dir"] = workdir
+                    await self.add_note(
+                        task_id,
+                        f"Input files materialized: {len(ctx_files)} file → {workdir}",
+                    )
+                    log.info(f"Materialized {len(ctx_files)} input files for task {task_id[:8]}")
+        except Exception as inf_err:
+            log.warning(f"Input file materialization failed (non-fatal): {inf_err}")
 
         # --- FEATURE C: Explicit Context Attachment ---
         shared_keys = context.get("attach_shared")

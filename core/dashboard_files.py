@@ -114,6 +114,21 @@ class DashboardFilesMixin:
         target = recipient or "broadcast"
         results = []
 
+        # ── v0.48.8: user→user DM file — nincs mesh routing, csak PG chat-file ──
+        # A chat-file rekord már fent PG-be került (mesh_chat_files + chat message),
+        # a címzett user a /api/chat/messages?with=user:x poll-lal látja + letöltheti.
+        if target.startswith("user:"):
+            _fuuid = locals().get("_chat_uuid", "")
+            return web.json_response({
+                "status": "ok",
+                "filename": file_name,
+                "safe_name": safe_name,
+                "size": file_size,
+                "user_dm": True,
+                "recipient": target,
+                "results": [{"peer": target, "file_id": str(_fuuid), "success": True, "error": ""}],
+            })
+
         try:
             if target == "broadcast":
                 # Send to all known peers

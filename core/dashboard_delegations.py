@@ -70,7 +70,8 @@ class DashboardDelegationsMixin:
 
     async def _api_delegations_create(self, request):
         """Create a new delegation. POST /api/delegations
-        Body: {to_agent, subject, description?, task_type?, priority?, context?, timeout_minutes?, available?}
+        Body: JSON {to_agent, subject, description?, task_type?, priority?, context?, timeout_minutes?, available?}
+        OR multipart: form field 'payload' = JSON + file fields 'files' (atomikus create+feltöltés, v0.48.1)
         to_agent='any' + available=true → any agent can claim
         to_agent='morzsa' → targeted delegation
         """
@@ -79,7 +80,33 @@ class DashboardDelegationsMixin:
         if err:
             return err
         try:
-            data = await request.json()
+            # ── Multipart branch: JSON payload + fileok egy requestben ──
+            # A fileok tartalmat AZONNAL olvassuk (aiohttp: reader.next() a
+            # korabbi partot release-li, a ki nem olvasott tartalom eldobodik
+            # — kesleltetett read() ures bajtot adna).
+            data = {}
+            input_file_parts = []  # [(filename, content_type, bytes), ...]
+            ctype = request.headers.get("Content-Type", "")
+            if "multipart/form-data" in ctype:
+                reader = await request.multipart()
+                while True:
+                    part = await reader.next()
+                    if part is None:
+                        break
+                    if part.name == "payload":
+                        import json as _json
+                        data = _json.loads(await part.text())
+                    elif part.name == "files":
+                        input_file_parts.append((
+                            part.filename or "unnamed",
+                            part.headers.get("Content-Type", "application/octet-stream"),
+                            await part.read(decode=False),
+                        ))
+                if not data:
+                    return web.json_response({"error": "payload (JSON) required in multipart"}, status=400)
+            else:
+                data = await request.json()
+
             to_agent = data.get("to_agent")
             subject = data.get("subject")
             available = data.get("available", False)
@@ -100,6 +127,40 @@ class DashboardDelegationsMixin:
                 if to_agent not in known and to_agent != self.node.node_name:
                     return web.json_response({"error": f"Unknown agent: {to_agent}. Known: {known}"}, status=400)
             
+            # ── Input-file-ok: ELŐBB PG-be, utána task (atomikus, v0.48.1) ──
+            # A file-ID-k a delegate_task INSERT-jébe kerülnek → a task soha
+            # nem látható file-ok nélkül a claim-elő workernek (nincs race).
+            uploaded_files = []
+            input_file_ids = []
+            if input_file_parts:
+                import base64 as _b64
+                pool = self._get_pg_pool()
+                if pool:
+                    for fname, fctype, fdata in input_file_parts:
+                        try:
+                            if not fdata or len(fdata) > self._INPUT_FILE_MAX_BYTES:
+                                if fdata and len(fdata) > self._INPUT_FILE_MAX_BYTES:
+                                    uploaded_files.append({"filename": fname, "skipped": True, "reason": "túl nagy (max 8MB)"})
+                                continue
+                            f_id = await pool.fetchval(
+                                """INSERT INTO shared_files
+                                   (sender_agent, recipient_agent, filename, content_type, file_size,
+                                    encoding, content, description, status)
+                                   VALUES ($1, $2, $3, $4, $5, 'base64', $6, 'Delegation input (pending task)', 'ready')
+                                   RETURNING id""",
+                                getattr(user, "username", "user"),
+                                to_agent or "",
+                                fname,
+                                fctype,
+                                len(fdata),
+                                _b64.b64encode(fdata).decode("ascii"),
+                            )
+                            if f_id:
+                                input_file_ids.append(str(f_id))
+                                uploaded_files.append({"file_id": str(f_id), "filename": fname, "size": len(fdata)})
+                        except Exception as fe:
+                            log.warning(f"Input file pre-store failed: {fe}")
+
             task_id = await self.node.delegation.delegate_task(
                 to_agent=to_agent,
                 subject=subject,
@@ -114,6 +175,7 @@ class DashboardDelegationsMixin:
                 eligible_agents=data.get("eligible_agents"),
                 distribute_mode=bool(data.get("distribute_mode", False)),
                 depends_on=data.get("depends_on"),
+                input_file_ids=input_file_ids or None,
             )
             
             # fan_out returns list of task_ids
@@ -180,9 +242,13 @@ class DashboardDelegationsMixin:
                     "to_agent": to_agent,
                     "subject": subject,
                     "fan_out": True,
+                    "input_files_uploaded": len(input_file_ids),
                 })
             else:
-                return web.json_response({"task_id": task_id, "status": status, "to_agent": to_agent, "subject": subject})
+                return web.json_response({
+                    "task_id": task_id, "status": status, "to_agent": to_agent, "subject": subject,
+                    "input_files_uploaded": len(input_file_ids),
+                })
         except Exception as e:
             log.error(f"Delegation create error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
@@ -356,6 +422,168 @@ class DashboardDelegationsMixin:
                 return web.json_response({"error": "Task not found"}, status=404)
         except Exception as e:
             log.error(f"Progress error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ── Input-file endpoints (v0.48.1) ─────────────────────────────────────
+    # A delegáló (user vagy agent) fileokat tolt fel a taskhoz; a vegrehajto
+    # agent a _execute_task_inner-ben lematerializalja oket es a contextben
+    # kapja: input_files[{filename, path, content_type, size}] + input_files_dir.
+
+    _INPUT_FILE_MAX_BYTES = 8 * 1024 * 1024  # 8MB/file
+
+    async def _api_delegations_input_upload(self, request):
+        """Upload input files for a delegation. POST /api/delegations/{task_id}/input-files
+        Multipart form: 'files' field(s). Stores in shared_files (base64),
+        links via shared_delegations.input_files jsonb array."""
+        import base64
+        import json as _json
+        from aiohttp import web
+
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        pool = self._get_pg_pool()
+        if not pool:
+            return web.json_response({"error": "PG not available"}, status=503)
+        task_id = request.match_info.get("task_id")
+        try:
+            # Task letezik-e (status: pending/available only — futó taskhoz ne lehessen már feltölteni)
+            row = await pool.fetchrow(
+                "SELECT status, from_agent, to_agent FROM shared_delegations WHERE task_id = $1", task_id,
+            )
+            if not row:
+                return web.json_response({"error": "Task not found"}, status=404)
+            if row["status"] not in ("pending", "available"):
+                return web.json_response(
+                    {"error": f"Task már elindult (status={row['status']}) — file csak indítás előtt tölthető fel"},
+                    status=409,
+                )
+
+            reader = await request.multipart()
+            uploaded = []
+            skipped = []
+            current_ids = row and await pool.fetchval(
+                "SELECT input_files FROM shared_delegations WHERE task_id = $1", task_id,
+            ) or []
+            current_ids = current_ids or []
+
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name != "files":
+                    continue
+                fname = part.filename or "unnamed"
+                data = await part.read(decode=False)
+                if len(data) > self._INPUT_FILE_MAX_BYTES:
+                    skipped.append({"filename": fname, "reason": "túl nagy (max 8MB)"})
+                    continue
+                encoded = base64.b64encode(data).decode("ascii")
+                # user: DashboardUser objektum (username attribútum) — a getattr
+                # fallbacknel biztonságos mindkét tipusra (obj/dict), nem dob errort
+                uploader = getattr(user, "username", None)
+                if not uploader and isinstance(user, dict):
+                    uploader = user.get("username", "user")
+                file_id = await pool.fetchval(
+                    """INSERT INTO shared_files
+                       (sender_agent, recipient_agent, filename, content_type, file_size,
+                        encoding, content, description, status)
+                       VALUES ($1, $2, $3, $4, $5, 'base64', $6, $7, 'ready')
+                       RETURNING id""",
+                    uploader or "user",
+                    row["to_agent"] or "",
+                    fname,
+                    part.headers.get("Content-Type", "application/octet-stream"),
+                    len(data),
+                    encoded,
+                    f"Delegation input: {task_id}",
+                )
+                current_ids.append(str(file_id))
+                uploaded.append({"file_id": str(file_id), "filename": fname, "size": len(data)})
+
+            if uploaded:
+                await pool.execute(
+                    "UPDATE shared_delegations SET input_files = $1, updated_at = NOW() WHERE task_id = $2",
+                    _json.dumps(current_ids), task_id,
+                )
+
+            return web.json_response({
+                "task_id": task_id,
+                "uploaded": len(uploaded),
+                "files": uploaded,
+                "skipped": skipped,
+            })
+        except Exception as e:
+            log.error(f"Input file upload error: {e}", exc_info=True)
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_delegations_input_list(self, request):
+        """List input files for a delegation. GET /api/delegations/{task_id}/input-files
+        Query: file_id=<uuid>&download=1 to download one file raw."""
+        import base64
+        from aiohttp import web
+
+        token = request.query.get("token", "")
+        auth_header = request.headers.get("Authorization", "")
+        if token and not auth_header:
+            auth_header = f"Bearer {token}"
+        user = None
+        if auth_header:
+            try:
+                payload = self.auth.verify_token(auth_header.replace("Bearer ", ""))
+                if payload:
+                    user = payload
+            except Exception:
+                pass
+        if not user:
+            user, err = self._require_auth(request)
+            if err:
+                return err
+        pool = self._get_pg_pool()
+        if not pool:
+            return web.json_response({"error": "PG not available"}, status=503)
+        task_id = request.match_info.get("task_id")
+        try:
+            ids = await pool.fetchval(
+                "SELECT input_files FROM shared_delegations WHERE task_id = $1", task_id,
+            )
+            if ids is None and not await pool.fetchval(
+                "SELECT 1 FROM shared_delegations WHERE task_id = $1", task_id,
+            ):
+                return web.json_response({"error": "Task not found"}, status=404)
+            ids = ids or []
+            file_id = request.query.get("file_id", "")
+            download = request.query.get("download", "0") == "1"
+            files = []
+            for fid in ids:
+                fr = await pool.fetchrow(
+                    "SELECT id, filename, content_type, file_size, created_at FROM shared_files WHERE id = $1",
+                    fid,
+                )
+                if not fr:
+                    continue
+                if download and file_id and str(fr["id"]) == file_id:
+                    content = await pool.fetchval(
+                        "SELECT content FROM shared_files WHERE id = $1", fid,
+                    )
+                    raw = base64.b64decode(content)
+                    from aiohttp import web as _web
+                    resp = _web.Response(
+                        body=raw,
+                        content_type=fr["content_type"] or "application/octet-stream",
+                        headers={"Content-Disposition": f'attachment; filename="{fr["filename"]}"'},
+                    )
+                    return resp
+                files.append({
+                    "file_id": str(fr["id"]),
+                    "filename": fr["filename"],
+                    "content_type": fr["content_type"],
+                    "size": fr["file_size"],
+                    "uploaded_at": fr["created_at"].isoformat() if fr["created_at"] else None,
+                })
+            return web.json_response({"task_id": task_id, "files": files, "count": len(files)})
+        except Exception as e:
+            log.error(f"Input file list error: {e}", exc_info=True)
             return web.json_response({"error": str(e)}, status=500)
 
     async def _api_delegations_files(self, request):

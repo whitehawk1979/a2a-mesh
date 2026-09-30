@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import uuid
+from .dashboard_chat import _get_mesh_agent_names  # v0.46.7: dinamikus agent-lista
 
 from .capsules import (
     strip_echo_prefix, retrieve_capsules, format_capsules_for_prompt,
@@ -278,15 +279,34 @@ class DashboardAgentsMixin:
                 "mesh_message_id": message.id,
             })
             
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    wake_url,
-                    data=wake_body.encode(),
-                    headers={"Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=120),
-                ) as resp:
-                    result = await resp.json()
-                    log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
+            # ── HTTP POST wake (elsődleges út) ──
+            _woke_via_mqtt = False
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        wake_url,
+                        data=wake_body.encode(),
+                        headers={"Content-Type": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=120),
+                    ) as resp:
+                        result = await resp.json()
+                        log.info(f"Wake-agent '{agent_name}' response: {result.get('status', 'unknown')} — {str(result)[:200]}")
+            except asyncio.TimeoutError:
+                log.warning(f"Wake-agent '{agent_name}' timed out (120s) via HTTP ({wake_url})")
+                _woke_via_mqtt = True
+            except Exception as e:
+                log.warning(f"Wake-agent '{agent_name}' HTTP failed ({wake_url}): {e}")
+                _woke_via_mqtt = True
+
+            # ── MQTT wake fallback (ha HTTP nem ment, de a target MQTT-n van) ──
+            if _woke_via_mqtt and agent_name != self.node.node_name:
+                try:
+                    mqtt_tr = getattr(self.node, '_mqtt_transport', None)
+                    if mqtt_tr and mqtt_tr.is_available():
+                        mqtt_tr.publish_wake_to(agent_name, wake_body)
+                        log.info(f"Wake-agent '{agent_name}': MQTT fallback sent ✓")
+                except Exception as mqtt_e:
+                    log.warning(f"MQTT wake fallback for '{agent_name}' failed: {mqtt_e}")
                     
         except asyncio.TimeoutError:
             log.warning(f"Wake-agent '{agent_name}' timed out (120s)")
@@ -835,7 +855,7 @@ class DashboardAgentsMixin:
             # route it as agent_reply type (not generic directive) and send to the
             # original sender only, NOT broadcast. This prevents peer nodes from
             # re-triggering wake-agent on receiving this reply.
-            _agent_names = ("nova", "morzsa", "runa", "tor")
+            _agent_names = _get_mesh_agent_names(self.node)  # v0.46.7: dinamikus agent-lista (nem hardkódolt)
             _is_agent_reply = sender.lower() in _agent_names
             # chat_username: the human user this reply belongs to (for per-user history persistence
             # in on_mesh_message — without it the reply shows live via WS but vanishes on reload)
@@ -1037,6 +1057,18 @@ class DashboardAgentsMixin:
                 return web.json_response({"error": "Empty prompt"}, status=400)
             
             log.info(f"Wake-agent request for '{agent_name}' — prompt {len(prompt)} chars")
+
+            # ── Wake 2.0: delivered-ack visszacsatolás a mesh.wake_log táblába ──
+            # A küldő node coalescing + watchdog dedup-ja erre az ackra épül.
+            _wake_id = body.get("wake_id", "")
+            if _wake_id:
+                try:
+                    _pool = getattr(self.node, 'pg_pool', None) or getattr(self.node, '_pg_pool', None)
+                    if _pool:
+                        from core.wake_lib import mark_delivered
+                        await mark_delivered(_pool, _wake_id)
+                except Exception as _wl_e:
+                    log.debug(f"wake_log delivered-ack failed: {_wl_e}")
             
             # Rate limit: prevent wake-agent storm (Ollama 429 + OOM SIGKILL root cause)
             import time as _time
@@ -1189,7 +1221,26 @@ class DashboardAgentsMixin:
             import asyncio as _aio_exec
             import shutil as _shutil
 
-            _hermes_bin = os.environ.get("HERMES_BIN") or _shutil.which("hermes") or os.path.expanduser("~/.local/bin/hermes")
+            # v0.46.9: hermes binary keresés bővítve — HAOS konténerben a
+            # PATH-ból hiányzik, de a standard telepítési úton elérhető:
+            # /config/.hermes/hermes-agent/venv/bin/hermes (és ~-alapú változatok)
+            def _find_hermes_bin():
+                _cands = []
+                _env = os.environ.get("HERMES_BIN")
+                if _env:
+                    _cands.append(_env)
+                _cands.append(_shutil.which("hermes"))
+                for _p in ("~/.local/bin/hermes",
+                           "~/.hermes/hermes-agent/venv/bin/hermes",
+                           "/config/.hermes/hermes-agent/venv/bin/hermes",
+                           "/usr/local/bin/hermes"):
+                    _cands.append(os.path.expanduser(_p))
+                for _c in _cands:
+                    if _c and os.path.isfile(_c):
+                        return _c
+                return None
+
+            _hermes_bin = _find_hermes_bin()
             output = ""
             _cli_ok = False
             if _hermes_bin and os.path.isfile(_hermes_bin) or (_hermes_bin and _shutil.which(_hermes_bin)):

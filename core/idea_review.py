@@ -180,8 +180,8 @@ def parse_idea_submit(payload: dict) -> Optional[dict]:
     return {
         "title": title[:300],
         "description": (payload.get("description") or "").strip()[:4000],
-        "category": (payload.get("category") or "agent").strip()[:50],
-        "priority": (payload.get("priority") or "medium").strip()[:20],
+        "category": str(payload.get("category") or "agent").strip()[:50],
+        "priority": str(payload.get("priority") or "medium").strip()[:20],
         "submitted_by": (payload.get("submitted_by") or "agent").strip()[:100],
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [],
     }
@@ -615,6 +615,12 @@ async def start_vote_nudge_loop(node) -> Optional[asyncio.Task]:
                     wake_url = f"http://{peer_info['host']}:{peer_info['health_port']}/api/wake-agent"
 
                     async def _wake_nudge(pn=peer_name, url=wake_url):
+                        # Fire-and-forget: a peer /api/wake-agent szinkron módon
+                        # futtatja a teljes helyi wake-et (LLM, gyakran 100+s) —
+                        # a régi 90s full-timeout ezért minden második nudge-nál
+                        # üres hibával (asyncio.TimeoutError: str='') jelent meg.
+                        # Rövid connect timeout: csak a fogadásig várunk, a
+                        # feldolgozás a peer-en háttérben fut tovább.
                         try:
                             async with _aiohttp.ClientSession() as sess:
                                 async with sess.post(url, json={
@@ -626,10 +632,15 @@ async def start_vote_nudge_loop(node) -> Optional[asyncio.Task]:
                                     "chat_msg_uuid": f"vote-nudge-{int(datetime.now().timestamp())}",
                                     "chat_type": "broadcast",
                                     "mesh_secret": "mesh-wake-secret-2026",
-                                }, timeout=_aiohttp.ClientTimeout(total=90)) as resp:
+                                }, timeout=_aiohttp.ClientTimeout(total=240, connect=10, sock_connect=10)) as resp:
+                                    # Nem olvassuk a body-t — a szerver már
+                                    # feldolgozza; a 202/429/401 státusz érdek.
+                                    await resp.release()
                                     log.info(f"🗳️ Vote-nudge wake → {pn}: {resp.status}")
+                        except asyncio.TimeoutError:
+                            log.warning(f"🗳️ Vote-nudge wake {pn} connect timeout (10s)")
                         except Exception as e:
-                            log.warning(f"🗳️ Vote-nudge wake {pn} failed: {e}")
+                            log.warning(f"🗳️ Vote-nudge wake {pn} failed: {type(e).__name__}: {e}")
 
                     asyncio.create_task(_wake_nudge())
             except Exception as e:
