@@ -6227,6 +6227,14 @@ echo "Status: ok"
                 self.local_store.cleanup_inbound(max_age_hours=1)
                 # Cleanup completed file transfers (> 24h) and abandoned (> 48h)
                 self.local_store.cleanup_file_transfers(max_age_hours=24)
+                # Cleanup expired idempotency keys (processed_keys) — fixes DB bloat
+                # (2026-09-30: 509k/537k rows expired, table = 104MB of 105MB DB)
+                try:
+                    _pk = self.local_store.cleanup_processed_keys()
+                    if _pk > 0:
+                        log.info(f"processed_keys cleanup: removed {_pk} expired idempotency keys")
+                except Exception as _pk_e:
+                    log.warning(f"processed_keys cleanup failed: {_pk_e}")
                 # Cleanup old mesh_messages (retention: 7 days)
                 await self._cleanup_old_messages(max_age_days=7)
                 # Cleanup old debug logs (retention: 7 days)
