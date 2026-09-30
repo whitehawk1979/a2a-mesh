@@ -515,6 +515,8 @@ class DelegationManager:
 
     async def reassign_task(self, task_id: str, new_agent: str) -> bool:
         """Reassign a task to a different agent. Accepts full or partial id."""
+        task_id = str(task_id)
+
         if len(str(task_id)) < 36:
             row = await self.pg_pool.fetchrow(
                 "SELECT task_id::text AS tid FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
@@ -533,6 +535,8 @@ class DelegationManager:
 
     async def add_note(self, task_id: str, note: str, agent: Optional[str] = None) -> bool:
         """Add a progress note to a task."""
+        task_id = str(task_id)  # UUID objektumból str — asyncpg ::text paraméterhez
+
         who = agent or self.node_name
         timestamp = datetime.now(timezone.utc).isoformat()
         note_entry = json.dumps({"agent": who, "note": _safe_ascii(note)[:500], "time": timestamp})
@@ -546,6 +550,8 @@ class DelegationManager:
 
     async def update_progress(self, task_id: str, progress: int, note: Optional[str] = None) -> bool:
         """Update task progress (0-100) with optional note."""
+        task_id = str(task_id)
+
         if note:
             await self.add_note(task_id, note)
         result = await self.pg_pool.execute(
@@ -556,6 +562,8 @@ class DelegationManager:
 
     async def get_task_status(self, task_id: str) -> Optional[Dict]:
         """Check the status of a delegated task. Accepts full or partial (via /task) id."""
+        task_id = str(task_id)
+
         if len(str(task_id)) < 36:
             rows = await self.pg_pool.fetch(
                 "SELECT * FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
@@ -571,6 +579,8 @@ class DelegationManager:
 
     async def cancel_task(self, task_id: str) -> bool:
         """Cancel a pending delegation. Accepts full or partial id."""
+        task_id = str(task_id)
+
         if len(str(task_id)) < 36:
             row = await self.pg_pool.fetchrow(
                 "SELECT task_id::text AS tid FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 1",
@@ -696,7 +706,7 @@ class DelegationManager:
             )
             for row in stuck_rows:
                 task = dict(row)
-                task_id = task.get("task_id", "")
+                task_id = str(task.get("task_id", ""))  # UUID objektum → str (asyncpg ::text)
                 from_agent = task.get("from_agent", "")
                 assigned = task.get("assigned_agent", "?")
                 subject = task.get("subject", "?")
@@ -2379,8 +2389,8 @@ class DelegationManager:
             
             await self.pg_pool.execute(
                 """INSERT INTO shared_delegations 
-                   (task_id, from_agent, to_agent, subject, description, task_type, priority, status, created_at)
-                   VALUES ($1, $2, $3, $4, $5, 'code_review', 3, $6, NOW())""",
+                   (task_id, from_agent, to_agent, subject, description, task_type, priority, status, created_at, expires_at)
+                   VALUES ($1, $2, $3, $4, $5, 'code_review', 3, $6, NOW(), NOW() + INTERVAL '120 minutes')""",
                 review_task_id, from_agent, reviewer, review_subject, desc_json, STATUS_AVAILABLE,
             )
             
