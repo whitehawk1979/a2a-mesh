@@ -156,15 +156,26 @@ class AuthManager:
 
     def __init__(self, db_path: str = DB_PATH, pg_dsn: str = None):
         self.db_path = db_path
-        self.pg_dsn = pg_dsn  # e.g. "postgresql://nova:***@192.168.1.30:5432/agent_memory"
+        self.pg_dsn = pg_dsn
+        # Fallback: auto-build from env vars (so every node can find PG autonomously)
+        if not self.pg_dsn:
+            self.pg_dsn = os.environ.get("A2A_MESH_PG_DSN")
+        if not self.pg_dsn:
+            host = os.environ.get("A2A_PG_HOST", "192.168.1.30")
+            port = os.environ.get("A2A_PG_PORT", "5432")
+            dbname = os.environ.get("A2A_PG_DBNAME", "agent_memory")
+            user = os.environ.get("A2A_PG_USER", "nova")
+            pwd = os.environ.get("A2A_PG_PASSWORD", "nova_agent_2026")
+            if host and user:
+                self.pg_dsn = f"postgresql://{user}:{pwd}@{host}:{port}/{dbname}"
         self._rate_limits: dict = {}  # username -> [timestamp, ...]
-        # Public registration — enabled by owner via dashboard config
-        self.public_registration_enabled = False
         self._init_db()
-        # Create PG users table and sync
+        # Create PG tables and sync
         if self.pg_dsn:
             self._init_pg_users()
+            self._init_pg_sessions()
             self._sync_from_pg()
+            self._sync_sessions_to_pg()
 
     def _init_db(self):
         """Create tables if they don't exist."""
@@ -260,18 +271,13 @@ class AuthManager:
             return
         try:
             cur = conn.cursor()
-            # v0.48+: minden user szinkronizalando (pending is_active=0 is) —
-            # a dashboard listaknak latniuk kell a fuggoben levoket.
-            # A login elve a kulon szures (login() WHERE is_active=1).
-            cur.execute("SELECT username, display_name, password_hash, salt, role, created_at, last_login, is_active FROM mesh.mesh_users")
+            cur.execute("SELECT username, display_name, password_hash, salt, role, created_at, last_login, is_active FROM mesh.mesh_users WHERE is_active = 1")
             pg_users = cur.fetchall()
             
             # Sync each PG user into local SQLite
             local_conn = sqlite3.connect(self.db_path)
-            pg_names = set()
             for row in pg_users:
                 username, display_name, password_hash, salt, role, created_at, last_login, is_active = row
-                pg_names.add(username)
                 try:
                     local_conn.execute(
                         "INSERT OR REPLACE INTO users (user_id, username, display_name, password_hash, salt, role, created_at, last_login, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -279,51 +285,147 @@ class AuthManager:
                     )
                 except Exception as e:
                     log.debug(f"Sync user {username}: {e}")
-            # Tükör szemantika: a PG-bol torolt (reject/deleted) user fusson ki
-            # a lokalis mirrorbol is — kulonben az elutasított user loginolhato
-            # marad masik node-on. A PG a Single Source of Truth.
-            cur2 = local_conn.execute("SELECT username FROM users")
-            local_names = {r[0] for r in cur2.fetchall()}
-            gone = local_names - pg_names
-            for name in gone:
-                cur3 = local_conn.execute("SELECT user_id FROM users WHERE username = ?", (name,))
-                row3 = cur3.fetchone()
-                if row3:
-                    local_conn.execute("DELETE FROM sessions WHERE user_id = ?", (row3[0],))
-                    local_conn.execute("DELETE FROM users WHERE username = ?", (name,))
             local_conn.commit()
             local_conn.close()
-            if gone:
-                log.info(f"PG user sync: {len(gone)} user(s) removed from local mirror (deleted in PG): {sorted(gone)}")
             log.info(f"PG user sync: {len(pg_users)} users pulled from PG")
         except Exception as e:
             log.warning(f"PG user sync failed: {e}")
         finally:
             conn.close()
 
-    def _sync_to_pg(self, username: str, display_name: str, password_hash: str, salt: str, role: str, created_at: float, is_active: int = 1):
-        """Push a user upsert to PG.
-
-        IMPORTANT: is_active must be explicit — a public registration creates a
-        PENDING (is_active=0) user; if PG defaulted to 1 the approval flow could
-        be bypassed when other nodes pull from PG.
-        """
+    def _init_pg_sessions(self):
+        """Create mesh.mesh_sessions table in PG if not exists."""
         conn = self._get_pg_conn()
         if not conn:
             return
         try:
             cur = conn.cursor()
             cur.execute("""
-                INSERT INTO mesh.mesh_users (username, display_name, password_hash, salt, role, created_at, is_active, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                CREATE TABLE IF NOT EXISTS mesh.mesh_sessions (
+                    token TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    username TEXT NOT NULL DEFAULT '',
+                    display_name TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL DEFAULT 0,
+                    ip_address TEXT DEFAULT ''
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_sessions_user ON mesh.mesh_sessions (user_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_mesh_sessions_expires ON mesh.mesh_sessions (expires_at)")
+            conn.close()
+            log.info("PG mesh_sessions table ready")
+        except Exception as e:
+            log.warning(f"PG init mesh_sessions failed: {e}")
+            conn.close()
+
+    def _sync_sessions_to_pg(self):
+        """Push all local sessions to PG (full sync on startup)."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            local_conn = sqlite3.connect(self.db_path)
+            local_conn.row_factory = sqlite3.Row
+            cur = local_conn.execute("""
+                SELECT s.*, u.username, u.display_name
+                FROM sessions s
+                JOIN users u ON s.user_id = u.user_id
+                WHERE s.expires_at = 0 OR s.expires_at > ?
+            """, (time.time(),))
+            rows = cur.fetchall()
+            local_conn.close()
+            if not rows:
+                conn.close()
+                return
+            pg_cur = conn.cursor()
+            for row in rows:
+                pg_cur.execute("""
+                    INSERT INTO mesh.mesh_sessions (token, user_id, username, display_name, created_at, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (token) DO UPDATE
+                    SET user_id = EXCLUDED.user_id, expires_at = EXCLUDED.expires_at
+                """, (
+                    row["token"],
+                    row["user_id"],
+                    row["username"] if "username" in row.keys() else "",
+                    row["display_name"] if "display_name" in row.keys() else "",
+                    row["created_at"],
+                    row["expires_at"],
+                ))
+            conn.close()
+            log.info(f"PG session sync: {len(rows)} sessions pushed to PG")
+        except Exception as e:
+            log.warning(f"PG session sync failed: {e}")
+            conn.close()
+
+    def _push_session_to_pg(self, token, user_id, username, display_name, created_at, expires_at):
+        """Push a single session to PG."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO mesh.mesh_sessions (token, user_id, username, display_name, created_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (token) DO UPDATE
+                SET expires_at = EXCLUDED.expires_at
+            """, (token, user_id, username, display_name, created_at, float(expires_at)))
+            conn.commit()  # <-- KRITIKUS!
+            conn.close()
+        except Exception as e:
+            log.warning(f"PG session push failed: {e}")
+            conn.close()
+
+    def _delete_session_from_pg(self, token):
+        """Delete a session from PG."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM mesh.mesh_sessions WHERE token = %s", (token,))
+            conn.commit()  # <-- KRITIKUS!
+            conn.close()
+        except Exception as e:
+            log.warning(f"PG session delete failed: {e}")
+            conn.close()
+
+    def _cleanup_pg_sessions(self):
+        """Remove expired sessions from PG."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM mesh.mesh_sessions WHERE expires_at > 0 AND expires_at < %s", (time.time(),))
+            rows = cur.rowcount
+            conn.commit()  # <-- KRITIKUS!
+            conn.close()
+            if rows:
+                log.info(f"PG session cleanup: {rows} expired sessions removed")
+        except Exception as e:
+            log.warning(f"PG session cleanup failed: {e}")
+            conn.close()
+
+    def _sync_to_pg(self, username: str, display_name: str, password_hash: str, salt: str, role: str, created_at: float):
+        """Push a user upsert to PG."""
+        conn = self._get_pg_conn()
+        if not conn:
+            return
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO mesh.mesh_users (username, display_name, password_hash, salt, role, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (username) DO UPDATE SET
                     display_name = EXCLUDED.display_name,
                     password_hash = EXCLUDED.password_hash,
                     salt = EXCLUDED.salt,
                     role = EXCLUDED.role,
-                    is_active = EXCLUDED.is_active,
                     updated_at = EXCLUDED.updated_at
-            """, (username, display_name, password_hash, salt, role, created_at, is_active, time.time()))
+            """, (username, display_name, password_hash, salt, role, created_at, time.time()))
             conn.commit()
             log.info(f"PG user sync: user '{username}' pushed to PG")
         except Exception as e:
@@ -380,15 +482,14 @@ class AuthManager:
         ).hexdigest()
         return hmac.compare_digest(computed, stored_hash)
 
-    def register_user(self, username: str, display_name: str, password: str, role: str = "user", is_active: int = 1) -> Optional[DashboardUser]:
-        """Register a new user. Returns the user object or None if username taken.
-        If is_active=0, the user is created as pending — must be approved by owner/admin."""
+    def register_user(self, username: str, display_name: str, password: str, role: str = "user") -> Optional[DashboardUser]:
+        """Register a new user. Returns the user object or None if username taken."""
         if len(username) < 2 or len(username) > 30:
             raise ValueError("Username must be 2-30 characters")
         if len(password) < 6:
             raise ValueError("Password must be at least 6 characters")
-        if role not in ("owner", "admin", "user"):
-            raise ValueError("Role must be 'owner', 'admin' or 'user'")
+        if role not in ("owner", "user"):
+            raise ValueError("Role must be 'owner' or 'user'")
 
         password_hash, salt = self._hash_password(password)
         user_id = uuid.uuid4().hex[:12]
@@ -397,9 +498,9 @@ class AuthManager:
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
-                "INSERT INTO users (user_id, username, display_name, password_hash, salt, role, created_at, is_active) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (user_id, username.lower(), display_name, password_hash, salt, role, created_at, is_active)
+                "INSERT INTO users (user_id, username, display_name, password_hash, salt, role, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username.lower(), display_name, password_hash, salt, role, created_at)
             )
             conn.commit()
         except sqlite3.IntegrityError:
@@ -410,7 +511,7 @@ class AuthManager:
 
         # Sync to PG (other nodes will pull from there)
         if self.pg_dsn:
-            self._sync_to_pg(username.lower(), display_name, password_hash, salt, role, created_at, is_active=is_active)
+            self._sync_to_pg(username.lower(), display_name, password_hash, salt, role, created_at)
 
         return DashboardUser(
             user_id=user_id,
@@ -418,7 +519,6 @@ class AuthManager:
             display_name=display_name,
             role=role,
             created_at=created_at,
-            is_active=bool(is_active),
         )
 
     def login(self, username: str, password: str) -> Optional[dict]:
@@ -511,6 +611,8 @@ class AuthManager:
         conn.execute("DELETE FROM sessions WHERE token = ?", (token_signature,))
         conn.commit()
         conn.close()
+        # Dual-write to PG
+        self._delete_session_from_pg(token_signature)
         return True
 
     def _generate_token(self, user_id: str, expiry_hours: float = 24) -> str:
@@ -532,7 +634,7 @@ class AuthManager:
         # Base64-encode for URL-safe tokens (no JSON curly braces in URLs)
         token = base64.urlsafe_b64encode(raw_token.encode()).decode().rstrip("=")
 
-        # Store session
+        # Store session in SQLite
         conn = sqlite3.connect(self.db_path)
         conn.execute(
             "INSERT OR REPLACE INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
@@ -540,6 +642,12 @@ class AuthManager:
         )
         conn.commit()
         conn.close()
+
+        # Dual-write to PG (mesh-wide sync)
+        user_obj = self.get_user(user_id)
+        username = user_obj.username if user_obj else ""
+        display_name = user_obj.display_name if user_obj else ""
+        self._push_session_to_pg(signature, user_id, username, display_name, time.time(), expires)
 
         return token
 
@@ -607,6 +715,8 @@ class AuthManager:
         conn.execute("DELETE FROM sessions WHERE token = ?", (signature,))
         conn.commit()
         conn.close()
+        # Dual-write to PG
+        self._delete_session_from_pg(signature)
 
     def get_user(self, user_id: str) -> Optional[DashboardUser]:
         """Get a user by ID."""
@@ -629,14 +739,11 @@ class AuthManager:
             is_active=bool(row["is_active"]),
         )
 
-    def get_user_by_username(self, username: str, include_inactive: bool = False) -> Optional[DashboardUser]:
-        """Get a user by username (case-insensitive). Returns active user only unless include_inactive=True."""
+    def get_user_by_username(self, username: str) -> Optional[DashboardUser]:
+        """Get a user by username (case-insensitive). Returns active user only."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        query = "SELECT * FROM users WHERE username = ?"
-        if not include_inactive:
-            query += " AND is_active = 1"
-        cur = conn.execute(query, (username.lower(),))
+        cur = conn.execute("SELECT * FROM users WHERE username = ? AND is_active = 1", (username.lower(),))
         row = cur.fetchone()
         conn.close()
 
@@ -712,76 +819,24 @@ class AuthManager:
         return True
 
     def delete_user(self, user_id: str) -> bool:
-        """Delete a user permanently (local + PG). Rejected/deleted users
-        must vanish from the pending list too — soft delete would leave
-        them 'awaiting approval' forever."""
+        """Deactivate a user (soft delete)."""
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT username FROM users WHERE user_id = ?", (user_id,))
-        row = cur.fetchone()
-        if row:
-            conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        conn.execute("UPDATE users SET is_active = 0 WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         conn.commit()
         conn.close()
-        # PG-bol is toroljuk — kulonben a kovetkezo _sync_from_pg visszahozza
-        # a rejected usert (es a useId megfogalhato ujboli regisztracioval).
-        if row and self.pg_dsn:
-            try:
-                pg = self._get_pg_conn()
-                if pg:
-                    pcur = pg.cursor()
-                    pcur.execute("DELETE FROM mesh.mesh_users WHERE username = %s", (row["username"],))
-                    pg.commit()
-                    pg.close()
-                    log.info(f"PG user sync: user '{row['username']}' deleted from PG")
-            except Exception as e:
-                log.warning(f"PG user delete failed for '{row['username']}': {e}")
         return True
 
     def cleanup_sessions(self):
-        """Remove expired sessions."""
+        """Remove expired sessions from both SQLite and PG."""
+        now = time.time()
+        # SQLite cleanup
         conn = sqlite3.connect(self.db_path)
-        conn.execute("DELETE FROM sessions WHERE expires_at > 0 AND expires_at < ?", (time.time(),))
+        conn.execute("DELETE FROM sessions WHERE expires_at > 0 AND expires_at < ?", (now,))
         conn.commit()
         conn.close()
-
-    def list_pending_users(self) -> list:
-        """List all users awaiting approval (is_active=0), sorted by registration time."""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cur = conn.execute("SELECT * FROM users WHERE is_active = 0 ORDER BY created_at")
-        rows = cur.fetchall()
-        conn.close()
-        return [DashboardUser(
-            user_id=r["user_id"],
-            username=r["username"],
-            display_name=r["display_name"],
-            role=r["role"],
-            created_at=r["created_at"],
-            last_login=r["last_login"] or 0,
-            is_active=False,
-        ) for r in rows]
-
-    def activate_user(self, user_id: str, role: str = "user") -> bool:
-        """Approve a pending user: mark is_active=1 and set role. Returns True on success."""
-        if role not in ("owner", "admin", "user"):
-            raise ValueError("Role must be 'owner', 'admin' or 'user'")
-        ok = self.update_user(user_id, is_active=1, role=role)
-        if ok and self.pg_dsn:
-            # Push activated user to PG so other mesh nodes can pull
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cur = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
-            row = cur.fetchone()
-            conn.close()
-            if row:
-                self._sync_to_pg(
-                    row["username"], row["display_name"],
-                    row["password_hash"], row["salt"],
-                    row["role"], row["created_at"], is_active=1
-                )
-        return ok
+        # PG cleanup
+        self._cleanup_pg_sessions()
 
 
 # ─── Node Authentication (peer-to-peer) ───

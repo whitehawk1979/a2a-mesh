@@ -3,32 +3,10 @@
 import logging
 import os
 import yaml
-import re
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 
 log = logging.getLogger("a2a_mesh.config")
-
-
-@dataclass
-class MQTTConfig:
-    """MQTT transport config — additive, disabled by default (A2A Mesh v0.47+)."""
-    enabled: bool = False
-    host: str = "127.0.0.1"
-    port: int = 8683
-    client_prefix: str = "mesh"
-    keepalive: int = 30
-
-    @classmethod
-    def from_dsn(cls, dsn: str) -> "MQTTConfig":
-        """Parse mqtt://host:port DSN (optional convenience)."""
-        m = re.match(r"mqtt://([^:]+):(\d+)", dsn)
-        if m:
-            return cls(host=m.group(1), port=int(m.group(2)))
-        m = re.match(r"mqtt://([^:]+)", dsn)
-        if m:
-            return cls(host=m.group(1))
-        return cls()
 
 
 @dataclass
@@ -219,7 +197,7 @@ class AutoUpdateConfig:
     apply_automatically: bool = False  # auto-apply or just notify
     gitea_url: str = "http://192.168.1.100:3001"
     gitea_repo: str = "nova/a2a-mesh"
-    gitea_user: str = "nova"  # zsolt:admin1234 → 401 a Gitea API-n
+    gitea_user: str = "zsolt"
     gitea_pass: str = "admin1234"
 
 @dataclass
@@ -307,9 +285,7 @@ class MeshConfig:
 
         Priority:
         1. Explicit version in config YAML (if set)
-        2. max(git tag, VERSION_SYNC fájl) — ha API-sync történt (git-fetch
-           404 fallback), a VERSION_SYNC a tényleges telepített verzió;
-           a kettő közül a nagyobb nyer (bármelyik út frissített, az él)
+        2. Git tag (SSOT — always reflects latest release)
         3. pyproject.toml (fallback for non-git deployments)
         4. Hardcoded default
         """
@@ -317,35 +293,15 @@ class MeshConfig:
             return self.version
         import subprocess, os
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-        def _vk(ver: str):
-            # Egyszerű determinisztikus verzió-kulcs: "0.48.4" → (0, 48, 4)
-            try:
-                return tuple(int(x) for x in ver.strip().lstrip("v").split("."))
-            except Exception:
-                return (0,)
-
-        candidates = []
-        # Git tag (SSOT — amíg a git protokoll működik)
+        # Try git tag first (single source of truth)
         try:
             tag = subprocess.check_output(
                 ["git", "describe", "--tags", "--abbrev=0"],
                 cwd=repo_dir, stderr=subprocess.DEVNULL
             ).decode().strip().lstrip("v")
-            candidates.append(tag)
+            return tag
         except Exception:
             pass
-        # VERSION_SYNC fájl (API-sync 404 fallback — v0.48.4)
-        try:
-            vs = os.path.join(repo_dir, "VERSION_SYNC")
-            if os.path.exists(vs):
-                vs_ver = open(vs).read().strip().lstrip("v")
-                if vs_ver:
-                    candidates.append(vs_ver)
-        except Exception:
-            pass
-        if candidates:
-            return max(candidates, key=_vk)
         # Fallback: pyproject.toml (for non-git deployments)
         try:
             pyproject = os.path.join(repo_dir, "pyproject.toml")
@@ -424,7 +380,6 @@ class MeshConfig:
 
     # Sub-configs
     pg: PGConfig = field(default_factory=PGConfig)
-    mqtt: MQTTConfig = field(default_factory=MQTTConfig)
     p2p: P2PConfig = field(default_factory=P2PConfig)
     http: HTTPConfig = field(default_factory=HTTPConfig)
     ssh_tunnel: SSHTunnelConfig = field(default_factory=SSHTunnelConfig)
@@ -573,17 +528,6 @@ class MeshConfig:
                 retries=http_data.get('retries', config.http.retries),
             )
 
-        # MQTT config (additive transport, v0.47+)
-        mqtt_data = mesh.get('transports', {}).get('mqtt', {})
-        if mqtt_data:
-            config.mqtt = MQTTConfig(
-                enabled=mqtt_data.get('enabled', config.mqtt.enabled),
-                host=mqtt_data.get('host', config.mqtt.host),
-                port=mqtt_data.get('port', config.mqtt.port),
-                client_prefix=mqtt_data.get('client_prefix', config.mqtt.client_prefix),
-                keepalive=mqtt_data.get('keepalive', config.mqtt.keepalive),
-            )
-
         # SSH tunnel config
         ssh_data = mesh.get('transports', {}).get('ssh_tunnel', {})
         if ssh_data:
@@ -718,7 +662,7 @@ class MeshConfig:
                 apply_automatically=au_data.get('apply_automatically', False),
                 gitea_url=au_data.get('gitea_url', os.environ.get('A2A_GITEA_URL', 'http://192.168.1.100:3001')),
                 gitea_repo=au_data.get('gitea_repo', 'nova/a2a-mesh'),
-                gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'nova')),
+                gitea_user=au_data.get('gitea_user', os.environ.get('A2A_GITEA_USER', 'zsolt')),
                 gitea_pass=au_data.get('gitea_pass', os.environ.get('A2A_GITEA_PASS', 'admin1234')),
             )
 

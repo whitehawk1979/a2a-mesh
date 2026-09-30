@@ -58,17 +58,11 @@ def register_agent(name: str, parent_node: str, transport: str = "mcp") -> None:
             "name": name,
             "parent_node": parent_node,
             "transport": transport,
-            "host": host or existing.get("host", ""),
             "first_seen": existing.get("first_seen", now),
             "last_seen": now,
             "online": True,
         }
         _save(data)
-
-
-def get_host(name: str) -> str:
-    """Az MCP kliens forráshosztja (pl. '192.168.1.30') — DM-wake SSH-hoz."""
-    return ((_load().get((name or "").strip().lower()) or {}).get("host") or "")
 
 
 def register_sender(name: str, parent_node: str) -> None:
@@ -98,17 +92,6 @@ def list_clients(parent_node: str = "") -> list:
             "online": bool(info.get("online", True)),
         })
     return out
-
-
-def is_end_device(name: str, parent_node: str = "") -> bool:
-    """True, ha a név egy regisztrált MCP end-device (transport='mcp')."""
-    if not name:
-        return False
-    data = _load()
-    entry = data.get(name)
-    if not isinstance(entry, dict):
-        return False
-    return entry.get("transport") == "mcp"
 
 
 def is_empty() -> bool:

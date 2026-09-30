@@ -44,7 +44,7 @@ logger = logging.getLogger("a2a.mesh.updater")
 
 GITEA_BASE = os.environ.get("A2A_GITEA_URL", "http://192.168.1.100:3001")
 GITEA_REPO = os.environ.get("A2A_GITEA_REPO", "nova/a2a-mesh")
-GITEA_USER = os.environ.get("A2A_GITEA_USER", "nova")  # zsolt:admin1234 → 401; nova API-user működik
+GITEA_USER = os.environ.get("A2A_GITEA_USER", "zsolt")
 GITEA_PASS = os.environ.get("A2A_GITEA_PASS", "admin1234")
 GITEA_TOKEN = os.environ.get("A2A_GITEA_TOKEN", "")  # token auth wins over BasicAuth
 
@@ -165,105 +165,6 @@ class AutoUpdater:
                     timeout=aiohttp.ClientTimeout(total=30),
                 )
         return self._http_session
-
-    # ─── API File-Sync (v0.48.4): git-fetch 404 fallback ─────────────────
-    # A Gitea konténer git-http/SSH pack protokollja hibás (remote: wget 404),
-    # de a REST API minden node-ról elérhető. Ez a fallback determinisztikusan
-    # letölti a release commit teljes fájlistáját raw API-n és beírja a
-    # VERSION_SYNC fájlt, hogy a _resolve_version ne a (régi) git tagot mutassa.
-
-    async def _api_list_files(self, ref: str) -> list:
-        """A release commit teljes fájllistája a Gitea tree API-ból."""
-        session = await self._get_session()
-        base = self.gitea_tags_url.rsplit("/tags", 1)[0]  # .../repos/{owner}/{repo}
-        url = f"{base}/git/trees/{ref}?recursive=true"
-        try:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    logger.error(f"Tree API HTTP {resp.status}")
-                    return []
-                d = await resp.json()
-                if d.get("truncated"):
-                    logger.warning("Git tree truncated — nagy repó, fájlszinkron részleges!")
-                return [e["path"] for e in d.get("tree", [])
-                        if e.get("type") == "blob" and not e["path"].startswith(".git")]
-        except Exception as e:
-            logger.error(f"Tree API error: {e}")
-            return []
-
-    async def _api_sync(self, target_tag: str, backup_path: Path) -> bool:
-        """Fájlszinkron raw API-n (git-fetch fallback). Return: success.
-
-        Determinisztikus: a tree lista -> minden fájl raw letöltés -> lokális
-        .bak-kimentés (már a _create_backup készített teljes backupot) ->
-        felülírás. A VERSION_SYNC fájl rögzíti a futó verziót.
-        """
-        session = await self._get_session()
-        base = self.gitea_tags_url.rsplit("/tags", 1)[0]
-        # Tag → commit sha feloldás (Gitea 1.27: /tags/{tag} endpoint, a
-        # régi /git/ref/tags/ 404-et ad; az annot. tag commitja a .commit.sha)
-        commit_sha = None
-        try:
-            async with session.get(f"{base}/tags/{target_tag}") as resp:
-                if resp.status == 200:
-                    d = await resp.json()
-                    commit_sha = (d.get("commit") or {}).get("sha") or d.get("id")
-                    if not commit_sha:
-                        # Annotated tag: a message-ből vagy id-ből; a Gitea a
-                        # tag objektum sha-ját adja — a commit sha a commit mezőben
-                        commit_sha = d.get("id") if d.get("id") else None
-        except Exception as e:
-            logger.warning(f"Tag→commit feloldás hiba: {e}")
-        if not commit_sha:
-            logger.error("API-sync: commit sha nem oldódott fel")
-            return False
-        files = await self._api_list_files(commit_sha)
-        if not files:
-            logger.error("API-sync: üres fájllista")
-            return False
-        # Raw letöltés + írás (skip: .env* gyökérben, kulcsok, git belsők,
-        # node-specifikus mesh_config YAML-ok — kézi menedzsment, a repo
-        # verzió elavult lehet a node-on élő confighoz képest!)
-        def _skip(p: str) -> bool:
-            base = p.rsplit("/", 1)[-1]
-            return (p.startswith(".env") or p.startswith(".git")
-                    or base.startswith(".env") or "/.git/" in p
-                    or base.startswith("mesh_config")
-                    or base.endswith((".pem", ".key", ".crt", ".pub"))
-                    or base.startswith(".topo_") or base == "VERSION_SYNC")
-
-        synced = 0
-        failed = []
-        for path in files:
-            if _skip(path):
-                continue
-            try:
-                async with session.get(
-                    f"{base}/raw/{path}?ref={commit_sha}"
-                ) as resp:
-                    if resp.status != 200:
-                        failed.append(path)
-                        continue
-                    content = await resp.read()
-                target = self.mesh_dir / path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(content)
-                synced += 1
-            except Exception as e:
-                failed.append(f"{path} ({e})")
-        # VERSION_SYNC: a futó verzió SSOT-ja (a _resolve_version ezt olvassa,
-        # ha a git tag régi/hiányzik)
-        vs = self.mesh_dir / "VERSION_SYNC"
-        vs.write_text(target_tag.lstrip("v") + "\n")
-        logger.info(f"📥 API-sync: {synced} fájl szinkronizálva, "
-                    f"{len(failed)} hibás {target_tag}-ról")
-        if failed:
-            logger.warning(f"API-sync hibás fájlok: {failed[:10]}")
-        # Siker-kritérium: >90% szinkronizálva ÉS a kritikus fájlok OK
-        # (a 100% túl szigorú — egy-egy bináris/kulcsfájl hibája ne blokkolja)
-        total = synced + len(failed)
-        success_ratio = (synced / total) if total else 0
-        return synced > 50 and success_ratio > 0.9
 
     async def close(self):
         if self._http_session and not self._http_session.closed:
@@ -391,27 +292,16 @@ class AutoUpdater:
 
         logger.info(f"Creating backup: {backup_path}")
 
-        # Copy everything except .git, __pycache__, .venv, backups, local_store.
-        # NOTE: symlinks=dangling-ok — repo root contains node-specific symlinks
-        # (e.g. tor/HAOS: a2a-mesh -> /config/a2a-mesh) that are BROKEN on other
-        # nodes; copytree follows them and dies with FileNotFoundError. Ignore
-        # broken links instead of failing the whole backup.
-        try:
-            shutil.copytree(
-                self.mesh_dir,
-                backup_path,
-                ignore=shutil.ignore_patterns(
-                    ".git", "__pycache__", ".venv", "backups",
-                    "local_store*", "mesh.db", "mesh_store.db",
-                    "*.pyc", ".pytest_cache", "incoming_files"
-                ),
-                symlinks=True,
-            )
-        except Exception as copy_err:
-            # Partial backup dir is useless (no .update_info.json) — clean it up
-            # so failed retries don't accumulate gigabytes in backups/
-            shutil.rmtree(backup_path, ignore_errors=True)
-            raise RuntimeError(f"copytree failed: {copy_err}") from copy_err
+        # Copy everything except .git, __pycache__, .venv, backups, local_store
+        shutil.copytree(
+            self.mesh_dir,
+            backup_path,
+            ignore=shutil.ignore_patterns(
+                ".git", "__pycache__", ".venv", "backups",
+                "local_store*", "mesh.db", "mesh_store.db",
+                "*.pyc", ".pytest_cache", "incoming_files"
+            ),
+        )
 
         # Save version info for rollback
         version_info = {
@@ -442,25 +332,6 @@ class AutoUpdater:
             old = backups.pop(0)
             logger.info(f"Removing old backup: {old}")
             shutil.rmtree(old, ignore_errors=True)
-
-    def _purge_partial_backups(self):
-        """Remove incomplete backup dirs (missing .update_info.json).
-
-        A failed _create_backup() can leave a partial copytree behind (the
-        dir exists but .update_info.json was never written). These are
-        unusable for rollback and accumulate GBs over repeated retries.
-        """
-        if not self.backup_dir.exists():
-            return
-        purged = 0
-        for d in self.backup_dir.iterdir():
-            if d.is_dir() and d.name.startswith("a2a_mesh_v"):
-                if not (d / ".update_info.json").exists():
-                    logger.info(f"Purging partial backup: {d.name}")
-                    shutil.rmtree(d, ignore_errors=True)
-                    purged += 1
-        if purged:
-            logger.info(f"Purged {purged} partial backup(s)")
 
     # ─── Update Process ───
 
@@ -524,10 +395,6 @@ class AutoUpdater:
             result.error = f"Backup failed: {e}"
             result.state = UpdateState.FAILED
             logger.error(f"❌ Backup failed: {e}")
-            # Purge partial backups (dirs without .update_info.json) — a failed
-            # backup step leaves an incomplete copytree; retention never runs
-            # because it only executes after a SUCCESSFUL backup.
-            self._purge_partial_backups()
             return result
 
         # Step 5: Git pull + checkout
@@ -638,18 +505,6 @@ class AutoUpdater:
                 ),
             )
         if result.returncode != 0:
-            # ── v0.48.4: git-fetch 404 workaround — API fájlszinkron ──
-            # A Gitea konténer git protokollja nem megy bizonyos node-okról
-            # (remote: wget 404), de a REST API igen. Az API-sync a release
-            # commit fájljait hozza — a git tree ezt követően dirty lesz,
-            # de a futó kód + VERSION_SYNC a friss.
-            logger.warning(
-                f"git fetch failed minden remote-ról — API fájlszinkron fallback ({target_tag})"
-            )
-            ok = await self._api_sync(target_tag, None)
-            if ok:
-                logger.info("✅ API-sync kész — git checkout átugorva")
-                return
             raise RuntimeError(f"git fetch failed: {result.stderr}")
 
         # Checkout the tag on main branch (avoid detached HEAD)
@@ -731,23 +586,14 @@ class AutoUpdater:
 
         try:
             if system == "Darwin":
-                # macOS LaunchAgent — launchctl kickstart -k (kill + respawn).
-                # BUGFIX: the previous unload/load used a literal "~/Library/..."
-                # path — subprocess without a shell does NOT expand "~", so
-                # launchctl always failed silently and we returned True while
-                # the OLD process kept running (verify then passed against the
-                # old process → false "Update complete", version never changed).
-                # The kickstart kills THIS process too, so run it detached with
-                # a short delay (same pattern as the deploy handler).
+                # macOS LaunchAgent
                 label = "com.hermes.a2a-mesh-node"
-                uid = os.getuid()
-                logger.info(f"Restarting LaunchAgent (delayed kickstart): {label}")
-                subprocess.Popen(
-                    ["bash", "-c", f"sleep 2 && exec launchctl kickstart -k gui/{uid}/{label}"],
-                    start_new_session=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
+                logger.info(f"Restarting LaunchAgent: {label}")
+                subprocess.run(["launchctl", "unload", f"~/Library/LaunchAgents/{label}.plist"],
+                              capture_output=True, timeout=10)
+                await asyncio.sleep(2)
+                subprocess.run(["launchctl", "load", f"~/Library/LaunchAgents/{label}.plist"],
+                              capture_output=True, timeout=10)
                 return True
 
             elif system == "Linux":
@@ -759,27 +605,6 @@ class AutoUpdater:
                     service = "a2a-mesh"
                 else:
                     service = "a2a-mesh"
-
-                # v0.48.12: HAOS/Docker konténer — nincs systemd/sudo.
-                # Ilyenkor a futó mesh-processet kilőjük; a konténer
-                # keepalive watchdogja (a2a-mesh-start.sh / keepalive loop)
-                # néhány másodpercen belül újraindítja az ÚJ kóddal.
-                have_systemctl = shutil.which("systemctl") is not None
-                if not have_systemctl:
-                    logger.info(
-                        "No systemctl (container?) — killing mesh process; "
-                        "keepalive watchdog will restart it"
-                    )
-                    try:
-                        killed = subprocess.run(
-                            ["pkill", "-f", "cli.py start"],
-                            capture_output=True, text=True, timeout=10,
-                        )
-                        # pkill 0 = talált és kilőtt; 1 = nem futott process (szintén OK)
-                        return killed.returncode in (0, 1)
-                    except Exception as e:
-                        logger.error(f"pkill restart failed: {e}")
-                        return False
 
                 logger.info(f"Restarting systemd service: {service}")
                 result = subprocess.run(
@@ -824,15 +649,8 @@ class AutoUpdater:
                 return True  # Never reached, but for type checker
 
             else:
-                # HAOS konténer / egyéb: nincs systemd — önmagát újraindító
-                # watchdog-minta (a HAOS keepalive loop / watchdog cronnal
-                # együttműködve). A folyamat elengedett állapotban kilép,
-                # a külső watchdog az új kóddal indítja újra.
-                logger.warning(f"No service manager on {system} — exiting for external watchdog restart")
-                # Kis delay, hogy a log kiíródjon és a git-checkout lezáruljon
-                await asyncio.sleep(3)
-                os._exit(75)  # EX_TEMPFAIL — watchdog jelzés
-                return True  # Never reached
+                logger.error(f"Unsupported platform: {system}")
+                return False
 
         except Exception as e:
             logger.error(f"Restart failed: {e}")

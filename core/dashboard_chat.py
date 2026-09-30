@@ -5,7 +5,6 @@ Each dashboard user gets a personal chat identity. Messages are stored in PG
 stored as DMs back to the user.
 """
 import uuid
-import json
 import logging
 
 log = logging.getLogger("mesh.chat")
@@ -40,11 +39,7 @@ _CHAT_COMMANDS = {
     "all": "Közös elemzés: /all <kérdés> — minden agent válaszol ugyanarra",
     "ideas": "Ötletgyűjtés: /ideas <téma> — minden agent javaslatot ad, [ÖTLET]-jelölve → Ötletláda",
     "vote": "Agent-szavazás: /vote [idea_id] — minden agent leadja szavazatát az ötletládában nyitott ötletekre",
-    "delegate": "Delegálás: /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L] [--fanout N] [--dist] [--eligible a,b] [--depends ID] — task + Kanban kártya, eredmény visszajön a chatbe",
-    "tasks": "Task lista: /tasks [nyitott|completed|failed|all] [agent] — delegációk állapota",
-    "task": "Task részletek: /task <task_id> — státusz, eredmény, időpontok",
-    "reassign": "Task átirányítás: /reassign <task_id> <agent> — meglévő feladat másik agentnek",
-    "cancel": "Task törlés: /cancel <task_id> — meglévő delegáció érvénytelenítése",
+    "delegate": "Feladat-delegálás: /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc leírás] — determinisztikus delegation task létrehozása (Kanban kártya automatikusan)",
     "clear": "Chat üzenetek törlése ebben a szobában (csak saját üzenetek)",
 }
 
@@ -98,23 +93,17 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
             out_content = f"⚠️ Törlés hiba: {e}"
 
     elif cmd == "delegate":
-        # /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L]
-        #          [--fanout N] [--dist] [--eligible a,b] [--depends <task_id>]
-        # Deterministic delegation via DelegationManager (PG INSERT + Kanban card).
-        # v0.46.11: user-kötés (context.chat_username) + fanout/dist/eligible/depends.
+        # /delegate <agent|any> <tárgy> [--prio N] [--type T] [--timeout M] [--desc ...]
+        # Deterministic delegation: creates a task via the node's DelegationManager
+        # (PG INSERT + Kanban card) — no LLM involved, immediate ack in chat.
         import re as _re_dl, shlex as _shlex_dl
         args = (args or "").strip()
         if not args:
-            out_content = ("⚠️ Használat: `/delegate <agent|any|auto> <tárgy> [opciók]`\n"
+            out_content = ("⚠️ Használat: `/delegate <agent|any> <tárgy> [opciók]`\n"
                            "• `/delegate morzsa Elemzés a hőmérséklet-logokról`\n"
                            "• `/delegate any Riport a mesh topológiáról --prio 8`\n"
-                           "• `/delegate auto Gyors összegzés --timeout 20` — ⚖️ legkevésbé terhelt node kapja\n"
-                           "• `/delegate any Adat-gyűjtés --fanout 3 --dist` (párhuzamos, 3 agent)\n"
-                           "• `/delegate any Audit --eligible nova,runa --timeout 240`\n"
-                           "• `/delegate tor Utóellenőrzés --depends <task_id>` (függőségi lánc)\n"
-                           "Opciók: `--prio 1-9` (default 5) • `--type <típus>` • `--timeout <perc>` • "
-                           "`--desc <leírás>` • `--fanout N` (verseny/párhuzamos) • `--dist` (mindenkinek más) • "
-                           "`--eligible a,b` (csak ők claimelhetik) • `--depends <task_id>`")
+                           "Opciók: `--prio 1-9` (default 5), `--type <típus>` (default generic), "
+                           "`--timeout <perc>` (default 30), `--desc <leírás>`")
         else:
             try:
                 tokens = _shlex_dl.split(args)
@@ -123,7 +112,6 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
             to_agent = tokens[0].strip().lstrip("@").lower() if tokens else ""
             subject_parts: list = []
             prio, task_type, timeout_m, desc = 5, "generic", 30, ""
-            fanout, dist_mode, eligible, depends_on = 0, False, None, None
             i = 1
             while i < len(tokens):
                 t = tokens[i]
@@ -139,24 +127,11 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                     i += 2
                 elif t == "--desc" and i + 1 < len(tokens):
                     desc = tokens[i+1][:2000]; i += 2
-                elif t == "--fanout" and i + 1 < len(tokens):
-                    try: fanout = max(0, min(10, int(tokens[i+1])))
-                    except ValueError: pass
-                    i += 2
-                elif t == "--dist" :
-                    dist_mode = True; i += 1
-                elif t == "--eligible" and i + 1 < len(tokens):
-                    eligible = [a.strip().lstrip("@").lower() for a in tokens[i+1].split(",") if a.strip()][:8]
-                    i += 2
-                elif t == "--depends" and i + 1 < len(tokens):
-                    depends_on = tokens[i+1].strip(); i += 2
                 else:
                     subject_parts.append(t); i += 1
             subject = " ".join(subject_parts).strip()
             if not to_agent or not subject:
-                out_content = "⚠️ Használat: `/delegate <agent|any|auto> <tárgy>` — pl. `/delegate morzsa Logok elemzése`"
-            elif depends_on and len(depends_on) < 8:
-                out_content = "⚠️ `--depends` hibás task_id — teljes (36 karakteres) task_id-t adj meg"
+                out_content = "⚠️ Használat: `/delegate <agent|any> <tárgy>` — pl. `/delegate morzsa Logok elemzése`"
             else:
                 try:
                     _dl = getattr(node, "delegation", None)
@@ -167,10 +142,6 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                         _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
                         node.delegation = _dl
                     available = (to_agent == "any")
-                    # v0.46.11: user-kötés — a task a chat-felhasználóhoz kötődik,
-                    # így az eredmény visszajut a közös szobába (lásd _on_delegation_result).
-                    _ctx = {"chat_username": username, "origin_node": node.node_name,
-                            "origin_recipient": recipient or "broadcast"}
                     task_id = await _dl.delegate_task(
                         to_agent=(to_agent if not available else "any"),
                         subject=subject,
@@ -179,138 +150,14 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
                         priority=prio,
                         timeout_minutes=timeout_m,
                         available=available,
-                        fan_out=fanout,
-                        distribute_mode=dist_mode,
-                        eligible_agents=eligible if available else None,
-                        depends_on=depends_on,
-                        context=_ctx,
                     )
                     _ids = task_id if isinstance(task_id, list) else [task_id]
-                    _mode = ""
-                    if fanout > 0:
-                        _mode = f" | Fan-out: {fanout}×" + (" (distribute)" if dist_mode else " (verseny)")
-                    if eligible:
-                        _mode += f" | Eligible: {','.join(eligible)}"
-                    if depends_on:
-                        _mode += f" | Depends: {depends_on[:12]}…"
                     out_content = (f"✅ **Delegálva** → `{to_agent}`\n"
                                    f"• Tárgy: {subject[:120]}\n"
                                    f"• task_id: `{_ids[0][:18]}…`\n"
-                                   f"• Prioritás: P{prio} | Típus: {task_type} | Timeout: {timeout_m} perc{_mode}\n"
-                                   f"• Az eredmény automatikusan megérkezik ide: {username} felhasználónak")
+                                   f"• Prioritás: P{prio} | Típus: {task_type} | Timeout: {timeout_m} perc")
                 except Exception as _dl_e:
                     out_content = f"❌ Delegálás sikertelen: {_dl_e}"
-
-    elif cmd == "tasks":
-        # /tasks [nyitott|completed|failed|all] [agent] — delegációk listája
-        _parts = (args or "").strip().split()
-        _filter = (_parts[0].lower() if _parts else "nyitott")
-        _agent = (_parts[1].strip().lstrip("@").lower() if len(_parts) > 1 else None)
-        _status_map = {"nyitott": ("pending", "available", "accepted", "running"),
-                       "completed": ("completed",), "failed": ("failed", "expired", "cancelled"), "all": None}
-        _statuses = _status_map.get(_filter, None)
-        if _statuses is None and _filter != "all":
-            out_content = "⚠️ Használat: `/tasks [nyitott|completed|failed|all] [agent]`"
-        else:
-            try:
-                if _statuses is None:
-                    if _agent:
-                        rows = await pool.fetch(
-                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations WHERE (to_agent=$1 OR assigned_agent=$1) ORDER BY created_at DESC LIMIT 20", _agent)
-                    else:
-                        rows = await pool.fetch(
-                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations ORDER BY created_at DESC LIMIT 20")
-                else:
-                    if _agent:
-                        rows = await pool.fetch(
-                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations WHERE status = ANY($1) AND (to_agent=$2 OR assigned_agent=$2) ORDER BY created_at DESC LIMIT 20", list(_statuses), _agent)
-                    else:
-                        rows = await pool.fetch(
-                            "SELECT task_id, to_agent, assigned_agent, status, priority, subject, created_at FROM shared_delegations WHERE status = ANY($1) ORDER BY priority DESC, created_at DESC LIMIT 20", list(_statuses))
-                if not rows:
-                    out_content = f"📭 Nincs task a szűrésben ({_filter}{', ' + _agent if _agent else ''})."
-                else:
-                    _icon = {"pending": "🕒", "available": "🟢", "accepted": "🤝", "running": "🔄", "completed": "✅", "failed": "❌", "expired": "⏰", "cancelled": "🚫"}
-                    out_content = f"📋 **Taskok ({_filter}{', ' + _agent if _agent else ''})** — {len(rows)} db:\n"
-                    for r in rows:
-                        _who = r['assigned_agent'] or r['to_agent']
-                        out_content += f"{_icon.get(r['status'], '•')} `{str(r['task_id'])[:8]}…` P{r['priority']} {_who}: {(r['subject'] or '')[:60]}\n"
-            except Exception as _t_e:
-                out_content = f"❌ Task lista hiba: {_t_e}"
-
-    elif cmd == "task":
-        # /task <task_id> — részletek
-        _tid = (args or "").strip()
-        if not _tid:
-            out_content = "⚠️ Használat: `/task <task_id>` — task_id-t a `/tasks` listából"
-        else:
-            try:
-                if len(_tid) < 36:
-                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id::text LIKE $1 ORDER BY created_at DESC LIMIT 3", f"%{_tid}%")
-                else:
-                    _rows = await pool.fetch("SELECT * FROM shared_delegations WHERE task_id::text = $1", _tid)
-                if not _rows:
-                    out_content = f"❌ Task nem található: `{_tid[:20]}`"
-                else:
-                    r = _rows[0]
-                    _icon = {"pending": "🕒", "available": "🟢", "accepted": "🤝", "running": "🔄", "completed": "✅", "failed": "❌", "expired": "⏰", "cancelled": "🚫"}
-                    out_content = (f"{_icon.get(r['status'], '•')} **Task** `{str(r['task_id'])[:12]}…`\n"
-                                   f"• Tárgy: {(r['subject'] or '')[:150]}\n"
-                                   f"• Állapot: {r['status']} | P{r['priority']} | {r['task_type'] or 'generic'}\n"
-                                   f"• {r['from_agent']} → {r['assigned_agent'] or r['to_agent']}\n"
-                                   f"• Létrehozva: {str(r['created_at'])[:19]}")
-                    if r.get('progress'):
-                        out_content += f"\n• Progress: {r['progress']}%"
-                    if r.get('notes'):
-                        _notes = (r['notes'] or '')[-400:]
-                        out_content += f"\n• Megjegyzések: {_notes}"
-                    if r.get('result'):
-                        out_content += f"\n• **Eredmény:** {(r['result'] or '')[:600]}"
-            except Exception as _tk_e:
-                out_content = f"❌ Task részletek hiba: {_tk_e}"
-
-    elif cmd == "reassign":
-        # /reassign <task_id> <agent> — meglévő task átirányítása
-        _parts = (args or "").strip().split()
-        if len(_parts) < 2:
-            out_content = "⚠️ Használat: `/reassign <task_id> <agent>` — pl. `/reassign b0f5393d-c04c-4a8a-a3e2-5681625fed1f runa`"
-        else:
-            _tid, _new = _parts[0].strip(), _parts[1].strip().lstrip("@").lower()
-            try:
-                _dl = getattr(node, "delegation", None)
-                if _dl is None:
-                    from core.delegation import DelegationManager
-                    _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
-                    node.delegation = _dl
-                _ok = await _dl.reassign_task(_tid, _new)
-                if _ok:
-                    await _dl.add_note(_tid, f"[REASSIGN] Chat parancs: {username} átirányította → {_new}", "system")
-                    out_content = f"✅ **Task átirányítva** → `{_new}`\n• task_id: `{_tid[:18]}…`"
-                else:
-                    out_content = f"❌ Átirányítás sikertelen — a task nem található vagy nem pending/accepted állapotban van: `{_tid[:18]}…`"
-            except Exception as _ra_e:
-                out_content = f"❌ Reassign hiba: {_ra_e}"
-
-    elif cmd == "cancel":
-        # /cancel <task_id> — delegáció érvénytelenítése
-        _tid = (args or "").strip()
-        if not _tid:
-            out_content = "⚠️ Használat: `/cancel <task_id>` — task_id-t a `/tasks` listából"
-        else:
-            try:
-                _dl = getattr(node, "delegation", None)
-                if _dl is None:
-                    from core.delegation import DelegationManager
-                    _dl = DelegationManager(node.node_name, getattr(node, "pg_pool", None) or getattr(node, "_pg_pool", None))
-                    node.delegation = _dl
-                _ok = await _dl.cancel_task(_tid)
-                if _ok:
-                    await _dl.add_note(_tid, f"[CANCEL] Chat parancs: {username} érvénytelenítette", "system")
-                    out_content = f"🚫 **Task érvénytelenítve**: `{_tid[:18]}…`"
-                else:
-                    out_content = f"❌ Törlés sikertelen — a task nem található vagy már lefutott: `{_tid[:18]}…`"
-            except Exception as _cx_e:
-                out_content = f"❌ Cancel hiba: {_cx_e}"
 
     elif cmd in ("debate", "ask", "all", "ideas", "vote"):
         # These are ROUTED to agents with special framing — handled by returning
@@ -331,33 +178,6 @@ async def _process_chat_command(node, pool, username, display_name, recipient, c
     return {"content": out_content}, True
 
 
-def _get_mesh_agent_names(node):
-    """Dinamikus agent-név lista a mesh-ből (v0.46.7) — NINCS hardkódolva.
-
-    Forrás sorrend: peer_discovery ismereplők + saját node név.
-    A mesh tagság flexibilis — bármely node fel/le léphet, ez a függvény
-    mindig az aktuális állapotot adja vissza.
-    """
-    names = set()
-    node_name = getattr(node, "node_name", "") or ""
-    if node_name:
-        names.add(node_name.lower())
-    pd = getattr(node, "peer_discovery", None)
-    if pd is not None:
-        try:
-            for name in pd.get_all_peers().keys():
-                if name:
-                    names.add(str(name).lower())
-        except Exception:
-            try:
-                kp = getattr(pd, "known_peers", None)
-                if kp:
-                    names.update(str(n).lower() for n in kp.keys())
-            except Exception:
-                pass
-    return names
-
-
 async def handle_chat_send(node, request, pool, user):
     """POST /api/chat/send — Send a DM from dashboard user to an agent.
 
@@ -375,40 +195,9 @@ async def handle_chat_send(node, request, pool, user):
     if not content.strip():
         return web.json_response({"error": "content is required"}, status=400)
 
-    # ── MCP bridge end-device identity ──
-    # A trusted bridge user (mcp-bridge) nevében érkező üzenetek a VALÓDI MCP
-    # kliens neve alatt jelennek meg (pl. 'opencode') — sidebar + shared room.
-    sender_name = username
-    is_mcp_sender = False
-    if username == "mcp-bridge":
-        client = (data.get("sender") or "").strip()
-        if client and client.replace("-", "").replace("_", "").isalnum():
-            sender_name = client
-            is_mcp_sender = True
-            await _ensure_chat_user(pool, sender_name, client, node_name)
-            # end-device jelzés a chat users táblában
-            try:
-                await pool.execute(
-                    """UPDATE mesh.mesh_chat_users SET is_mcp_end_device = true WHERE username = $1""",
-                    sender_name)
-            except Exception:
-                pass  # oszlop még nem létezik — nem blokkol
-
     await _ensure_chat_user(pool, username, display_name, node_name)
 
-    # v0.46.15: MCP end-device üzenetek a KÖZÖS SZOBÁBA kerülnek (username='broadcast'),
-    # hogy minden participant lássa őket — pontosan, mint egy bejelentkezett user üzeneteit.
-    # A DM-ből érkezők is: a shared room megjeleníti a DM-eket is (sender/recipient szűrés
-    # nélkül, l. handle_chat_messages broadcast query) — így az opencode "teljes jogú".
-    if is_mcp_sender and recipient != "broadcast":
-        # DM az end-device-tól: tárolás 'broadcast' username-nel, hogy a shared room
-        # és a DM-view is lássa; a recipient marad az eredeti címzett.
-        pass  # az insert lentebb már username=broadcast-szel megy (lásd insert_pg)
-
     msg_uuid = str(uuid.uuid4())
-
-    # v0.46.15: MCP end-device küldés → username='broadcast' (közös szoba láthatóság)
-    insert_username = "broadcast" if is_mcp_sender else username
 
     # Store in PG
     try:
@@ -417,87 +206,12 @@ async def handle_chat_send(node, request, pool, user):
                (message_uuid, username, sender, recipient, content, msg_type, status)
                VALUES ($1, $2, $3, $4, $5, $6, 'sent')
                RETURNING id, created_at""",
-            msg_uuid, insert_username, sender_name, recipient, content, msg_type
+            msg_uuid, username, username, recipient, content, msg_type
         )
         msg_id = row["id"] if row else None
         created_at = str(row["created_at"]) if row else None
     except Exception as e:
         return web.json_response({"error": f"DB error: {e}"}, status=500)
-
-    # v0.46.15: Ha a címzett egy MCP end-device (DM → opencode), a üzenet az
-    # mcp_end_device_inbox queue-ba is bekerül — a bridge on-demand kézbesíti
-    # (mesh_inbox tool) vagy long-poll. A dashboard user→end-device DM így célba ér.
-    if not is_mcp_sender and recipient not in ("broadcast", "") and not recipient.startswith("user:"):
-        try:
-            from core.mcp_registry import is_end_device
-            if is_end_device(recipient, parent_node=node_name):
-                await pool.execute(
-                    """INSERT INTO mesh.mcp_end_device_inbox
-                       (client_name, kind, sender, sender_display, content, message_uuid)
-                       VALUES ($1, 'dm', $2, $3, $4, $5)""",
-                    recipient, username, display_name, content, msg_uuid
-                )
-                log.info(f"📥 MCP inbox: DM {username}→{recipient} queued for end-device delivery")
-                # v0.46.16: DM-wake — a tétlen MCP kliens (opencode) headless futtatással
-                # ébreszthető: `opencode run "prompt"` SSH-n a kliens hostján.
-                # A prompt ráirányítja a mesh_inbox toolra → feldolgozza a DM-eket.
-                try:
-                    from core import mcp_registry as _mreg
-                    _client = _mreg._load().get(recipient, {})
-                    _host = _client.get("host", "") or ("192.168.1.30" if _client.get("parent_node") == "morzsa" else "")
-                    if _host:
-                        # ── Wake 2.0: MCP DM-wake dedup a mesh.wake_log-on keresztül ──
-                        # Korábban: minden bejövő DM új SSH Popen-t indított (race condition,
-                        # több párhuzamos opencode run ugyanarra a kliensre).
-                        # Most: 60s coalescing ablak — egy kliensre egy wake.
-                        _wl_dup = False
-                        try:
-                            _pool = getattr(node, 'pg_pool', None) or getattr(node, '_pg_pool', None)
-                            if _pool:
-                                from core.wake_lib import WakeLog
-                                _wlog = WakeLog(_pool)
-                                _ok, _wid, _wstat = await _wlog.send_wake(
-                                    target_agent=f"mcp:{recipient}",
-                                    target_host=_host,
-                                    health_port=0,  # SSH-alapú wake, nincs HTTP port
-                                    prompt=f"DM-wake {recipient} (opencode)",
-                                    sender=username,
-                                    message_id=msg_uuid,
-                                    wake_type="mcp_dm",
-                                    payload={},  # SSH megy külön az alábbi Popen-nel
-                                )
-                                if _wstat == "coalesced":
-                                    _wl_dup = True
-                                    log.info(f"🔁 MCP DM-wake coalesced → {recipient} (60s ablak, wake_log {_wid})")
-                        except Exception as _wl_e:
-                            log.debug(f"wake_log MCP dedup failed (fallback direct): {_wl_e}")
-                        if _wl_dup:
-                            return web.json_response({
-                                "ok": True, "message_id": msg_uuid, "db_id": msg_id,
-                                "recipient": recipient, "status": "coalesced_wake",
-                            })
-                        _wake_prompt = (
-                            f"🔔 Új DM érkezett {username}-tól: {content[:300]}\n"
-                            f"Hívd meg a mesh_inbox MCP eszközt, olvasd el a DM-eket, "
-                            f"majd válaszolj a mesh_dm_send eszközzel (recipient: {username})."
-                        )
-                        import subprocess as _sp
-                        _cmd = (
-                            f"timeout 240 ~/.opencode/bin/opencode run "
-                            f"{_wake_prompt!r}"
-                        )
-                        _sp.Popen(
-                            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-                             f"openclaw@{_host}", _cmd],
-                            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
-                        )
-                        log.info(f"🔔 MCP DM-wake: opencode run → {_host} (session a2a-dm-{msg_uuid[:8]})")
-                    else:
-                        log.debug(f"MCP DM-wake: {recipient} host ismeretlen — pull kézbesítés marad")
-                except Exception as _we:
-                    log.warning(f"MCP DM-wake failed: {_we}")
-        except Exception as _qe:
-            log.debug(f"MCP inbox queue failed: {_qe}")
 
     # ── Telegram-style /command interceptor ──
     if content.strip().startswith("/"):
@@ -723,9 +437,7 @@ async def handle_chat_send(node, request, pool, user):
             # "NEKED ÍRTÁK" directive; unmentioned agents stay silent.
             import re as _re_mention
             _mentioned = [m.lower() for m in _re_mention.findall(r"@(\w+)", content)]
-            # v0.46.7: dinamikus agent-lista a mesh-ből (nem hardkódolt —
-            # a mano hiánya miatt korábban @mano → broadcast minden agentre)
-            _valid_agents = _get_mesh_agent_names(node)
+            _valid_agents = {"nova", "morzsa", "runa", "tor"}
             _mentioned = [a for a in _mentioned if a in _valid_agents]
             if _mentioned:
                 log.info(f"💬 Mention detected in broadcast: {', '.join(_mentioned)} — targeted wake only")
@@ -750,97 +462,61 @@ async def handle_chat_send(node, request, pool, user):
                 wake_url = f"http://{peer_host}:{peer_port}/api/wake-agent"
                 log.info(f"🔔 Wake-agent broadcast → {peer_name} at {wake_url}")
                 _mentioned_direct = peer_name in _mentioned
-
-                # ── Wake 2.0: dedup + coalescing a mesh.wake_log-on keresztül ──
-                # 60s-en belüli ismételt wake ugyanarra a peer-re NEM indul újra
-                # (a P2P-triggerelt wake-et a peer node maga logolja a dedupban).
-                _wl_body = {
-                    "prompt": (f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"
-                               if _mentioned_direct else
-                               f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}")[:2000],
-                    "agent_name": peer_name,
-                    "sender": username,
-                    "sender_display": display_name,
-                    "chat_username": username,
-                    "chat_msg_uuid": msg_uuid,
-                    "chat_type": "broadcast",
-                    "reply_endpoint": reply_endpoint,
-                    "mesh_secret": "mesh-wake-secret-2026",
-                }
-                async def _wake_broadcast(pn=peer_name, url=wake_url, ment=_mentioned_direct, wl_body=_wl_body):
+                async def _wake_broadcast(pn=peer_name, url=wake_url, ment=_mentioned_direct):
                     import aiohttp as _aiohttp
                     await _aio.sleep(2)  # Delay 2s — let P2P wake-agent trigger first
                     try:
-                        _pool = getattr(node, 'pg_pool', None) or getattr(node, '_pg_pool', None)
-                        if _pool:
-                            from core.wake_lib import WakeLog
-                            _wlog = WakeLog(_pool)
-                            _ok, _wid, _wstat = await _wlog.send_wake(
-                                target_agent=pn,
-                                target_host=peer_host,
-                                health_port=peer_port,
-                                prompt=wl_body["prompt"],
-                                sender=username,
-                                message_id=msg_uuid,
-                                wake_type="broadcast",
-                                payload=wl_body,
-                            )
-                            if _wstat == "coalesced":
-                                log.info(f"🔁 Wake coalesced → {pn} (wake_log {_wid}) — no duplicate HTTP POST")
-                                return
-                        # Fallback: legacy direct POST (nincs PG vagy a wake_log hibás)
+                        if ment:
+                            _b_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"[:2000] + " — VÁLASZOLNOD KELL. Több agentnek nem kell válaszolnia."
+                        else:
+                            # _cmd_prefix ide is kell: a /ideas, /debate formátum-utasítás
+                            # így jut el a peer-ekhez (korábban a P2P-ág [:300] vágása levette).
+                            _b_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000]
                         async with _aiohttp.ClientSession() as sess:
-                            async with sess.post(url, json=wl_body, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
+                            async with sess.post(url, json={
+                                "prompt": _b_prompt,
+                                "agent_name": pn,
+                                "sender": username,
+                                "sender_display": display_name,
+                                "chat_username": username,
+                                "chat_msg_uuid": msg_uuid,
+                                "chat_type": "broadcast",
+                                "reply_endpoint": reply_endpoint,
+                                "mesh_secret": "mesh-wake-secret-2026"
+                            }, timeout=_aiohttp.ClientTimeout(total=120)) as resp:
                                 if resp.status == 429:
                                     log.info(f"🔔 Wake-agent broadcast {pn}: 429 (P2P already triggered — OK)")
                                 else:
                                     log.info(f"🔔 Wake-agent broadcast {pn}: {resp.status}")
                     except Exception as e:
                         log.warning(f"🔔 Wake-agent broadcast {pn} failed: {e}")
-                        # ── MQTT wake fallback (ha HTTP nem ment, de a peer MQTT-n elerheto) ──
-                        try:
-                            _mqtt_tr = getattr(node, '_mqtt_transport', None)
-                            if _mqtt_tr and _mqtt_tr.is_available():
-                                _mqtt_tr.publish_wake_to(pn, json.dumps(wl_body))
-                                log.info(f"🔔 Wake-agent broadcast {pn}: MQTT fallback sent ✓")
-                        except Exception as _mqtt_e:
-                            log.warning(f"🔔 Wake-agent broadcast {pn} MQTT fallback failed: {_mqtt_e}")
                 _aio.create_task(_wake_broadcast())
 
             # Self-wake: Nova also responds to broadcast (not just peers)
-            # v0.46.9: mention-szűrés itt is — ha @valaki mást említettek, Nova NEM kel fel
-            _self_mentioned = node_name.lower() in _mentioned
-            if _mentioned and not _self_mentioned:
-                log.info(f"💬 Skip self-wake: @{', @'.join(_mentioned)} mentioned, not me ({node_name})")
-            else:
-                try:
-                    self_wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
-                    async def _wake_self_broadcast():
-                        import aiohttp as _aiohttp_sw
-                        await _aio.sleep(1)
-                        try:
-                            if _self_mentioned:
-                                _sw_prompt = f"🔔 NEKED ÍRTÁK a közös szobában! {username} kifejezetten hozzád intézte: {_cmd_prefix}{content}"[:2000] + " — VÁLASZOLNOD KELL. Több agentnak nem kell válaszolnia."
-                            else:
-                                _sw_prompt = f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000]
-                            async with _aiohttp_sw.ClientSession() as sess:
-                                async with sess.post(self_wake_url, json={
-                                    "prompt": _sw_prompt,
-                                    "agent_name": node_name,
-                                    "sender": username,
-                                    "sender_display": display_name,
-                                    "chat_username": username,
-                                    "chat_msg_uuid": msg_uuid,
-                                    "chat_type": "broadcast",
-                                    "reply_endpoint": reply_endpoint,
-                                    "mesh_secret": "mesh-wake-secret-2026"
-                                }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
-                                    log.info(f"🔔 Self-wake broadcast: {resp.status}")
-                        except Exception as e:
-                            log.warning(f"🔔 Self-wake broadcast failed: {e}")
-                    _aio.create_task(_wake_self_broadcast())
-                except Exception as e:
-                    log.warning(f"Self-wake setup failed: {e}")
+            try:
+                self_wake_url = f"http://127.0.0.1:{node.config.health_port}/api/wake-agent"
+                async def _wake_self_broadcast():
+                    import aiohttp as _aiohttp_sw
+                    await _aio.sleep(1)
+                    try:
+                        async with _aiohttp_sw.ClientSession() as sess:
+                            async with sess.post(self_wake_url, json={
+                                "prompt": f"Új üzenet érkezett {username}-tól (közös szoba): {_cmd_prefix}{content}"[:2000],
+                                "agent_name": node_name,
+                                "sender": username,
+                                "sender_display": display_name,
+                                "chat_username": username,
+                                "chat_msg_uuid": msg_uuid,
+                                "chat_type": "broadcast",
+                                "reply_endpoint": reply_endpoint,
+                                "mesh_secret": "mesh-wake-secret-2026"
+                            }, timeout=_aiohttp_sw.ClientTimeout(total=120)) as resp:
+                                log.info(f"🔔 Self-wake broadcast: {resp.status}")
+                    except Exception as e:
+                        log.warning(f"🔔 Self-wake broadcast failed: {e}")
+                _aio.create_task(_wake_self_broadcast())
+            except Exception as e:
+                log.warning(f"Self-wake setup failed: {e}")
         except Exception as e:
             log.warning(f"💬 Chat broadcast {username}→all: mesh send failed: {e}")
     elif recipient not in ("broadcast", ""):
@@ -849,7 +525,7 @@ async def handle_chat_send(node, request, pool, user):
         _dm_text = content
         if cmd_route == "ask" and cmd_args:
             _ask_parts = cmd_args.split(maxsplit=1)
-            if len(_ask_parts) == 2 and _ask_parts[0].lower() in _get_mesh_agent_names(node):  # v0.46.7: dinamikus
+            if len(_ask_parts) == 2 and _ask_parts[0].lower() in ("nova", "morzsa", "runa", "tor"):
                 _dm_target = _ask_parts[0].lower()
                 _dm_text = f"🔔 CÉLZOTT KÉRDÉS (zsolt): {_ask_parts[1]}"
         try:
@@ -957,46 +633,7 @@ async def handle_chat_messages(node, request, pool, user):
             # DM conversation between user and specific agent/user
             # v0.44.1: broadcast agent replies (username='broadcast') must also appear
             # in DM view with that agent, otherwise replies vanish on reload.
-            # v0.48.8: user↔user DM — a beszélgetés a KÉT résztvevő szemszögéből is
-            # lekérdezhető: az üzenet username=a küldő, de a címzett user
-            # a sender/recipient mezők alapján találja rá (user:x ↔ user:y).
-            is_user_peer = peer.startswith("user:")
-            # user↔user DM rekordstruktúra: a KÜLDŐ sorában
-            # username=zsolt, sender=zsolt, recipient='user:hajnalka'.
-            # A címzett (hajnalka) szemszögéből a partnerrel folytatott
-            # beszélgetés = amit ő küldött (recipient=peer) + amit a partner
-            # küldött neki (sender=partner_neve, recipient='user:'||ő_maga).
-            if is_user_peer:
-                partner = peer[5:]  # 'user:zsolt' → 'zsolt'
-                if before_id:
-                    rows = await pool.fetch(
-                        """SELECT id, message_uuid, username, sender, recipient, content,
-                                  msg_type, status, created_at, read_at
-                           FROM mesh.mesh_chat_messages
-                           WHERE (username = $1 AND recipient = $2 AND id < $3)
-                              OR (sender = $4 AND recipient = 'user:' || $1 AND id < $3)
-                           ORDER BY created_at DESC LIMIT $5""",
-                        username, peer, before_id, partner, limit
-                    )
-                else:
-                    rows = await pool.fetch(
-                        """SELECT id, message_uuid, username, sender, recipient, content,
-                                  msg_type, status, created_at, read_at
-                           FROM mesh.mesh_chat_messages
-                           WHERE (username = $1 AND recipient = $2)
-                              OR (sender = $3 AND recipient = 'user:' || $1)
-                           ORDER BY created_at DESC LIMIT $4""",
-                        username, peer, partner, limit
-                    )
-                # Total count for this conversation
-                total_row = await pool.fetchrow(
-                    """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                       WHERE (username = $1 AND recipient = $2)
-                          OR (sender = $3 AND recipient = 'user:' || $1)""",
-                    username, peer, partner
-                )
-            elif before_id:
-                # Agent-DM, régebbi üzenetek (scroll-up)
+            if before_id:
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
@@ -1007,14 +644,7 @@ async def handle_chat_messages(node, request, pool, user):
                        ORDER BY created_at DESC LIMIT $4""",
                     username, peer, before_id, limit
                 )
-                total_row = await pool.fetchrow(
-                    """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                       WHERE (username = $1 OR username = 'broadcast')
-                         AND (sender = $2 OR recipient = $2)""",
-                    username, peer
-                )
             else:
-                # Agent-DM, első betöltés
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
                               msg_type, status, created_at, read_at
@@ -1024,20 +654,18 @@ async def handle_chat_messages(node, request, pool, user):
                        ORDER BY created_at DESC LIMIT $3""",
                     username, peer, limit
                 )
-                total_row = await pool.fetchrow(
-                    """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                       WHERE (username = $1 OR username = 'broadcast')
-                         AND (sender = $2 OR recipient = $2)""",
-                    username, peer
-                )
+            # Total count for this conversation
+            total_row = await pool.fetchrow(
+                """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
+                   WHERE (username = $1 OR username = 'broadcast')
+                     AND (sender = $2 OR recipient = $2)""",
+                username, peer
+            )
         else:
             # All messages for this user (general/broadcast channel)
             # v0.44.1: broadcast agent replies are stored with username='broadcast'
             # (see dashboard.py on_mesh_message persist) — include them so the shared
             # conversation survives a page reload, not just via live WS.
-            # v0.48.8: user↔user DM sorok NEM kerülnek a general listába —
-            # a recipient 'user:' prefixszel kezdődik (self-DM: user:<sajátnév>),
-            # ezek kizárólag a DM nézetben jelennek meg.
             if before_id:
                 rows = await pool.fetch(
                     """SELECT id, message_uuid, username, sender, recipient, content,
@@ -1045,7 +673,6 @@ async def handle_chat_messages(node, request, pool, user):
                        FROM mesh.mesh_chat_messages
                        WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
                          AND id < $2
-                         AND NOT (recipient LIKE 'user:%')
                        ORDER BY created_at DESC LIMIT $3""",
                     username, before_id, limit
                 )
@@ -1055,14 +682,12 @@ async def handle_chat_messages(node, request, pool, user):
                               msg_type, status, created_at, read_at
                        FROM mesh.mesh_chat_messages
                        WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
-                         AND NOT (recipient LIKE 'user:%')
                        ORDER BY created_at DESC LIMIT $2""",
                     username, limit
                 )
             total_row = await pool.fetchrow(
                 """SELECT COUNT(*) as cnt FROM mesh.mesh_chat_messages
-                   WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))
-                     AND NOT (recipient LIKE 'user:%')""",
+                   WHERE (username = $1 OR (username = 'broadcast' AND recipient = 'broadcast'))""",
                 username
             )
 
@@ -1138,47 +763,6 @@ async def handle_chat_inbox(node, request, pool, user):
         return web.json_response({"error": str(e)}, status=500)
 
 
-async def handle_chat_mcp_inbox(node, request, pool, user):
-    """GET /api/chat/mcp-inbox?client=opencode&deliver=1
-
-    Az MCP end-device beérkező üzenetei (DM queue). Csak a trusted bridge
-    user (mcp-bridge) hívhatja. deliver=1 → delivered_at=now() jelölés.
-    """
-    from aiohttp import web
-    username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
-    if username != "mcp-bridge":
-        return web.json_response({"error": "forbidden — mcp-bridge only"}, status=403)
-
-    client = request.query.get("client", "").strip()
-    deliver = request.query.get("deliver", "0") == "1"
-    if not client:
-        return web.json_response({"error": "client parameter required"}, status=400)
-
-    try:
-        rows = await pool.fetch(
-            """SELECT id, kind, sender, sender_display, content, message_uuid, created_at
-               FROM mesh.mcp_end_device_inbox
-               WHERE client_name = $1 AND delivered_at IS NULL
-               ORDER BY created_at ASC LIMIT 100""",
-            client
-        )
-        items = []
-        for row in rows:
-            r = dict(row)
-            r["created_at"] = str(r["created_at"]) if r.get("created_at") else None
-            items.append(r)
-        if deliver and items:
-            await pool.execute(
-                """UPDATE mesh.mcp_end_device_inbox
-                   SET delivered_at = NOW()
-                   WHERE client_name = $1 AND delivered_at IS NULL""",
-                client
-            )
-        return web.json_response({"items": items, "count": len(items)})
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=500)
-
-
 async def handle_chat_mark_read(node, request, pool, user):
     """POST /api/chat/read — Mark messages from a specific agent as read.
     Body: { from_agent: "morzsa" }
@@ -1189,27 +773,12 @@ async def handle_chat_mark_read(node, request, pool, user):
     from_agent = data.get("from_agent", "")
 
     try:
-        # v0.48.8: user↔user DM read-jelzés — a partner (user:xyz) által nekem
-        # küldött üzenetek: sender=partner_neve (sima username!), recipient='user:'||én.
-        # Az agent-DM marad a régi logika (username=én, sender=agent).
-        is_user_from = from_agent.startswith("user:")
-        if is_user_from:
-            partner = from_agent[5:]
-            result = await pool.execute(
-                """UPDATE mesh.mesh_chat_messages
-                   SET read_at = NOW()
-                   WHERE read_at IS NULL
-                     AND sender = $2
-                     AND recipient = 'user:' || $1""",
-                username, partner
-            )
-        else:
-            result = await pool.execute(
-                """UPDATE mesh.mesh_chat_messages
-                   SET read_at = NOW()
-                   WHERE username = $1 AND sender = $2 AND read_at IS NULL""",
-                username, from_agent
-            )
+        result = await pool.execute(
+            """UPDATE mesh.mesh_chat_messages
+               SET read_at = NOW()
+               WHERE username = $1 AND sender = $2 AND read_at IS NULL""",
+            username, from_agent
+        )
         return web.json_response({"ok": True, "updated": result})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -1219,16 +788,6 @@ async def handle_chat_contacts(node, request, pool, user):
     """GET /api/chat/contacts — List agents this user has chatted with + unread counts."""
     from aiohttp import web
     username = getattr(user, "username", None) or (user.get("username", "dashboard") if isinstance(user, dict) else "dashboard")
-
-    # v0.48.8: heartbeat — a contacts-poll (3s) frissíti a hívó last_seen-jét,
-    # így a bejelentkezett user online-nak látszik, amíg a lapja nyitva van.
-    try:
-        await pool.execute(
-            "UPDATE mesh.mesh_chat_users SET last_seen = NOW() WHERE username = $1",
-            username
-        )
-    except Exception:
-        pass
 
     try:
         rows = await pool.fetch(
@@ -1264,55 +823,19 @@ async def handle_chat_contacts(node, request, pool, user):
         except Exception:
             pass
 
-        # MCP end devices (agents connected via the MCP bridge) — sidebar visibility
-        try:
-            mcp_rows = await pool.fetch(
-                """SELECT username, display_name FROM mesh.mesh_chat_users
-                   WHERE is_mcp_end_device = true AND username != $1 ORDER BY username""",
-                username
-            )
-            for mr in mcp_rows:
-                mname = mr["username"]
-                contacts.append({
-                    "agent": mname,
-                    "display_name": mr.get("display_name") or mname,
-                    "total": 0, "unread": 0, "last_msg": None,
-                    "is_mcp_end_device": True,
-                })
-        except Exception:
-            pass
-
         # Also list dashboard users (for user↔user DM)
         try:
-            # v0.48.8: az alap a mesh.mesh_users auth tábla (minden regisztrált,
-            # aktív user) — a chat_users-ból csak a display_name JOIN-olódik.
-            # Node/bridge fiókok kiszűrése: mesh_nodes nevei, '%-agent' végűek,
-            # mcp-bridge, mesh — ezekből amúgy is van agent-contact fentebb.
-            # SAJÁT USER IS listázódik (megjelöltük: "(te)"), online-státusz a
-            # chat_users.last_seen alapján (60s ablak = online).
             user_rows = await pool.fetch(
-                """SELECT mu.username, COALESCE(cu.display_name, mu.display_name) AS display_name,
-                          CASE WHEN cu.last_seen > NOW() - INTERVAL '60 seconds' THEN true ELSE false END AS online
-                   FROM mesh.mesh_users mu
-                   LEFT JOIN mesh.mesh_chat_users cu ON cu.username = mu.username
-                   WHERE mu.is_active = 1
-                     AND mu.username NOT IN (SELECT node_name FROM mesh.mesh_nodes)
-                     AND mu.username NOT IN ('mcp-bridge', 'mesh')
-                     AND mu.username NOT LIKE '%-agent'
-                   ORDER BY online DESC, mu.username""",
+                "SELECT username, display_name FROM mesh.mesh_chat_users WHERE username != $1 ORDER BY username",
+                username
             )
             for ur in user_rows:
                 uname = "user:" + ur["username"]
-                is_self = (ur["username"] == username)
                 contacts.append({
                     "agent": uname,
-                    # display_name tisztán marad — az "(te)" címkét a frontend
-                    # teszi hozzá az is_self flag alapján (duplikáció elkerülése)
                     "display_name": ur.get("display_name") or ur["username"],
                     "total": 0, "unread": 0, "last_msg": None,
-                    "is_user": True,
-                    "is_self": is_self,
-                    "online": bool(ur.get("online")),
+                    "is_user": True
                 })
         except Exception:
             pass

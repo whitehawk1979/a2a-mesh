@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>A2A Mesh — Hálózati Topológia</title>
 <link rel="icon" type="image/png" href="/branding/favicon_32.png">
 <link rel="apple-touch-icon" href="/branding/apple_touch_icon_180.png">
@@ -34,18 +34,7 @@
   canvas { display: block; }
 
   /* Side panel */
-  #side-panel { 
-    width: 320px; 
-    background: var(--bg2); 
-    border-left: 1px solid var(--border); 
-    overflow-y: auto; 
-    overflow-x: hidden;
-    padding: 12px; 
-    display: none; 
-    flex-shrink: 0;
-    max-height: calc(100dvh - 60px);
-    min-height: 0;
-  }
+  #side-panel { width: 280px; background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto; padding: 12px; display: none; }
   #side-panel.active { display: block; }
   #side-panel h3 { color: var(--accent); font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
   #side-panel .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
@@ -105,7 +94,6 @@
   <div class="item"><div class="dot" style="background:var(--green)"></div> P2P Connected</div>
   <div class="item"><div class="dot" style="background:var(--yellow)"></div> P2P Backoff</div>
   <div class="item"><div class="dot" style="background:#00d0ff"></div> SSH Tunnel</div>
-  <div class="item"><div class="dot" style="background:#ff8c42"></div> MQTT Pub/Sub</div>
   <div class="item"><div class="dot" style="background:var(--red)"></div> Offline</div>
   <div class="item"><div class="dot" style="background:var(--accent)"></div> PG Transport</div>
   <div class="item"><div class="dot" style="background:#bc8cff"></div> MCP End Device</div>
@@ -179,29 +167,20 @@ async function fetchDelegations(nodeName) {
 // ── Update header stats ──
 function updateStats() {
   const local = topologyData?.local_node || '?';
-  const endDevices = nodes.filter(n => n.is_mcp_end_device);
-  const meshNodes = nodes.filter(n => !n.is_mcp_end_device);
-  const online = meshNodes.filter(n => n.status === 'online' || n.status === 'connected').length;
+  const online = nodes.filter(n => n.status === 'online' || n.status === 'connected').length;
   const p2pLinks = connections.filter(c => c.transport === 'p2p' && c.status === 'connected').length;
   const sshLinks = connections.filter(c => c.transport === 'ssh_tunnel' && c.status === 'connected').length;
-  const mqttLinks = connections.filter(c => c.transport === 'mqtt' && c.status === 'connected').length;
   const totalLinks = connections.length;
 
-  let html = `<span class="badge green">${online}/${meshNodes.length} node</span>`;
-  if (endDevices.length > 0) html += `<span class="badge" style="background:#bc8cff33;color:#bc8cff">${endDevices.length} MCP ED</span>`;
+  let html = `<span class="badge green">${online}/${nodes.length} node</span>`;
   html += `<span class="badge ${p2pLinks > 0 ? 'green' : 'red'}">${p2pLinks} P2P</span>`;
   if (sshLinks > 0) html += `<span class="badge" style="background:#00d0ff33;color:#00d0ff">${sshLinks} SSH</span>`;
-  if (mqttLinks > 0) html += `<span class="badge" style="background:#ff8c4233;color:#ff8c42">${mqttLinks} MQTT</span>`;
   html += `<span class="badge">${totalLinks} link</span>`;
   html += `<span style="color:var(--text2)">⭐ ${local}</span>`;
   document.getElementById('stats').innerHTML = html;
 }
 
 // ── Calculate node positions ──
-// manualPositions: kézzel (drag) mozgatott node-ok nevei — ezek pozícióját
-// a refresh NEM írja felül, különben minden frame-ben visszapattannának.
-let manualPositions = new Set();
-
 function calcPositions() {
   const w = canvas.width / (window.devicePixelRatio || 1);
   const h = canvas.height / (window.devicePixelRatio || 1);
@@ -209,37 +188,34 @@ function calcPositions() {
   const cy = h / 2;
   const radius = Math.min(w, h) * 0.3;
   const localName = topologyData?.local_node || '';
-
-  // Kézi pozíciók megőrzése (csak létező node-oknak)
-  const saved = {};
-  manualPositions.forEach(name => {
-    const node = nodes.find(n => n.name === name);
-    if (node && positions[name]) saved[name] = positions[name];
-  });
-
   positions = {};
-  // Először a meglévő (drag-elt) pozíciók visszaírása
-  Object.assign(positions, saved);
-
-  if (!positions[localName]) positions[localName] = { x: cx, y: cy };
+  positions[localName] = { x: cx, y: cy };
   const remoteNodes = nodes.filter(n => n.name !== localName && !n.is_mcp_end_device);
-  const unplaced = remoteNodes.filter(n => !positions[n.name]);
-  unplaced.forEach((node, i) => {
-    const angle = (2 * Math.PI * i / (unplaced.length || 1)) - Math.PI / 2;
+  remoteNodes.forEach((node, i) => {
+    const angle = (2 * Math.PI * i / (remoteNodes.length || 1)) - Math.PI / 2;
     positions[node.name] = {
       x: cx + radius * Math.cos(angle),
       y: cy + radius * Math.sin(angle)
     };
   });
-  // MCP end devices: dedicated bottom dock — NEM a node-gyűrűn.
-  // Nem tolják el a node-ok pozícióit, külön sávban jelennek meg.
+  // MCP end devices orbit their parent node
   const endDevices = nodes.filter(n => n.is_mcp_end_device);
-  const dockY = h - 60;
-  const dockStartX = cx - (endDevices.length - 1) * 55;
-  endDevices.forEach((ed, i) => {
-    if (!positions[ed.name]) {
-      positions[ed.name] = { x: dockStartX + i * 110, y: dockY };
-    }
+  const byParent = {};
+  endDevices.forEach(ed => {
+    const p = ed.transport_parent || localName;
+    (byParent[p] = byParent[p] || []).push(ed);
+  });
+  Object.keys(byParent).forEach(parent => {
+    const pp = positions[parent];
+    if (!pp) return;
+    const kids = byParent[parent];
+    kids.forEach((ed, i) => {
+      const a = (2 * Math.PI * i / (kids.length || 1)) - Math.PI / 2;
+      positions[ed.name] = {
+        x: pp.x + 70 * Math.cos(a),
+        y: pp.y + 70 * Math.sin(a)
+      };
+    });
   });
 }
 
@@ -247,7 +223,7 @@ function calcPositions() {
 function spawnFlowParticles() {
   connections.forEach(conn => {
     if (conn.status !== 'connected') return;
-    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel' && conn.transport !== 'mcp' && conn.transport !== 'mqtt') return;
+    if (conn.transport !== 'p2p' && conn.transport !== 'ssh_tunnel' && conn.transport !== 'mcp') return;
     if (Math.random() > 0.02) return;  // 2% chance per frame per connection
     const from = positions[conn.source];
     const to = positions[conn.target];
@@ -256,7 +232,7 @@ function spawnFlowParticles() {
       x: from.x, y: from.y,
       dx: to.x - from.x, dy: to.y - from.y,
       progress: 0, speed: 0.02 + Math.random() * 0.02,
-      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : (conn.transport === 'mcp' ? '#bc8cff' : (conn.transport === 'mqtt' ? '#ff8c42' : '#238636'))
+      color: conn.transport === 'ssh_tunnel' ? '#00d0ff' : (conn.transport === 'mcp' ? '#bc8cff' : '#238636')
     });
   });
 }
@@ -323,36 +299,6 @@ function draw() {
       ctx.stroke();
       ctx.setLineDash([]);
       return; // skip straight line
-    } else if (conn.transport === 'mqtt') {
-      // MQTT pub/sub: szélesebb, világosabb narancsív az SSH-ív MÃ¡sik oldalÃ¡n
-      // (offset -55), vastagabb stroke, kettÅ'sÅ's dashed pattern.
-      // Nagyobb offset: nem veszik el az Å'rnyÃ©kban.
-      const mx = (from.x + to.x) / 2;
-      const my = (from.y + to.y) / 2;
-      const dx = to.x - from.x;
-      const dy = to.y - from.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const offset = -55;  // SSH: +25, MQTT: -55 -> nagy tÃ©rbeli szÃ©tcsÃºszÃ¡s
-      const ox = -dy / len * offset;
-      const oy = dx / len * offset;
-      if (conn.status === 'connected') {
-        ctx.strokeStyle = '#ff8c42';
-        ctx.lineWidth = 4;  // vastagabb, lÃ¡thatÃ³bb
-        ctx.globalAlpha = 0.85;
-        ctx.setLineDash([8, 4]);  // hosszabb szÃ¡llÃ¡s = pub/sub Ã¶sszeeskÃ¼vÃ©s
-      } else {
-        ctx.strokeStyle = '#ff8c4244';
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.5;
-        ctx.setLineDash([4, 6]);
-      }
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.quadraticCurveTo(mx + ox, my + oy, to.x, to.y);
-      ctx.stroke();
-      ctx.globalAlpha = 1.0;
-      ctx.setLineDash([]);
-      return; // skip straight line
     } else if (conn.transport === 'mcp') {
       // Purple dashed orbit line for MCP end devices
       if (conn.status === 'connected') {
@@ -406,10 +352,8 @@ function draw() {
     const p2pConns = connections.filter(c => (c.source === node.name || c.target === node.name) && c.transport === 'p2p');
     const p2pConnected = p2pConns.some(c => c.status === 'connected');
     const p2pBackoff = p2pConns.some(c => c.status === 'backoff');
-    const mqttConns = connections.filter(c => (c.source === node.name || c.target === node.name) && c.transport === 'mqtt');
-    const mqttConnected = mqttConns.some(c => c.status === 'connected');
     if (isEndDevice) color = (node.status === 'online') ? '#bc8cff' : '#f85149';
-    else if (node.status === 'online' || isLocal || p2pConnected || mqttConnected) color = '#238636';
+    else if (node.status === 'online' || isLocal || p2pConnected) color = '#238636';
     else if (node.status === 'backoff' || p2pBackoff) color = '#d29922';
     else if (node.status === 'disconnected' || node.status === 'offline') color = '#f85149';
 
@@ -477,15 +421,6 @@ function draw() {
   // ── Restore zoom & pan transform ──
   ctx.restore();
 
-  // ── MCP end-device dock label (outside transform) ──
-  const edCount = nodes.filter(n => n.is_mcp_end_device).length;
-  if (edCount > 0) {
-    ctx.fillStyle = '#bc8cff88';
-    ctx.font = '11px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText('🔌 MCP end devices: ' + edCount + ' — külső agentek (a node-gyűrűn kívül)', 8, h - 26);
-  }
-
   // ── Draw zoom indicator (outside transform) ──
   ctx.fillStyle = '#8b949e';
   ctx.font = '11px sans-serif';
@@ -511,24 +446,12 @@ let panY = 0;
 let isPanning = false;
 let panStartX = 0;
 let panStartY = 0;
-let dragStartX = 0;   // node-drag kezdő pont (desktop) — elmozdulás méréséhez
-let dragStartY = 0;
 
 canvas.addEventListener('mousemove', (e) => {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
   const localName = topologyData?.local_node || '';
-
-  // Node-drag (desktop): a lenyomott gombbal húzott node mozgatása
-  if (dragNodeName && positions[dragNodeName] && (e.buttons & 1)) {
-    const wx = (mx - panX) / zoomLevel;
-    const wy = (my - panY) / zoomLevel;
-    positions[dragNodeName].x = wx;
-    positions[dragNodeName].y = wy;
-    manualPositions.add(dragNodeName);
-    return;
-  }
 
   if (isPanning) {
     panX += (mx - panStartX);
@@ -547,7 +470,7 @@ canvas.addEventListener('mousemove', (e) => {
     const sy = pos.y * zoomLevel + panY;
     const dist = Math.hypot(mx - sx, my - sy);
     const r = node.name === localName ? 36 : 28;
-    if (dist < (r + 5)) found = node.name;
+    if (dist < (r + 5) / zoomLevel) found = node.name;
   });
 
   hoveredNode = found;
@@ -558,19 +481,21 @@ canvas.addEventListener('mousedown', (e) => {
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
+  const localName = topologyData?.local_node || '';
 
-  // Check if clicking a node first (zoom/pan-korrekt hit-test)
-  const hit = hitTestNode(mx, my);
+  // Check if clicking a node first
+  let clickedNode = null;
+  nodes.forEach(node => {
+    const pos = positions[node.name];
+    if (!pos) return;
+    const sx = pos.x * zoomLevel + panX;
+    const sy = pos.y * zoomLevel + panY;
+    const dist = Math.hypot(mx - sx, my - sy);
+    const r = node.name === localName ? 36 : 28;
+    if (dist < (r + 5) / zoomLevel) clickedNode = node.name;
+  });
 
-  // Drag kezdő pont (elmozdulás méréséhez a mouseup-nál)
-  dragStartX = mx; dragStartY = my;
-
-  if (hit) {
-    // Node-drag indul (desktop)
-    dragNodeName = hit;
-    isPanning = false;
-  } else {
-    dragNodeName = null;
+  if (!clickedNode) {
     isPanning = true;
     panStartX = mx;
     panStartY = my;
@@ -578,18 +503,9 @@ canvas.addEventListener('mousedown', (e) => {
   }
 });
 
-canvas.addEventListener('mouseup', (e) => {
-  const wasDraggingNode = !!dragNodeName;
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  // Érdemleges elmozdulás volt-e (5px küszöb)?
-  const moved = Math.hypot(mx - dragStartX, my - dragStartY) > 5;
-  dragNodeName = null;
+canvas.addEventListener('mouseup', () => {
   isPanning = false;
   canvas.style.cursor = 'grab';
-  // Node-drag után a click-select ne induljon rá újra
-  if (wasDraggingNode && moved) suppressClick = true;
 });
 
 canvas.addEventListener('mouseleave', () => {
@@ -610,137 +526,21 @@ canvas.addEventListener('wheel', (e) => {
   panY = my - (my - panY) * (zoomLevel / oldZoom);
 });
 
-// ── Touch interaction (mobilon: pan + pinch-zoom + node-drag, v0.48.2) ──
-// Pointer Events hasznalata: egy event-model mouse + touch + penhez.
-// A node-drag prioritast kap a pan-nel szemben: ha az ujjas egy nodeon
-// indul, a node koordinatai frissulnek a positions-ban (a drag a zoom/pan
-// transzformacion KIVUL eszkalalodik, tehat positions[node] a vilag-koordinata).
-let activePointers = new Map();   // pointerId -> {x, y}
-let dragNodeName = null;          // aktualisan huzott node neve
-let pinchStartDist = 0;           // pinch-zoom kezdeti tavolsag
-let pinchStartZoom = 1;
-let touchMoved = false;           // volt-e elmozdulas (tap vs. drag kulonboztetes)
-let suppressClick = false;        // node-drag utan a click ne selecteljen ujra
-
-function canvasPos(e) {
-  const rect = canvas.getBoundingClientRect();
-  return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-}
-
-function hitTestNode(x, y) {
-  // Vilag-koordinata visszaalakitas a zoom/pan-bol
-  const wx = (x - panX) / zoomLevel;
-  const wy = (y - panY) / zoomLevel;
-  const localName = topologyData?.local_node || '';
-  let found = null;
-  nodes.forEach(node => {
-    const pos = positions[node.name];
-    if (!pos) return;
-    const dist = Math.hypot(wx - pos.x, wy - pos.y);
-    const r = node.name === localName ? 36 : 28;
-    if (dist < r + 6) found = node.name;
-  });
-  return found;
-}
-
-canvas.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'mouse') return;  // mouse: a regi handler kezeli
-  e.preventDefault();
-  canvas.setPointerCapture?.(e.pointerId);
-  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  touchMoved = false;
-  if (activePointers.size === 1) {
-    // Egy ujj: node-drag ha nodeon indult, kulonben pan
-    const p = canvasPos(e);
-    const hit = hitTestNode(p.x, p.y);
-    if (hit) {
-      dragNodeName = hit;
-    } else {
-      dragNodeName = null;
-    }
-  } else if (activePointers.size === 2) {
-    // Ket ujj: pinch-zoom kezdete
-    dragNodeName = null;
-    const pts = [...activePointers.values()];
-    pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-    pinchStartZoom = zoomLevel;
-  }
-});
-
-canvas.addEventListener('pointermove', (e) => {
-  if (e.pointerType === 'mouse') return;
-  if (!activePointers.has(e.pointerId)) return;
-  const prev = activePointers.get(e.pointerId);
-  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  const dx = e.clientX - prev.x;
-  const dy = e.clientY - prev.y;
-  if (Math.abs(dx) + Math.abs(dy) > 2) touchMoved = true;
-
-  if (activePointers.size === 2) {
-    // Pinch-zoom: a ket ujj tavolsaganak aranya
-    const pts = [...activePointers.values()];
-    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-    if (pinchStartDist > 0) {
-      const rect = canvas.getBoundingClientRect();
-      const cx = (pts[0].x + pts[1].x) / 2 - rect.left;
-      const cy = (pts[0].y + pts[1].y) / 2 - rect.top;
-      const oldZoom = zoomLevel;
-      zoomLevel = Math.max(0.3, Math.min(3, pinchStartZoom * (dist / pinchStartDist)));
-      // Zoom a pinch kozepja fele
-      panX = cx - (cx - panX) * (zoomLevel / oldZoom);
-      panY = cy - (cy - panY) * (zoomLevel / oldZoom);
-    }
-  } else if (dragNodeName && positions[dragNodeName]) {
-    // Node-drag: vilag-koordinataban mozgatjuk a node-ot
-    const p = canvasPos(e);
-    const wx = (p.x - panX) / zoomLevel;
-    const wy = (p.y - panY) / zoomLevel;
-    positions[dragNodeName].x = wx;
-    positions[dragNodeName].y = wy;
-    manualPositions.add(dragNodeName);
-  } else {
-    // Pan
-    panX += dx;
-    panY += dy;
-  }
-});
-
-function endPointer(e) {
-  if (e.pointerType === 'mouse') return;
-  activePointers.delete(e.pointerId);
-  if (activePointers.size < 2) pinchStartDist = 0;
-  if (activePointers.size === 0) {
-    // Tap (nemi elmozdulas nelkul): node-kivalasztas vagy panel zaras
-    if (!touchMoved) {
-      const p = canvasPos(e);
-      const hit = hitTestNode(p.x, p.y);
-      if (hit) {
-        selectedNode = hit;
-        showPanel(hit);
-      } else {
-        selectedNode = null;
-        closePanel();
-      }
-    }
-    dragNodeName = null;
-  }
-}
-
-canvas.addEventListener('pointerup', endPointer);
-canvas.addEventListener('pointercancel', endPointer);
-
-// iOS Safari: dupla-koppintas zoom letiltasa a canvason
-canvas.style.touchAction = 'none';
-
 canvas.addEventListener('click', (e) => {
   if (isPanning) return;  // Don't click after pan
-  if (suppressClick) { suppressClick = false; return; }  // drag utáni click nem selectel
   const rect = canvas.getBoundingClientRect();
   const mx = e.clientX - rect.left;
   const my = e.clientY - rect.top;
+  const localName = topologyData?.local_node || '';
 
-  // Zoom/pan-korrekt hit-test (a positions world-koordináta!)
-  const clicked = hitTestNode(mx, my);
+  let clicked = null;
+  nodes.forEach(node => {
+    const pos = positions[node.name];
+    if (!pos) return;
+    const dist = Math.hypot(mx - pos.x, my - pos.y);
+    const r = node.name === localName ? 36 : 28;
+    if (dist < r + 5) clicked = node.name;
+  });
 
   if (clicked) {
     selectedNode = clicked;
@@ -762,7 +562,6 @@ function showPanel(nodeName) {
   const p2pConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'p2p');
   const sshConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'ssh_tunnel');
   const pgConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'pg');
-  const mqttConns = connections.filter(c => (c.source === nodeName || c.target === nodeName) && c.transport === 'mqtt');
   const isLocal = node.name === (topologyData?.local_node || '');
   const healthPct = Math.round((node.health_score || 0) * 100);
   const isEndDevice = !!node.is_mcp_end_device;
@@ -776,6 +575,7 @@ function showPanel(nodeName) {
   } else {
   // Continue with standard fields for mesh nodes
   html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
+  html += `<div class="row"><span class="label">Státusz:</span><span class="value" style="color:${isLocal ? 'var(--green)' : (p2pConns.some(c => c.status === 'connected') ? 'var(--green)' : 'var(--red)')}">${node.status || 'unknown'}</span></div>`;
   html += `<div class="row"><span class="label">Szerep:</span><span class="value">${node.role || 'router'}</span></div>`;
   html += `<div class="row"><span class="label">Verzió:</span><span class="value">v${node.version || '?'}</span></div>`;
   html += `<div class="row"><span class="label">Egészség:</span><span class="value">${healthPct}%</span></div>`;
@@ -788,14 +588,6 @@ function showPanel(nodeName) {
     const upStr = sshInfo && sshInfo.uptime_seconds ? ' (' + formatUptime(sshInfo.uptime_seconds) + ')' : '';
     html += `<div class="row"><span class="label">SSH Tunnel:</span><span class="value" style="color:#00d0ff">${sshConnected}/${sshConns.length}${upStr}</span></div>`;
   }
-  if (mqttConns.length > 0) {
-    const mqttConnected = mqttConns.filter(c => c.status === 'connected').length;
-    const broker = mqttConns.find(c => c.broker)?.broker || '?';
-    const lastSeen = mqttConns.map(c => c.last_seen).filter(Boolean).sort((a, b) => b - a)[0];
-    html += `<div class="row"><span class="label">MQTT Pub/Sub:</span><span class="value" style="color:#ff8c42">${mqttConnected}/${mqttConns.length}</span></div>`;
-    html += `<div class="row"><span class="label">Broker:</span><span class="value" style="color:#ff8c42">${broker}</span></div>`;
-    if (lastSeen) html += `<div class="row"><span class="label">Utolsó presence:</span><span class="value">${fmtRelative(lastSeen)}</span></div>`;
-  }
   html += `<div class="row"><span class="label">PG linkek:</span><span class="value">${pgConns.length}</span></div>`;
   if (node.uptime_seconds) html += `<div class="row"><span class="label">Uptime:</span><span class="value">${formatUptime(node.uptime_seconds)}</span></div>`;
   if (node.message_count) html += `<div class="row"><span class="label">Üzenetek:</span><span class="value">${node.message_count}</span></div>`;
@@ -803,7 +595,7 @@ function showPanel(nodeName) {
   // Skills
   if (node.skills && node.skills.length > 0) {
     html += `<div style="margin-top:10px;color:var(--text2);font-size:11px;font-weight:600">Képességek</div>`;
-    html += `<div class="skills">${node.skills.map(s => `<span class="skill-tag">${(s && typeof s === 'object') ? (s.name || s.skill || s.id || JSON.stringify(s)) : s}</span>`).join('')}</div>`;
+    html += `<div class="skills">${node.skills.map(s => `<span class="skill-tag">${s}</span>`).join('')}</div>`;
   }
 
   // Capabilities

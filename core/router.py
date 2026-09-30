@@ -450,33 +450,6 @@ class MeshRouter:
                 log.warning(f"Transport {transport_name} failed: {e}")
                 continue
 
-        # ── MQTT fallback (utolsó valós közeg az offline queue ELŐTT) ──
-        # Ha P2P/PG/HTTP mind elhasaltak, de az MQTT broker él, a DM/broadcast
-        # még eljuthat a címzetthez (pl. tor: nincs elérhető P2P/HTTP, csak MQTT).
-        if (
-            message.type not in (MSG_TYPE_HEARTBEAT, MSG_TYPE_ACK)
-            and message.recipient
-            and message.recipient != "broadcast"
-        ):
-            mqtt_tr = self.transports.get("mqtt")
-            if mqtt_tr and mqtt_tr.is_available():
-                try:
-                    result = await mqtt_tr.send(message)
-                    if result.success:
-                        self._stats["sent"] += 1
-                        self._stats["mqtt_fallbacks"] = self._stats.get("mqtt_fallbacks", 0) + 1
-                        log.info(f"MQTT fallback delivered {message.id[:8]} → {message.recipient}")
-                        if self.local_store:
-                            try:
-                                self.local_store.mark_outbound_pg_synced(message.id)
-                            except Exception:
-                                pass
-                        return result
-                    failures.append(f"mqtt: {result.error}")
-                except Exception as e:
-                    failures.append(f"mqtt: {str(e)}")
-                    log.warning(f"MQTT fallback for {message.id[:8]} failed: {e}")
-
         # All transports failed — enqueue in offline queue for later delivery
         self._stats["errors"] += 1
         # Health scorer: record failure for recipient
@@ -597,17 +570,6 @@ class MeshRouter:
             except Exception as e:
                 log.warning(f"Broadcast on http failed: {e}")
                 results.append(SendResult(transport="http", success=False, error=str(e)))
-
-        # ── MQTT broadcast fallback (ha P2P és PG is elhasalt) ──
-        # QoS1 broadcast a a2a/sys/broadcast topicra — minden online node megkapja.
-        mqtt_tr = self.transports.get("mqtt")
-        if mqtt_tr and mqtt_tr.is_available():
-            try:
-                result = await mqtt_tr.send(message)
-                results.append(result)
-            except Exception as e:
-                log.warning(f"Broadcast on mqtt failed: {e}")
-                results.append(SendResult(transport="mqtt", success=False, error=str(e)))
 
         successes = sum(1 for r in results if r.success)
         if successes > 0:

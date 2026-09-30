@@ -18,7 +18,6 @@ Security:
 """
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -40,7 +39,6 @@ _FORCE_FLOOR_INTERVAL = 120.0  # min. küldési idő force=True (reconnect) eset
 # v2 protocol: coordinator re-bundles and rebroadcasts when the registry
 # changes, but at most this often (flood protection)
 _BUNDLE_MIN_INTERVAL = 30.0
-_REQUEST_FLOOR_INTERVAL = 300.0  # min. request/announce küldési idő reconnect churn ellen (5 perc)
 
 # v2: how long a received bundle entry stays valid in the local registry
 _BUNDLE_ENTRY_TTL = 0  # 0 = no expiry (keys are only additive)
@@ -62,17 +60,10 @@ class SSHKeySync:
         self._node_config = node_config  # mesh config (SSHTunnelConfig accessible)
         self._node_ref = None  # set by node.py via set_node_ref()
         self._last_sent: Dict[str, float] = {}  # peer_name -> ts
-        self._last_request: Dict[str, float] = {}  # peer_name -> last full handshake ts
         # v2: coordinator-aggregated key registry (peer_name -> {keys, tunnel, ts})
         self._key_registry: Dict[str, dict] = {}
         self._last_bundle_ts = 0.0
         self._self_registered = False
-        # MQTT fallback client (PG nélkül használjuk)
-        self._mqtt_client = None
-        # Buffer: peer-regisztracio elott beérkezett retained kulcsuzenetek
-        # (feldolgozza a flusher, ha a peer mar latszik a registryben)
-        self._mqtt_pending: Dict[str, bytes] = {}
-        self._flusher_task = None
         # Resolve authorized_keys path per platform
         if authorized_keys_path:
             self._ak_path = Path(authorized_keys_path).expanduser()
@@ -278,22 +269,10 @@ class SSHKeySync:
         except Exception as e:
             log.debug(f"SSHKeySync: announce_to_coordinator failed: {e}")
 
-    async def send_keys_to(self, peer_name: str, force: bool = False,
-                           request_reply: bool = False):
+    async def send_keys_to(self, peer_name: str, force: bool = False):
         """Advertise our public key(s) to an approved peer (idempotent)."""
         now = time.time()
-        if request_reply:
-            # Explicit request-reply: a kérdő oldal maga rate-limiteli a
-            # requestjeit (_REQUEST_FLOOR_INTERVAL=300s), így itt egy rövid
-            # floor is biztonságos — de a kézzel fabricált request-storm
-            # ellen 30s marad. Ez biztosítja, hogy egy restartolt peer
-            # másodperceken belül megkapja a kulcsokat, ne a következő
-            # reconnect-ciklusig várjon (2026-09-27: mano 0 kulccsal
-            # maradt, mert a morzsa válaszát a 120s floor blokkolta).
-            floor = 30.0
-        else:
-            floor = _FORCE_FLOOR_INTERVAL if force else _RESEND_INTERVAL
-        if now - self._last_sent.get(peer_name, 0) < floor:
+        if now - self._last_sent.get(peer_name, 0) < (_FORCE_FLOOR_INTERVAL if force else _RESEND_INTERVAL):
             # force-floor: a peer-reconnect (force=True) sem indíthat újabb küldést
             # 120s-enként — a flappelő HAOS tunnel-ek ne generáljanak ssh_key_sync vihart
             return
@@ -385,7 +364,7 @@ class SSHKeySync:
             await self._maybe_broadcast_bundle()
         # Bidirectional: reply with our keys if asked
         if payload.get("request"):
-            await self.send_keys_to(sender, force=True, request_reply=True)
+            await self.send_keys_to(sender, force=True)
         return added > 0
 
     async def _auto_register_tunnel_peer(self, peer_name: str, tunnel_info: dict):
@@ -481,129 +460,6 @@ class SSHKeySync:
         except Exception as e:
             log.debug(f"SSHKeySync: PG persist failed (non-blocking): {e}")
 
-    # ── MQTT fallback (PG nélkül) ─────────────────────────────────
-    #
-    # Ha a PG pool nem elérhető, az SSH kulcs cserét MQTT-n keresztül
-    # végezzük: minden node publikálja a kulcsait a2a/ssh_keys/{node_name}
-    # topic-ra retained=True, és a többiek feliratkoznak a2a/ssh_keys/+ -ra.
-    # A node.py init során kapcsolja össze az MQTT transportot ezzel a
-    # metódussal, ha pg_pool is None.
-
-    def _mqtt_enabled(self) -> bool:
-        """MQTT key sync használható? (mqtt client elérhető).
-
-        v0.48+: mindig aktív — a PG csak audit-persistencia, az MQTT a
-        terjesztési útvonal (később belépő node-ok a retained üzenetből
-        azonnal megkapják a kulcsokat)."""
-        return self._mqtt_client is not None
-
-    def set_mqtt_client(self, client):
-        """MQTT client referenciát adunk (node.py hívja, ha pg_pool None)."""
-        self._mqtt_client = client
-
-    def publish_via_mqtt(self):
-        """Saját SSH publikus kulcs(ok) publikálása MQTT topic-ra."""
-        if not self._mqtt_client:
-            return False
-        keys = self._read_own_pubkeys()
-        if not keys:
-            log.debug("SSHKeySync(MQTT): no pubkeys to publish")
-            return False
-        tunnel = self._ssh_tunnel_info()
-        payload = json.dumps({
-            "node_name": self._node_name,
-            "keys": keys,
-            "tunnel": tunnel,
-        })
-        topic = f"a2a/ssh_keys/{self._node_name}"
-        try:
-            self._mqtt_client.publish_ssh_keys(topic, payload, retain=True)
-            log.info(f"SSHKeySync(MQTT): published {len(keys)} key(s) to {topic}")
-            self._start_pending_flusher()
-            return True
-        except Exception as e:
-            log.warning(f"SSHKeySync(MQTT): publish failed: {e}")
-            return False
-
-    def _start_pending_flusher(self):
-        """Hatter task: a pufferolt (meg nem regisztralt peer-tol szarmazo)
-        kulcsokat akkor dolgozza fel, ha a peer mar latszik a registryben.
-        Determinisztikus — nem fug eventektol, 30s-enkent nez at a puffert,
-        5 perc utan uriti a regeneralt topic retained ertekevel."""
-        if getattr(self, "_flusher_task", None):
-            return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            return
-        self._flusher_deadline = time.time() + 300.0
-
-        async def _flusher():
-            while time.time() < self._flusher_deadline and self._mqtt_pending:
-                await asyncio.sleep(30)
-                for name in list(self._mqtt_pending.keys()):
-                    if self._sender_is_approved(name):
-                        raw = self._mqtt_pending.pop(name)
-                        self._process_mqtt_keys(name, raw)
-            if self._mqtt_pending:
-                log.info(f"SSHKeySync(MQTT): dropping {len(self._mqtt_pending)} buffered key msg(s) — peers never registered")
-                self._mqtt_pending.clear()
-            self._flusher_task = None
-
-        self._flusher_task = loop.create_task(_flusher())
-
-    def handle_mqtt_key_message(self, sender: str, raw_payload: bytes):
-        """Bejovo MQTT SSH key uszenet feldolgozasa.
-
-        BIZTONSAG: a broker allow_anonymous — barmki publikalhatna hamis
-        kulcsot a topicon, ezert a kulcsokat csak regisztralt peer-tol
-        fogadjuk el (registry check, mint az A2A uton).
-
-        RACE: boot-kor a retained uzenet elobb beérkezik, mint ahogy a peer
-        AgentCardja regisztralna a discoverynel — az ilyen kulcsot pufferoljuk
-        (_mqtt_pending) es az on_peer_connected flush feldolgozza."""
-        if sender == self._node_name:
-            return  # sajat uszenetunket figyelmen kivul hagyjuk
-        if not self._sender_is_approved(sender):
-            self._mqtt_pending[sender] = raw_payload
-            log.info(f"SSHKeySync(MQTT): keys from {sender} buffered (peer not yet registered)")
-            return
-        self._process_mqtt_keys(sender, raw_payload)
-
-    def _process_mqtt_keys(self, sender: str, raw_payload) -> None:
-        """Merge keys + auto-register tunnel peer (sync part of MQTT key msg)."""
-        try:
-            payload = json.loads(raw_payload) if isinstance(raw_payload, (bytes, bytearray)) else json.loads(raw_payload)
-        except (json.JSONDecodeError, TypeError) as e:
-            log.debug(f"SSHKeySync(MQTT): invalid JSON from {sender}: {e}")
-            return
-        keys = payload.get("keys", []) or []
-        if not keys:
-            return
-        added = 0
-        for k in keys:
-            if isinstance(k, str) and _KEY_RE.match(k.strip()):
-                if self._merge_key(k.strip()):
-                    added += 1
-        if added:
-            log.info(f"SSHKeySync(MQTT): merged {added} new key(s) from {sender}")
-        tunnel_info = payload.get("tunnel") or {}
-        if isinstance(tunnel_info, dict) and tunnel_info.get("ssh_port"):
-            try:
-                import asyncio
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._auto_register_tunnel_peer(sender, tunnel_info))
-            except Exception:
-                pass  # ha nincs futó event loop, skip
-
-    def flush_mqtt_pending(self, peer_name: str) -> int:
-        """Process buffered MQTT key messages for a now-registered peer."""
-        raw = self._mqtt_pending.pop(peer_name, None)
-        if raw is None:
-            return 0
-        self._process_mqtt_keys(peer_name, raw)
-        return 1
-
     # ── Peer-connect hook ─────────────────────────────────────────
 
     def set_node_ref(self, node):
@@ -612,23 +468,8 @@ class SSHKeySync:
         self._node_ref = node
 
     async def on_peer_connected(self, peer_name: str):
-        """Called on every transport peer_connected — send keys + request.
-
-        Rate-limited: a flapping peer (tor churn ~14 reconnect/min) must not
-        trigger a key-sync storm. Only the FIRST connect in _REQUEST_FLOOR_INTERVAL
-        does the full 3-message handshake; subsequent connects within the window
-        are skipped (send_keys_to already has its own force-floor).
-        """
-        import time as _t
-        now = _t.time()
-        if now - self._last_request.get(peer_name, 0) < _REQUEST_FLOOR_INTERVAL:
-            log.debug(f"SSHKeySync: on_peer_connected({peer_name}) skipped — rate-limited (churn guard)")
-            return
-        self._last_request[peer_name] = now
+        """Called on every transport peer_connected — send keys + request."""
         try:
-            # flush: a boot-utan pufferolt, meg nem erkezett kulcsok most
-            # dolgozzuk fel (mar regisztraltuk a peer AgentCardjat)
-            self.flush_mqtt_pending(peer_name)
             # force=True: peer restarts reset _last_sent state on THEIR side,
             # but our rate-limit must not block the re-sync handshake either
             await self.send_keys_to(peer_name, force=True)

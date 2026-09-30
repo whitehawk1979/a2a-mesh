@@ -27,23 +27,20 @@ TRUST_FILE = os.path.expanduser("~/.hermes/scripts/a2a_mesh/data/trust_graph.jso
 
 # Default trust graph for A2A Mesh (full mesh — 4 nodes)
 DEFAULT_TRUST = {
-    "Nova": {"Morzsa": "full", "Runa": "full", "Tor": "full", "Mano": "full"},
-    "Morzsa": {"Nova": "full", "Runa": "full", "Tor": "full", "Mano": "full"},
-    "Runa": {"Nova": "full", "Morzsa": "full", "Tor": "full", "Mano": "full"},
-    "Tor": {"Nova": "full", "Morzsa": "full", "Runa": "full", "Mano": "full"},
-    "Mano": {"Nova": "full", "Morzsa": "full", "Runa": "full", "Tor": "full"},
+    "Nova": {"Morzsa": "full", "Runa": "full", "Tor": "full"},
+    "Morzsa": {"Nova": "full", "Runa": "full", "Tor": "full"},
+    "Runa": {"Nova": "full", "Morzsa": "full", "Tor": "full"},
+    "Tor": {"Nova": "full", "Morzsa": "full", "Runa": "full"},
 }
 
 TRUST_LEVELS = {"full": 3, "limited": 2, "none": 0}
 
 
 def load_trust_graph():
-    """Load trust graph from JSON file. Empty-name entries are dropped
-    (a stray {"": {"": "trusted"}} entry was observed in runtime data)."""
+    """Load trust graph from JSON file."""
     try:
         with open(TRUST_FILE, "r") as f:
-            graph = json.load(f)
-        return {k: v for k, v in graph.items() if (k or "").strip()} or DEFAULT_TRUST.copy()
+            return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return DEFAULT_TRUST.copy()
 

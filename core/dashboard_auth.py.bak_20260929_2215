@@ -89,87 +89,33 @@ class DashboardAuthMixin:
         return response
     
     async def _broadcast_session_update(self):
-        """Broadcast current online users to all connected WebSocket clients.
-
-        NOTE: This mixin is a base of DashboardHandler, so `self` IS the
-        handler — `self._broadcast_ws`, `self.auth`, `self._users` are direct.
-
-        Sources merged:
-          - self._users  → live WebSocket connections (true "online" right now)
-          - auth.list_active_sessions() → DB-backed login sessions (mesh-wide via PG)
-
-        A user is "online" only if they have BOTH a valid DB session AND
-        an active WebSocket connection. Duplicate sessions per username are
-        deduplicated (latest wins).
-        """
+        """Broadcast current sessions to all connected WebSocket clients."""
         try:
             import time
-            now = time.time()
-
-            # 1) Live WS connections on this node (these are truly "online now")
-            online_via_ws = {}
-            for uid, u in list(self._users.items()):
-                uname = getattr(u, "username", "") or uid
-                try:
-                    u = self._users[uid]
-                    online_via_ws[uname] = {
-                        "username": uname,
-                        "connected_at": getattr(u, "connected_at", now),
-                        "last_activity": getattr(u, "last_activity", now),
-                    }
-                except KeyError:
-                    pass
-
-            # 2) DB login sessions, deduped by username (keeps latest)
-            sessions = self.auth.list_active_sessions()
-            session_by_user = {}
-            for s in sessions:
-                uname = (s.get("username") or s.get("display_name") or "").strip().lower()
-                if not uname:
-                    continue
-                # Keep only the most recent session for each user
-                existing = session_by_user.get(uname)
-                if not existing or s.get("created_at", 0) > existing.get("created_at", 0):
-                    session_by_user[uname] = s
-
-            sessions_display = []
-            # DB-session users
-            for uname, s in session_by_user.items():
-                exp = s.get("expires_at", 0)
-                is_expired = exp > 0 and exp < now
-                online = uname in online_via_ws and not is_expired
-                sessions_display.append({
-                    "username": uname,
-                    "display_name": s.get("display_name", s.get("username", uname)),
-                    "online": online,
-                    "connected_at": s.get("created_at", 0),
-                    "expires_at": exp,
-                    "is_expired": is_expired,
-                })
-                # Remove from online_via_ws so we don't double-count
-                online_via_ws.pop(uname, None)
-
-            # Add WS users who have no DB session (guests)
-            for uname, guest in online_via_ws.items():
-                sessions_display.append({
-                    "username": uname,
-                    "display_name": uname,
-                    "online": True,
-                    "connected_at": guest["connected_at"],
-                    "expires_at": 0,
-                    "is_expired": False,
-                })
-
-            online_count = sum(1 for x in sessions_display if x["online"])
-            await self._broadcast_ws({
-                "type": "session_update",
-                "sessions": sessions_display,
-                "count": len(sessions_display),
-                "online_count": online_count,
-                "ts": now,
-            })
+            app = self.request.app
+            node = app.get('node') if hasattr(app, 'get') else None
+            if node and hasattr(node, 'dashboard_handler'):
+                handler = node.dashboard_handler
+                if hasattr(handler, '_broadcast_ws'):
+                    sessions = self.auth.list_active_sessions()
+                    now = time.time()
+                    sessions_display = []
+                    for s in sessions:
+                        sessions_display.append({
+                            "username": s.get("username", ""),
+                            "display_name": s.get("display_name", ""),
+                            "role": "",
+                            "connected_at": s.get("created_at", 0),
+                            "expires_at": s.get("expires_at", 0),
+                            "is_expired": s.get("expires_at", 0) > 0 and s.get("expires_at", 0) < now,
+                        })
+                    await handler._broadcast_ws({
+                        "type": "session_update",
+                        "sessions": sessions_display,
+                        "count": len(sessions_display),
+                    })
         except Exception as e:
-            log.warning(f"Failed to broadcast session update: {e}")
+            log.debug(f"Session broadcast failed: {e}")
 
     async def _api_auth_logout(self, request):
         """Logout and invalidate token."""

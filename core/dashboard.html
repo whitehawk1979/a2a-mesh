@@ -139,8 +139,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 
 /* Mobile bottom nav — always visible on all screen sizes */
 .mobile-bottom-nav{display:block;position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);z-index:30;padding:4px 0 env(safe-area-inset-bottom)}
-.mobile-bottom-nav .nav-items{display:flex;justify-content:space-around;align-items:center;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:2px;min-width:0}
-    .mobile-bottom-nav .nav-items::-webkit-scrollbar{display:none}
+.mobile-bottom-nav .nav-items{display:flex;justify-content:space-around;align-items:center}
 .mobile-bottom-nav .nav-item{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 8px;color:var(--text3);cursor:pointer;font-size:10px;border:none;background:none;min-width:0;flex:1}
 .mobile-bottom-nav .nav-item.active{color:var(--primary)}
 .mobile-bottom-nav .nav-item .nav-icon{font-size:18px}
@@ -578,6 +577,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="stat-grid" id="steerGrid"></div>
     </div>
     <div class="panel-section">
+      <h3>👥 Online Felhasználók</h3>
+      <div id="onlineUsersPanel" style="font-size:11px;max-height:140px;overflow-y:auto;-webkit-overflow-scrolling:touch;"></div>
+    </div>
+    <div class="panel-section">
       <h3>📋 Task Queue</h3>
       <div id="taskQueueStats" style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="taskQueueList" style="font-size:11px;max-height:180px;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -656,17 +659,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <span class="nav-icon">⚙️</span>
       <span class="nav-label">Beállítások</span>
     </button>
-    <button class="nav-item" onclick="window.open(location.protocol+'//'+location.host+'/mqtt-explorer','_blank')" id="navMqtt">
-      <span class="nav-icon">📡</span>
-      <span class="nav-label">MQTT</span>
-    </button>
+    <button class="nav-item" onclick...[truncated]
     <button class="nav-item" onclick="window.open(location.protocol+'//'+location.host+'/dashboard','_blank')" id="navDashboard">
       <span class="nav-icon">🖥️</span>
       <span class="nav-label">Dashboard</span>
-    </button>
-    <button class="nav-item" onclick="showApprovals()" id="navApprovals" style="display:none;flex:0 0 auto;min-width:76px">
-      <span class="nav-icon" style="position:relative">✅<span id="pendingApprovalBadge" style="display:none;position:absolute;top:-6px;right:-10px;background:var(--danger);color:white;border-radius:10px;min-width:16px;height:16px;font-size:10px;font-weight:700;line-height:16px;text-align:center;padding:0 4px">0</span></span>
-      <span class="nav-label">Jóváhagyás</span>
     </button>
   </div>
 </div>
@@ -735,7 +731,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <!-- Delegations Modal -->
-<div class="file-modal-overlay" id="delegationsModal" style="display:none" onclick="if(event.target===this)closeDelegationsModal()">
+<div class="file-modal-overlay" id="delegationsModal" style="display:none">
   <div class="file-modal" style="width:960px;max-width:98vw;max-height:90vh;display:flex;flex-direction:column">
     <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-shrink:0">
@@ -743,9 +739,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-sm" style="background:var(--success)" onclick="toggleNewTask()">➕ Új feladat</button>
         <button class="btn btn-sm" style="background:var(--primary)" onclick="addCardToBoard()">+ Kártya</button>
-        <button class="btn btn-sm" id="delAutoRefreshBtn" style="background:var(--surface2);color:var(--text)" title="Auto-frissítés kikapcsolása (5s)" onclick="toggleDelegationAutoRefresh(this)">⏸️ Auto</button>
         <button class="btn btn-sm" onclick="loadDelegations()">🔄</button>
-        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="closeDelegationsModal()">✕</button>
+        <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('delegationsModal').style.display='none'">✕</button>
       </div>
     </div>
 
@@ -796,13 +791,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn btn-sm" style="background:var(--success)" onclick="createDelegation()">📤 Küldés</button>
-        <button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="cancelNewTaskForm()">✖ Mégse</button>
         <span id="delCreateStatus" style="font-size:13px;color:var(--text3)"></span>
-      </div>
-      <div style="margin-top:10px;padding-top:8px;border-top:1px dashed var(--border)">
-        <div style="font-size:12px;color:var(--text3);margin-bottom:6px">📎 <b>Munka-fileok</b> — a feladathoz feltöltött fileokból dolgozik a végrehajtó agent (a leírásban hivatkozhatsz rájuk: „dolgozd fel a csatolt filet")</div>
-        <input type="file" id="delInputFiles" multiple style="font-size:12px" onchange="delInputFilePreview()">
-        <div id="delInputFilesList" style="font-size:12px;color:var(--text3);margin-top:4px"></div>
       </div>
     </div>
 
@@ -900,7 +889,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <div class="file-modal" style="width:700px;max-width:95vw;max-height:85vh;overflow-y:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="margin:0" id="taskDetailTitle">📋 Feladat részletei</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="backToDelegations()">✕</button>
+      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('taskDetailModal').style.display='none';var dm=document.getElementById('delegationsModal');if(dm)dm.style.display='flex';">✕</button>
     </div>
     <div id="taskDetailContent">Betöltés...</div>
   </div>
@@ -1034,106 +1023,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div id="settingsTransport" style="font-size:13px;color:var(--text3)">Betöltés...</div>
     </div>
 
-    <!-- Transport Kézi Beállítások (v0.48.3) -->
-    <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <h3 style="margin:0;font-size:14px">🔧 Transport Beállítások</h3>
-        <button class="btn btn-sm" onclick="loadTransportSettings()">🔄 Frissítés</button>
-      </div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Minden transport kézzel állítható — a „Teszt" gomb azonnal ellenőrzi a beállítást, a „Mentés" élőben alkalmazza (MQTT-nél reconnect is).</div>
-
-      <!-- Auto-discovery (v0.48.3): node-ok felismerése → javasolt beállítás -->
-      <div style="margin-top:12px;padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-          <h3 style="margin:0;font-size:14px">🔍 Auto-discovery</h3>
-          <button class="btn btn-sm" style="background:var(--primary);color:#fff" onclick="runDiscoveryScan()">🔍 Node-ok keresése</button>
-        </div>
-        <div style="font-size:11px;color:var(--text3);margin-bottom:6px">PG registry (SSOT) + élő health-probe — a talált node-ok behúzhatók a beállításokba. Ha egy peer nem látszik, ellenőrizd a heartbeat-jét.</div>
-        <div id="discoveryResults" style="font-size:12px;color:var(--text3)">Még nem futott scan.</div>
-      </div>
-
-      <!-- MQTT -->
-      <div id="tsCardMqtt" style="margin-top:10px;padding:10px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <b style="font-size:13px">📡 MQTT Broker</b>
-          <span id="tsMqttStatus" style="font-size:11px">⏳</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center">
-          <input type="text" id="tsMqttHost" placeholder="host (pl. 192.168.1.8)" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="number" id="tsMqttPort" placeholder="port" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer"><input type="checkbox" id="tsMqttEnabled" style="cursor:pointer"> BE</label>
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-sm" onclick="testTransport('mqtt')">🔍 Teszt</button>
-            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('mqtt')">💾</button>
-          </div>
-        </div>
-        <div id="tsMqttResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
-      </div>
-
-      <!-- P2P -->
-      <div id="tsCardP2p" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <b style="font-size:13px">🔗 P2P</b>
-          <span id="tsP2pStatus" style="font-size:11px">⏳</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:center">
-          <input type="text" id="tsP2pHost" placeholder="listen host" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="number" id="tsP2pPort" placeholder="port" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="text" id="tsP2pAdvertise" placeholder="advertise IP (bridge)" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-sm" onclick="testTransport('p2p')">🔍 Teszt</button>
-            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('p2p')">💾</button>
-          </div>
-        </div>
-        <div id="tsP2pResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
-      </div>
-
-      <!-- PG -->
-      <div id="tsCardPg" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <b style="font-size:13px">🐘 PostgreSQL</b>
-          <span id="tsPgStatus" style="font-size:11px">⏳</span>
-        </div>
-        <div style="display:grid;grid-template-columns:1.2fr 0.7fr 1fr 1fr auto;gap:6px;align-items:center">
-          <input type="text" id="tsPgHost" placeholder="host" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="number" id="tsPgPort" placeholder="port" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="text" id="tsPgDb" placeholder="dbname" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="text" id="tsPgUser" placeholder="user" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-sm" onclick="testTransport('pg')">🔍 Teszt</button>
-            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('pg')">💾</button>
-          </div>
-        </div>
-        <div id="tsPgResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
-      </div>
-
-      <!-- SSH tunnel -->
-      <div id="tsCardSsh" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <b style="font-size:13px">🔒 SSH Tunnel</b>
-          <span id="tsSshStatus" style="font-size:11px">⏳</span>
-        </div>
-        <div style="font-size:12px;color:var(--text3)" id="tsSshPeers">Betöltés...</div>
-      </div>
-
-      <!-- HTTP -->
-      <div id="tsCardHttp" style="padding:10px;margin-bottom:8px;background:var(--surface);border-radius:8px;border:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <b style="font-size:13px">🌐 HTTP Relay</b>
-          <span id="tsHttpStatus" style="font-size:11px">⏳</span>
-        </div>
-        <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:6px;align-items:center">
-          <input type="text" id="tsHttpUrl" placeholder="relay URL" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <input type="number" id="tsHttpTimeout" placeholder="timeout (s)" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
-          <div style="display:flex;gap:4px">
-            <button class="btn btn-sm" onclick="testTransport('http')">🔍 Teszt</button>
-            <button class="btn btn-sm" style="background:var(--success)" onclick="saveTransport('http')">💾</button>
-          </div>
-        </div>
-        <div id="tsHttpResult" style="font-size:11px;margin-top:4px;color:var(--text3)"></div>
-      </div>
-    </div>
-
     <!-- Delegation Settings -->
     <div style="margin-bottom:20px;padding:12px;background:var(--surface2);border-radius:8px">
       <h3 style="margin:0 0 8px 0;font-size:14px">🔄 Delegáció Beállítások</h3>
@@ -1229,27 +1118,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       </div>
       <div id="configSyncResult" style="font-size:13px;color:var(--text3)">A "Szinkronizálás" gomb alkalmazza a shared config-ot a futó node-on.</div>
       <div style="font-size:11px;color:var(--text3);margin-top:4px">
-        <b>Megosztott config kulcsok:</b> delegation.expiry_minutes, delegation.auto_renew, delegation.cpu_threshold_p4/p7, security.rate_limit_per_minute, security.token_rotation_interval, security.mtls_enabled, security.hmac_enabled, heartbeat.interval, heartbeat.timeout, monitoring.dedup_cache_threshold, monitoring.dedup_cleanup_interval, auto_update.enabled, auto_update.check_interval, auto_update.apply_automatically
-      </div>
-
-      <!-- Auto-update (v0.48.2): verzió-eltérés elhárítása -->
-      <div style="margin-top:10px;padding:10px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">
-        <h3 style="margin:0 0 8px 0;font-size:14px">🚀 Automatikus frissítés</h3>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
-          <input type="checkbox" id="cfgAutoUpdateEnabled" onchange="saveAutoUpdateSetting()" style="cursor:pointer">
-          <span><b>Frissítés-check BE</b> — periodikusan ellenőrzi a Gitea release-t</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:6px">
-          <input type="checkbox" id="cfgAutoUpdateApply" onchange="saveAutoUpdateSetting()" style="cursor:pointer">
-          <span><b>Automatikus telepítés</b> — új verzió automatikus apply (backup+rollback védett)</span>
-        </label>
-        <div style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <span>Check-intervallum (s):</span>
-          <input type="number" id="cfgAutoUpdateInterval" min="60" step="30" style="width:80px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text)">
-          <button class="btn btn-sm" onclick="saveAutoUpdateSetting()">💾 Mentés</button>
-        </div>
-        <div id="autoUpdateStatus" style="font-size:12px;color:var(--text3);margin-top:6px"></div>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px">MQTT: <code>a2a/version/{node}</code> (retained) — minden node látható a topológiában; új release: <code>a2a/update/latest</code></div>
+        <b>Megosztott config kulcsok:</b> delegation.expiry_minutes, delegation.auto_renew, delegation.cpu_threshold_p4/p7, security.rate_limit_per_minute, security.token_rotation_interval, security.mtls_enabled, security.hmac_enabled, heartbeat.interval, heartbeat.timeout, monitoring.dedup_cache_threshold, monitoring.dedup_cleanup_interval
       </div>
     </div>
 
@@ -1705,19 +1574,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   </div>
 </div>
 
-<!-- Approvals Modal -->
-<div class="modal-overlay" id="approvalsModal" style="display:none">
-  <div class="modal" style="max-width:500px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="margin:0">✅ Jóváhagyások</h2>
-      <button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById('approvalsModal').style.display='none'">✕</button>
-    </div>
-    <div id="pendingUsersList" style="font-size:13px">
-      <div style="color:var(--text3);padding:16px 0;text-align:center">Betöltés...</div>
-    </div>
-  </div>
-</div>
-
-<script src="/dashboard.js?v=1790523000"></script>
+<script src="/dashboard.js?v=1789569987"></script>
 </body>
 </html>

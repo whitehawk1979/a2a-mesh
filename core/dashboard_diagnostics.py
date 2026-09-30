@@ -5,7 +5,6 @@ Provides diagnostic report, suggestion, and debug log endpoints.
 """
 
 import logging
-from core.diagnostics import _lookup_solution  # v0.46.5: megoldás-katalógus backfill
 
 log = logging.getLogger("a2a_mesh.dashboard.diagnostics")
 
@@ -161,10 +160,6 @@ class DashboardDiagnosticsMixin:
                             current_value=d.get("current_value", ""),
                             suggested_value=d.get("suggested_value", ""),
                             rationale=d.get("rationale", ""),
-                            # v0.46.5: régi sorok backfillje a determinisztikus katalógusból
-                            solution=d.get("solution", "") or _lookup_solution(
-                                d.get("category", "general"), d.get("title", ""), d.get("description", "")
-                            ),
                             affected_nodes=d.get("affected_nodes", []),
                             status=d.get("status", "pending"),
                         )

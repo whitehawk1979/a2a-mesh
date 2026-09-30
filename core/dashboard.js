@@ -11,15 +11,6 @@ channelMessages["general"] = [];
 var openChats = ["general"];  // track which chats are open as tabs
 
 // ─── Open Chats Bar — horizontal tabs above send area ───
-// v0.48.8: user-csatorna (user:xyz) online-státusza a contacts-ból jön
-// (knownChatUserOnline), self-DM mindig online (önmagunk vagyunk).
-function _userChannelOnline(ch) {
-  if (String(ch).indexOf("user:") !== 0) return null;  // nem user-csatorna
-  var uname = ch.substring(5);
-  var me = localStorage.getItem("a2a_username") || localStorage.getItem("mesh_username") || "";
-  if (uname === me) return true;  // saját magunk — mindig online
-  return !!knownChatUserOnline[uname];  // contacts-ból származó online flag
-}
 function renderOpenChatsBar() {
   var bar = document.getElementById("openChatsBar");
   if (!bar) return;
@@ -27,21 +18,13 @@ function renderOpenChatsBar() {
   openChats.forEach(function(ch) {
     var isGeneral = (ch === "general");
     var isActive = (ch === currentChannel);
-    var uOnline = _userChannelOnline(ch);
-    var status = (uOnline === null) ? (knownAgents[ch] || (isGeneral ? "online" : "offline")) : (uOnline ? "online" : "offline");
+    var status = knownAgents[ch] || (isGeneral ? "online" : "offline");
     var dot = isGeneral ? "" : (status === "online") ? "🟢 " : (status === "available" || status === "connected") ? "🟡 " : "🔴 ";
     var tab = document.createElement("div");
     tab.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;font-size:12px;cursor:pointer;white-space:nowrap;flex-shrink:0;" +
       (isActive ? "background:var(--primary);color:#fff;font-weight:600;" : "background:var(--surface2);color:var(--text);border:1px solid var(--border);");
     var label = document.createElement("span");
-    // v0.48.8: user:-tabon a display-név (nem a nyers user:xyz), self-DM "(te)"
-    var tabLabel = ch;
-    if (String(ch).indexOf("user:") === 0) {
-      var _tu = ch.substring(5);
-      var _meU = localStorage.getItem("a2a_username") || "";
-      tabLabel = (knownChatUsers[_tu] || _tu) + (_tu === _meU ? " (te)" : "");
-    }
-    label.textContent = (isGeneral ? "💬 " : dot + "👤 ") + (isGeneral ? "Közös" : tabLabel);
+    label.textContent = (isGeneral ? "💬 " : dot + "👤 ") + (isGeneral ? "Közös" : ch);
     label.onclick = function() { switchChannel(ch); };
     tab.appendChild(label);
     // Close button (not for general)
@@ -193,55 +176,27 @@ function switchChannel(channel) {
     var ind = document.getElementById("dmAgentIndicator");
     if (ind) ind.style.display = "none";
   } else {
-    // User-DM channel („user:xyz”) külön címkézéssel (v0.48.8)
-    var isUserDM = channel.indexOf("user:") === 0;
-    var displayLabel = channel;
-    if (isUserDM) {
-      var uname = channel.substring(5);
-      var meUser = localStorage.getItem("a2a_username") || "";
-      displayLabel = (knownChatUsers[uname] || uname) + (uname === meUser ? " (te)" : " (user)");
-    }
-    header.innerHTML = (isUserDM ? "👤 " : (knownAgents[channel + ":mcp"] ? "🔌 " : "👤 ")) + escapeHtml(displayLabel);
-    info.innerHTML = isUserDM
-      ? "Közvetlen üzenet — csak te és " + escapeHtml(knownChatUsers[channel.substring(5)] || channel.substring(5))
-      : "Közvetlen üzenet — csak te és " + channel;
+    header.innerHTML = "👤 " + channel;
+    info.innerHTML = "Közvetlen üzenet — csak te és " + channel;
     // Set recipient to this agent — use .value (more reliable than selectedIndex)
     var selEl = document.getElementById("recipientSelect");
     if (selEl) selEl.value = channel;
-    // Fallback: if .value didn't stick (option not found), add it dynamically
-    // (user: channel-eknek alapból nincs option-ja a selectben)
+    // Fallback: if .value didn't stick (option not found), find by text
     if (selEl && selEl.value !== channel) {
-      var found = false;
       var opts = selEl.options;
       for (var i = 0; i < opts.length; i++) {
-        if (opts[i].value === channel) { selEl.selectedIndex = i; found = true; break; }
-      }
-      if (!found) {
-        var uopt = document.createElement("option");
-        uopt.value = channel;
-        uopt.textContent = "👤 " + (isUserDM ? (knownChatUsers[channel.substring(5)] || channel.substring(5)) + " (user)" : channel);
-        selEl.appendChild(uopt);
-        selEl.value = channel;
+        if (opts[i].value === channel) { selEl.selectedIndex = i; break; }
       }
     }
     // Show DM agent indicator with status
-    // v0.48.8: user-csatorna státusza a contacts online-flagjéből (self-DM mindig online)
-    var uOnlineDM = _userChannelOnline(channel);
-    var status = (uOnlineDM === null) ? (knownAgents[channel] || "offline") : (uOnlineDM ? "online" : "offline");
+    var status = knownAgents[channel] || "offline";
     var dot = (status === "online") ? "🟢" : (status === "available" || status === "connected") ? "🟡" : "🔴";
     var ind = document.getElementById("dmAgentIndicator");
     var indDot = document.getElementById("dmAgentDot");
     var indName = document.getElementById("dmAgentName");
     if (ind && indDot && indName) {
-      // v0.48.8: indikátor címkéje user-DM-nél a display-név, ne a nyers user:xyz
-      var indLabel = channel;
-      if (String(channel).indexOf("user:") === 0) {
-        var _iu = channel.substring(5);
-        var _ime = localStorage.getItem("a2a_username") || "";
-        indLabel = (knownChatUsers[_iu] || _iu) + (_iu === _ime ? " (te)" : "");
-      }
       indDot.textContent = dot;
-      indName.textContent = indLabel + (status === "online" ? " (aktív)" : status === "available" || status === "connected" ? " (elérhető)" : " (offline)");
+      indName.textContent = channel + (status === "online" ? " (aktív)" : status === "available" || status === "connected" ? " (elérhető)" : " (offline)");
       ind.style.display = "flex";
     }
   }
@@ -556,18 +511,15 @@ function addMessage(msg, scroll) {
 }
 
 var knownAgents = {};  // agent name -> status info for DM channel status dots
-var knownChatUsers = {};  // username -> display_name (bejelentkezett dashboard userek)
-var knownChatUserOnline = {};  // username -> online flag (contacts-pollból, v0.48.8)
 
-function addDMChannel(agentName, status, isMcpEndDevice) {
-  // Track agent status + MCP end-device flag
+function addDMChannel(agentName, status) {
+  // Track agent status
   if (status) knownAgents[agentName] = status;
-  if (isMcpEndDevice) knownAgents[agentName + ":mcp"] = true;
   var list = document.getElementById("dmList");
   if (!list) return;
   var existing = document.getElementById("ch-" + agentName);
   var statusInfo = knownAgents[agentName] || "offline";
-  var statusIcon = (statusInfo === "online") ? (isMcpEndDevice ? "🔌" : "🟢") : (statusInfo === "available" || statusInfo === "connected") ? "🟡" : "🔴";
+  var statusIcon = (statusInfo === "online") ? "🟢" : (statusInfo === "available" || statusInfo === "connected") ? "🟡" : "🔴";
   if (existing) {
     // Update status dot in existing channel item
     var iconSpan = existing.querySelector(".dm-status-dot");
@@ -587,68 +539,8 @@ function addDMChannel(agentName, status, isMcpEndDevice) {
   div.className = "channel-item";
   div.id = "ch-" + agentName;
   div.onclick = function() { switchChannel(agentName); };
-  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">' + (isMcpEndDevice ? '🔌' : '👤') + '</span> ' + escapeHtml(agentName) + (isMcpEndDevice ? ' <span style="font-size:10px;color:#bc8cff;">MCP</span>' : '');
+  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">👤</span> ' + escapeHtml(agentName);
   list.appendChild(div);
-}
-
-// ── Bejelentkezett userek a DM-listában (v0.48.8) ─────────────────────
-// A /api/chat/contacts user: prefixszel adja a usereket — ezek külön
-// szekcióba („Userek”) kerülnek, kattintásra user↔user DM nyílik.
-function addChatUserChannel(username, displayName, isSelf, online) {
-  knownChatUsers[username] = displayName || username;
-  var list = document.getElementById("dmList");
-  if (!list) return;
-  // v0.48.8: saját user is látszik "(te)" jelöléssel; online=zöld, offline=piros
-  var me = localStorage.getItem("a2a_username") || localStorage.getItem("mesh_username") || "";
-  var isSelfUser = (username === me) || !!isSelf;
-  var chName = "user:" + username;
-  var existing = document.getElementById("ch-" + chName);
-  var statusIcon = online ? "🟢" : "🔴";
-  if (existing) {
-    // Már bent — csak státuszfrissítés
-    var oldDot = existing.querySelector(".dm-status-dot");
-    if (oldDot) oldDot.textContent = statusIcon;
-    return;
-  }
-  // „Userek” szekció konténer (lazy create)
-  var sec = document.getElementById("dmUserSection");
-  if (!sec) {
-    var wrap = document.createElement("div");
-    wrap.className = "channel-section";
-    wrap.innerHTML = '<div class="channel-section-title" style="font-size:10px;color:var(--text3);opacity:.8;">👤 Userek</div>';
-    sec = document.createElement("div");
-    sec.id = "dmUserSection";
-    sec.style.padding = "0";
-    wrap.appendChild(sec);
-    // Beszúrás a DM-lista után (a „Közvetlen üzenetek” blokk végére)
-    list.parentNode.insertBefore(wrap, list.nextSibling);
-  }
-  var div = document.createElement("div");
-  div.className = "channel-item";
-  div.id = "ch-" + chName;
-  div.onclick = function() { switchChannel(chName); };
-  div.innerHTML = '<span class="dm-status-dot">' + statusIcon + '</span> <span class="icon">👤</span> ' + escapeHtml(displayName || username) + (isSelfUser ? ' <span style="font-size:9px;color:var(--text3);font-weight:400;">(te)</span>' : ' <span style="font-size:9px;color:var(--text3);font-weight:400;">(user)</span>');
-  sec.appendChild(div);
-}
-
-// Bejelentkezett userek betöltése a /api/chat/contacts végpontról
-function loadChatUserContacts() {
-  var token = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
-  if (!token) return;
-  fetch("/api/chat/contacts", {headers: {"Authorization": "Bearer " + token}})
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      (data.contacts || []).forEach(function(c) {
-        if (c.is_user && c.agent && c.agent.indexOf("user:") === 0) {
-          var uname = c.agent.substring(5);
-          // v0.48.8: online-flag cache-elése (tab + indikátor rendereléshez)
-          knownChatUserOnline[uname] = !!c.online;
-          addChatUserChannel(uname, c.display_name || uname, c.is_self, c.online);
-        }
-      });
-      // Státusz-változás után a tab-ok újrarajzolása (zöld/piros pötty frissül)
-      if (typeof renderOpenChatsBar === "function") renderOpenChatsBar();
-    }).catch(function() {});
 }
 
 function sendMessage() {
@@ -897,192 +789,36 @@ window.toggleSidebarSection = function(key) {
 // Format: cmd = command, args = argument format shown in palette AND inserted as
 // a selected placeholder after the command (Telegram BotFather pattern).
 window.CHAT_COMMANDS = [
-  { cmd: '/help',     args: '',                desc: 'Elérhető parancsok listája' },
-  { cmd: '/status',   args: '',                desc: 'Mesh és agent állapot riport' },
-  { cmd: '/debate',   args: '<téma>',          desc: 'Vita indítása minden agent részvételével' },
-  { cmd: '/ideas',    args: '<téma>',          desc: 'Ötletgyűjtés — agent-javaslatok [ÖTLET] jelölve → Ötletláda' },
-  { cmd: '/all',      args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
-  { cmd: '/ask',      args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek' },
-  { cmd: '/vote',     args: '[idea_id]',       desc: 'Agent-szavazás az ötletláda nyitott ötleteire' },
-  { cmd: '/delegate', args: '<agent|any|auto> <tárgy> [--prio N] [--type T] [--timeout M] [--desc L] [--fanout N] [--dist] [--eligible a,b] [--depends ID]', desc: 'Feladat delegálása — auto: legkevésbé terhelt node' },
-  { cmd: '/tasks',    args: '[nyitott|completed|failed|all] [agent]', desc: 'Delegált taskok listája státusz szerint' },
-  { cmd: '/task',     args: '<task_id>',       desc: 'Task részletei: státusz, eredmény, időpontok' },
-  { cmd: '/reassign', args: '<task_id> <agent>', desc: 'Meglévő task átirányítása másik agentnek' },
-  { cmd: '/cancel',   args: '<task_id>',       desc: 'Delegált task érvénytelenítése' },
-  { cmd: '/clear',    args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
+  { cmd: '/help',    args: '',                desc: 'Elérhető parancsok listája' },
+  { cmd: '/status',  args: '',                desc: 'Mesh és agent állapot riport' },
+  { cmd: '/debate',  args: '<téma>',          desc: 'Vita indítása minden agent részvételével' },
+  { cmd: '/ideas',   args: '<téma>',          desc: 'Ötletgyűjtés — agent-javaslatok [ÖTLET] jelölve → Ötletláda' },
+  { cmd: '/all',     args: '<kérdés>',        desc: 'Közös elemzés — minden agent ugyanarra válaszol' },
+  { cmd: '/ask',     args: '<agent> <kérdés>', desc: 'Célzott kérés egy agentnek (nova/morzsa/runa/tor)' },
+  { cmd: '/clear',   args: '',                desc: 'Chat üzenetek törlése ebben a szobában' }
 ];
-
-// ── v0.46.12: Argumentum-tudatos többszintű autocomplete ──
-// Minden /parancs szintaxisa szerint a kurzor pozíciójában felajánlja a
-// következő értékes részt: agent-nevek, task_id-k, státusz-szűrők, opciók.
-window._ensureMeshAgents = function() {
-  if (window._meshAgents) return Promise.resolve(window._meshAgents);
-  return fetch('/api/status').then(function(r) { return r.json(); }).then(function(d) {
-    try {
-      var _pd = (d.peer_discovery && d.peer_discovery.peers) || {};
-      var _names = Object.keys(_pd).map(function(k) { return k.toLowerCase(); });
-      if (d.node_name) _names.push(String(d.node_name).toLowerCase());
-      window._meshAgents = _names.filter(function(a, i, arr) { return a && arr.indexOf(a) === i; });
-    } catch (e) { window._meshAgents = []; }
-    return window._meshAgents;
-  }).catch(function() { window._meshAgents = []; return window._meshAgents; });
-};
-
-window._ensureRecentTasks = function() {
-  if (window._recentTasks && (Date.now() - (window._recentTasksAt || 0)) < 15000) {
-    return Promise.resolve(window._recentTasks);
-  }
-  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-  return fetch('/api/delegations?limit=25', { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      window._recentTasks = (d.delegations || []).map(function(t) {
-        return { id: String(t.task_id || ''), subject: String(t.subject || ''), status: String(t.status || '') };
-      });
-      window._recentTasksAt = Date.now();
-      return window._recentTasks;
-    }).catch(function() { window._recentTasks = []; return window._recentTasks; });
-};
-
-// Agent-paletta sorok generálása (agent + 'any' ahol értelmes)
-window._agentPaletteRows = function(prefix, includeAny, cmdPrefix) {
-  return window._ensureMeshAgents().then(function(agents) {
-    var names = includeAny ? agents.concat(['any']) : agents;
-    return names.filter(function(a) { return a.startsWith(prefix.toLowerCase()); }).map(function(a) {
-      return { cmd: (cmdPrefix || '') + a, desc: a === 'any' ? 'Bármely szabad agent claimelheti' : 'Mesh agent', _plain: true };
-    });
-  });
-};
-
-// Task-paletta sorok generálása (id + rövid tárgy)
-window._taskPaletteRows = function(prefix, cmdPrefix) {
-  return window._ensureRecentTasks().then(function(tasks) {
-    return tasks.filter(function(t) { return t.id.toLowerCase().startsWith(prefix.toLowerCase()); }).map(function(t) {
-      return { cmd: (cmdPrefix || '') + t.id, desc: '📋 ' + t.subject.slice(0, 44) + ' — ' + t.status, _plain: true };
-    });
-  });
-};
-
-// Ötletláda-paletta sorok (nyitott ötletek /vote-hez)
-window._ideaPaletteRows = function(prefix, cmdPrefix) {
-  var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
-  return fetch('/api/ideas?status=open&limit=15', { headers: { 'Authorization': 'Bearer ' + token } })
-    .then(function(r) { return r.json(); }).then(function(d) {
-      return (d.ideas || []).filter(function(i) { return String(i.id).startsWith(prefix); }).map(function(i) {
-        return { cmd: (cmdPrefix || '') + i.id, desc: '💡 ' + String(i.title || '').slice(0, 50), _plain: true };
-      });
-    }).catch(function() { return []; });
-};
 
 window.showCommandPalette = function(inputEl) {
   if (!inputEl) return;
   var val = inputEl.value;
   if (!val.startsWith('/')) { window.hideCommandPalette(); return; }
+  var matches = window.CHAT_COMMANDS.filter(function(c) { return c.cmd.startsWith(val); });
+  if (!matches.length || (val.indexOf(' ') >= 0 && !val.startsWith('/ask '))) { window.hideCommandPalette(); return; }
 
-  var firstSpace = val.indexOf(' ');
-  var cmdWord = firstSpace === -1 ? val : val.slice(0, firstSpace);
-
-  // ── 1. szint: parancs-nevek ──
-  if (firstSpace === -1) {
-    var matches = window.CHAT_COMMANDS.filter(function(c) { return c.cmd.startsWith(val); });
-    if (matches.length) { window._renderPalette(inputEl, matches, val); }
-    else { window.hideCommandPalette(); }
-    return;
-  }
-
-  // ── 2. szint: argumentum-tudatos kiegészítés ──
-  var argStr = val.slice(firstSpace + 1);
-  var argTokens = argStr.split(' ');
-  var lastTok = argTokens[argTokens.length - 1] || '';
-  var typedWords = argTokens.slice(0, -1).filter(Boolean);
-  var afterCmd = val.slice(0, val.length - lastTok.length); // "/delegate " vagy "/reassign 6430 "
-
-  // --- /ask <agent> — első argumentum agent-név ---
-  if (cmdWord === '/ask' && typedWords.length === 0) {
-    window._agentPaletteRows(lastTok, false, afterCmd).then(function(rows) {
-      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
-    });
-    return;
-  }
-
-  // --- /delegate <agent|any|auto> — első argumentum agent, 'any' vagy 'auto' (load-balancing) ---
-  if (cmdWord === '/delegate' && typedWords.length === 0) {
-    window._agentPaletteRows(lastTok, true, afterCmd).then(function(rows) {
-      var extra = [];
-      if (!lastTok || 'auto'.startsWith(lastTok.toLowerCase()))
-        extra.push({ cmd: afterCmd + 'auto', desc: '⚖️ Automatikus node-választás (legkevésbé terhelt)', _plain: true });
-      if (!lastTok || 'any'.startsWith(lastTok.toLowerCase()))
-        extra.push({ cmd: afterCmd + 'any', desc: '🟢 Bárki claimelheti (available)', _plain: true });
-      var all = extra.concat(rows);
-      if (all.length) { window._renderPalette(inputEl, all, val); } else { window.hideCommandPalette(); }
-    });
-    return;
-  }
-
-  // --- /delegate ... --opciók — bármely pozícióban opcionális kapcsolók ---
-  if (cmdWord === '/delegate' && lastTok.startsWith('--')) {
-    var optDefs = [
-      { cmd: '--prio 5', desc: 'Prioritás 1-9 (default 5)' },
-      { cmd: '--type generic', desc: 'Típus: generic/monitoring/code/research/analysis' },
-      { cmd: '--timeout 30', desc: 'Timeout percben (default 30)' },
-      { cmd: '--desc leírás', desc: 'Részletes leírás idézőjelben' },
-      { cmd: '--fanout 2', desc: 'N azonos task versenyben — első készít nyer' },
-      { cmd: '--dist', desc: 'Distribute: minden child másik agentnek' },
-      { cmd: '--eligible nova,runa', desc: 'Csak ezek claimelhetik (available-nál)' },
-      { cmd: '--depends task_id', desc: 'Előző task befejezése után indul' }
-    ];
-    var optRows = optDefs.filter(function(o) { return o.cmd.startsWith(lastTok); })
-      .map(function(o) { return { cmd: afterCmd + o.cmd, desc: o.desc, _plain: true }; });
-    if (optRows.length) { window._renderPalette(inputEl, optRows, val); } else { window.hideCommandPalette(); }
-    return;
-  }
-
-  // --- /reassign <task_id> <agent> — 1. arg task, 2. arg agent ---
-  if (cmdWord === '/reassign') {
-    if (typedWords.length === 0) {
-      window._taskPaletteRows(lastTok, afterCmd).then(function(rows) {
-        if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
-      });
-      return;
+  // ── /ask agent-name second-level autocomplete ──
+  if (val.startsWith('/ask ') && val.indexOf(' ') >= 0) {
+    var askArg = val.slice(5).split(' ')[0].toLowerCase();
+    var agents = ['nova', 'morzsa', 'runa', 'tor'].filter(function(a) { return a.startsWith(askArg); });
+    if (agents.length) {
+      window._renderPalette(inputEl, agents.map(function(a) {
+        return { cmd: '/ask ' + a, args: '<kérdés>', desc: 'Kérdés a(z) ' + a + ' agentnek', _plain: true };
+      }), val);
+    } else {
+      window.hideCommandPalette();
     }
-    if (typedWords.length === 1) {
-      window._agentPaletteRows(lastTok, false, afterCmd).then(function(rows) {
-        if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
-      });
-      return;
-    }
-  }
-
-  // --- /task <task_id> és /cancel <task_id> — task_id autocomplete ---
-  if ((cmdWord === '/task' || cmdWord === '/cancel') && typedWords.length === 0) {
-    window._taskPaletteRows(lastTok, afterCmd).then(function(rows) {
-      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
-    });
     return;
   }
-
-  // --- /tasks [státusz] — szűrő-kulcsszavak ---
-  if (cmdWord === '/tasks' && typedWords.length === 0) {
-    var taskFilters = [
-      { cmd: 'nyitott', desc: 'Pending + available + accepted + running' },
-      { cmd: 'completed', desc: 'Befejezett taskok' },
-      { cmd: 'failed', desc: 'Sikertelen taskok' },
-      { cmd: 'all', desc: 'Összes (default)' }
-    ];
-    var filterRows = taskFilters.filter(function(f) { return f.cmd.startsWith(lastTok); })
-      .map(function(f) { return { cmd: afterCmd + f.cmd, desc: f.desc, _plain: true }; });
-    if (filterRows.length) { window._renderPalette(inputEl, filterRows, val); } else { window.hideCommandPalette(); }
-    return;
-  }
-
-  // --- /vote [idea_id] — ötletláda ötletek (ha van /api/ideas) ---
-  if (cmdWord === '/vote' && typedWords.length === 0) {
-    window._ideaPaletteRows(lastTok, afterCmd).then(function(rows) {
-      if (rows.length) { window._renderPalette(inputEl, rows, val); } else { window.hideCommandPalette(); }
-    });
-    return;
-  }
-
-  window.hideCommandPalette();
+  window._renderPalette(inputEl, matches, val);
 };
 
 window._renderPalette = function(inputEl, matches, currentVal) {
@@ -1366,14 +1102,12 @@ function submitAuth() {
         loadStatus();
         loadMessages();
         loadAgents();
-        loadChatUserContacts();   // v0.48.8: bejelentkezett userek a DM-listába
         checkAdminPanel();
         // Auto-refresh messages every 10 seconds (Telegram-style live updates)
         if (window._msgRefreshInterval) clearInterval(window._msgRefreshInterval);
         window._msgRefreshInterval = setInterval(function() {
           loadMessages();
           loadAgents();
-          loadChatUserContacts();  // userek 3s-enként frissülnek (új belépés)
         }, 3000);
       }
     }).catch(function() { errEl.textContent = "Hálózati hiba"; });
@@ -1426,19 +1160,6 @@ function initWebSocket() {
       case "new_message":
         // A real message from an agent replaces their typing bubble (Telegram pattern)
         try { if (data.message && data.message.sender) window.hideTypingIndicator(data.message.sender); } catch(e) {}
-        // v0.48.8: user↔user DM (recipient user: prefix) NEM kerül a közösbe —
-        // az addMessage() DM-routingja a saját DM csatornába teszi.
-        var _wsMsg = data.message || {};
-        var _wsRcp = String(_wsMsg.recipient || "");
-        if (_wsRcp.indexOf("user:") === 0) {
-          addMessage(_wsMsg);   // DM routing — csak a saját DM nézetben jelenik meg
-          incrementMsgCount();
-          var _ch0 = currentChannel || "general";
-          if (_ch0 !== "general" && typeof window._loadChatMessages === "function") {
-            window._loadChatMessages(_ch0, true);
-          }
-          break;
-        }
         // Force-add to general channel for unified view
         if (!channelMessages["general"]) channelMessages["general"] = [];
         channelMessages["general"].push(data.message);
@@ -1477,6 +1198,9 @@ function initWebSocket() {
         var el = document.getElementById("msg-" + data.message_id);
         if (el) el.remove();
         messageHistory = messageHistory.filter(function(m) { return m.id !== data.message_id; });
+        break;
+      case "session_update":
+        updateSessionUI(data.sessions || []);
         break;
       case "error": log("Hiba: " + data.message); break;
     }
@@ -1537,10 +1261,7 @@ function loadMessages() {
         var mType = m.msg_type || m.type || "";
         if (mType === "ack" || mType === "heartbeat" || mType === "skills_announcement" || mType === "diagnostic_report") return;
         // Skip DM messages (recipient is a specific agent, not broadcast)
-        // v0.48.8: user: prefixszel kezdődő recipient (user↔user DM) SEM jelenik
-        // meg a közösben — az a saját DM nézetbe tartozik (self-DM: user:<sajátnév>)
         if (m.recipient && m.recipient !== "broadcast" && m.recipient !== username && mType !== "agent_reply") return;
-        if (m.recipient && String(m.recipient).indexOf("user:") === 0) return;
         // Skip agent_reply DMs (sender is a specific agent, recipient is username — not broadcast)
         if (mType === "agent_reply" && m.recipient && m.recipient !== "broadcast") return;
       } else {
@@ -1587,32 +1308,11 @@ function loadAgents() {
       // Include self node (nova) so user can DM their own agent
       var opt = document.createElement("option");
       opt.value = a.name;
-      var label = a.name === nodeId ? "👤 " + a.name + " (saját)" : (a.is_mcp_end_device ? "🔌 " + a.name + " (MCP agent)" : "👤 " + a.name + " (" + a.role + ")");
+      var label = a.name === nodeId ? "👤 " + a.name + " (saját)" : "👤 " + a.name + " (" + a.role + ")";
       opt.textContent = label;
       sel.appendChild(opt);
-      // Also add DM channel with status (MCP end-device: own icon, still DM-able)
-      addDMChannel(a.name, a.status, a.is_mcp_end_device);
-    });
-    // v0.48.8: user-opciók is részei a selectnek — a 3s poll rebuild után is
-    // megmaradnak (különben a user:-címzés kiesik és „Mindenkinek" marad aktív).
-    // Az aktív user-opció (currentVal) előre kerül, a többi betöltés után.
-    var userOpts = Object.keys(knownChatUsers).map(function(uname) {
-      return "user:" + uname;
-    });
-    if (currentVal && String(currentVal).indexOf("user:") === 0) userOpts.unshift(currentVal);
-    userOpts.forEach(function(uo) {
-      if (String(uo).indexOf("user:") !== 0) return;
-      var uname = uo.substring(5);
-      // dedup — csak ha még nincs ilyen opció
-      var dup = false;
-      for (var oi = 0; oi < sel.options.length; oi++) {
-        if (sel.options[oi].value === uo) { dup = true; break; }
-      }
-      if (dup) return;
-      var uopt = document.createElement("option");
-      uopt.value = uo;
-      uopt.textContent = "👤 " + (knownChatUsers[uname] || uname) + " (user)";
-      sel.appendChild(uopt);
+      // Also add DM channel with status
+      addDMChannel(a.name, a.status);
     });
     // Restore selection
     sel.value = currentVal;
@@ -1620,8 +1320,8 @@ function loadAgents() {
 }
 
 function renderAgents(agents) {
-  // Update DM channels with status indicators (+ MCP end-device flag)
-  agents.forEach(function(a) { addDMChannel(a.name, a.status, a.is_mcp_end_device); });
+  // Update DM channels with status indicators
+  agents.forEach(function(a) { addDMChannel(a.name, a.status); });
   // Also render agent status cards in the agent list area
   var agentList = document.getElementById("agentListCards");
   if (!agentList) {
@@ -1902,17 +1602,11 @@ function formatTimeAgo(ts) {
 }
 
 function checkAdminPanel() {
-  isAdmin = authUser && (authUser.role === "owner" || authUser.role === "admin");
+  isAdmin = authUser && authUser.role === "owner";
   document.getElementById("adminSection").style.display = isAdmin ? "block" : "none";
   if (isAdmin) loadPendingNodes();
-  // Show approvals nav item for admin/owner only
-  var appItem = document.getElementById("navApprovals");
-  if (appItem) {
-    appItem.style.display = (authUser && (authUser.role === "owner" || authUser.role === "admin")) ? "" : "none";
-  }
   loadAllNodes();
   loadQuickLinks();
-  refreshApprovalsBadge();
 }
 
 // ─── Quick Links — dynamic node dashboard links ──────────
@@ -2320,19 +2014,10 @@ if (savedToken) {
     .then(function(r) { return r.json(); }).then(function(d) {
       if (d.user) {
         authToken = savedToken; authUser = d.user;
-        // v0.48.8: restore-ág is frissíti a username-t (self-detektáláshoz a sidebarban)
-        if (d.user.username) { try { localStorage.setItem("a2a_username", d.user.username); } catch(e) {} }
         document.getElementById("authModal").style.display = "none";
         document.getElementById("userBadge").style.display = "flex";
         updateUserBadge();
-        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); loadChatUserContacts(); checkAdminPanel(); renderOpenChatsBar(); window.refreshMentionAgents();
-        // v0.48.8: restore-ág is kap auto-refresh pollt (korábban csak a login-ágban volt)
-        if (window._msgRefreshInterval) clearInterval(window._msgRefreshInterval);
-        window._msgRefreshInterval = setInterval(function() {
-          loadMessages();
-          loadAgents();
-          loadChatUserContacts();
-        }, 3000);
+        initWebSocket(); loadStatus(); loadMessages(); loadAgents(); checkAdminPanel(); renderOpenChatsBar(); window.refreshMentionAgents();
       } else { localStorage.removeItem("a2a_token"); localStorage.removeItem("mesh_token"); showAuth(); }
     }).catch(function() { showAuth(); });
 } else { showAuth(); }
@@ -6074,10 +5759,11 @@ window.generateDiagnosticReport = function() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
     body: JSON.stringify({ report_type: 'on_demand' })
-  }).then(_diagResp).then(function(d) {
-    if (d.error) { alert('Hiba: ' + d.error); }
-    else { alert('Jelentés generálva: ' + (d.report_id || 'ok')); loadMarveenPage('diagnostics'); }
-  })
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Hiba: ' + d.error); }
+      else { alert('Jelentés generálva: ' + (d.report_id || 'ok')); loadMarveenPage('diagnostics'); }
+    })
     .catch(function(e) { alert('Hiba: ' + e.message); });
 };
 
@@ -7575,7 +7261,65 @@ window._loadSecurityExtras = function() {
   });
 };
 
-// Session management
+// Session management — WebSocket-ből frissített (élő online státusz)
+window._onlineSessions = [];
+window.updateSessionUI = function(sessions) {
+  window._onlineSessions = sessions || [];
+  // Frissítsük a Mesh Státusz "Users" számlálóját is
+  var onlineCount = (window._onlineSessions || []).filter(function(s) { return s.online && !s.is_expired; }).length;
+  var uc = document.getElementById("userCount");
+  if (uc) uc.textContent = onlineCount + " online";
+  // Jobb panel: Online Felhasználók kártya
+  var oup = document.getElementById('onlineUsersPanel');
+  if (oup) {
+    var curU = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || '';
+    var onlineList = window._onlineSessions.filter(function(s){return s.online && !s.is_expired;});
+    var oh = '';
+    onlineList.forEach(function(s) {
+      var isSelf2 = (s.username === curU);
+      oh += '<div style="display:flex;align-items:center;gap:6px;padding:3px 0;">' +
+        '<span style="width:7px;height:7px;border-radius:50%;background:var(--success);box-shadow:0 0 4px var(--success);display:inline-block;flex-shrink:0;"></span>' +
+        '<span style="flex:1;color:var(--text);font-weight:' + (isSelf2 ? '600' : '400') + ';">' + esc(s.display_name || s.username) + '</span>' +
+        (isSelf2 ? '<span style="color:var(--primary);font-size:9px;">te</span>' : '') +
+        '</div>';
+    });
+    oup.innerHTML = oh || '<div style="color:var(--text3);">Nincs online felhasználó</div>';
+  }
+  // Security panel session lista (ha nyitva van)
+  var container = document.getElementById('sessionListContainer');
+  if (container) {
+    var currentUsername = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || '';
+    if (!window._onlineSessions.length) {
+      container.innerHTML = '<div style="font-size:11px;color:var(--text3);">Nincs aktív session.</div>';
+    } else {
+      var h = '<div style="font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text2);">\u00F6sszes session (' + window._onlineSessions.length + '):</div>';
+      window._onlineSessions.forEach(function(s) {
+        var isSelf = (s.username === currentUsername);
+        var online = s.online && !s.is_expired;
+        var dot = online ? '<span style="color:var(--success)">●</span> Online' : '<span style="color:var(--danger)">●</span> Offline';
+        var badge = isSelf ? ' <span style="background:var(--primary);color:#fff;padding:1px 5px;border-radius:4px;font-size:9px;">\u00C9n</span>' : '';
+        var created = s.connected_at ? new Date(s.connected_at * 1000).toLocaleString('hu-HU') : '?';
+        h += '<div style="display:flex;align-items:center;gap:6px;padding:6px 8px;background:' + (online ? 'var(--surface2)' : 'transparent') + ';border-radius:6px;margin-bottom:4px;font-size:11px;border:1px solid ' + (isSelf ? 'var(--primary)' : 'var(--border)') + ';opacity:' + (online ? '1' : '0.55') + ';">';
+        h += '<span style="flex:1;"><strong>' + esc(s.username || '?') + badge + '</strong> ' + dot + ' <span style="color:var(--text3);">(bejelentkezve: ' + esc(created) + ')</span></span>';
+        h += '</div>';
+      });
+      container.innerHTML = h;
+    }
+  }
+  // Chat sidebar: online user pontok (ha létezik a container)
+  var su = document.getElementById('sidebarUsers');
+  if (su) {
+    var cur = (authUser ? authUser.username : localStorage.getItem('a2a_username')) || '';
+    var sh = '';
+    window._onlineSessions.filter(function(s){return s.online && !s.is_expired;}).forEach(function(s) {
+      sh += '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;color:var(--text2);">' +
+        '<span style="width:8px;height:8px;border-radius:50%;background:var(--success);display:inline-block;flex-shrink:0;"></span>' +
+        esc(s.display_name || s.username) + (s.username === cur ? ' <span style="color:var(--text3)">(te)</span>' : '') + '</div>';
+    });
+    su.innerHTML = sh || '<div style="font-size:11px;color:var(--text3);">Nincs online user</div>';
+  }
+};
+
 window._loadSessionInfo = function() {
   var token = localStorage.getItem('a2a_token') || localStorage.getItem('mesh_token') || '';
   fetch('/api/auth/session-timeout', { headers: { 'Authorization': 'Bearer ' + token } })
@@ -7859,40 +7603,6 @@ function showDelegations() {
   startDelegationAutoRefresh();
 }
 
-// ── Delegációs modal bezárás — egyetlen kapu (v0.48.8) ──
-// Minden bezárási út (✕ gomb, overlay-katt, ESC) ezen megy át, így a
-// form-állapot resetel, az auto-refresh leáll, nem marad beragadva.
-function closeDelegationsModal() {
-  var m = document.getElementById('delegationsModal');
-  if (m) m.style.display = 'none';
-  var f = document.getElementById('newTaskForm');
-  if (f) f.style.display = 'none';
-  if (_delegationAutoRefresh) { clearInterval(_delegationAutoRefresh); _delegationAutoRefresh = null; }
-}
-
-// Auto-refresh kikapcsolás gombbal (nem csak bezáráskor áll le)
-function toggleDelegationAutoRefresh(btn) {
-  if (_delegationAutoRefresh) {
-    clearInterval(_delegationAutoRefresh);
-    _delegationAutoRefresh = null;
-    if (btn) { btn.textContent = '▶️ Auto'; btn.title = 'Auto-frissítés bekapcsolása'; btn.style.opacity = '0.6'; }
-  } else {
-    startDelegationAutoRefresh();
-    if (btn) { btn.textContent = '⏸️ Auto'; btn.title = 'Auto-frissítés kikapcsolása (5s)'; btn.style.opacity = '1'; }
-  }
-}
-
-// Overlay-kattintás és ESC kezelése a delegációs modalra
-document.addEventListener('keydown', function(e) {
-  if (e.key !== 'Escape') return;
-  var dm = document.getElementById('delegationsModal');
-  var td = document.getElementById('taskDetailModal');
-  var kc = document.getElementById('kanbanCardDetailModal');
-  if (kc) { kc.remove(); return; }          // legmélyebb: kanban-kártya
-  if (td && td.style.display !== 'none') { td.style.display = 'none'; return; }  // task-detail
-  if (dm && dm.style.display !== 'none') { closeDelegationsModal(); return; }    // fő delegációs
-});
-
 var _delegationAutoRefresh = null;
 function startDelegationAutoRefresh() {
   if (_delegationAutoRefresh) clearInterval(_delegationAutoRefresh);
@@ -7974,26 +7684,6 @@ function toggleNewTask() {
     document.getElementById("eligibleAgentsPanel").style.display = "none";
     document.getElementById("delTarget").disabled = false;
   }
-}
-
-// Mégse gomb az új feladat formon — mezők törlése + form elrejtése
-function cancelNewTaskForm() {
-  var f = document.getElementById('newTaskForm');
-  if (!f) return;
-  f.style.display = 'none';
-  ['delSubject', 'delDesc', 'delFanOut', 'delDependsOn'].forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  document.getElementById("delAvailable").checked = false;
-  document.getElementById("delTarget").disabled = false;
-  document.getElementById("eligibleAgentsPanel").style.display = "none";
-  var st = document.getElementById('delCreateStatus');
-  if (st) { st.textContent = ''; }
-  var fi = document.getElementById('delInputFiles');
-  if (fi) fi.value = '';
-  var fl = document.getElementById('delInputFilesList');
-  if (fl) fl.innerHTML = '';
 }
 
 function renderKanbanCard(card, delegation) {
@@ -8208,10 +7898,6 @@ function showTaskDetail(taskId) {
   // Hide delegations modal background so it doesn't block the detail modal
   var delModal = document.getElementById('delegationsModal');
   if (delModal) delModal.style.display = 'none';
-  // Task-detail nézetben a lista auto-refresh felesleges (háttérben pörögne)
-  if (_delegationAutoRefresh) { clearInterval(_delegationAutoRefresh); _delegationAutoRefresh = null; }
-  var arb = document.getElementById('delAutoRefreshBtn');
-  if (arb) { arb.textContent = '▶️ Auto'; arb.style.opacity = '0.6'; }
   document.getElementById('taskDetailModal').style.display = 'flex';
   document.getElementById('taskDetailTitle').textContent = '📋 Betöltés...';
   document.getElementById('taskDetailContent').innerHTML = '<div style="text-align:center;padding:32px;color:var(--text3)">Betöltés...</div>';
@@ -8268,53 +7954,45 @@ function showTaskDetail(taskId) {
         // Fetch files after modal renders
         setTimeout(function() {
           fetch(filesUrl, {headers: {"Authorization": "Bearer " + token}})
-          .then(function(r) { return r.json(); })
-          .then(function(fd) {
-            var box = document.getElementById('taskFiles');
-            if (!box) return;
-            if (!fd.files || fd.files.length === 0) { box.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs eredmény-file</div>'; return; }
-            var h = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok (' + fd.files.length + ')</h4>';
-            fd.files.forEach(function(f) {
-              var icon = String(f.filename).endsWith(".py") ? "🐍" : String(f.filename).endsWith(".html") ? "🌐" : String(f.filename).endsWith(".pptx") ? "📊" : String(f.filename).endsWith(".zip") ? "📦" : String(f.filename).endsWith(".pdf") ? "📕" : "📄";
-              var sizeKB = f.file_size ? Math.round(f.file_size / 1024) + " KB" : "?";
-              var dlUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token) + "&download=1&file_id=" + encodeURIComponent(f.id);
-              h += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);margin-bottom:6px">';
-              h += '<span style="font-size:18px">' + icon + '</span>';
-              h += '<div style="flex:1;min-width:0">';
-              h += '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.filename) + '</div>';
-              h += '<div style="font-size:11px;color:var(--text3)">' + sizeKB + ' · ' + escHtml(f.content_type || "text/plain") + '</div>';
-              if (f.preview) h += '<div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(String(f.preview).substring(0, 120)) + '</div>';
-              h += '</div>';
-              h += '<a href="' + dlUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;white-space:nowrap">⬇️</a>';
-              h += '</div>';
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              var container = document.getElementById("taskFiles");
+              if (!container) return;
+              var files = data.files || [];
+              if (files.length === 0) {
+                container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs csatolt fájl</div>';
+                return;
+              }
+              var baseUrl = "/api/delegations/" + d.task_id + "/files?token=" + encodeURIComponent(token);
+              var html = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok (' + files.length + ')</h4>';
+              html += '<div style="display:flex;flex-direction:column;gap:6px">';
+              files.forEach(function(f) {
+                var icon = f.filename.endsWith(".py") ? "🐍" : f.filename.endsWith(".html") ? "🌐" : f.filename.endsWith(".pptx") ? "📊" : f.filename.endsWith(".zip") ? "📦" : f.filename.endsWith(".pdf") ? "📕" : "📄";
+                var sizeKB = f.file_size ? Math.round(f.file_size / 1024) + " KB" : "?";
+                var dlUrl = baseUrl + "&download=1&file_id=" + encodeURIComponent(f.id);
+                html += '<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--surface2);border-radius:8px;border:1px solid var(--border)">';
+                html += '<span style="font-size:18px">' + icon + '</span>';
+                html += '<div style="flex:1;min-width:0">';
+                html += '<div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.filename) + '</div>';
+                html += '<div style="font-size:11px;color:var(--text3)">' + sizeKB + ' · ' + escHtml(f.content_type || "text/plain") + '</div>';
+                if (f.preview) html += '<div style="font-size:10px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + escHtml(f.preview.substring(0, 120)) + '</div>';
+                html += '</div>';
+                html += '<a href="' + dlUrl + '" target="_blank" class="btn btn-sm" style="background:var(--success);color:#fff;text-decoration:none;white-space:nowrap">⬇️ Letöltés</a>';
+                html += '</div>';
+              });
+              if (files.length > 1) {
+                var zipUrl = baseUrl + "&zip=1";
+                html += '<a href="' + zipUrl + '" target="_blank" class="btn btn-sm" style="background:var(--info);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:4px">📦 Összes letöltése ZIP-ként</a>';
+              }
+              html += '</div>';
+              container.innerHTML = html;
+            })
+            .catch(function(e) {
+              var container = document.getElementById("taskFiles");
+              if (container) container.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📎 Eredmény fájlok</h4><div style="color:var(--danger);font-size:12px">Hiba: ' + escHtml(e.message || String(e)) + '</div>';
             });
-            if (fd.files.length > 1) {
-              h += '<a href="/api/delegations/' + d.task_id + '/files?token=' + encodeURIComponent(token) + '&zip=1" target="_blank" class="btn btn-sm" style="background:var(--info);color:#fff;text-decoration:none;display:inline-flex;align-items:center;gap:4px;margin-top:2px">📦 Összes ZIP-ként</a>';
-            }
-            box.innerHTML = h;
-          }).catch(function() {});
-        }, 200);
+        }, 100);
       }
-
-      // ── Input (munka) fájlok — a delegáló csatolta a taskhoz (v0.48.1) ──
-      var inputFileHtml = "";
-      var inToken = localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "";
-      var inFilesUrl = "/api/delegations/" + d.task_id + "/input-files?token=" + encodeURIComponent(inToken);
-      fileHtml += '<div style="margin-bottom:12px" id="taskInputFiles"><h4 style="margin:0 0 8px 0;font-size:13px">📂 Munka (bemeneti) fájlok</h4><div style="color:var(--text3);font-size:12px">Betöltés...</div></div>';
-      setTimeout(function() {
-        fetch(inFilesUrl, {headers: {"Authorization": "Bearer " + inToken}})
-        .then(function(r) { return r.json(); })
-        .then(function(ifd) {
-          var box = document.getElementById('taskInputFiles');
-          if (!box) return;
-          if (!ifd.files || ifd.files.length === 0) { box.innerHTML = '<h4 style="margin:0 0 8px 0;font-size:13px">📂 Munka (bemeneti) fájlok</h4><div style="color:var(--text3);font-size:12px">Nincs csatolt munka-file</div>'; return; }
-          var h = '<h4 style="margin:0 0 8px 0;font-size:13px">📂 Munka (bemeneti) fájlok (' + ifd.files.length + ')</h4>';
-          ifd.files.forEach(function(f) {
-            h += '<div style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px">📄 <a href="/api/delegations/' + d.task_id + '/input-files?token=' + encodeURIComponent(inToken) + '&download=1&file_id=' + f.file_id + '" style="color:var(--info)">' + escHtml(f.filename) + '</a> <span style="color:var(--text3)">' + Math.round((f.size||0)/1024) + ' KB</span></div>';
-          });
-          box.innerHTML = h;
-        }).catch(function() {});
-      }, 250);
 
       // Meta info
       var metaHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;font-size:12px">';
@@ -8383,20 +8061,8 @@ function showTaskDetail(taskId) {
       document.getElementById('taskDetailContent').innerHTML = metaHtml + descHtml + progressHtml + timelineHtml + resultHtml + fileHtml + actionsHtml;
     })
     .catch(function(e) {
-      // Hiba esetén visszaugrik a delegációs panelre — ne ragadjon be a
-      // taskDetail modal üres tartalommal a delegációs modal rejtve maradva
-      document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ Hiba: ' + escHtml(e.message || String(e)) + '</div>' +
-        '<div style="margin-top:10px"><button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="backToDelegations()">⬅️ Vissza a delegációkhoz</button></div>';
+      document.getElementById('taskDetailContent').innerHTML = '<div style="color:var(--danger)">❌ Hiba: ' + escHtml(e.message || String(e)) + '</div>';
     });
-}
-
-// Task-detail → delegációs panel visszatérés (bezárás + fő modal vissza)
-function backToDelegations() {
-  var td = document.getElementById('taskDetailModal');
-  if (td) td.style.display = 'none';
-  var dm = document.getElementById('delegationsModal');
-  if (dm) dm.style.display = 'flex';
-  startDelegationAutoRefresh();
 }
 
 function claimDelegation(taskId) {
@@ -8500,36 +8166,16 @@ function createDelegation() {
     body.to_agent = target;
   }
 
-  // ── Atomikus create: ha vannak input-fileok, multipart (payload+fileok egy requestben) ──
-  var fileInput = document.getElementById('delInputFiles');
-  var hasFiles = fileInput && fileInput.files && fileInput.files.length > 0;
-  var fetchOpts;
-  if (hasFiles) {
-    var fd = new FormData();
-    fd.append("payload", JSON.stringify(body));
-    for (var fi = 0; fi < fileInput.files.length; fi++) fd.append("files", fileInput.files[fi], fileInput.files[fi].name);
-    fetchOpts = {method: "POST", headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}, body: fd};
-  } else {
-    fetchOpts = {method: "POST", headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")}, body: JSON.stringify(body)};
-  }
-
-  fetch("/api/delegations", fetchOpts)
+  fetch("/api/delegations", {
+    method: "POST",
+    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
+    body: JSON.stringify(body)
+  })
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (data.task_id) {
-      var nUp = data.input_files_uploaded || 0;
-      if (nUp > 0) {
-        statusEl.textContent = "✅ Elküldve + " + nUp + " file csatolva! ID: " + data.task_id.substring(0, 8);
-      } else if (hasFiles) {
-        statusEl.textContent = "✅ Elküldve, de a file-csatolás sikertelen (task: " + data.task_id.substring(0, 8) + ")";
-        statusEl.style.color = "var(--warning)";
-      } else {
-        statusEl.textContent = "✅ Elküldve! ID: " + data.task_id.substring(0, 8);
-      }
-      statusEl.style.color = nUp > 0 ? "var(--success)" : (statusEl.style.color === "var(--warning)" ? "var(--warning)" : "var(--success)");
-      if (fileInput) fileInput.value = "";
-      var listEl = document.getElementById('delInputFilesList');
-      if (listEl) listEl.innerHTML = "";
+      statusEl.textContent = "✅ Elküldve! ID: " + data.task_id.substring(0, 8);
+      statusEl.style.color = "var(--success)";
       document.getElementById('delSubject').value = "";
       document.getElementById('delDesc').value = "";
       loadDelegations();
@@ -8542,43 +8188,6 @@ function createDelegation() {
   .catch(function(e) {
     statusEl.textContent = "❌ Hálózati hiba";
     statusEl.style.color = "var(--danger)";
-  });
-}
-
-// ── Delegációs input-file támogatás (v0.48.1) ─────────────────────────────
-// Preview a file-picker alatt: nev + meret
-function delInputFilePreview() {
-  var input = document.getElementById('delInputFiles');
-  var list = document.getElementById('delInputFilesList');
-  if (!input || !list) return;
-  if (!input.files || input.files.length === 0) { list.innerHTML = ""; return; }
-  var html = "";
-  var total = 0;
-  for (var i = 0; i < input.files.length; i++) {
-    var f = input.files[i];
-    total += f.size;
-    html += "📄 " + f.name + " (" + Math.round(f.size/1024) + " KB)<br>";
-  }
-  if (total > 8*1024*1024) html += "<span style='color:var(--danger)'>⚠️ Összesen >8MB — nagy file esetén használj shared_files-t!</span>";
-  list.innerHTML = html;
-}
-
-// Multipart feltoltes a taskhoz: POST /api/delegations/{task_id}/input-files
-function uploadDelegationInputFiles(taskId, files, statusEl, done) {
-  var fd = new FormData();
-  for (var i = 0; i < files.length; i++) fd.append("files", files[i], files[i].name);
-  fetch("/api/delegations/" + taskId + "/input-files", {
-    method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("a2a_token") || localStorage.getItem("mesh_token") || "")},
-    body: fd
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    var ok = data && data.uploaded > 0;
-    if (done) done(ok, data && data.uploaded ? data.uploaded : 0);
-  })
-  .catch(function(e) {
-    if (done) done(false, 0);
   });
 }
 
@@ -8671,7 +8280,6 @@ function loadSettings() {
       loadPendingAgents();
       loadTransportStatus();
       loadSharedConfig();
-      loadTransportSettings();
     })
     .catch(function(e) { console.error("Settings load error:", e); });
 }
@@ -8764,246 +8372,8 @@ function loadSharedConfig() {
       // Monitoring
       if (cfg["monitoring.dedup_cache_threshold"]) document.getElementById("cfgMonDedupThreshold").value = cfg["monitoring.dedup_cache_threshold"].value;
       if (cfg["monitoring.dedup_cleanup_interval"]) document.getElementById("cfgMonDedupCleanup").value = cfg["monitoring.dedup_cleanup_interval"].value;
-      // Auto-update (v0.48.2)
-      if (cfg["auto_update.enabled"]) document.getElementById("cfgAutoUpdateEnabled").checked = cfg["auto_update.enabled"].value;
-      if (cfg["auto_update.apply_automatically"]) document.getElementById("cfgAutoUpdateApply").checked = cfg["auto_update.apply_automatically"].value;
-      if (cfg["auto_update.check_interval"]) document.getElementById("cfgAutoUpdateInterval").value = cfg["auto_update.check_interval"].value;
     })
     .catch(function(e) { console.error("Shared config load error:", e); });
-}
-
-// ── Auto-update settings mentése (v0.48.2) ──
-function saveAutoUpdateSetting() {
-  var st = document.getElementById("autoUpdateStatus");
-  st.textContent = "💾 Mentés...";
-  var body = {
-    "auto_update.enabled": document.getElementById("cfgAutoUpdateEnabled").checked,
-    "auto_update.apply_automatically": document.getElementById("cfgAutoUpdateApply").checked,
-    "auto_update.check_interval": parseInt(document.getElementById("cfgAutoUpdateInterval").value) || 300
-  };
-  fetch("/api/config/shared", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
-    body: JSON.stringify(body)
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.accepted && Object.keys(d.accepted).length > 0) {
-      st.innerHTML = "✅ Mentve — a Szinkronizálás gombbal alkalmazható a node-okon";
-      st.style.color = "var(--success)";
-    } else {
-      st.innerHTML = "❌ " + JSON.stringify(d.rejected || {});
-      st.style.color = "var(--danger)";
-    }
-  })
-  .catch(function(e) {
-    st.innerHTML = "❌ Hiba: " + e.message;
-    st.style.color = "var(--danger)";
-  });
-}
-
-// ── Auto-discovery (v0.48.3): node-ok felismerése a Settings panelen ──
-function runDiscoveryScan() {
-  var box = document.getElementById("discoveryResults");
-  box.textContent = "🔍 Keresés fut... (PG registry + health-probe)";
-  fetch("/api/config/discovery/scan", {
-    method: "POST",
-    headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
-    body: "{}"
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.error) {
-      box.innerHTML = "<span style='color:var(--danger)'>❌ " + escHtml(d.error) + "</span>";
-      return;
-    }
-    var nodes = d.discovered || [];
-    if (nodes.length === 0) {
-      box.innerHTML = "⚪ Nem találtam node-okat (PG registry üres vagy nincs friss heartbeat)";
-      return;
-    }
-    var h = "Talált node-ok: <b>" + nodes.length + "</b><br>";
-    nodes.forEach(function(n) {
-      var icon = n.status === "online" ? "🟢" : "🟠";
-      h += "<div style='display:flex;align-items:center;gap:6px;margin-top:4px'>" + icon +
-        " <b>" + escHtml(n.name) + "</b>" +
-        " <span style='color:var(--text3)'>" + escHtml(n.reachable_host || n.hosts.join(", ") + ":" + n.p2p_port) + "</span>" +
-        " <button class='btn btn-sm' style='padding:2px 8px;font-size:10px' onclick=\"applyDiscovery('" + escHtml(n.name) + "','" + escHtml(n.reachable_host || (n.hosts[0] || "")) + "'," + n.p2p_port + ")\">→ SSH peer</button>" +
-        "</div>";
-    });
-    box.innerHTML = h;
-  })
-  .catch(function(e) {
-    box.innerHTML = "<span style='color:var(--danger)'>❌ Hiba: " + escHtml(e.message) + "</span>";
-  });
-}
-
-// Talált node behúzása az SSH-tunnel peers közé (a saveTransport ssh_tunnel majd menti)
-function applyDiscovery(name, host, p2pPort) {
-  // Meglévő peers listájának kiegészítése a beállításokban — egyszerűsített:
-  // az SSH-tunnel kártya peers mezőjébe írjuk, Mentés a saveTransport('ssh_tunnel')
-  var peersEl = document.getElementById("tsSshPeers");
-  if (!peersEl) return;
-  var note = document.createElement("div");
-  note.style.cssText = "margin-top:4px;color:var(--info)";
-  note.textContent = "➕ " + name + " → " + host + ":" + p2pPort + " (SSH peer javaslat — mentés: SSH-kártya 💾)";
-  peersEl.appendChild(note);
-}
-
-// ── Transport kézi beállítások (v0.48.3) ──────────────────────────────
-function loadTransportSettings() {
-  fetch("/api/config/transports", {headers: {"Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")}})
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (d.error) return;
-      var T = d.transports || {};
-      // Státusz ikonok
-      function stIcon(s, conn) { return s === "connected" || conn ? "🟢 " + s : (s === "disabled" ? "⚪ " + s : "🟠 " + s); }
-      // MQTT
-      if (T.mqtt) {
-        document.getElementById("tsMqttHost").value = T.mqtt.host || "";
-        document.getElementById("tsMqttPort").value = T.mqtt.port || 8683;
-        document.getElementById("tsMqttEnabled").checked = !!T.mqtt.enabled;
-        document.getElementById("tsMqttStatus").textContent = stIcon(T.mqtt.status);
-      }
-      // P2P
-      if (T.p2p) {
-        document.getElementById("tsP2pHost").value = T.p2p.listen_host || "0.0.0.0";
-        document.getElementById("tsP2pPort").value = T.p2p.listen_port || 8645;
-        document.getElementById("tsP2pAdvertise").value = T.p2p.advertise_host || "";
-        document.getElementById("tsP2pStatus").textContent = stIcon(T.p2p.status, T.p2p.connected_peers > 0) + (T.p2p.connected_peers ? " (" + T.p2p.connected_peers + " peer)" : "");
-      }
-      // PG
-      if (T.pg) {
-        document.getElementById("tsPgHost").value = T.pg.host || "";
-        document.getElementById("tsPgPort").value = T.pg.port || 5432;
-        document.getElementById("tsPgDb").value = T.pg.dbname || "";
-        document.getElementById("tsPgUser").value = T.pg.user || "";
-        document.getElementById("tsPgStatus").textContent = stIcon(T.pg.status);
-      }
-      // SSH tunnel
-      if (T.ssh_tunnel) {
-        document.getElementById("tsSshStatus").textContent = stIcon(T.ssh_tunnel.status, Object.keys(T.ssh_tunnel.peers || {}).length > 0);
-        var ph = "";
-        var peers = T.ssh_tunnel.peers || {};
-        for (var p in peers) {
-          if (peers.hasOwnProperty(p)) {
-            var pc = peers[p];
-            ph += (pc.connected ? "🟢 " : "🔴 ") + escHtml(p) + " → " + escHtml(pc.ssh_host || "?") + ":" + (pc.ssh_port || 22) + " (lokál " + (pc.local_port || "?") + "→" + (pc.remote_port || "?") + ")<br>";
-          }
-        }
-        document.getElementById("tsSshPeers").innerHTML = ph || "Nincs peer kapcsolat";
-      }
-      // HTTP
-      if (T.http) {
-        document.getElementById("tsHttpUrl").value = T.http.url || "";
-        document.getElementById("tsHttpTimeout").value = T.http.timeout || 5;
-        document.getElementById("tsHttpStatus").textContent = stIcon(T.http.status);
-      }
-    })
-    .catch(function(e) { console.error("Transport settings load error:", e); });
-}
-
-function testTransport(kind) {
-  // Determinisztikus elem-ID map (kind → result elem)
-  var RES = {
-    "mqtt": "tsMqttResult",
-    "p2p": "tsP2pResult",
-    "pg": "tsPgResult",
-    "http": "tsHttpResult",
-    "ssh_tunnel": "tsSshPeers"
-  };
-  var resEl = document.getElementById(RES[kind] || "tsMqttResult");
-  resEl.textContent = "🔍 Teszt fut...";
-  resEl.style.color = "var(--text3)";
-  var body = {transport: kind};
-  if (kind === "mqtt") {
-    body.host = document.getElementById("tsMqttHost").value;
-    body.port = parseInt(document.getElementById("tsMqttPort").value);
-  } else if (kind === "p2p") {
-    // Local bind test: a beállított listen_port elérhető-e a node-on
-    body.host = "127.0.0.1";
-    body.port = parseInt(document.getElementById("tsP2pPort").value);
-  } else if (kind === "pg") {
-    body.host = document.getElementById("tsPgHost").value;
-    body.port = parseInt(document.getElementById("tsPgPort").value);
-    body.dbname = document.getElementById("tsPgDb").value;
-    body.user = document.getElementById("tsPgUser").value;
-  } else if (kind === "http") {
-    body.url = document.getElementById("tsHttpUrl").value;
-  } else if (kind === "ssh_tunnel") {
-    // Az első konfigurált peer hostja tesztelve (a peers listából)
-    var firstPeer = document.querySelector("#tsSshPeers b");
-    var sshInfo = (firstPeer ? firstPeer.textContent : "127.0.0.1:2230").split(":");
-    body.host = sshInfo[0] || "127.0.0.1";
-    body.port = parseInt(sshInfo[1] || "2230");
-  }
-  fetch("/api/config/transports/test", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
-    body: JSON.stringify(body)
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    if (d.ok) {
-      resEl.innerHTML = "✅ " + escHtml(d.detail || "Elérhető");
-      resEl.style.color = "var(--success)";
-    } else {
-      resEl.innerHTML = "❌ " + escHtml(d.detail || d.error || "Sikertelen");
-      resEl.style.color = "var(--danger)";
-    }
-  })
-  .catch(function(e) {
-    resEl.innerHTML = "❌ Hiba: " + escHtml(e.message);
-    resEl.style.color = "var(--danger)";
-  });
-}
-
-function saveTransport(kind) {
-  var values = {};
-  if (kind === "mqtt") {
-    values.host = document.getElementById("tsMqttHost").value;
-    values.port = parseInt(document.getElementById("tsMqttPort").value);
-    values.enabled = document.getElementById("tsMqttEnabled").checked;
-  } else if (kind === "p2p") {
-    values.listen_host = document.getElementById("tsP2pHost").value;
-    values.listen_port = parseInt(document.getElementById("tsP2pPort").value);
-    values.advertise_host = document.getElementById("tsP2pAdvertise").value;
-  } else if (kind === "pg") {
-    values.host = document.getElementById("tsPgHost").value;
-    values.port = parseInt(document.getElementById("tsPgPort").value);
-    values.dbname = document.getElementById("tsPgDb").value;
-    values.user = document.getElementById("tsPgUser").value;
-  } else if (kind === "http") {
-    values.url = document.getElementById("tsHttpUrl").value;
-    values.timeout = parseInt(document.getElementById("tsHttpTimeout").value);
-  }
-  fetch("/api/config/transports", {
-    method: "POST",
-    headers: {"Content-Type": "application/json", "Authorization": "Bearer " + (localStorage.getItem("mesh_token") || "")},
-    body: JSON.stringify({transport: kind, values: values})
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(d) {
-    var RES_SAVE = {
-      "mqtt": "tsMqttResult",
-      "p2p": "tsP2pResult",
-      "pg": "tsPgResult",
-      "http": "tsHttpResult",
-      "ssh_tunnel": "tsSshPeers"
-    };
-    var resEl = document.getElementById(RES_SAVE[kind] || "tsMqttResult");
-    if (d.error) {
-      resEl.innerHTML = "❌ " + escHtml(d.error);
-      resEl.style.color = "var(--danger)";
-      return;
-    }
-    var msg = "✅ Mentve" + (d.mqtt_reconnected ? " + MQTT RECONNECT OK 🟢" : (d.restart_needed ? " (node restart szükséges a teljes érvényesítéshez)" : ""));
-    resEl.innerHTML = escHtml(msg) + " <span style='color:var(--text3)'>" + escHtml(d.saved_yaml ? "→ " + d.saved_yaml : "") + "</span>";
-    resEl.style.color = "var(--success)";
-    setTimeout(loadTransportSettings, 1500);
-  })
-  .catch(function(e) { console.error("Transport save error:", e); });
 }
 
 // ── Config Sync ──
@@ -10216,96 +9586,6 @@ function loadAlerts() {
   });
 }
 
-// ─── Approvals — pending user management for admin/owner ──────────
-function showApprovals() {
-  document.getElementById('approvalsModal').style.display = 'flex';
-  loadPendingApprovals();
-}
-
-// Frissíti a Jóváhagyás gomb badge-et a bottom navban
-function refreshApprovalsBadge() {
-  if (!authUser || (authUser.role !== 'owner' && authUser.role !== 'admin')) return;
-  fetch('/api/auth/pending-users', {
-    headers: {'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')}
-  }).then(function(r) { return r.ok ? r.json() : {users: []}; }).then(function(d) {
-    var badge = document.getElementById('pendingApprovalBadge');
-    if (!badge) return;
-    var n = (d.users || []).length;
-    badge.textContent = n;
-    badge.style.display = n > 0 ? 'block' : 'none';
-  }).catch(function() {});
-}
-
-function loadPendingApprovals() {
-  var list = document.getElementById('pendingUsersList');
-  list.innerHTML = '<div style="color:var(--text3);padding:16px 0;text-align:center">Betöltés...</div>';
-  fetch('/api/auth/pending-users', {
-    headers: {'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')}
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    var users = d.users || [];
-    if (!users.length) {
-      list.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--text3)">Nincsenek függőben lévő regisztrációk ✅</div>';
-      document.getElementById('pendingApprovalBadge').style.display = 'none';
-      return;
-    }
-    document.getElementById('pendingApprovalBadge').textContent = users.length;
-    document.getElementById('pendingApprovalBadge').style.display = 'block';
-    list.innerHTML = users.map(function(u) {
-      var created = new Date(u.created_at * 1000).toLocaleString('hu-HU');
-      return '<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-          '<div><strong>' + escHtml(u.display_name || u.username) + '</strong>' +
-          ' <span style="font-size:11px;color:var(--text3)">@' + escHtml(u.username) + '</span></div>' +
-          '<span style="font-size:11px;color:var(--text3)">' + created + '</span>' +
-        '</div>' +
-        '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-          '<select id="role_' + escHtml(u.username) + '" style="padding:4px 8px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-size:12px">' +
-            '<option value="user">👤 Felhasználó</option>' +
-            (authUser.role === 'owner' ? '<option value="admin">🛡️ Admin</option>' : '') +
-            (authUser.role === 'owner' ? '<option value="owner">👑 Tulajdonos</option>' : '') +
-          '</select>' +
-          '<button class="btn btn-sm" style="background:var(--success)" onclick="approvePendingUser(\'' + escHtml(u.username) + '\')">✅ Jóváhagy</button>' +
-          '<button class="btn btn-sm" style="background:var(--danger)" onclick="rejectPendingUser(\'' + escHtml(u.username) + '\')">❌ Elutasít</button>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-  }).catch(function(e) {
-    list.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text3)">Hiba: ' + e.message + '</div>';
-  });
-}
-
-function approvePendingUser(username) {
-  var role = document.getElementById('role_' + username).value;
-  if (!confirm('Biztosan jóváhagyod @' + username + ' mint \'' + role + '\'?')) return;
-  fetch('/api/auth/approve', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')},
-    body: JSON.stringify({username: username, role: role})
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.status === 'approved') {
-      alert('✅ @' + username + ' jóváhagyva mint ' + role + '!');
-      loadPendingApprovals();
-    } else {
-      alert('❌ Hiba: ' + (d.error || 'Ismeretlen'));
-    }
-  }).catch(function() { alert('Hálózati hiba'); });
-}
-
-function rejectPendingUser(username) {
-  if (!confirm('Biztosan elutasítod @' + username + ' regisztrációját? A felhasználó törlésre kerül.')) return;
-  fetch('/api/auth/reject/' + encodeURIComponent(username), {
-    method: 'POST',
-    headers: {'Authorization': 'Bearer ' + (localStorage.getItem('mesh_token') || '')}
-  }).then(function(r) { return r.json(); }).then(function(d) {
-    if (d.status === 'rejected') {
-      alert('✅ @' + username + ' regisztrációja elutasítva!');
-      loadPendingApprovals();
-    } else {
-      alert('❌ Hiba: ' + (d.error || 'Ismeretlen'));
-    }
-  }).catch(function() { alert('Hálózati hiba'); });
-}
-
 function switchAlertTab(tab) {
   var prom = document.getElementById('alertsList');
   var rules = document.getElementById('alertRulesPanel');
@@ -10470,26 +9750,9 @@ function switchDiagTab(tab) {
 
 var _diagToken = null;
 function _diagAuth() {
-  // v0.46.3 fix: a korábbi hardkódott zsolt/mesh2026 login mindig 401-et adott
-  // (a jelszó régóta érvénytelen) → üres lista + "Invalid or expired token".
-  // Most a fő session tokenjét használjuk (ugyanaz, amivel a header-badge is működik).
-  var token = _diagToken || localStorage.getItem('mesh_token') || localStorage.getItem('a2a_token') || (typeof authToken !== 'undefined' ? authToken : '') || '';
-  if (token) return Promise.resolve(token);
-  if (typeof showAuth === 'function') showAuth();
-  return Promise.reject(new Error('Bejelentkezés szükséges'));
-}
-
-// v0.46.3: közös 401-kezelés a diag API hívásokhoz — lejárt token esetén
-// takarít + login modal, nem pedig csöndben üres lista
-function _diagResp(r) {
-  if (r.status === 401) {
-    localStorage.removeItem('mesh_token');
-    localStorage.removeItem('a2a_token');
-    _diagToken = null;
-    if (typeof showAuth === 'function') showAuth();
-    return r.json().then(function(e) { throw new Error(e && e.error ? e.error : 'A munkamenet lejárt — jelentkezz be újra'); });
-  }
-  return r.json();
+  if (_diagToken) return Promise.resolve(_diagToken);
+  return fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:'zsolt',password:'mesh2026'})})
+    .then(function(r){return r.json()}).then(function(d){_diagToken=d.token; return _diagToken;});
 }
 
 // ─── Report list ─────────────────────────────────────────
@@ -10498,7 +9761,7 @@ function loadDiagReports() {
   el.innerHTML = '<div style="text-align:center;padding:20px">⏳ Betöltés...</div>';
   _diagAuth().then(function(token) {
     return fetch('/api/diagnostics/reports', {headers:{'Authorization':'Bearer '+token}});
-  }).then(_diagResp).then(function(data) {
+  }).then(function(r){return r.json()}).then(function(data) {
     _diagReports = data.reports || [];
     if (_diagReports.length === 0) {
       el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">Nincs diagnostic report</div>';
@@ -10622,7 +9885,7 @@ function loadDiagSuggestions(filter) {
   if (filter && filter !== 'all') url += '&status=' + filter;
   _diagAuth().then(function(token) {
     return fetch(url, {headers:{'Authorization':'Bearer '+token}});
-  }).then(_diagResp).then(function(data) {
+  }).then(function(r){return r.json()}).then(function(data) {
     _diagSuggestions = data.suggestions || [];
     if (_diagSuggestions.length === 0) {
       el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text3)">Nincs javaslat</div>';
@@ -10669,11 +9932,6 @@ function loadDiagSuggestions(filter) {
       // Rationale
       if (s.rationale) {
         html += '<div style="font-size:12px;color:var(--text3);font-style:italic;margin-bottom:8px">💭 '+s.rationale+'</div>';
-      }
-      // v0.46.6: solution preview in the LIST + detail link
-      if (s.solution) {
-        var solPrev = s.solution.length > 90 ? s.solution.substring(0, 90) + '…' : s.solution;
-        html += '<div style="font-size:12px;color:var(--text);margin-bottom:8px;padding:8px;background:rgba(59,130,246,.08);border-radius:8px;border:1px solid rgba(59,130,246,.25);line-height:1.5">🛠️ <b>Megoldási terv:</b> '+solPrev+' <a href="#" onclick="showSuggestionDetail('+idx+');return false" style="color:#3b82f6;font-size:11px;font-weight:600">Részletek →</a></div>';
       }
       // Action buttons
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap">';
@@ -10763,20 +10021,12 @@ function showSuggestionDetail(idx) {
     html += '<div style="font-size:13px;color:var(--text);line-height:1.5;font-style:italic">'+s.rationale+'</div>';
     html += '</div>';
   }
-  // v0.46.6: standalone solution card — mindig, ne csak hiba-leírásnál
-  if (s.solution) {
-    html += '<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:8px;padding:12px;margin-bottom:10px">';
-    html += '<div style="font-size:12px;font-weight:600;color:#3b82f6;margin-bottom:6px">🛠️ Megoldási terv</div>';
-    html += '<div style="font-size:13px;color:var(--text);line-height:1.7">'+s.solution.replace(/\n/g,'<br>')+'</div>';
-    html += '</div>';
-  }
   // Error context card (if available in description)
   if (s.description && (s.description.toLowerCase().includes('hiba') || s.description.toLowerCase().includes('error') || s.description.toLowerCase().includes('OOM'))) {
     html += '<div style="background:#1a1a2e;border:1px solid #ef4444;border-radius:8px;padding:12px;margin-bottom:10px">';
     html += '<div style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:6px">⚠️ Észlelt hiba</div>';
     html += '<div style="font-size:13px;color:var(--text);line-height:1.5">'+s.description+'</div>';
-    if (s.suggested_value) html += '<div style="font-size:11px;color:var(--text3);margin-top:6px">💡 Javasolt megoldás: '+s.suggested_value+'</div>';
-    if (s.solution) html += '<div style="font-size:12px;color:var(--text);margin-top:8px;padding:8px;background:rgba(59,130,246,.08);border-radius:8px;border:1px solid rgba(59,130,246,.25);line-height:1.6">🛠️ <b>Megoldási terv:</b><br>'+s.solution.replace(/\n/g,'<br>')+'</div>';
+    html += '<div style="font-size:11px;color:var(--text3);margin-top:6px">💡 Javasolt megoldás: '+(s.suggested_value||s.rationale||'—')+'</div>';
     html += '</div>';
   }
   // Action buttons card
@@ -10812,7 +10062,7 @@ function autoImplementSuggestion(id, idx) {
       headers:{'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
       body:JSON.stringify({})
     });
-  }).then(_diagResp).then(function(data) {
+  }).then(function(r){return r.json()}).then(function(data) {
     if (data.implemented !== undefined) {
       alert('Auto-implement: '+data.implemented+' javaslat megvalósítva');
       loadDiagSuggestions();
@@ -10829,7 +10079,7 @@ function updateSuggestionStatus(id, status, idx) {
       headers:{'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
       body:JSON.stringify({status:status})
     });
-  }).then(_diagResp).then(function(data) {
+  }).then(function(r){return r.json()}).then(function(data) {
     if (data.suggestion_id) {
       loadDiagSuggestions();
     } else {
@@ -10843,7 +10093,7 @@ function generateDiagReport() {
   btn.disabled = true; btn.textContent = '⏳ Generálás...';
   _diagAuth().then(function(token) {
     return fetch('/api/diagnostics/report', {method:'POST', headers:{'Authorization':'Bearer '+token}});
-  }).then(_diagResp).then(function(data) {
+  }).then(function(r){return r.json()}).then(function(data) {
     btn.disabled = false; btn.textContent = '🔄 Új report';
     if (data.report_id) {
       loadDiagReports();
@@ -11038,7 +10288,7 @@ function showKanbanCardDetail(cardId) {
       modal.innerHTML = '<div class="file-modal" style="width:600px;max-width:95vw;max-height:80vh;overflow-y:auto">' +
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<h2 style="margin:0">📋 ' + escHtml(card.title) + '</h2>' +
-        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();backToDelegations()">✕</button>' +
+        '<button style="background:none;border:none;color:var(--text);font-size:24px;cursor:pointer" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();var dm=document.getElementById(\'delegationsModal\');if(dm)dm.style.display=\'flex\';">✕</button>' +
         '</div>' +
         '<div style="margin-bottom:12px;font-size:14px;line-height:1.6">' +
         '<div style="margin-bottom:8px">' + statusBadge + ' <span class="priority-badge priority-' + (card.priority||5) + '">P' + (card.priority||5) + '</span></div>' +
@@ -11050,15 +10300,12 @@ function showKanbanCardDetail(cardId) {
         resultHtml +
         '<div style="display:flex;justify-content:flex-end;gap:8px">' +
         approveBtn +
-        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();backToDelegations()">Bezárás</button>' +
+        '<button class="btn btn-sm" style="background:var(--surface2);color:var(--text)" onclick="document.getElementById(\'kanbanCardDetailModal\').remove();var dm=document.getElementById(\'delegationsModal\');if(dm)dm.style.display=\'flex\';">Bezárás</button>' +
         '</div></div>';
       
       document.body.appendChild(modal);
     })
     .catch(function(e) {
-      // A delegációs modal rejtve maradt — visszaállítjuk, különben beragad
-      var delModal = document.getElementById('delegationsModal');
-      if (delModal) delModal.style.display = 'flex';
       alert('Hiba: ' + e.message);
     });
 }

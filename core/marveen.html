@@ -640,11 +640,18 @@ function api(path) {
   if (token) headers['Authorization'] = 'Bearer ' + token;
   return fetch(path, {headers: headers}).then(function(r) {
     if (r.status === 401) {
-      // v0.46.3 fix: nincs több hardkódott zsolt/mesh2026 relogin (régi, érvénytelen jelszó →
-      // mindig 401, minden panel csöndben üres lett). A szülő dashboard login modalját nyitjuk;
-      // a sikeres login után a friss token itt is elérhető (azonos origin, localStorage).
-      try { if (window.parent && window.parent.showAuth) window.parent.showAuth(); } catch (e) {}
-      return null;
+      return fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: 'zsolt', password: 'mesh2026'})
+      }).then(function(lr) { return lr.json(); }).then(function(ld) {
+        if (ld.token) {
+          localStorage.setItem('mesh_token', ld.token);
+          headers['Authorization'] = 'Bearer ' + ld.token;
+          return fetch(path, {headers: headers}).then(function(r2) { return r2.json(); });
+        }
+        return null;
+      });
     }
     return r.json();
   }).catch(function(e) { return null; });

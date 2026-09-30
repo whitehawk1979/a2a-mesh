@@ -84,7 +84,6 @@ class ConfigSuggestion:
     current_value: str = ""
     suggested_value: str = ""
     rationale: str = ""
-    solution: str = ""  # v0.46.5: konkrét megoldási terv (determinisztikus katalógusból)
     affected_nodes: List[str] = field(default_factory=list)
     status: str = "pending"  # pending, accepted, rejected, implemented
     
@@ -94,112 +93,6 @@ class ConfigSuggestion:
     @classmethod
     def from_dict(cls, d: dict) -> "ConfigSuggestion":
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
-
-
-# ─── Determinisztikus megoldás-katalógus (v0.46.5, 0 LLM) ─────────────
-# Kulcsszó → konkrét megoldási lépések. A generate_suggestion() mindig
-# feltölti a solution mezőt ebből a katalógusból (fallback: általános terv).
-_SOLUTION_CATALOG = {
-    "memory": (
-        "1) Node restart (launchctl/systemctl/dokker — nodeonként) → RSS alaphelyzet. "
-        "2) Ha 24h alatt újra >800MB: memory-profil — a legsúlyosabb komponens kikapcsolása "
-        "(pl. diagnostics sampling csökkentése: diagnostic.interval 600s). "
-        "3) Több node esetén: GC/objektum-szám monitorozás a következő reportban. "
-        "4) Maradandó megoldás: MemoryMax cgroup/launchd limit + automatikus restart keepalive."
-    ),
-    "cpu": (
-        "1) 'top' a nodeon — mely process viszi el a CPU-t (python/ollama/postgres?). "
-        "2) Ha a mesh-node: diagnostics interval duplázása (600s) + performance_samples "
-        "max 30-ra. 3) Ha másik process: cron/LLM-feladat áthelyezése csúcsidőn kívülre. "
-        "4) Maradandó: CPU limit (cgroup/launchd) + load-aware scheduling."
-    ),
-    "disk": (
-        "1) 'df -h' + 'du -sh ~/.hermes/logs/*' a nodeon → a legnagyobb fájl(ok). "
-        "2) Log-rotáció: 7 napnál régi logok törlése (heti cron). "
-        "3) A state.db VACUUM + WAL checkpoint futtatása. "
-        "4) Maradandó: fts_cleanup.py heti cron + disk threshold alert 80%-on."
-    ),
-    "connectivity": (
-        "1) 'tailscale status' a nodeon — mesh-edge állapot ellenőrzés. "
-        "2) P2P reconnect: /api/nodes/<name>/reconnect vagy node restart. "
-        "3) Távoli node: embedded sshd (2230) elérhetőség teszt: ssh -p 2230. "
-        "4) Maradandó: keepalive loop + reconnect backoff finomhangolása."
-    ),
-    "reliability": (
-        "1) A hibás komponens azonosítása a logs/errors.log-ból (utolsó 100 sor). "
-        "2) Root cause: az adott hibakód szerinti javítás. "
-        "3) Ellen-próba: a hibát okozó művelet ismételt futtatása. "
-        "4) Maradandó: hiba-szám deduplikálás + auto-resolve a következő reportban."
-    ),
-    "delegation": (
-        "1) A sikertelen delegációk listája: /api/delegations?status=failed. "
-        "2) Ok: cél-node elérhetetlen / task_id ütközés / timeout. "
-        "3) Retry: a sikertelen taskok reassign-ja. "
-        "4) Maradandó: auto-reassign bekapcsolása + timeout emelése 300s-re."
-    ),
-    "security": (
-        "1) A kérdéses expozíció ellenőrzése: 'ss -tlnp' a nodeon. "
-        "2) Ha szükségtelen: dashboard.bind 127.0.0.1-re állítása a configban. "
-        "3) Tűzfal-szabály ellenőrzése a MikroTik-en (192.168.1.1). "
-        "4) Maradandó: bind-cím audit minden mesh_config_*.yaml-ban."
-    ),
-    "general": (
-        "1) A report adatai alapján az érintett node diagnosztikája. "
-        "2) Konfigurációs eltérés keresése a mesh_config_*.yaml fájlokban. "
-        "3) A javasolt érték beállítása + node restart. "
-        "4) Ellenőrzés a következő diagnosztikai ciklusban (auto-resolve)."
-    ),
-}
-
-# Kategória → katalógus kulcs normalizálás
-_SOLUTION_CATEGORY_MAP = {
-    "memory": "memory",
-    "performance": "cpu",
-    "cpu": "cpu",
-    "disk": "disk",
-    "storage": "disk",
-    "network": "connectivity",
-    "connectivity": "connectivity",
-    "topology": "connectivity",
-    "reliability": "reliability",
-    "errors": "reliability",
-    "delegation": "delegation",
-    "task": "delegation",
-    "security": "security",
-    "general": "general",
-    "diagnostic": "reliability",
-    "version": "reliability",
-    "feature": "general",
-}
-
-def _lookup_solution(category: str, title: str = "", description: str = "") -> str:
-    """Deterministic solution lookup by category, then by keywords in the title."""
-    cat = (category or "").lower().strip()
-    # 1) Direkt kategória-találat
-    if cat in _SOLUTION_CATALOG:
-        return _SOLUTION_CATALOG[cat]
-    # 2) Mapped kategória
-    mapped = _SOLUTION_CATEGORY_MAP.get(cat)
-    if mapped:
-        return _SOLUTION_CATALOG[mapped]
-    # 3) Cím-alapú kulcsszó keresés (accent-érzéketlen)
-    t = _safe_ascii((title + " " + description).lower())
-    for kw, cat_key in [
-        ("memoria", "memory"), ("memory", "memory"), ("rss", "memory"),
-        ("cpu", "cpu"), ("terheles", "cpu"),
-        ("lemez", "disk"), ("disk", "disk"), ("terulet", "disk"),
-        ("peer", "connectivity"), ("kapcsolat", "connectivity"), ("transport", "connectivity"),
-        ("delegacio", "delegation"), ("delegation", "delegation"), ("task", "delegation"),
-        ("hibaszam", "reliability"), ("error", "reliability"), ("timeout", "reliability"),
-        ("verzio", "reliability"), ("version", "reliability"),
-        ("restart", "reliability"), ("uptime", "reliability"),
-    ]:
-        if kw in t:
-            # v0.46.5 fix: cat_key már a katalógus kulcsa — a korábbi
-            # _SOLUTION_CATEGORY_MAP[kw] lookup KeyError-t dobott a
-            # keyword-ökre (pl. 'peer'), és eless az egész PG-load.
-            return _SOLUTION_CATALOG[cat_key]
-    return _SOLUTION_CATALOG["general"]
 
 
 class DiagnosticEngine:
@@ -354,8 +247,6 @@ class DiagnosticEngine:
         """
         own_name = node_name_override or self.node.config.node_name
         now = datetime.now(timezone.utc)
-        # v0.46.5: determinisztikus megoldás-katalógus feltöltése (0 LLM)
-        solution = _lookup_solution(category, title, description)
         suggestion = ConfigSuggestion(
             suggestion_id=f"sugg-{own_name}-{int(now.timestamp())}",
             node=own_name,
@@ -367,7 +258,6 @@ class DiagnosticEngine:
             current_value=current_value,
             suggested_value=suggested_value,
             rationale=rationale,
-            solution=solution,
             affected_nodes=affected_nodes if affected_nodes is not None else [self.node.config.node_name],
         )
         self._suggestions.append(suggestion)
@@ -1598,10 +1488,6 @@ class DiagnosticEngine:
                     current_value=d.get("current_value", ""),
                     suggested_value=d.get("suggested_value", ""),
                     rationale=d.get("rationale", ""),
-                    # v0.46.5: régi soroknál nincs solution a PG-ben → katalógus backfill
-                    solution=d.get("solution", "") or _lookup_solution(
-                        d.get("category", "general"), d.get("title", ""), d.get("description", "")
-                    ),
                     affected_nodes=d.get("affected_nodes", []),
                     status=d.get("status", "pending"),
                 )
@@ -1622,8 +1508,8 @@ class DiagnosticEngine:
             await pg_pool.execute(
                 """INSERT INTO mesh.mesh_suggestions 
                    (suggestion_id, node, category, priority, title, description,
-                    current_value, suggested_value, rationale, solution, affected_nodes, status)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    current_value, suggested_value, rationale, affected_nodes, status)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                    ON CONFLICT (suggestion_id) DO UPDATE SET
                    status = EXCLUDED.status, updated_at = NOW()""",
                 suggestion.suggestion_id, suggestion.node, suggestion.category,
@@ -1632,7 +1518,6 @@ class DiagnosticEngine:
                 _safe_ascii(suggestion.current_value),
                 _safe_ascii(suggestion.suggested_value),
                 _safe_ascii(suggestion.rationale),
-                _safe_ascii(suggestion.solution or ""),
                 affected_nodes, suggestion.status,
             )
             log.debug(f"📋 Persisted suggestion {suggestion.suggestion_id} to PG")
