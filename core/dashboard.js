@@ -10636,9 +10636,9 @@ function loadDiagSuggestions(filter) {
       var prColor = s.priority === 'critical' ? '#ef4444' : s.priority === 'high' ? '#f59e0b' : s.priority === 'medium' ? '#3b82f6' : '#10b981';
       var prIcon = s.priority === 'critical' ? '🔴' : s.priority === 'high' ? '🟠' : s.priority === 'medium' ? '🔵' : '🟢';
       var stLabel = s.status || 'pending';
-      var stColor = stLabel === 'implemented' ? '#10b981' : stLabel === 'accepted' ? '#3b82f6' : stLabel === 'rejected' ? '#ef4444' : '#f59e0b';
-      var stIcon = stLabel === 'implemented' ? '✅' : stLabel === 'accepted' ? '👍' : stLabel === 'rejected' ? '❌' : '⏳';
-      var stText = stLabel === 'implemented' ? 'Megvalósítva' : stLabel === 'accepted' ? 'Elfogadva' : stLabel === 'rejected' ? 'Elutasítva' : 'Függőben';
+      var stColor = stLabel === 'implemented' ? '#10b981' : stLabel === 'accepted' ? '#3b82f6' : stLabel === 'rejected' ? '#ef4444' : stLabel === 'imported_idea' ? '#8b5cf6' : '#f59e0b';
+      var stIcon = stLabel === 'implemented' ? '✅' : stLabel === 'accepted' ? '👍' : stLabel === 'rejected' ? '❌' : stLabel === 'imported_idea' ? '💡' : '⏳';
+      var stText = stLabel === 'implemented' ? 'Megvalósítva' : stLabel === 'accepted' ? 'Elfogadva' : stLabel === 'rejected' ? 'Elutasítva' : stLabel === 'imported_idea' ? 'Ötletládában' : 'Függőben';
       html += '<div style="background:var(--surface2);border-left:4px solid '+prColor+';border-radius:8px;padding:12px 14px">';
       // Title row
       html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
@@ -10683,9 +10683,11 @@ function loadDiagSuggestions(filter) {
       if (stLabel === 'pending') {
         html += '<button class="btn btn-sm" style="background:#3b82f6;color:#fff;font-size:11px;padding:3px 12px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'accepted\','+idx+')">👍 Elfogad</button>';
         html += '<button class="btn btn-sm" style="background:#ef4444;color:#fff;font-size:11px;padding:3px 12px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'rejected\','+idx+')">❌ Elutasít</button>';
+        html += '<button class="btn btn-sm" style="background:#8b5cf6;color:#fff;font-size:11px;padding:3px 12px" title="Ötletládába importálás (megoldási terv = jegyzet)" onclick="importSuggestionToIdea(\''+s.suggestion_id+'\')">💡 Ötletládába</button>';
       } else if (stLabel === 'accepted') {
         html += '<button class="btn btn-sm" style="background:#10b981;color:#fff;font-size:11px;padding:3px 12px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'implemented\','+idx+')">✅ Megvalósítva</button>';
         html += '<button class="btn btn-sm" style="background:#6b7280;color:#fff;font-size:11px;padding:3px 12px" onclick="updateSuggestionStatus(\''+s.suggestion_id+'\',\'rejected\','+idx+')">❌ Elutasít</button>';
+        html += '<button class="btn btn-sm" style="background:#8b5cf6;color:#fff;font-size:11px;padding:3px 12px" title="Ötletládába importálás (megoldási terv = jegyzet)" onclick="importSuggestionToIdea(\''+s.suggestion_id+'\')">💡 Ötletládába</button>';
       } else if (stLabel === 'implemented') {
         html += '<span style="font-size:11px;color:#10b981">✅ Megvalósítva</span>';
       } else if (stLabel === 'rejected') {
@@ -10708,9 +10710,9 @@ function showSuggestionDetail(idx) {
   var prIcon = s.priority === 'critical' ? '🔴' : s.priority === 'high' ? '🟠' : s.priority === 'medium' ? '🔵' : '🟢';
   var prLabel = s.priority === 'critical' ? 'Kritikus' : s.priority === 'high' ? 'Magas' : s.priority === 'medium' ? 'Közepes' : 'Alacsony';
   var stLabel = s.status || 'pending';
-  var stColor = stLabel === 'implemented' ? '#10b981' : stLabel === 'accepted' ? '#3b82f6' : stLabel === 'rejected' ? '#ef4444' : '#f59e0b';
-  var stIcon = stLabel === 'implemented' ? '✅' : stLabel === 'accepted' ? '👍' : stLabel === 'rejected' ? '❌' : '⏳';
-  var stText = stLabel === 'implemented' ? 'Megvalósítva' : stLabel === 'accepted' ? 'Elfogadva' : stLabel === 'rejected' ? 'Elutasítva' : 'Függőben';
+  var stColor = stLabel === 'implemented' ? '#10b981' : stLabel === 'accepted' ? '#3b82f6' : stLabel === 'rejected' ? '#ef4444' : stLabel === 'imported_idea' ? '#8b5cf6' : '#f59e0b';
+  var stIcon = stLabel === 'implemented' ? '✅' : stLabel === 'accepted' ? '👍' : stLabel === 'rejected' ? '❌' : stLabel === 'imported_idea' ? '💡' : '⏳';
+  var stText = stLabel === 'implemented' ? 'Megvalósítva' : stLabel === 'accepted' ? 'Elfogadva' : stLabel === 'rejected' ? 'Elutasítva' : stLabel === 'imported_idea' ? 'Ötletládában' : 'Függőben';
   var catIcons = {memory:'💾',performance:'⚡',network:'🌐',storage:'💿',stability:'🔧',security:'🔒',general:'📋'};
   var catIcon = catIcons[s.category] || '📋';
   var html = '';
@@ -10801,6 +10803,9 @@ function showSuggestionDetail(idx) {
   // Auto-implement button
   if (stLabel === 'pending' || stLabel === 'accepted') {
     html += '<button class="btn btn-sm" style="background:#8b5cf6;color:#fff;font-size:12px;padding:6px 16px" onclick="autoImplementSuggestion(\''+s.suggestion_id+'\','+idx+')">🤖 Auto-megvalósítás</button>';
+    html += '<button class="btn btn-sm" style="background:#f59e0b;color:#fff;font-size:12px;padding:6px 16px" title="Ötletládába importálás — a megoldási terv jegyzetként kerül be" onclick="importSuggestionToIdea(\''+s.suggestion_id+'\')">💡 Ötletládába</button>';
+  } else if (stLabel === 'imported_idea') {
+    html += '<span style="font-size:12px;color:#8b5cf6;font-weight:600">💡 Már az Ötletládában van</span>';
   }
   html += '</div>';
   html += '</div>';
@@ -10834,6 +10839,26 @@ function updateSuggestionStatus(id, status, idx) {
     });
   }).then(_diagResp).then(function(data) {
     if (data.suggestion_id) {
+      loadDiagSuggestions();
+    } else {
+      alert('Hiba: '+(data.error||'Ismeretlen'));
+    }
+  }).catch(function(e) { alert('Hiba: '+e.message); });
+}
+
+// 💡 Diagnosztikai javaslat → Ötletláda import (v0.48.17)
+// A megoldási terv jegyzet-kommentként kerül be az ötlet mellé.
+function importSuggestionToIdea(id) {
+  _diagAuth().then(function(token) {
+    return fetch('/api/ideas/from-suggestion', {
+      method:'POST',
+      headers:{'Authorization':'Bearer '+token, 'Content-Type':'application/json'},
+      body:JSON.stringify({suggestion_id:id})
+    });
+  }).then(_diagResp).then(function(data) {
+    if (data.ok) {
+      alert(data.already_imported ? 'ℹ️ Ez a javaslat már szerepel az Ötletládában:\n'+data.idea_id
+                                  : '💡 Importálva az Ötletládába:\n'+data.idea_id+'\n(a megoldási terv jegyzetként bekerült)');
       loadDiagSuggestions();
     } else {
       alert('Hiba: '+(data.error||'Ismeretlen'));

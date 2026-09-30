@@ -4637,6 +4637,99 @@ class DashboardAdminMixin:
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    async def _api_idea_from_suggestion(self, request):
+        """POST /api/ideas/from-suggestion — Diagnosztikai javaslat importálása az ötletládába.
+
+        A suggestion teljes kontextusa bekerül: leírás + aktuális/javasolt érték +
+        indoklás, és a MEGOLDÁSI TERV (solution) külön jegyzet-kommentként.
+        Idempotens: a 'suggestion:<id>' tag alapján duplikált import nem jön létre.
+        """
+        from aiohttp import web
+        user, err = self._require_auth(request)
+        if err:
+            return err
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid JSON"}, status=400)
+        sid = (data.get("suggestion_id") or "").strip()
+        if not sid:
+            return web.json_response({"error": "suggestion_id required"}, status=400)
+        pool = self._get_pg_pool()
+        if not pool:
+            return web.json_response({"error": "PG unavailable"}, status=503)
+
+        # 1) Forrás: suggestion a PG-ből (SSOT — nem bízunk meg kliens-adatokban)
+        row = await pool.fetchrow("SELECT * FROM mesh.mesh_suggestions WHERE suggestion_id = $1", sid)
+        if not row:
+            return web.json_response({"error": "Suggestion not found"}, status=404)
+
+        # 2) Dedup: volt-e már import?
+        tag = f"suggestion:{sid}"
+        existing = await pool.fetchrow("SELECT idea_id FROM mesh.mesh_ideas WHERE $1 = ANY(tags)", tag)
+        if existing:
+            return web.json_response({"ok": True, "idea_id": existing["idea_id"], "already_imported": True})
+
+        # 3) Ötlet létrehozása — a teljes kontextus a leírásba
+        s_node = row["node"] or "unknown"
+        parts = [f"_Importálva a diagnosztikából (node: {s_node}, suggestion: {sid})_"]
+        if row["description"]:
+            parts.append(row["description"])
+        if row["current_value"]:
+            parts.append(f"📊 **Aktuális állapot:** {row['current_value']}")
+        if row["suggested_value"]:
+            parts.append(f"🎯 **Javasolt:** {row['suggested_value']}")
+        if row["rationale"]:
+            parts.append(f"🧠 **Indoklás:** {row['rationale']}")
+        description = "\n\n".join(parts)[:4000]
+        # Régi sorok solution-jének backfillje a determinisztikus katalógusból
+        solution = row["solution"] or ""
+        if not solution:
+            try:
+                from .diagnostics import _lookup_solution
+                solution = _lookup_solution(row["category"], row["title"], row["description"])
+            except Exception:
+                pass
+
+        import uuid as _uuid
+        idea_id = "idea_" + _uuid.uuid4().hex[:12]
+        await pool.execute(
+            """INSERT INTO mesh.mesh_ideas
+               (idea_id, title, description, category, priority, source_type, submitted_by, tags)
+               VALUES ($1, $2, $3, $4, $5, 'diagnostic', $6, $7::text[])""",
+            idea_id, row["title"][:300], description,
+            row["category"] or "general", row["priority"] or "medium",
+            f"diagnostics:{s_node}", [tag, "auto-import"],
+        )
+
+        # 4) Megoldási terv → JEGYZET (komment), külön a leírás mellett
+        if solution:
+            try:
+                await pool.execute(
+                    "INSERT INTO mesh.mesh_idea_comments (idea_id, author, comment) VALUES ($1, $2, $3)",
+                    idea_id, "diagnostics-bot", f"🛠️ **Megoldási terv:**\n{solution}"[:4000],
+                )
+            except Exception as e:
+                log.warning(f"Solution-note insert failed for {idea_id}: {e}")
+
+        # 5) Suggestion státusz: imported_idea (in-memory + PG) — ne duplicálódjon a pending queue-ban
+        try:
+            diagnostics = getattr(getattr(self, "node", None), "diagnostics", None)
+            if diagnostics:
+                diagnostics.update_suggestion_status(sid, "imported_idea")
+        except Exception:
+            pass
+        try:
+            await pool.execute(
+                "UPDATE mesh.mesh_suggestions SET status = 'imported_idea', updated_at = NOW() WHERE suggestion_id = $1",
+                sid,
+            )
+        except Exception as e:
+            log.warning(f"Suggestion status update after import failed: {e}")
+
+        log.info(f"💡 Diagnosztikai javaslat importálva ötletládába: {row['title'][:60]} → {idea_id}")
+        return web.json_response({"ok": True, "idea_id": idea_id, "created": True})
+
     async def _api_idea_promote_agent(self, request):
         """POST /api/ideas/{id}/promote-agent — promote an approved idea to a mesh agent + Kanban card.
         When an idea gets enough votes (score >= threshold), promote it:

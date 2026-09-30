@@ -538,6 +538,8 @@ class DashboardHandler(DashboardPublicMixin, DashboardAuthMixin, DashboardDiagno
         # Ideas board (Ötletláda) — submit, vote, status, list
         app.router.add_get("/api/ideas", self._api_ideas_list)
         app.router.add_post("/api/ideas", self._api_ideas_submit)
+        # ── Diagnosztikai javaslat → ötletláda import (v0.48.17) ──
+        app.router.add_post("/api/ideas/from-suggestion", self._api_idea_from_suggestion)
         app.router.add_post("/api/ideas/{id}/vote", self._api_ideas_vote)
         app.router.add_post("/api/ideas/{id}/status", self._api_ideas_status)
         app.router.add_delete("/api/ideas/{id}", self._api_ideas_delete)
