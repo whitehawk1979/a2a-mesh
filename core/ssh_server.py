@@ -223,7 +223,12 @@ LogLevel INFO
             try:
                 if not self._port_open():
                     log.warning(f"[{self._node}] sshd down — self-heal restart")
-                    self.start()
+                    ok = self.start()
+                    if not ok:
+                        # Retry install explicitly — the initial ensure_installed()
+                        # may have run while apt repos were unreachable (HAOS boot).
+                        ok = self.ensure_installed() and self.start()
+                        log.warning(f"[{self._node}] sshd self-heal restart result: {ok}")
             except Exception as e:
                 log.warning(f"[{self._node}] sshd self-heal error: {e}")
             await asyncio.sleep(interval)

@@ -134,6 +134,34 @@ class DashboardAdminMixin:
                     "http": peer.http_available,
                 },
             })
+
+        # ── MCP end devices (external agents on this node's bridge) — DM partners ──
+        # Sidebarban közvetlen üzenet partnerként jelennek meg, nem node-ként.
+        try:
+            from core.mcp_registry import list_clients as _mcp_list
+            parent = self.node.node_name
+            mesh_names = {a.get("name") for a in agents}  # node/agent nevek — duplikátum-szűrés
+            for c in _mcp_list(parent_node=parent):
+                if c.get("name") == parent or c.get("name") in mesh_names:
+                    continue
+                agents.append({
+                    "name": c["name"],
+                    "role": "mcp_end_device",
+                    "status": "online" if c.get("online") else "offline",
+                    "host": "",
+                    "version": "",
+                    "p2p_port": 0,
+                    "health_port": 0,
+                    "last_seen": c.get("last_seen", 0),
+                    "skills": ["mcp"],
+                    "capabilities": ["mcp_bridge"],
+                    "transports": {"mcp": True},
+                    "is_mcp_end_device": True,
+                    "transport_parent": parent,
+                })
+        except Exception as e:
+            log.debug(f"MCP end-device agents append failed (non-blocking): {e}")
+
         return web.json_response({"agents": agents, "total": len(agents)})
 
     # ─── Admin: Node Approval ──────────────────────────────────
@@ -1503,8 +1531,10 @@ class DashboardAdminMixin:
                             "last_seen": getattr(peer, 'last_seen', 0) or existing.get("last_seen", 0),
                             "message_count": existing.get("message_count", 0),
                             "p2p_available": p2p_available,
-                            "http_available": existing.get("http_available", False),
-                            "pg_available": existing.get("pg_available", False),
+                            # Live peer transport flags from PeerInfo (PG discovery keeps them fresh);
+                            # registry 'existing' entry has no such keys — only use it as fallback.
+                            "http_available": bool(getattr(peer, 'http_available', False)) or existing.get("http_available", False),
+                            "pg_available": bool(getattr(peer, 'pg_available', False)) or existing.get("pg_available", False),
                         }
                 if hasattr(pd, '_backoff_until') and pd._backoff_until:
                     backoff_peers = {k: str(v) for k, v in pd._backoff_until.items()}
@@ -1539,6 +1569,37 @@ class DashboardAdminMixin:
                         })
                 except Exception as e:
                     log.warning(f"Topology: SSH tunnel status failed: {e}")
+
+            # ── MQTT transport connections (v0.47.0) ──────────────────────
+            # A node MQTT-kliense a brokerön át látja minden peer retained
+            # status-át (a2a/nodes/{node}/status). Ebből építünk mqtt-éleket:
+            # minden MQTT-online peer ← self kapcsolat (közös broker).
+            try:
+                mqtt_tr = getattr(self.node, '_mqtt_transport', None)
+                if mqtt_tr is not None and getattr(mqtt_tr, '_connected', False):
+                    broker = f"{getattr(mqtt_tr, '_host', '?')}:{getattr(mqtt_tr, '_port', 8683)}"
+                    for peer_name, entry in (getattr(mqtt_tr, 'devices', {}) or {}).items():
+                        if entry.get('kind') != 'nodes':
+                            continue
+                        status = entry.get('status')
+                        # status lehet JSON-szótár vagy sima string ("online")
+                        if isinstance(status, dict):
+                            status = status.get('status', 'online')
+                        online = str(status).lower() in ('online', 'ok', 'true', '1')
+                        if not online:
+                            continue
+                        if peer_name == self.node.node_name:
+                            continue  # self-edge nem kell
+                        connections.append({
+                            "source": self.node.node_name,
+                            "target": peer_name,
+                            "transport": "mqtt",
+                            "status": "connected",
+                            "broker": broker,
+                            "last_seen": entry.get('ts'),
+                        })
+            except Exception as e:
+                log.warning(f"Topology: MQTT status failed: {e}")
 
             # ── Peer-originated SSH tunnels (e.g. tor→peers run on the tor node) ──
             # The dashboard host only knows its OWN tunnels; tunnels other nodes originate
@@ -3091,12 +3152,20 @@ class DashboardAdminMixin:
             return err
         try:
             mesh_dir = os.path.expanduser("~/.hermes/scripts/a2a_mesh")
-            # Step 1: git stash local changes
-            subprocess.run(["git", "stash"], cwd=mesh_dir, capture_output=True, text=True, timeout=10)
-            # Step 2: git pull
-            result = subprocess.run(["git", "pull", "origin", "main"], cwd=mesh_dir, capture_output=True, text=True, timeout=30)
-            pull_ok = result.returncode == 0
-            pull_output = result.stdout + result.stderr
+            # Git pull diff-alapú skip (idea_639b591b0ffe): fetch/checkout CSAK
+            # ha a remote HEAD != local HEAD — a legtöbb deploy enélkül is megy
+            from core.git_pull_skip import pull_needed
+            need_pull, why = pull_needed(mesh_dir, remote="origin", branch="main")
+            if not need_pull:
+                pull_ok = True
+                pull_output = f"[SKIP] {why}"
+            else:
+                # Step 1: git stash local changes (csak tényleges pull előtt kell)
+                subprocess.run(["git", "stash"], cwd=mesh_dir, capture_output=True, text=True, timeout=10)
+                # Step 2: git pull
+                result = subprocess.run(["git", "pull", "origin", "main"], cwd=mesh_dir, capture_output=True, text=True, timeout=30)
+                pull_ok = result.returncode == 0
+                pull_output = (result.stdout + result.stderr)[:500]
             # Step 3: Deploy to peers via existing deploy API
             deploy_result = None
             if pull_ok and self.node and hasattr(self.node, 'delegation'):
@@ -4385,8 +4454,14 @@ class DashboardAdminMixin:
             if not title:
                 return web.json_response({"error": "Title required"}, status=400)
             description = (data.get("description") or "").strip()
-            category = (data.get("category") or "general").strip()
-            priority = (data.get("priority") or "medium").strip()
+            category = (data.get("category") or "general")
+            category = str(category).strip() if not isinstance(category, (int, float)) else "general"
+            priority = (data.get("priority") or "medium")
+            # v0.46.2 fix: UI numerikus prioritást is küldhet (1-9) — str-ként kezeljük és normalizáljuk
+            priority = str(priority).strip()
+            if priority.isdigit():
+                _pn = int(priority)
+                priority = "high" if _pn >= 7 else ("medium" if _pn >= 4 else "low")
             tags = data.get("tags", [])
             if not isinstance(tags, list):
                 tags = []
@@ -4781,17 +4856,33 @@ class DashboardAdminMixin:
                     continue
                 idea_id = "idea_" + _uuid.uuid4().hex[:12]
                 priority_map = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+                # v0.46.5: a javaslat konkrét megoldási terve is bekerül az ötletbe
+                sol = getattr(s, "solution", "") or ""
+                desc = (s.description or "")
+                if sol:
+                    desc += (
+                        "\n\n🛠️ MEGOLDÁSI TERV:\n" + sol
+                        + "\n\nJelenlegi: " + str(s.current_value)
+                        + "\nJavasolt: " + str(s.suggested_value)
+                        + "\nIndoklás: " + str(s.rationale)
+                    )
+                else:
+                    desc += (
+                        "\n\nJelenlegi: " + str(s.current_value)
+                        + "\nJavasolt: " + str(s.suggested_value)
+                        + "\nIndoklás: " + str(s.rationale)
+                    )
                 await pool.execute(
                     "INSERT INTO mesh.mesh_ideas (idea_id, title, description, category, priority, source_type, submitted_by, tags) "
                     "VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[])",
                     idea_id,
                     s.title,
-                    (s.description or "") + "\n\nJelenlegi: " + str(s.current_value) + "\nJavasolt: " + str(s.suggested_value) + "\nIndoklás: " + str(s.rationale),
+                    desc,
                     "diagnostic_" + (s.category or "general"),
                     priority_map.get(s.priority, "medium"),
                     "diagnostic",
                     s.node or "diagnostics",
-                    ["diagnostic", s.category or "general"],
+                    ["diagnostic", s.category or "general", "has_solution"],
                 )
                 imported.append({"idea_id": idea_id, "title": s.title})
             return web.json_response({"ok": True, "imported": len(imported), "ideas": imported})
@@ -4866,6 +4957,17 @@ class DashboardAdminMixin:
         if not pool:
             return web.json_response({"error": "DB not available"}, status=503)
         return await handle_chat_messages(self.node, request, pool, user)
+
+    async def _api_chat_mcp_inbox(self, request):
+        """GET /api/chat/mcp-inbox — MCP end-device DM queue (mcp-bridge only)."""
+        from aiohttp import web
+        from .dashboard_chat import handle_chat_mcp_inbox
+        user, err = self._require_auth(request)
+        if err: return err
+        pool = getattr(self.node, "pg_pool", None) or getattr(self.node, "_pg_pool", None)
+        if not pool:
+            return web.json_response({"error": "DB not available"}, status=503)
+        return await handle_chat_mcp_inbox(self.node, request, pool, user)
 
     async def _api_chat_inbox(self, request):
         """GET /api/chat/inbox — Unread DMs for this user."""
