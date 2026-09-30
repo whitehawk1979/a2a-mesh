@@ -3,13 +3,21 @@
 Called from the heartbeat loop to include provider_status in the heartbeat payload.
 Checks:
 1. Local Ollama (if configured) — GET /api/tags
-2. Mesh-LLM (if configured) — GET /v1/models
-3. Remote Ollama (Morzsa) — GET /api/tags
+2. First fallback provider in the chain — GET /v1/models (or /api/tags for Ollama)
+
+The fallback check is chain-aware (v0.48.17 fix): previously it hardcoded
+mesh-llm as the fallback target. After mesh-llm was decommissioned
+(2026-09-25 teardown, container Exited 137), every node reported
+fallback=fail on every heartbeat → health_scorer applied spurious
+"double provider penalty" (-0.2) and the tor node's score dropped to 0.7
+even though its fallback chain (alibaba qwen3.7-flash) was perfectly fine.
+Now the check targets the FIRST entry in fallback_providers — the one that
+would actually serve the next request after primary fails.
 
 Returns a dict suitable for heartbeat payload inclusion:
     {
-        "primary": {"status": "ok|fail", "model": "glm-5.2:cloud", "latency_ms": 45},
-        "fallback": {"status": "ok|fail", "model": "mesh", "latency_ms": 12},
+        "primary": {"status": "ok|fail", "model": "glm-5.3:cloud", "latency_ms": 45},
+        "fallback": {"status": "ok|fail|unknown", "model": "qwen3.7-flash", "latency_ms": 12},
     }
 """
 
@@ -98,6 +106,22 @@ def _resolve_api_key(config: Dict[str, Any], provider_name: str, base_url: str) 
     return None
 
 
+def _read_env_file_key(key_env: str) -> Optional[str]:
+    """Read a key from ~/.hermes/.env by env var name."""
+    env_path = os.path.expanduser("~/.hermes/.env")
+    if not os.path.exists(env_path):
+        return None
+    try:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(key_env + "="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return None
+
+
 def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
     """Check all LLM providers for this node.
 
@@ -105,6 +129,7 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
     """
     config = _read_hermes_config()
     model_config = config.get("model", {})
+    result_cache: Dict[str, Any] = {}  # carries fb_key between discovery and check
 
     # Determine primary provider URL
     primary_provider = model_config.get("provider", "")
@@ -140,25 +165,49 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
         if not primary_url and primary_provider in _BUILTIN_PROVIDER_URLS:
             primary_url = _BUILTIN_PROVIDER_URLS[primary_provider]
 
-    # Determine fallback provider (mesh-llm)
+    # Determine fallback provider — chain-aware (v0.48.17 fix).
+    # Take the FIRST entry of the effective fallback chain: that is the provider
+    # that would actually serve a request after the primary fails. The old
+    # hardcoded mesh-llm target is dead (decommissioned 2026-09-25) and caused
+    # permanent fallback=fail + spurious health-score penalties on every node.
+    # Resolution order for the URL:
+    #   1. entry's own base_url (fallback_providers entries carry one)
+    #   2. providers[name].api / .base_url
+    #   3. custom_providers[name].base_url / .api
+    #   4. built-in cloud provider canonical URLs
     fallback_url = ""
     fallback_model = ""
-    for fp in model_config.get("fallback_providers", []):
-        if isinstance(fp, dict) and fp.get("provider") == "mesh-llm":
-            fallback_model = fp.get("model", "mesh")
-            # Look in custom_providers list for mesh-llm
+    # Top-level fallback_providers is the current Hermes convention
+    # (model.fallback_providers is kept for backward compatibility).
+    chain = config.get("fallback_providers") or model_config.get("fallback_providers") or []
+    for fp in chain:
+        if not isinstance(fp, dict):
+            continue
+        fp_provider = fp.get("provider", "")
+        fallback_model = fp.get("model", "")
+        fallback_url = fp.get("base_url", "") or fp.get("api", "")
+        if not fallback_url:
+            providers_dict = config.get("providers", {})
+            if fp_provider in providers_dict:
+                p = providers_dict[fp_provider]
+                fallback_url = p.get("api", "") or p.get("base_url", "")
+        if not fallback_url:
             for cp in config.get("custom_providers", []):
-                if cp.get("name", "") == "mesh-llm":
+                if cp.get("name", "") == fp_provider:
                     fallback_url = cp.get("base_url", "") or cp.get("api", "")
                     break
-            # Also check providers dict
-            if not fallback_url and "mesh-llm" in config.get("providers", {}):
-                fallback_url = config["providers"]["mesh-llm"].get("api", "") or config["providers"]["mesh-llm"].get("base_url", "")
+        if not fallback_url and fp_provider in _BUILTIN_PROVIDER_URLS:
+            fallback_url = _BUILTIN_PROVIDER_URLS[fp_provider]
+        if fallback_url:
+            # Resolve the API key through the entry's provider (key_env or literal).
+            fb_key = _resolve_api_key(config, fp_provider, fallback_url)
+            if not fb_key:
+                # fallback_providers entries may carry their own key_env
+                fb_key_env = fp.get("key_env", "")
+                if fb_key_env:
+                    fb_key = os.environ.get(fb_key_env) or _read_env_file_key(fb_key_env)
+            result_cache["fb_key"] = fb_key
             break
-    # If no fallback_providers list, try providers dict directly
-    if not fallback_url and "mesh-llm" in config.get("providers", {}):
-        fallback_url = config["providers"]["mesh-llm"].get("api", "") or config["providers"]["mesh-llm"].get("base_url", "")
-        fallback_model = "mesh"
 
     # Check primary
     primary_status = {"status": "unknown", "model": primary_model, "latency_ms": 0}
@@ -175,16 +224,18 @@ def check_provider_health(node_name: str = "auto") -> Dict[str, Any]:
         ok, latency = _check_http(check_url, headers=headers)
         primary_status = {"status": "ok" if ok else "fail", "model": primary_model, "latency_ms": latency}
 
-    # Check fallback (mesh-llm) — longer timeout: the mesh-llm MoA router can
-    # block /models for several seconds while an inference is in flight;
-    # the old 3.0s default caused frequent false "fail" during MoA load.
+    # Check fallback — the first entry of the actual fallback chain.
     fallback_status = {"status": "unknown", "model": fallback_model, "latency_ms": 0}
     if fallback_url:
-        check_url = fallback_url.rstrip("/") + "/models"
-        headers = None
-        fb_key = _resolve_api_key(config, "mesh-llm", fallback_url)
-        if fb_key:
-            headers = {"Authorization": "Bearer " + fb_key}
+        if ":11434" in fallback_url:
+            check_url = fallback_url.rstrip("/").replace("/v1", "") + "/api/tags"
+            headers = None
+        else:
+            check_url = fallback_url.rstrip("/") + "/models"
+            headers = None
+            fb_key = result_cache.get("fb_key")
+            if fb_key:
+                headers = {"Authorization": "Bearer " + fb_key}
         ok, latency = _check_http(check_url, timeout=8.0, headers=headers)
         fallback_status = {"status": "ok" if ok else "fail", "model": fallback_model, "latency_ms": latency}
 
